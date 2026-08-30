@@ -1,12 +1,12 @@
 const paging = @import("paging");
 const physical = @import("physical");
 const syscalls = @import("syscalls");
+const vfs = @import("vfs");
 const busybox_image = @embedFile("busybox_elf");
 const nettest_image = @embedFile("nettest_elf");
 const hello_image = @embedFile("hello_elf");
 const interpreter_image = @embedFile("interpreter_elf");
 const dynamic_image = @embedFile("dynamic_elf");
-const shared_image = @embedFile("shared_elf");
 var image: []const u8 = busybox_image;
 const stack_address: u64 = 0x0000009000000000;
 const mmap_address: u64 = 0x000000a000000000;
@@ -77,6 +77,7 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
     if (program_entry_size < 56 or program_offset + @as(u64, program_entry_size) * program_count > image.len) return error.InvalidElf;
     const program_image = image;
     const interpreter_path = try findInterpreter(program_offset, program_entry_size, program_count);
+    const needed_name = try findNeeded(program_offset, program_entry_size, program_count);
 
     var address_space = try paging.AddressSpace.init(kernel_root, pages);
     var owned: [max_owned_ranges]OwnedRange = undefined;
@@ -111,8 +112,24 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
     var interpreter_base: u64 = 0;
     if (interpreter_path) |path| {
         if (!equal(path, "/lib/ld-csos.so")) return error.UnsupportedInterpreter;
+        const dependency = needed_name orelse return error.SharedObjectMissing;
+        const dependency_info = try vfs.infoAt(-100, dependency);
+        if (dependency_info.directory or dependency_info.size < 64 or dependency_info.size > 16 * 1024 * 1024) return error.InvalidSharedObject;
+        const dependency_pages = (dependency_info.size + page_size - 1) / page_size;
+        const dependency_address = pages.allocate(dependency_pages) orelse return error.OutOfMemory;
+        defer pages.release(dependency_address, dependency_pages) catch {};
+        const dependency_bytes: [*]u8 = @ptrFromInt(dependency_address);
+        const dependency_file = try vfs.openAt(-100, dependency, 0);
+        defer vfs.close(dependency_file) catch {};
+        var dependency_read: usize = 0;
+        while (dependency_read < dependency_info.size) {
+            const count = try vfs.pread(dependency_file, dependency_bytes[dependency_read..@intCast(dependency_info.size)], dependency_read);
+            if (count == 0) return error.TruncatedSharedObject;
+            dependency_read += count;
+        }
+        const shared_bytes = dependency_bytes[0..@intCast(dependency_info.size)];
         const shared_base: u64 = 0x0000006000000000;
-        image = shared_image;
+        image = shared_bytes;
         if (image.len < 64 or !isElf() or read16(16) != 3) return error.InvalidSharedObject;
         const shared_program_offset = read64(32);
         const shared_program_entry_size = read16(54);
@@ -130,7 +147,7 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
             try loadSegment(&address_space, pages, &mappings, &mapping_count, &owned, &owned_count, virtual, file_offset, file_size, memory_size, (flags & 2) != 0, (flags & 1) != 0);
         }
         try applyRelativeRelocations(mappings[0..mapping_count], shared_base, shared_program_offset, shared_program_entry_size, shared_program_count, false);
-        try applySymbolRelocations(program_image, program_offset, program_entry_size, program_count, load_bias, shared_image, shared_program_offset, shared_program_entry_size, shared_program_count, shared_base, mappings[0..mapping_count]);
+        try applySymbolRelocations(program_image, program_offset, program_entry_size, program_count, load_bias, shared_bytes, shared_program_offset, shared_program_entry_size, shared_program_count, shared_base, mappings[0..mapping_count]);
         shared_objects_loaded += 1;
         image = interpreter_image;
         if (image.len < 64 or !isElf() or read16(16) != 3) return error.InvalidInterpreter;
@@ -340,6 +357,38 @@ fn findInterpreter(program_offset: u64, program_entry_size: u16, program_count: 
         return path;
     }
     return null;
+}
+
+fn findNeeded(program_offset: u64, program_entry_size: u16, program_count: u16) !?[]const u8 {
+    var dynamic_offset: ?u64 = null;
+    var dynamic_size: u64 = 0;
+    var header_index: usize = 0;
+    while (header_index < program_count) : (header_index += 1) {
+        const header: usize = @intCast(program_offset + @as(u64, program_entry_size) * header_index);
+        if (read32At(header) != 2) continue;
+        dynamic_offset = read64At(header + 8);
+        dynamic_size = read64At(header + 32);
+        break;
+    }
+    const table = dynamic_offset orelse return null;
+    if (table > image.len or dynamic_size > image.len - table) return error.InvalidDynamicTable;
+    var string_virtual: u64 = 0;
+    var needed_offset: ?u64 = null;
+    var offset = table;
+    while (offset + 16 <= table + dynamic_size) : (offset += 16) {
+        const tag = read64At(@intCast(offset));
+        const value = read64At(@intCast(offset + 8));
+        if (tag == 0) break;
+        if (tag == 5) string_virtual = value;
+        if (tag == 1) {
+            if (needed_offset != null) return error.MultipleDependenciesUnsupported;
+            needed_offset = value;
+        }
+    }
+    const name_offset = needed_offset orelse return null;
+    if (string_virtual == 0) return error.InvalidDynamicString;
+    const string_file = try virtualFileOffset(string_virtual + name_offset, 1, program_offset, program_entry_size, program_count);
+    return try stringFrom(image, string_file);
 }
 
 fn equal(left: []const u8, right: []const u8) bool {

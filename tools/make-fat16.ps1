@@ -1,4 +1,7 @@
-param([Parameter(Mandatory = $true)][string]$Path)
+param(
+    [Parameter(Mandatory = $true)][string]$Path,
+    [string]$SharedLibrary
+)
 
 $sectorSize = 512
 $sectorCount = 131072
@@ -40,6 +43,28 @@ try {
     $dataStart = $rootStart + $rootSectors
     $stream.Position = $dataStart * $sectorSize
     $writer.Write($content)
+    if ($SharedLibrary) {
+        $library = [IO.File]::ReadAllBytes($SharedLibrary)
+        $clusterBytes = $sectorSize * $sectorsPerCluster
+        $clusterCount = [Math]::Ceiling($library.Length / $clusterBytes)
+        if ($clusterCount -gt 32) { throw 'shared library is too large for bootstrap FAT allocation' }
+        foreach ($fatStart in @(1, 1 + $fatSectors)) {
+            for ($index = 0; $index -lt $clusterCount; $index++) {
+                $cluster = 3 + $index
+                $next = if ($index + 1 -eq $clusterCount) { 0xFFFF } else { $cluster + 1 }
+                $stream.Position = $fatStart * $sectorSize + $cluster * 2
+                $writer.Write([uint16]$next)
+            }
+        }
+        $stream.Position = $rootStart * $sectorSize + 32
+        $writer.Write([Text.Encoding]::ASCII.GetBytes('LIBCSOS SO '))
+        $writer.Write([byte]0x20)
+        $writer.Write([byte[]]::new(14))
+        $writer.Write([uint16]3)
+        $writer.Write([uint32]$library.Length)
+        $stream.Position = $dataStart * $sectorSize + $clusterBytes
+        $writer.Write($library)
+    }
 } finally {
     $stream.Dispose()
 }

@@ -159,11 +159,6 @@ pub fn start(info: BootInfo) noreturn {
     if (syscalls.file_mmaps == 0) panic("Linux file mmap missing");
     if (syscalls.protected_mmaps == 0 or syscalls.unmapped_mmaps == 0) panic("Linux mmap lifecycle missing");
     serial.write("Linux PIE userspace ready\nLinux W^X userspace ready\n");
-    process.runDynamicTest(mapper.root, &pages) catch panic("PT_INTERP userspace failed");
-    mapper.activate();
-    if (process.interpreter_loads == 0) panic("PT_INTERP loader missing");
-    if (process.shared_objects_loaded == 0 or process.symbol_relocations == 0) panic("dynamic shared object resolution missing");
-    serial.write("Linux dynamic userspace ready\n");
     const echo_arguments = [_][]const u8{ "/bin/busybox", "echo", "BusyBox userspace ready" };
     process.runBusyBox(mapper.root, &pages, &echo_arguments) catch panic("BusyBox echo failed");
     mapper.activate();
@@ -252,6 +247,13 @@ pub fn start(info: BootInfo) noreturn {
     }
     vfs.close(state_fd) catch panic("VFS large file close failed");
     serial.write("VFS large file streaming ready\n");
+    const dynamic_pages_before = pages.free_pages;
+    process.runDynamicTest(mapper.root, &pages) catch panic("filesystem PT_INTERP userspace failed");
+    mapper.activate();
+    if (process.interpreter_loads == 0) panic("PT_INTERP loader missing");
+    if (process.shared_objects_loaded == 0 or process.symbol_relocations == 0) panic("dynamic shared object resolution missing");
+    if (pages.free_pages != dynamic_pages_before) panic("dynamic loader page reclaim mismatch");
+    serial.write("Linux filesystem shared object ready\nLinux dynamic userspace ready\n");
     const persist_arguments = [_][]const u8{ "/bin/busybox", "sh", "-c", "echo userspace-persisted > /user.txt" };
     process.runBusyBox(mapper.root, &pages, &persist_arguments) catch panic("userspace filesystem failed");
     mapper.activate();
