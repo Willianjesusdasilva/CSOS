@@ -78,7 +78,7 @@ pub fn secondaryMain(apic_id: u32) callconv(.c) noreturn {
     while (@atomicLoad(bool, &secondary_workers_active, .acquire)) {
         if (!runOne(queue)) asm volatile ("pause");
     }
-    halt();
+    while (true) asm volatile ("sti; hlt");
 }
 
 pub fn stopSecondaryWorkers() void {

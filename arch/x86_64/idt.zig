@@ -47,6 +47,10 @@ pub fn install() void {
     entries[128].attributes = 0xee;
     entries[255] = Entry.from(@ptrCast(&spurious));
 
+    load();
+}
+
+pub fn load() void {
     const register = Register{
         .limit = @sizeOf(@TypeOf(entries)) - 1,
         .base = @intFromPtr(&entries),

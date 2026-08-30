@@ -1,4 +1,4 @@
-const profile_version: u8 = 3;
+const profile_version: u8 = 4;
 
 pub const Cpu = struct {
     vendor: [12]u8,
@@ -24,6 +24,7 @@ pub const Facts = struct {
     nvme_namespaces: u16,
     nic_vendor: u16,
     nic_device: u16,
+    network_irq_apic: u32,
     usb_ports: u8,
     keyboards: u8,
     mice: u8,
@@ -163,6 +164,7 @@ pub fn build(cpu: Cpu, facts: Facts) !Profile {
     try append(&result, "\nnamespaces="); try appendDecimal(&result, facts.nvme_namespaces);
     try append(&result, "\n\n[network]\nvendor="); try appendHex(&result, facts.nic_vendor);
     try append(&result, "\ndevice="); try appendHex(&result, facts.nic_device);
+    try append(&result, "\nirq_apic="); try appendDecimal(&result, facts.network_irq_apic);
     try append(&result, "\n\n[usb]\nports="); try appendDecimal(&result, facts.usb_ports);
     try append(&result, "\nkeyboards="); try appendDecimal(&result, facts.keyboards);
     try append(&result, "\nmice="); try appendDecimal(&result, facts.mice);
@@ -186,6 +188,7 @@ fn signature(cpu: Cpu, facts: Facts) u64 {
     hash = hashInteger(hash, facts.gpu_bus); hash = hashInteger(hash, facts.gpu_slot);
     hash = hashInteger(hash, facts.nvme_vendor); hash = hashInteger(hash, facts.nvme_device); hash = hashInteger(hash, facts.nvme_namespaces);
     hash = hashInteger(hash, facts.nic_vendor); hash = hashInteger(hash, facts.nic_device);
+    hash = hashInteger(hash, facts.network_irq_apic);
     hash = hashInteger(hash, facts.usb_ports); hash = hashInteger(hash, facts.keyboards); hash = hashInteger(hash, facts.mice);
     hash = hashInteger(hash, facts.audio_interfaces); hash = hashInteger(hash, facts.display_width);
     hash = hashInteger(hash, facts.display_height); hash = hashInteger(hash, facts.display_stride);

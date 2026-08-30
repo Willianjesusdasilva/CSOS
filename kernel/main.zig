@@ -355,8 +355,16 @@ pub fn start(info: BootInfo) noreturn {
     mapper.activate();
     var network = e1000.Controller.init(network_device, &pages) catch panic("Ethernet setup failed");
     if (!network_device.msi) panic("Ethernet MSI missing");
+    var network_irq_apic = bsp_id;
+    for (madt.cpus[0..madt.cpu_count]) |cpu| {
+        if (cpu.apic_id != bsp_id) {
+            network_irq_apic = cpu.apic_id;
+            break;
+        }
+    }
+    if (network_irq_apic > 255) panic("Ethernet MSI APIC ID unsupported");
     idt.setExternalHook(&e1000.handleInterrupt);
-    pci.enableMsi(network_device, 48, @truncate(bsp_id)) catch panic("Ethernet MSI setup failed");
+    pci.enableMsi(network_device, 48, @truncate(network_irq_apic)) catch panic("Ethernet MSI setup failed");
     e1000.enableInterrupts(&network);
     asm volatile ("sti");
     var network_stack = net.Stack.init(&network);
@@ -406,6 +414,7 @@ pub fn start(info: BootInfo) noreturn {
     if (e1000.interruptCount() == 0) panic("Ethernet MSI interrupt missing");
     serial.write("Ethernet ARP ready\n");
     serial.write("Ethernet MSI ready\n");
+    serial.write("Ethernet IRQ APIC: "); serial.writeDecimal(network_irq_apic); serial.write("\n");
     serial.write("IPv4 ICMP ready\n");
     const gpu_adapter = gpu.Adapter.discover(display_device) catch panic("GPU discovery failed");
     if (gpu_adapter.bar_count == 0) panic("GPU BAR discovery failed");
@@ -442,6 +451,7 @@ pub fn start(info: BootInfo) noreturn {
         .nvme_namespaces = @intCast(namespaces),
         .nic_vendor = network_device.vendor,
         .nic_device = network_device.device,
+        .network_irq_apic = network_irq_apic,
         .usb_ports = usb.connected_ports,
         .keyboards = hid.keyboards,
         .mice = hid.mice,

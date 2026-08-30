@@ -90,10 +90,10 @@ pub fn enableInterrupts(controller: *Controller) void {
 pub fn handleInterrupt() callconv(.c) void {
     if (interrupt_base == 0) return;
     const cause = read32(interrupt_base, 0x00c0);
-    if (cause != 0) interrupts += 1;
+    if (cause != 0) _ = @atomicRmw(u64, &interrupts, .Add, 1, .release);
 }
 
-pub fn interruptCount() u64 { return interrupts; }
+pub fn interruptCount() u64 { return @atomicLoad(u64, &interrupts, .acquire); }
 
 fn zeroPage(address: u64) void { const bytes: [*]u8 = @ptrFromInt(address); @memset(bytes[0..4096], 0); }
 fn read32(base: u64, offset: u64) u32 { const value: *volatile u32 = @ptrFromInt(base + offset); return value.*; }

@@ -123,6 +123,7 @@ pub fn build(b: *std.Build) void {
     net_module.addImport("e1000", e1000_module);
     const smp_module = b.createModule(.{ .root_source_file = b.path("arch/x86_64/smp.zig") });
     smp_module.addImport("apic", apic_module);
+    smp_module.addImport("idt", idt_module);
     smp_module.addImport("physical", physical_module);
     const paging_module = b.createModule(.{ .root_source_file = b.path("memory/paging.zig") });
     paging_module.addImport("physical", physical_module);

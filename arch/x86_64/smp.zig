@@ -1,4 +1,5 @@
 const apic = @import("apic");
+const idt = @import("idt");
 const physical = @import("physical");
 
 const trampoline_address = 0x8000;
@@ -49,6 +50,8 @@ fn patch(comptime T: type, source_symbol: *const u8, value: T) void {
 }
 
 fn apMain() callconv(.c) noreturn {
+    idt.load();
+    apic.init() catch while (true) asm volatile ("cli; hlt");
     _ = @atomicRmw(u32, &online_aps, .Add, 1, .release);
     if (secondary_entry) |entry| entry(apic.id());
     while (true) asm volatile ("cli; hlt");
