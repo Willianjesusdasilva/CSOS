@@ -26,5 +26,5 @@ Copy-Item -Force -LiteralPath $EfiBinary -Destination (Join-Path $bootDir 'BOOTX
 $localOvmf = Join-Path $PSScriptRoot '..\zig-out\OVMF_CODE.fd'
 Copy-Item -Force -LiteralPath $ovmf -Destination $localOvmf
 
-& $qemu.FullName -machine q35 -m 256M -drive "if=pflash,format=raw,readonly=on,file=$localOvmf" -drive "format=raw,file=fat:rw:$esp" -serial stdio -no-reboot
+& $qemu.FullName -machine q35 -smp 4 -m 256M -drive "if=pflash,format=raw,readonly=on,file=$localOvmf" -drive "format=raw,file=fat:rw:$esp" -serial stdio -no-reboot
 exit $LASTEXITCODE

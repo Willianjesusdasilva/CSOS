@@ -3,6 +3,7 @@ const uefi = std.os.uefi;
 const GraphicsOutput = uefi.protocol.GraphicsOutput;
 const kernel = @import("kernel");
 const serial = @import("serial");
+const ConfigurationTable = uefi.tables.ConfigurationTable;
 
 var memory_map_buffer: [64 * 1024]u8 align(8) = undefined;
 
@@ -15,6 +16,7 @@ pub fn main() void {
     _ = console.outputString(&unicode("CSOS booting\r\n")) catch {};
 
     const boot_services = uefi.system_table.boot_services orelse fail("no UEFI boot services");
+    const rsdp = findRsdp() orelse fail("no ACPI RSDP");
     const graphics = (boot_services.locateProtocol(GraphicsOutput, null) catch fail("GOP lookup failed")) orelse
         fail("no framebuffer");
     const mode = graphics.mode;
@@ -41,7 +43,19 @@ pub fn main() void {
         .memory_map = memory_map.ptr,
         .memory_map_len = memory_map.info.len,
         .memory_descriptor_size = memory_map.info.descriptor_size,
+        .rsdp = rsdp,
     });
+}
+
+fn findRsdp() ?u64 {
+    const system_table = uefi.system_table;
+    for (system_table.configuration_table[0..system_table.number_of_table_entries]) |entry| {
+        if (entry.vendor_guid.eql(ConfigurationTable.acpi_20_table_guid)) return @intFromPtr(entry.vendor_table);
+    }
+    for (system_table.configuration_table[0..system_table.number_of_table_entries]) |entry| {
+        if (entry.vendor_guid.eql(ConfigurationTable.acpi_10_table_guid)) return @intFromPtr(entry.vendor_table);
+    }
+    return null;
 }
 
 fn fail(message: []const u8) noreturn {

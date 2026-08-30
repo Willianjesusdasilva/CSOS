@@ -12,6 +12,8 @@ pub fn build(b: *std.Build) void {
     const gdt_module = b.createModule(.{ .root_source_file = b.path("arch/x86_64/gdt.zig") });
     const idt_module = b.createModule(.{ .root_source_file = b.path("arch/x86_64/idt.zig") });
     const apic_module = b.createModule(.{ .root_source_file = b.path("arch/x86_64/apic.zig") });
+    const ioapic_module = b.createModule(.{ .root_source_file = b.path("arch/x86_64/ioapic.zig") });
+    const acpi_module = b.createModule(.{ .root_source_file = b.path("firmware/acpi.zig") });
     const physical_module = b.createModule(.{ .root_source_file = b.path("memory/physical.zig") });
     const paging_module = b.createModule(.{ .root_source_file = b.path("memory/paging.zig") });
     paging_module.addImport("physical", physical_module);
@@ -22,6 +24,8 @@ pub fn build(b: *std.Build) void {
     kernel_module.addImport("gdt", gdt_module);
     kernel_module.addImport("idt", idt_module);
     kernel_module.addImport("apic", apic_module);
+    kernel_module.addImport("ioapic", ioapic_module);
+    kernel_module.addImport("acpi", acpi_module);
     kernel_module.addImport("physical", physical_module);
     kernel_module.addImport("paging", paging_module);
     kernel_module.addImport("heap", heap_module);

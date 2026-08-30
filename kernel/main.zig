@@ -2,6 +2,8 @@ const serial = @import("serial");
 const gdt = @import("gdt");
 const idt = @import("idt");
 const apic = @import("apic");
+const ioapic = @import("ioapic");
+const acpi = @import("acpi");
 const physical = @import("physical");
 const paging = @import("paging");
 const heap = @import("heap");
@@ -11,6 +13,7 @@ pub const BootInfo = struct {
     memory_map: [*]align(8) u8,
     memory_map_len: usize,
     memory_descriptor_size: usize,
+    rsdp: u64,
 };
 
 pub const Framebuffer = struct {
@@ -24,6 +27,13 @@ pub const Framebuffer = struct {
 
 pub fn start(info: BootInfo) noreturn {
     serial.write("kernel entry\n");
+    const madt = acpi.findMadt(info.rsdp) catch panic("ACPI MADT invalid");
+    if (madt.cpu_count == 0 or madt.ioapic_count == 0) panic("ACPI topology missing");
+    serial.write("ACPI MADT ready\n");
+    for (madt.ioapics[0..madt.ioapic_count]) |controller| {
+        ioapic.init(controller.address) catch panic("IOAPIC setup failed");
+    }
+    serial.write("IOAPIC ready\n");
     gdt.install();
     serial.write("GDT ready\n");
     idt.install();
