@@ -412,6 +412,7 @@ pub fn start(info: BootInfo) noreturn {
     while (e1000.interruptCount() == 0 and irq_spins < 100_000_000) : (irq_spins += 1) asm volatile ("pause");
     asm volatile ("cli");
     if (e1000.interruptCount() == 0) panic("Ethernet MSI interrupt missing");
+    if (e1000.interruptApic() != network_irq_apic) panic("Ethernet MSI affinity mismatch");
     serial.write("Ethernet ARP ready\n");
     serial.write("Ethernet MSI ready\n");
     serial.write("Ethernet IRQ APIC: "); serial.writeDecimal(network_irq_apic); serial.write("\n");

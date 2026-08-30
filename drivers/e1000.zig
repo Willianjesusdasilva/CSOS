@@ -1,9 +1,11 @@
 const pci = @import("pci");
 const physical = @import("physical");
+const apic = @import("apic");
 
 const descriptor_count = 16;
 var interrupt_base: u64 = 0;
 var interrupts: u64 = 0;
+var last_interrupt_apic: u32 = 0xffffffff;
 
 pub const Controller = struct {
     base: u64,
@@ -48,6 +50,7 @@ pub const Controller = struct {
         write32(base, 0x0410, 10 | (8 << 10) | (6 << 20));
         interrupt_base = base;
         interrupts = 0;
+        last_interrupt_apic = 0xffffffff;
         return .{ .base = base, .mac = mac, .rx_ring = rx_ring, .tx_ring = tx_ring, .rx_buffers = buffers, .tx_buffer = tx_buffer };
     }
 
@@ -90,10 +93,14 @@ pub fn enableInterrupts(controller: *Controller) void {
 pub fn handleInterrupt() callconv(.c) void {
     if (interrupt_base == 0) return;
     const cause = read32(interrupt_base, 0x00c0);
-    if (cause != 0) _ = @atomicRmw(u64, &interrupts, .Add, 1, .release);
+    if (cause != 0) {
+        @atomicStore(u32, &last_interrupt_apic, apic.id(), .release);
+        _ = @atomicRmw(u64, &interrupts, .Add, 1, .release);
+    }
 }
 
 pub fn interruptCount() u64 { return @atomicLoad(u64, &interrupts, .acquire); }
+pub fn interruptApic() u32 { return @atomicLoad(u32, &last_interrupt_apic, .acquire); }
 
 fn zeroPage(address: u64) void { const bytes: [*]u8 = @ptrFromInt(address); @memset(bytes[0..4096], 0); }
 fn read32(base: u64, offset: u64) u32 { const value: *volatile u32 = @ptrFromInt(base + offset); return value.*; }

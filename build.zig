@@ -119,6 +119,7 @@ pub fn build(b: *std.Build) void {
     const e1000_module = b.createModule(.{ .root_source_file = b.path("drivers/e1000.zig") });
     e1000_module.addImport("pci", pci_module);
     e1000_module.addImport("physical", physical_module);
+    e1000_module.addImport("apic", apic_module);
     const net_module = b.createModule(.{ .root_source_file = b.path("net/stack.zig") });
     net_module.addImport("e1000", e1000_module);
     const smp_module = b.createModule(.{ .root_source_file = b.path("arch/x86_64/smp.zig") });
