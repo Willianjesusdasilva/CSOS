@@ -42,6 +42,9 @@ pub fn build(b: *std.Build) void {
     const xhci_module = b.createModule(.{ .root_source_file = b.path("drivers/xhci.zig") });
     xhci_module.addImport("pci", pci_module);
     xhci_module.addImport("physical", physical_module);
+    const e1000_module = b.createModule(.{ .root_source_file = b.path("drivers/e1000.zig") });
+    e1000_module.addImport("pci", pci_module);
+    e1000_module.addImport("physical", physical_module);
     const smp_module = b.createModule(.{ .root_source_file = b.path("arch/x86_64/smp.zig") });
     smp_module.addImport("apic", apic_module);
     smp_module.addImport("physical", physical_module);
@@ -74,6 +77,7 @@ pub fn build(b: *std.Build) void {
     kernel_module.addImport("nvme", nvme_module);
     kernel_module.addImport("fat16", fat16_module);
     kernel_module.addImport("xhci", xhci_module);
+    kernel_module.addImport("e1000", e1000_module);
     kernel_module.addImport("smp", smp_module);
     kernel_module.addImport("physical", physical_module);
     kernel_module.addImport("paging", paging_module);

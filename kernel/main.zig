@@ -8,6 +8,7 @@ const pci = @import("pci");
 const nvme = @import("nvme");
 const fat16 = @import("fat16");
 const xhci = @import("xhci");
+const e1000 = @import("e1000");
 const smp = @import("smp");
 const physical = @import("physical");
 const paging = @import("paging");
@@ -171,14 +172,35 @@ pub fn start(info: BootInfo) noreturn {
     serial.write("\n");
     if (usb.connected_ports < 2) panic("USB HID devices missing");
     serial.write("xHCI controller ready\n");
-    var hid = usb.enumerateHid(&pages) catch panic("USB enumeration failed");
+    const hid = usb.enumerateHid(&pages) catch panic("USB enumeration failed");
     serial.write("USB keyboards: "); serial.writeDecimal(hid.keyboards);
     serial.write(" mice: "); serial.writeDecimal(hid.mice); serial.write("\n");
     if (hid.keyboards == 0 or hid.mice == 0) panic("USB HID descriptors missing");
     serial.write("USB HID endpoints armed\n");
-    usb.waitHidReports(&hid) catch panic("USB HID report failed");
-    serial.write("USB keyboard/mouse reports ready\n");
     serial.write("CSOS M11 ready\n");
+    const network_device = inventory.findClass(0x02, 0x00) orelse panic("Ethernet controller missing");
+    const network_bar = pci.barAddress(network_device, 0) orelse panic("Ethernet BAR missing");
+    mapper.mapIdentity(network_bar, 0x20000) catch panic("Ethernet MMIO mapping failed");
+    mapper.activate();
+    var network = e1000.Controller.init(network_device, &pages) catch panic("Ethernet setup failed");
+    var arp: [42]u8 = .{0} ** 42;
+    @memset(arp[0..6], 0xff);
+    @memcpy(arp[6..12], &network.mac);
+    arp[12] = 0x08; arp[13] = 0x06;
+    arp[14] = 0; arp[15] = 1; arp[16] = 0x08; arp[17] = 0;
+    arp[18] = 6; arp[19] = 4; arp[20] = 0; arp[21] = 1;
+    @memcpy(arp[22..28], &network.mac);
+    arp[38] = 10; arp[39] = 0; arp[40] = 2; arp[41] = 2;
+    network.send(&arp) catch panic("Ethernet transmit failed");
+    var received: [2048]u8 = undefined;
+    var arp_reply = false;
+    var packets: u8 = 0;
+    while (packets < 8 and !arp_reply) : (packets += 1) {
+        const length = network.receive(&received) catch panic("Ethernet receive failed");
+        arp_reply = length >= 42 and received[12] == 0x08 and received[13] == 0x06 and received[20] == 0 and received[21] == 2;
+    }
+    if (!arp_reply) panic("ARP reply missing");
+    serial.write("Ethernet ARP ready\n");
 
     drawBootMarker(info.framebuffer);
     serial.write("framebuffer ready\n");
