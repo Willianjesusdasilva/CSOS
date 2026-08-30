@@ -1,5 +1,7 @@
 const serial = @import("serial");
 const physical = @import("physical");
+const paging = @import("paging");
+const heap = @import("heap");
 
 pub const BootInfo = struct {
     framebuffer: Framebuffer,
@@ -21,13 +23,23 @@ pub fn start(info: BootInfo) noreturn {
     serial.write("kernel entry\n");
     if (info.memory_map_len == 0 or info.memory_descriptor_size == 0) panic("empty memory map");
     var pages = physical.Allocator.init(info.memory_map, info.memory_map_len, info.memory_descriptor_size);
-    const first_page = pages.allocate(1) orelse panic("no physical memory");
-    const second_page = pages.allocate(2) orelse panic("physical allocation failed");
-    if (first_page < 0x100000 or second_page != first_page + 4096) panic("invalid physical allocation");
     serial.write("physical allocator ready\n");
+
+    var mapper = paging.Mapper.init(&pages, info.framebuffer.base, info.framebuffer.size) catch panic("paging setup failed");
+    mapper.activate();
+    serial.write("paging ready\n");
+
+    var kernel_heap = heap.Heap.init(&pages, 16) catch panic("heap setup failed");
+    const first = kernel_heap.allocate(31, 16) orelse panic("heap allocation failed");
+    const second = kernel_heap.allocate(4096, 4096) orelse panic("aligned heap allocation failed");
+    if ((@intFromPtr(first.ptr) & 15) != 0 or (@intFromPtr(second.ptr) & 4095) != 0) panic("heap alignment failed");
+    @memset(first, 0xa5);
+    @memset(second, 0x5a);
+    serial.write("heap ready\n");
+
     drawBootMarker(info.framebuffer);
     serial.write("framebuffer ready\n");
-    serial.write("CSOS M1 ready\n");
+    serial.write("CSOS M2 ready\n");
 
     while (true) asm volatile ("cli; hlt");
 }

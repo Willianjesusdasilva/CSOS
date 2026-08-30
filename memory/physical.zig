@@ -10,7 +10,7 @@ const Descriptor = extern struct {
     attributes: u64,
 };
 
-const Range = struct {
+pub const Range = struct {
     next: u64,
     end: u64,
 };
@@ -49,5 +49,9 @@ pub const Allocator = struct {
             return address;
         }
         return null;
+    }
+
+    pub fn availableRanges(self: *const Allocator) []const Range {
+        return self.ranges[0..self.range_count];
     }
 };
