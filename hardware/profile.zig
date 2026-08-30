@@ -4,6 +4,9 @@ pub const Cpu = struct {
     model: u16,
     stepping: u8,
     tsc: bool,
+    invariant_tsc: bool,
+    threads_per_core: u16,
+    logical_per_package: u16,
 };
 
 pub const Facts = struct {
@@ -45,6 +48,30 @@ pub fn detectCpu() Cpu {
     putNative32(vendor[4..8], vendor_leaf.edx);
     putNative32(vendor[8..12], vendor_leaf.ecx);
     const version = cpuid(1, 0);
+    const topology_leaf: u32 = if (vendor_leaf.eax >= 0x1f and cpuid(0x1f, 0).ebx != 0)
+        0x1f
+    else if (vendor_leaf.eax >= 0x0b and cpuid(0x0b, 0).ebx != 0)
+        0x0b
+    else
+        0;
+    var threads_per_core: u16 = 1;
+    var logical_per_package: u16 = @truncate((version.ebx >> 16) & 0xff);
+    if (logical_per_package == 0) logical_per_package = 1;
+    if (topology_leaf != 0) {
+        var subleaf: u32 = 0;
+        while (subleaf < 8) : (subleaf += 1) {
+            const level = cpuid(topology_leaf, subleaf);
+            const logical: u16 = @truncate(level.ebx & 0xffff);
+            if (logical == 0) break;
+            switch ((level.ecx >> 8) & 0xff) {
+                1 => threads_per_core = logical,
+                2 => logical_per_package = logical,
+                else => {},
+            }
+        }
+    }
+    const extended_max = cpuid(0x80000000, 0).eax;
+    const invariant_tsc = extended_max >= 0x80000007 and (cpuid(0x80000007, 0).edx & (1 << 8)) != 0;
     const base_family = (version.eax >> 8) & 0x0f;
     const base_model = (version.eax >> 4) & 0x0f;
     const extended_family = (version.eax >> 20) & 0xff;
@@ -55,6 +82,9 @@ pub fn detectCpu() Cpu {
         .model = @intCast(if (base_family == 0x06 or base_family == 0x0f) base_model | (extended_model << 4) else base_model),
         .stepping = @truncate(version.eax & 0x0f),
         .tsc = (version.edx & (1 << 4)) != 0,
+        .invariant_tsc = invariant_tsc,
+        .threads_per_core = @max(threads_per_core, 1),
+        .logical_per_package = @max(logical_per_package, 1),
     };
 }
 
@@ -68,7 +98,13 @@ pub fn build(cpu: Cpu, facts: Facts) !Profile {
     try append(&result, "\nmodel="); try appendDecimal(&result, cpu.model);
     try append(&result, "\nstepping="); try appendDecimal(&result, cpu.stepping);
     try append(&result, "\nlogical="); try appendDecimal(&result, facts.logical_cpus);
+    try append(&result, "\nphysical="); try appendDecimal(&result, (@as(u64, facts.logical_cpus) + cpu.threads_per_core - 1) / cpu.threads_per_core);
+    try append(&result, "\nthreads_per_core="); try appendDecimal(&result, cpu.threads_per_core);
+    try append(&result, "\nlogical_per_package="); try appendDecimal(&result, cpu.logical_per_package);
+    try append(&result, "\nsmt="); try append(&result, if (cpu.threads_per_core > 1) "true" else "false");
     try append(&result, "\ntsc="); try append(&result, if (cpu.tsc) "true" else "false");
+    try append(&result, "\ninvariant_tsc="); try append(&result, if (cpu.invariant_tsc) "true" else "false");
+    try append(&result, "\npreferred_timer="); try append(&result, if (cpu.tsc and cpu.invariant_tsc) "tsc" else "apic");
     try append(&result, "\n\n[memory]\npages="); try appendDecimal(&result, facts.memory_pages);
     try append(&result, "\n\n[pci]\ndevices="); try appendDecimal(&result, facts.pci_devices);
     try append(&result, "\n\n[gpu]\nvendor="); try appendHex(&result, facts.gpu_vendor);
@@ -95,6 +131,8 @@ fn signature(cpu: Cpu, facts: Facts) u64 {
     var hash: u64 = 0xcbf29ce484222325;
     hash = hashBytes(hash, &cpu.vendor);
     hash = hashInteger(hash, cpu.family); hash = hashInteger(hash, cpu.model); hash = hashInteger(hash, cpu.stepping);
+    hash = hashInteger(hash, cpu.threads_per_core); hash = hashInteger(hash, cpu.logical_per_package);
+    hash = hashInteger(hash, @intFromBool(cpu.invariant_tsc));
     hash = hashInteger(hash, facts.logical_cpus); hash = hashInteger(hash, facts.memory_pages);
     hash = hashInteger(hash, facts.pci_devices); hash = hashInteger(hash, facts.gpu_vendor); hash = hashInteger(hash, facts.gpu_device);
     hash = hashInteger(hash, facts.gpu_bus); hash = hashInteger(hash, facts.gpu_slot);
