@@ -199,5 +199,6 @@ pub fn build(b: *std.Build) void {
     qemu.addFileArg(boot.getEmittedBin());
     qemu.addFileArg(shared.getEmittedBin());
     qemu.addFileArg(extra.getEmittedBin());
+    if (b.args) |args| qemu.addArgs(args);
     run.dependOn(&qemu.step);
 }
