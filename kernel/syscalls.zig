@@ -16,6 +16,8 @@ var process_exit_status: u64 = 0;
 var process_pause: ?Pause = null;
 var mmap_protect_hook: ?*const fn (u64, u64, bool, bool) callconv(.c) bool = null;
 var mmap_unmap_hook: ?*const fn (u64, u64) callconv(.c) bool = null;
+var stdin_hook: ?*const fn ([*]u8, usize) callconv(.c) usize = null;
+var idle_hook: ?*const fn () callconv(.c) void = null;
 pub var file_mmaps: u64 = 0;
 pub var protected_mmaps: u64 = 0;
 pub var unmapped_mmaps: u64 = 0;
@@ -84,6 +86,11 @@ pub fn configureNetwork(stack: *net.Stack) void {
 pub fn configureMmap(protect_hook: ?*const fn (u64, u64, bool, bool) callconv(.c) bool, unmap_hook: ?*const fn (u64, u64) callconv(.c) bool) void {
     mmap_protect_hook = protect_hook;
     mmap_unmap_hook = unmap_hook;
+}
+
+pub fn configureConsole(read_hook: ?*const fn ([*]u8, usize) callconv(.c) usize, wait_hook: ?*const fn () callconv(.c) void) void {
+    stdin_hook = read_hook;
+    idle_hook = wait_hook;
 }
 
 pub fn exitStatus() ?u8 {
@@ -172,9 +179,13 @@ fn writeTime(address: u64, size: u64) u64 {
 }
 
 fn read(fd: u64, address: u64, length: u64) u64 {
-    if (fd == 0) return 0;
     if (!validUserSlice(address, length)) return errno(14);
     const output: [*]u8 = @ptrFromInt(address);
+    if (fd == 0) {
+        if (length == 0) return 0;
+        const hook = stdin_hook orelse return 0;
+        return hook(output, @intCast(length));
+    }
     if (socketIndex(fd)) |index| return socketReceive(index, output[0..@intCast(length)]);
     return vfs.read(@intCast(fd), output[0..@intCast(length)]) catch |err| vfsError(err);
 }

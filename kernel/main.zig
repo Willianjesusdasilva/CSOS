@@ -30,6 +30,9 @@ var per_cpu_runs: u32 = 0;
 var lifecycle_a: u8 = 0;
 var lifecycle_b: u8 = 0;
 var lifecycle_error = false;
+var console_usb: ?*xhci.Controller = null;
+var console_hid: ?*xhci.HidDevices = null;
+var console_last_key: u8 = 0;
 
 pub const BootInfo = struct {
     framebuffer: Framebuffer,
@@ -408,6 +411,15 @@ pub fn start(info: BootInfo) noreturn {
     const verified_boot_length = volume.readRootFile(&boot_state_name, &verified_boot_state) catch panic("boot ready state read failed");
     if (!equalBytes(verified_boot_state[0..verified_boot_length], boot_ready)) panic("boot ready state verification failed");
     serial.write(if (recovering) "CSOS recovery completed\n" else "CSOS boot health ready\n");
+    console_usb = &usb;
+    console_hid = &hid;
+    syscalls.configureConsole(&consoleRead, &consoleWait);
+    serial.write("CSOS console shell ready\n");
+    const console_arguments = [_][]const u8{ "/bin/busybox", "sh" };
+    process.runBusyBox(mapper.root, &pages, &console_arguments) catch panic("console shell failed");
+    mapper.activate();
+    syscalls.configureConsole(null, null);
+    serial.write("CSOS console shell exited\n");
     var display_ticks: u64 = 0;
 
     var reported_input: u64 = 0;
@@ -443,6 +455,64 @@ pub fn start(info: BootInfo) noreturn {
         }
         asm volatile ("pause");
     }
+}
+
+fn consoleRead(output: [*]u8, length: usize) callconv(.c) usize {
+    if (length == 0) return 0;
+    var count: usize = 0;
+    while (count == 0) {
+        if (serial.readNonblocking()) |byte| {
+            output[count] = if (byte == '\r') '\n' else byte;
+            count += 1;
+            break;
+        }
+        consoleWait();
+        if (console_hid) |hid| {
+            while (hid.pop()) |event| {
+                if (event.kind != .keyboard) continue;
+                if (event.a == 0) {
+                    console_last_key = 0;
+                    continue;
+                }
+                if (event.a == console_last_key) continue;
+                console_last_key = event.a;
+                if (hidCharacter(event.a, event.b)) |byte| {
+                    output[count] = byte;
+                    count += 1;
+                    break;
+                }
+            }
+        }
+        asm volatile ("pause");
+    }
+    return count;
+}
+
+fn hidCharacter(usage: u8, modifiers: u8) ?u8 {
+    const shifted = (modifiers & 0x22) != 0;
+    if (usage >= 4 and usage <= 29) {
+        const base: u8 = if (shifted) 'A' else 'a';
+        return base + usage - 4;
+    }
+    if (usage >= 30 and usage <= 38) return "123456789"[usage - 30];
+    return switch (usage) {
+        39 => '0',
+        40 => '\n',
+        42 => 0x7f,
+        44 => ' ',
+        45 => if (shifted) '_' else '-',
+        46 => if (shifted) '+' else '=',
+        54 => if (shifted) '<' else ',',
+        55 => if (shifted) '>' else '.',
+        56 => if (shifted) '?' else '/',
+        else => null,
+    };
+}
+
+fn consoleWait() callconv(.c) void {
+    const usb = console_usb orelse return;
+    const hid = console_hid orelse return;
+    _ = usb.pollHid(hid) catch {};
 }
 
 fn threadA() void {

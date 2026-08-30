@@ -30,6 +30,11 @@ pub fn writeDecimal(value: u64) void {
     write(buffer[index..]);
 }
 
+pub fn readNonblocking() ?u8 {
+    if ((in(data + 5) & 1) == 0) return null;
+    return in(data);
+}
+
 fn out(port: u16, value: u8) void {
     asm volatile ("outb %[value], %[port]"
         :
