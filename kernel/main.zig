@@ -53,6 +53,7 @@ pub fn start(info: BootInfo) noreturn {
     syscalls.install(gdt.privilegeStackTop());
     serial.write("GDT ready\n");
     idt.install();
+    idt.setPageFaultHook(&process.handlePageFault);
     if (!idt.verifyBreakpoint()) panic("breakpoint handler failed");
     serial.write("IDT ready\n");
     apic.init() catch panic("local APIC setup failed");
@@ -146,8 +147,11 @@ pub fn start(info: BootInfo) noreturn {
     process.runBusyBox(mapper.root, &pages, &shell_arguments) catch panic("BusyBox sh failed");
     mapper.activate();
     if (pages.free_pages != userspace_pages_before) panic("userspace page reclaim mismatch");
+    if (process.standby_pages == 0 or process.restored_pages == 0) panic("lazy userspace resume failed");
     serial.write("userspace reclaimed pages: "); serial.writeDecimal(pages.reclaimed_pages);
-    serial.write("\nCSOS M17 process reclaim ready\n");
+    serial.write("\nstandby pages discarded: "); serial.writeDecimal(process.standby_pages);
+    serial.write(" restored: "); serial.writeDecimal(process.restored_pages);
+    serial.write("\nCSOS M17 standby resume ready\n");
     serial.write("BusyBox applets returned\n");
 
     const inventory = pci.Inventory.scan();

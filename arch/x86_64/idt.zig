@@ -6,6 +6,7 @@ const kernel_code_selector = 0x08;
 pub export var lapic_ticks: u64 = 0;
 var timer_hook: ?*const fn () callconv(.c) void = null;
 var external_hook: ?*const fn () callconv(.c) void = null;
+var page_fault_hook: ?*const fn (u64, u64, u64) callconv(.c) bool = null;
 
 const Entry = packed struct {
     offset_low: u16 = 0,
@@ -73,6 +74,10 @@ pub fn setExternalHook(hook: ?*const fn () callconv(.c) void) void {
     external_hook = hook;
 }
 
+pub fn setPageFaultHook(hook: ?*const fn (u64, u64, u64) callconv(.c) bool) void {
+    page_fault_hook = hook;
+}
+
 fn breakpoint() callconv(.naked) void {
     asm volatile ("iretq");
 }
@@ -106,13 +111,27 @@ fn pageFault() callconv(.naked) void {
         \\movq 64(%%rax), %%rdx
         \\movq 56(%%rax), %%r8
         \\callq page_fault_dispatch
+        \\testb %%al, %%al
+        \\jz 1f
+        \\movq 32(%%rsp), %%rsp
+        \\popq %%r11
+        \\popq %%r10
+        \\popq %%r9
+        \\popq %%r8
+        \\popq %%rdx
+        \\popq %%rcx
+        \\popq %%rax
+        \\addq $8, %%rsp
+        \\iretq
+        \\1:
         \\cli
-        \\1: hlt
-        \\jmp 1b
+        \\2: hlt
+        \\jmp 2b
     );
 }
 
-export fn page_fault_dispatch(address: u64, instruction: u64, code: u64) callconv(.c) void {
+export fn page_fault_dispatch(address: u64, instruction: u64, code: u64) callconv(.c) bool {
+    if (page_fault_hook) |hook| if (hook(address, instruction, code)) return true;
     const lapic_id: *volatile u32 = @ptrFromInt(0xfee00020);
     serial.write("cpu ");
     serial.writeDecimal(lapic_id.* >> 24);
@@ -124,6 +143,7 @@ export fn page_fault_dispatch(address: u64, instruction: u64, code: u64) callcon
     serial.write(" code ");
     serial.writeDecimal(code);
     serial.write("\n");
+    return false;
 }
 
 fn timer() callconv(.naked) void {

@@ -10,8 +10,21 @@ const page_size: u64 = 4096;
 const max_mappings = 512;
 const max_owned_ranges = 512;
 
-const Mapping = struct { virtual: u64, physical: u64 };
+const Mapping = struct {
+    virtual: u64,
+    physical: u64,
+    owner_index: usize,
+    writable: bool,
+    resident: bool = true,
+};
 const OwnedRange = struct { address: u64, pages: u64 };
+
+var active_address_space: ?*paging.AddressSpace = null;
+var active_pages: ?*physical.Allocator = null;
+var active_mappings: ?[]Mapping = null;
+var active_owned: ?[]OwnedRange = null;
+pub var standby_pages: u64 = 0;
+pub var restored_pages: u64 = 0;
 
 extern fn enter_user(entry: u64, stack: u64) callconv(.c) void;
 
@@ -86,6 +99,17 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
         mmap_address,
         mmap_address + arena_pages * page_size,
     );
+    active_address_space = &address_space;
+    active_pages = pages;
+    active_mappings = mappings[0..mapping_count];
+    active_owned = owned[0..owned_count];
+    defer {
+        active_address_space = null;
+        active_pages = null;
+        active_mappings = null;
+        active_owned = null;
+    }
+    standby_pages += try discardCleanPages(&address_space, pages, mappings[0..mapping_count], owned[0..owned_count]);
     address_space.activate();
     enter_user(entry, stack_pointer);
     if (syscalls.exitStatus() != 0) return error.ProcessFailed;
@@ -206,12 +230,22 @@ fn loadSegment(
         if (physical_address == null) {
             if (mapping_count.* == max_mappings) return error.TooManyMappings;
             physical_address = pages.allocate(1) orelse return error.OutOfMemory;
+            const owner_index = owned_count.*;
             try own(owned, owned_count, physical_address.?, 1);
             const bytes: [*]u8 = @ptrFromInt(physical_address.?);
             @memset(bytes[0..page_size], 0);
             try address_space.mapUserPage(page_virtual, physical_address.?, writable);
-            mappings[mapping_count.*] = .{ .virtual = page_virtual, .physical = physical_address.? };
+            mappings[mapping_count.*] = .{
+                .virtual = page_virtual,
+                .physical = physical_address.?,
+                .owner_index = owner_index,
+                .writable = writable,
+            };
             mapping_count.* += 1;
+        } else if (writable) {
+            for (mappings[0..mapping_count.*]) |*mapping| {
+                if (mapping.virtual == page_virtual) mapping.writable = true;
+            }
         }
 
         const copy_start = @max(page_virtual, virtual);
@@ -225,6 +259,69 @@ fn loadSegment(
     }
 }
 
+fn discardCleanPages(address_space: *paging.AddressSpace, pages: *physical.Allocator, mappings: []Mapping, owned: []OwnedRange) !u64 {
+    var discarded: u64 = 0;
+    for (mappings) |*mapping| {
+        if (mapping.writable or !mapping.resident) continue;
+        const physical_address = address_space.unmapUserPage(mapping.virtual) orelse return error.MappingMissing;
+        if (physical_address != mapping.physical) return error.MappingMismatch;
+        try pages.release(physical_address, 1);
+        owned[mapping.owner_index] = .{ .address = 0, .pages = 0 };
+        mapping.physical = 0;
+        mapping.resident = false;
+        discarded += 1;
+    }
+    return discarded;
+}
+
+pub fn handlePageFault(address: u64, instruction: u64, code: u64) callconv(.c) bool {
+    _ = instruction;
+    if ((code & 1) != 0) return false;
+    const address_space = active_address_space orelse return false;
+    const pages = active_pages orelse return false;
+    const mappings = active_mappings orelse return false;
+    const owned = active_owned orelse return false;
+    const page_virtual = address & ~(page_size - 1);
+    for (mappings) |*mapping| {
+        if (mapping.virtual != page_virtual or mapping.resident or mapping.writable) continue;
+        const physical_address = pages.allocate(1) orelse return false;
+        const bytes: [*]u8 = @ptrFromInt(physical_address);
+        @memset(bytes[0..page_size], 0);
+        restoreFilePage(page_virtual, physical_address);
+        address_space.mapUserPage(page_virtual, physical_address, false) catch {
+            pages.release(physical_address, 1) catch {};
+            return false;
+        };
+        mapping.physical = physical_address;
+        mapping.resident = true;
+        owned[mapping.owner_index] = .{ .address = physical_address, .pages = 1 };
+        restored_pages += 1;
+        return true;
+    }
+    return false;
+}
+
+fn restoreFilePage(page_virtual: u64, physical_address: u64) void {
+    const program_offset = read64(32);
+    const program_entry_size = read16(54);
+    const program_count = read16(56);
+    var header_index: usize = 0;
+    while (header_index < program_count) : (header_index += 1) {
+        const header: usize = @intCast(program_offset + @as(u64, program_entry_size) * header_index);
+        if (read32At(header) != 1) continue;
+        const file_offset = read64At(header + 8);
+        const virtual = read64At(header + 16);
+        const file_size = read64At(header + 32);
+        const copy_start = @max(page_virtual, virtual);
+        const copy_end = @min(page_virtual + page_size, virtual + file_size);
+        if (copy_start >= copy_end) continue;
+        const destination: [*]u8 = @ptrFromInt(physical_address + copy_start - page_virtual);
+        const source: usize = @intCast(file_offset + copy_start - virtual);
+        const length: usize = @intCast(copy_end - copy_start);
+        @memcpy(destination[0..length], image[source .. source + length]);
+    }
+}
+
 fn own(ranges: *[max_owned_ranges]OwnedRange, count: *usize, address: u64, pages: u64) !void {
     if (count.* == ranges.len) return error.TooManyOwnedRanges;
     ranges[count.*] = .{ .address = address, .pages = pages };
@@ -235,6 +332,7 @@ fn releaseOwned(allocator: *physical.Allocator, ranges: []const OwnedRange) void
     var index = ranges.len;
     while (index > 0) {
         index -= 1;
+        if (ranges[index].pages == 0) continue;
         allocator.release(ranges[index].address, ranges[index].pages) catch unreachable;
     }
 }

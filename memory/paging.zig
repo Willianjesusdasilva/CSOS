@@ -75,6 +75,18 @@ pub const AddressSpace = struct {
         page_table[page_index] = physical_address | 0x005 | if (writable) @as(u64, 0x002) else 0;
     }
 
+    pub fn unmapUserPage(self: *AddressSpace, virtual: u64) ?u64 {
+        const entry = userLeaf(self.root, virtual) orelse return null;
+        if ((entry.* & 1) == 0) return null;
+        const physical_address = entry.* & address_mask;
+        entry.* = 0;
+        asm volatile ("invlpg (%[address])"
+            :
+            : [address] "r" (virtual),
+            : .{ .memory = true });
+        return physical_address;
+    }
+
     pub fn activate(self: *const AddressSpace) void {
         asm volatile ("mov %[root], %%cr3"
             :
@@ -146,6 +158,16 @@ fn allocateTable(pages: *physical.Allocator) !u64 {
 
 fn table(address: u64) *[entry_count]u64 {
     return @ptrFromInt(address);
+}
+
+fn userLeaf(root: u64, virtual: u64) ?*u64 {
+    const pml4_entry = &table(root)[(virtual >> 39) & 0x1ff];
+    if ((pml4_entry.* & 1) == 0 or (pml4_entry.* & 0x080) != 0) return null;
+    const pdpt_entry = &table(pml4_entry.* & address_mask)[(virtual >> 30) & 0x1ff];
+    if ((pdpt_entry.* & 1) == 0 or (pdpt_entry.* & 0x080) != 0) return null;
+    const directory_entry = &table(pdpt_entry.* & address_mask)[(virtual >> 21) & 0x1ff];
+    if ((directory_entry.* & 1) == 0 or (directory_entry.* & 0x080) != 0) return null;
+    return &table(directory_entry.* & address_mask)[(virtual >> 12) & 0x1ff];
 }
 
 fn destroyTable(pages: *physical.Allocator, address: u64, level: u8) void {
