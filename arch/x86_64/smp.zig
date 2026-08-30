@@ -11,6 +11,7 @@ extern const ap_trampoline_stack: u8;
 extern const ap_trampoline_entry: u8;
 
 pub export var online_aps: u32 = 0;
+var secondary_entry: ?*const fn (u32) callconv(.c) noreturn = null;
 
 pub fn prepare(cr3: u64) !void {
     const source_address = @intFromPtr(&ap_trampoline_start);
@@ -37,6 +38,10 @@ pub fn start(apic_id: u32, pages: *physical.Allocator) !void {
     if (@atomicLoad(u32, &online_aps, .acquire) < expected) return error.StartTimeout;
 }
 
+pub fn setSecondaryEntry(entry: *const fn (u32) callconv(.c) noreturn) void {
+    secondary_entry = entry;
+}
+
 fn patch(comptime T: type, source_symbol: *const u8, value: T) void {
     const offset = @intFromPtr(source_symbol) - @intFromPtr(&ap_trampoline_start);
     const target: *align(1) T = @ptrFromInt(trampoline_address + offset);
@@ -45,5 +50,6 @@ fn patch(comptime T: type, source_symbol: *const u8, value: T) void {
 
 fn apMain() callconv(.c) noreturn {
     _ = @atomicRmw(u32, &online_aps, .Add, 1, .release);
+    if (secondary_entry) |entry| entry(apic.id());
     while (true) asm volatile ("cli; hlt");
 }

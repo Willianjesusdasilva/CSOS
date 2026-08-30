@@ -22,6 +22,9 @@ pub fn build(b: *std.Build) void {
     paging_module.addImport("physical", physical_module);
     const heap_module = b.createModule(.{ .root_source_file = b.path("memory/heap.zig") });
     heap_module.addImport("physical", physical_module);
+    const scheduler_module = b.createModule(.{ .root_source_file = b.path("kernel/scheduler.zig") });
+    scheduler_module.addImport("physical", physical_module);
+    scheduler_module.addImport("idt", idt_module);
     const kernel_module = b.createModule(.{ .root_source_file = b.path("kernel/main.zig") });
     kernel_module.addImport("serial", serial_module);
     kernel_module.addImport("gdt", gdt_module);
@@ -33,6 +36,7 @@ pub fn build(b: *std.Build) void {
     kernel_module.addImport("physical", physical_module);
     kernel_module.addImport("paging", paging_module);
     kernel_module.addImport("heap", heap_module);
+    kernel_module.addImport("scheduler", scheduler_module);
     const boot_module = b.createModule(.{
         .root_source_file = b.path("boot/main.zig"),
         .target = target,
@@ -41,6 +45,7 @@ pub fn build(b: *std.Build) void {
     boot_module.addImport("serial", serial_module);
     boot_module.addImport("kernel", kernel_module);
     boot_module.addAssemblyFile(b.path("arch/x86_64/ap_trampoline.S"));
+    boot_module.addAssemblyFile(b.path("arch/x86_64/context_switch.S"));
     const boot = b.addExecutable(.{ .name = "BOOTX64", .root_module = boot_module });
     b.installArtifact(boot);
 

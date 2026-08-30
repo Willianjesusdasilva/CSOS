@@ -8,6 +8,13 @@ const smp = @import("smp");
 const physical = @import("physical");
 const paging = @import("paging");
 const heap = @import("heap");
+const scheduler = @import("scheduler");
+
+var thread_a_runs: usize = 0;
+var thread_b_runs: usize = 0;
+var preempt_a: usize = 0;
+var preempt_b: usize = 0;
+var per_cpu_runs: u32 = 0;
 
 pub const BootInfo = struct {
     framebuffer: Framebuffer,
@@ -57,9 +64,20 @@ pub fn start(info: BootInfo) noreturn {
     smp.prepare(mapper.root) catch panic("SMP trampoline failed");
     const bsp_id = apic.id();
     for (madt.cpus[0..madt.cpu_count]) |cpu| {
+        scheduler.addCpu(cpu.apic_id) catch panic("per-CPU queue setup failed");
+        scheduler.enqueue(cpu.apic_id, &perCpuTask) catch panic("per-CPU enqueue failed");
+    }
+    smp.setSecondaryEntry(&scheduler.secondaryMain);
+    for (madt.cpus[0..madt.cpu_count]) |cpu| {
         if (cpu.apic_id != bsp_id) smp.start(cpu.apic_id, &pages) catch panic("AP startup failed");
     }
     if (smp.online_aps + 1 != madt.cpu_count) panic("SMP CPU count mismatch");
+    if (!scheduler.runLocal(bsp_id)) panic("BSP queue failed");
+    var queue_spins: usize = 0;
+    while (@atomicLoad(u32, &per_cpu_runs, .acquire) != madt.cpu_count and queue_spins < 50_000_000) : (queue_spins += 1) {
+        asm volatile ("pause");
+    }
+    if (@atomicLoad(u32, &per_cpu_runs, .acquire) != madt.cpu_count) panic("per-CPU queues failed");
     serial.write("SMP ready\n");
 
     var kernel_heap = heap.Heap.init(&pages, 16) catch panic("heap setup failed");
@@ -70,11 +88,61 @@ pub fn start(info: BootInfo) noreturn {
     @memset(second, 0x5a);
     serial.write("heap ready\n");
 
+    scheduler.spawn(&threadA, &pages) catch panic("thread A creation failed");
+    scheduler.spawn(&threadB, &pages) catch panic("thread B creation failed");
+    scheduler.run();
+    if (thread_a_runs != 3 or thread_b_runs != 5) panic("context switch failed");
+    serial.write("scheduler context switch ready\n");
+
+    scheduler.spawn(&preemptThreadA, &pages) catch panic("preempt thread A creation failed");
+    scheduler.spawn(&preemptThreadB, &pages) catch panic("preempt thread B creation failed");
+    scheduler.enablePreemption();
+    apic.startPeriodicTimer();
+    asm volatile ("sti");
+    scheduler.run();
+    asm volatile ("cli");
+    apic.stopTimer();
+    scheduler.disablePreemption();
+    if (preempt_a != 2 or preempt_b != 2) panic("timer preemption failed");
+    serial.write("scheduler preemption ready\n");
+
     drawBootMarker(info.framebuffer);
     serial.write("framebuffer ready\n");
-    serial.write("CSOS M3 ready\n");
+    serial.write("CSOS M4 ready\n");
 
     while (true) asm volatile ("cli; hlt");
+}
+
+fn threadA() void {
+    var iteration: usize = 0;
+    while (iteration < 3) : (iteration += 1) {
+        thread_a_runs += 1;
+        scheduler.yieldNow();
+    }
+}
+
+fn threadB() void {
+    var iteration: usize = 0;
+    while (iteration < 5) : (iteration += 1) {
+        thread_b_runs += 1;
+        scheduler.yieldNow();
+    }
+}
+
+fn preemptThreadA() void {
+    preempt_a = 1;
+    while (preempt_b == 0) asm volatile ("pause" ::: .{ .memory = true });
+    preempt_a = 2;
+}
+
+fn preemptThreadB() void {
+    preempt_b = 1;
+    while (preempt_a == 0) asm volatile ("pause" ::: .{ .memory = true });
+    preempt_b = 2;
+}
+
+fn perCpuTask() void {
+    _ = @atomicRmw(u32, &per_cpu_runs, .Add, 1, .release);
 }
 
 pub fn panic(message: []const u8) noreturn {

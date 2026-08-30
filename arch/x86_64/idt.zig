@@ -2,6 +2,7 @@ const interrupt_gate = 0x8e;
 const kernel_code_selector = 0x08;
 
 pub export var lapic_ticks: u64 = 0;
+var timer_hook: ?*const fn () callconv(.c) void = null;
 
 const Entry = packed struct {
     offset_low: u16 = 0,
@@ -56,6 +57,10 @@ pub fn timerTicks() u64 {
     return @atomicLoad(u64, &lapic_ticks, .acquire);
 }
 
+pub fn setTimerHook(hook: ?*const fn () callconv(.c) void) void {
+    timer_hook = hook;
+}
+
 fn breakpoint() callconv(.naked) void {
     asm volatile ("iretq");
 }
@@ -71,12 +76,34 @@ fn unexpectedWithError() callconv(.naked) void {
 fn timer() callconv(.naked) void {
     asm volatile (
         \\pushq %%rax
+        \\pushq %%rcx
+        \\pushq %%rdx
+        \\pushq %%r8
+        \\pushq %%r9
+        \\pushq %%r10
+        \\pushq %%r11
+        \\movq %%rsp, %%rax
+        \\andq $-16, %%rsp
+        \\subq $48, %%rsp
+        \\movq %%rax, 32(%%rsp)
+        \\callq timer_dispatch
+        \\movq 32(%%rsp), %%rsp
         \\incq lapic_ticks(%%rip)
         \\movabsq $0xfee000b0, %%rax
         \\movl $0, (%%rax)
+        \\popq %%r11
+        \\popq %%r10
+        \\popq %%r9
+        \\popq %%r8
+        \\popq %%rdx
+        \\popq %%rcx
         \\popq %%rax
         \\iretq
     );
+}
+
+export fn timer_dispatch() callconv(.c) void {
+    if (timer_hook) |hook| hook();
 }
 
 fn spurious() callconv(.naked) void {
