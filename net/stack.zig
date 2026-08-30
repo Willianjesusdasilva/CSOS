@@ -11,6 +11,7 @@ pub const Stack = struct {
     subnet_mask: [4]u8 = .{0} ** 4,
     dns_ip: [4]u8 = .{0} ** 4,
     identification: u16 = 1,
+    tcp_nonce: u16 = 0,
 
     pub fn init(device: *e1000.Controller) Stack { return .{ .device = device }; }
 
@@ -128,9 +129,10 @@ pub const Stack = struct {
 
     pub fn probeTcpHttp(self: *Stack, destination: [4]u8, host: []const u8) !usize {
         if (host.len == 0 or host.len > 128) return error.InvalidHostName;
-        const source_port: u16 = 49153;
+        const source_port: u16 = 49153 + self.tcp_nonce % 1024;
         const destination_port: u16 = 80;
-        var sequence: u32 = 0x43534f53;
+        var sequence: u32 = 0x43534f53 +% @as(u32, self.tcp_nonce) *% 0x10001;
+        self.tcp_nonce +%= 1;
         try self.sendTcp(destination, self.gateway_mac, source_port, destination_port, sequence, 0, tcp_syn, "");
 
         const syn_ack = try self.receiveTcp(destination, destination_port, source_port, null);

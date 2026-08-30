@@ -369,9 +369,17 @@ pub fn start(info: BootInfo) noreturn {
         serial.writeDecimal(part);
     }
     serial.write("\n");
-    const tcp_started = timestamp(cpu_profile.tsc);
-    const tcp_bytes = network_stack.probeTcpHttp(resolved, "example.com") catch panic("TCP HTTP probe failed");
-    const tcp_cycles = elapsed(tcp_started, cpu_profile.tsc);
+    var tcp_samples = metrics.Samples{};
+    var tcp_sample: usize = 0;
+    var tcp_bytes: usize = 0;
+    while (tcp_sample < 8) : (tcp_sample += 1) {
+        const tcp_started = timestamp(cpu_profile.tsc);
+        const received = network_stack.probeTcpHttp(resolved, "example.com") catch panic("TCP HTTP probe failed");
+        tcp_samples.add(elapsed(tcp_started, cpu_profile.tsc)) catch panic("TCP metric capacity failed");
+        if (received == 0 or (tcp_bytes != 0 and received != tcp_bytes)) panic("TCP response instability");
+        tcp_bytes = received;
+    }
+    const tcp_latency = tcp_samples.summarize() catch panic("TCP metrics missing");
     serial.write("TCP response bytes: ");
     serial.writeDecimal(tcp_bytes);
     serial.write("\nCSOS M12 TCP ready\n");
@@ -397,7 +405,9 @@ pub fn start(info: BootInfo) noreturn {
     serial.write("\nprofile NVMe read cycles p50: "); serial.writeDecimal(nvme_latency.p50);
     serial.write(" p95: "); serial.writeDecimal(nvme_latency.p95);
     serial.write(" p99: "); serial.writeDecimal(nvme_latency.p99);
-    serial.write("\nprofile TCP transaction cycles: "); serial.writeDecimal(tcp_cycles);
+    serial.write("\nprofile TCP transaction cycles p50: "); serial.writeDecimal(tcp_latency.p50);
+    serial.write(" p95: "); serial.writeDecimal(tcp_latency.p95);
+    serial.write(" p99: "); serial.writeDecimal(tcp_latency.p99);
     serial.write("\nCSOS M18 profiling baseline ready\n");
 
     const gpu_adapter = gpu.Adapter.discover(display_device) catch panic("GPU discovery failed");
