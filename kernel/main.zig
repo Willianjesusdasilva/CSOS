@@ -6,6 +6,7 @@ const ioapic = @import("ioapic");
 const acpi = @import("acpi");
 const pci = @import("pci");
 const nvme = @import("nvme");
+const fat16 = @import("fat16");
 const smp = @import("smp");
 const physical = @import("physical");
 const paging = @import("paging");
@@ -146,18 +147,22 @@ pub fn start(info: BootInfo) noreturn {
     const io_bytes: [*]u8 = @ptrFromInt(io_buffer);
     var io_index: usize = 0;
     while (io_index < storage.block_size) : (io_index += 1) io_bytes[io_index] = @truncate(io_index ^ 0xa5);
-    storage.writeBlock(0, io_buffer) catch panic("NVMe write failed");
+    storage.writeBlock(1000, io_buffer) catch panic("NVMe write failed");
     @memset(io_bytes[0..storage.block_size], 0);
-    storage.readBlock(0, io_buffer) catch panic("NVMe read failed");
+    storage.readBlock(1000, io_buffer) catch panic("NVMe read failed");
     io_index = 0;
     while (io_index < storage.block_size) : (io_index += 1) {
         if (io_bytes[io_index] != @as(u8, @truncate(io_index ^ 0xa5))) panic("NVMe data mismatch");
     }
     serial.write("NVMe read/write ready\n");
+    var volume = fat16.Volume.mount(&storage, &pages) catch panic("FAT16 mount failed");
+    var file_data: [128]u8 = undefined;
+    const file_size = volume.readRootFile("SYSTEM  TXT", &file_data) catch panic("FAT16 read failed");
+    serial.write(file_data[0..file_size]);
+    serial.write("CSOS M10 ready\n");
 
     drawBootMarker(info.framebuffer);
     serial.write("framebuffer ready\n");
-    serial.write("CSOS M9 ready\n");
 
     while (true) asm volatile ("cli; hlt");
 }

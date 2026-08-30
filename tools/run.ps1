@@ -26,10 +26,7 @@ Copy-Item -Force -LiteralPath $EfiBinary -Destination (Join-Path $bootDir 'BOOTX
 $localOvmf = Join-Path $PSScriptRoot '..\zig-out\OVMF_CODE.fd'
 Copy-Item -Force -LiteralPath $ovmf -Destination $localOvmf
 $nvmeDisk = Join-Path $PSScriptRoot '..\zig-out\nvme.img'
-if (-not (Test-Path -LiteralPath $nvmeDisk)) {
-    $disk = [System.IO.File]::Create($nvmeDisk)
-    try { $disk.SetLength(64MB) } finally { $disk.Dispose() }
-}
+& (Join-Path $PSScriptRoot 'make-fat16.ps1') -Path $nvmeDisk
 
 & $qemu.FullName -machine q35 -smp 4 -m 256M -drive "if=pflash,format=raw,readonly=on,file=$localOvmf" -drive "format=raw,file=fat:rw:$esp" -drive "if=none,id=nvme0,format=raw,file=$nvmeDisk" -device "nvme,drive=nvme0,serial=CSOS0001" -serial stdio -no-reboot
 exit $LASTEXITCODE
