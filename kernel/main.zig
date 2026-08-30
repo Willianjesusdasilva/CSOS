@@ -43,8 +43,11 @@ pub const Framebuffer = display.Framebuffer;
 pub fn start(info: BootInfo) noreturn {
     serial.write("kernel entry\n");
     const madt = acpi.findMadt(info.rsdp) catch panic("ACPI MADT invalid");
+    const power = acpi.findPower(info.rsdp) catch panic("ACPI power invalid");
     if (madt.cpu_count == 0 or madt.ioapic_count == 0) panic("ACPI topology missing");
     serial.write("ACPI MADT ready\n");
+    _ = power;
+    serial.write("ACPI power control ready\n");
     for (madt.ioapics[0..madt.ioapic_count]) |controller| {
         ioapic.init(controller.address) catch panic("IOAPIC setup failed");
     }
