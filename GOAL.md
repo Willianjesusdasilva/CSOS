@@ -1,34 +1,39 @@
-# GOAL.md — CSOS
+﻿# GOAL.md â€” CSOS
 
 ## Objetivo
 
-Construir o **CSOS**, um sistema operacional x86-64 minimalista escrito em **Zig**, criado exclusivamente para executar **Steam + Counter-Strike 2** com o menor overhead possível.
+Construir o **CSOS**, um sistema operacional x86-64 minimalista escrito em **Zig**, criado exclusivamente para executar **Steam + Counter-Strike 2** com o menor overhead possÃ­vel.
 
 Prioridades:
 
 1. CS2 funcionar.
 2. estabilidade.
 3. frametime consistente.
-4. baixa latência de input.
+4. baixa latÃªncia de input.
 5. 1% / 0.1% lows.
-6. FPS médio.
-7. boot e consumo mínimos.
+6. FPS mÃ©dio.
+7. boot e consumo mÃ­nimos.
 
-Não criar um SO genérico.
+O trabalho deve seguir primeiro a construÃ§Ã£o de um sistema operacional funcional:
+boot, memÃ³ria, processos, armazenamento, entrada, rede, Ã¡udio, display,
+energia e recuperaÃ§Ã£o. Steam e CS2 permanecem nas Ãºltimas milestones e nÃ£o
+devem bloquear a implementaÃ§Ã£o ou validaÃ§Ã£o das camadas fundamentais.
+
+NÃ£o criar um SO genÃ©rico.
 
 Fluxo final:
 
 ```text
 UEFI
- ↓
+ â†“
 CSOS
- ↓
+ â†“
 Linux-compatible userspace
- ↓
+ â†“
 Steam
- ↓
+ â†“
 Vulkan
- ↓
+ â†“
 CS2
 ```
 
@@ -36,33 +41,33 @@ CS2
 
 ## Regra principal para a IA
 
-**Gastar o mínimo de tokens e código possível.**
+**Gastar o mÃ­nimo de tokens e cÃ³digo possÃ­vel.**
 
-Não fazer:
+NÃ£o fazer:
 
-- testes automáticos extensos;
+- testes automÃ¡ticos extensos;
 - mocks;
 - frameworks internos;
-- abstrações prematuras;
+- abstraÃ§Ãµes prematuras;
 - arquitetura "enterprise";
-- interfaces para uma única implementação;
-- wrappers inúteis;
-- documentação repetitiva;
-- refactors cosméticos;
+- interfaces para uma Ãºnica implementaÃ§Ã£o;
+- wrappers inÃºteis;
+- documentaÃ§Ã£o repetitiva;
+- refactors cosmÃ©ticos;
 - boilerplate;
-- código "bonito" sem benefício;
-- suporte a hardware não necessário;
-- features não exigidas pela milestone atual.
+- cÃ³digo "bonito" sem benefÃ­cio;
+- suporte a hardware nÃ£o necessÃ¡rio;
+- features nÃ£o exigidas pela milestone atual.
 
-Não escrever código apenas para demonstrar boas práticas.
+NÃ£o escrever cÃ³digo apenas para demonstrar boas prÃ¡ticas.
 
 Preferir:
 
 ```text
-funciona > simples > rápido > bonito
+funciona > simples > rÃ¡pido > bonito
 ```
 
-Implementar somente o menor código necessário para desbloquear a próxima etapa.
+Implementar somente o menor cÃ³digo necessÃ¡rio para desbloquear a prÃ³xima etapa.
 
 Testes devem ser principalmente:
 
@@ -74,59 +79,59 @@ observar
 corrigir
 ```
 
-Criar teste automatizado somente quando ele evitar claramente trabalho manual recorrente ou regressão difícil de detectar.
+Criar teste automatizado somente quando ele evitar claramente trabalho manual recorrente ou regressÃ£o difÃ­cil de detectar.
 
 ---
 
 # Linguagem
 
-Código próprio:
+CÃ³digo prÃ³prio:
 
 ```text
 Zig
 ```
 
-Código externo pode continuar em C/C++ quando reescrevê-lo não aproximar CS2 de funcionar.
+CÃ³digo externo pode continuar em C/C++ quando reescrevÃª-lo nÃ£o aproximar CS2 de funcionar.
 
-Não reescrever Mesa, RADV, firmware ou drivers complexos apenas para dizer que o sistema é 100% Zig.
+NÃ£o reescrever Mesa, RADV, firmware ou drivers complexos apenas para dizer que o sistema Ã© 100% Zig.
 
-Não converter Linux linha por linha.
+NÃ£o converter Linux linha por linha.
 
-Preservar a ABI necessária ao userspace Linux, não a arquitetura interna do Linux.
+Preservar a ABI necessÃ¡ria ao userspace Linux, nÃ£o a arquitetura interna do Linux.
 
 ---
 
 # Filosofia
 
-Pergunta que decide qualquer implementação:
+Pergunta que decide qualquer implementaÃ§Ã£o:
 
-> Isso aproxima Steam/CS2 de funcionar ou melhora de forma mensurável sua execução?
+> Isso aproxima Steam/CS2 de funcionar ou melhora de forma mensurÃ¡vel sua execuÃ§Ã£o?
 
-Se não:
+Se nÃ£o:
 
 ```text
-não fazer
+nÃ£o fazer
 ```
 
 ---
 
 # Hardware autoconfigurado
 
-O mesmo kernel deve funcionar em diferentes máquinas suportadas.
+O mesmo kernel deve funcionar em diferentes mÃ¡quinas suportadas.
 
-O kernel NÃO será recompilado para cada PC.
+O kernel NÃƒO serÃ¡ recompilado para cada PC.
 
-Durante a instalação, CSOS deve:
+Durante a instalaÃ§Ã£o, CSOS deve:
 
 ```text
 detectar hardware
-↓
+â†“
 detectar topologia
-↓
-medir apenas o necessário
-↓
-escolher configuração
-↓
+â†“
+medir apenas o necessÃ¡rio
+â†“
+escolher configuraÃ§Ã£o
+â†“
 gerar perfil pequeno
 ```
 
@@ -140,27 +145,27 @@ Nos boots seguintes:
 
 ```text
 UEFI
-↓
+â†“
 kernel
-↓
+â†“
 validar hardware
-↓
+â†“
 carregar hardware.csc
-↓
-aplicar configuração
-↓
+â†“
+aplicar configuraÃ§Ã£o
+â†“
 iniciar sistema
 ```
 
-Não repetir benchmarks pesados em todo boot.
+NÃ£o repetir benchmarks pesados em todo boot.
 
 ---
 
 # hardware.csc
 
-Começar com formato textual simples.
+ComeÃ§ar com formato textual simples.
 
-Não criar parser complexo.
+NÃ£o criar parser complexo.
 
 Exemplo:
 
@@ -207,15 +212,15 @@ height=...
 refresh=...
 ```
 
-Esses valores são exemplos.
+Esses valores sÃ£o exemplos.
 
-Nunca inventar valores da máquina.
+Nunca inventar valores da mÃ¡quina.
 
 ---
 
 # Hardware discovery
 
-Na instalação detectar somente dados úteis:
+Na instalaÃ§Ã£o detectar somente dados Ãºteis:
 
 ## CPU
 
@@ -248,8 +253,8 @@ MSI/MSI-X
 ```text
 vendor/device
 PCI address
-VRAM quando disponível
-driver necessário
+VRAM quando disponÃ­vel
+driver necessÃ¡rio
 Vulkan capabilities relevantes
 ```
 
@@ -301,7 +306,7 @@ No boot:
 
 ```text
 assinatura atual == hardware.csc
-    ↓
+    â†“
 usar perfil
 ```
 
@@ -309,13 +314,13 @@ Se diferente:
 
 ```text
 safe defaults
-↓
+â†“
 retunar somente componentes afetados
-↓
+â†“
 atualizar hardware.csc
 ```
 
-Trocar NIC não deve forçar autotune completo da CPU.
+Trocar NIC nÃ£o deve forÃ§ar autotune completo da CPU.
 
 ---
 
@@ -324,10 +329,10 @@ Trocar NIC não deve forçar autotune completo da CPU.
 Usar:
 
 ```text
-hardware facts       → install-time
-benchmark caro       → install-time
-validação barata     → boot-time
-estado variável      → runtime
+hardware facts       â†’ install-time
+benchmark caro       â†’ install-time
+validaÃ§Ã£o barata     â†’ boot-time
+estado variÃ¡vel      â†’ runtime
 ```
 
 Nunca executar benchmark pesado no boot normal.
@@ -336,33 +341,33 @@ Nunca executar benchmark pesado no boot normal.
 
 # Autotuner
 
-Implementar somente tuners que produzam benefício real.
+Implementar somente tuners que produzam benefÃ­cio real.
 
 Estrutura:
 
 ```text
 installer/
-└── autotune/
-    ├── cpu.zig
-    ├── irq.zig
-    ├── input.zig
-    ├── network.zig
-    ├── nvme.zig
-    ├── audio.zig
-    └── display.zig
+â””â”€â”€ autotune/
+    â”œâ”€â”€ cpu.zig
+    â”œâ”€â”€ irq.zig
+    â”œâ”€â”€ input.zig
+    â”œâ”€â”€ network.zig
+    â”œâ”€â”€ nvme.zig
+    â”œâ”€â”€ audio.zig
+    â””â”€â”€ display.zig
 ```
 
-Não criar um sistema genérico de plugins.
+NÃ£o criar um sistema genÃ©rico de plugins.
 
 Cada tuner:
 
 ```text
 detecta
-↓
-testa poucas opções úteis
-↓
+â†“
+testa poucas opÃ§Ãµes Ãºteis
+â†“
 escolhe
-↓
+â†“
 salva resultado
 ```
 
@@ -372,7 +377,7 @@ salva resultado
 
 O scheduler deve conhecer a topologia real.
 
-Não assumir que todos os logical CPUs são iguais.
+NÃ£o assumir que todos os logical CPUs sÃ£o iguais.
 
 Detectar:
 
@@ -397,7 +402,7 @@ network CPU
 audio CPU
 ```
 
-Não hardcodar um layout universal.
+NÃ£o hardcodar um layout universal.
 
 Medir antes de escolher afinidades agressivas.
 
@@ -409,41 +414,41 @@ Mapear:
 
 ```text
 device
-↓
+â†“
 MSI/MSI-X
-↓
+â†“
 vector
-↓
+â†“
 CPU
 ```
 
 Objetivo:
 
 ```text
-baixa latência
+baixa latÃªncia
 +
-mínima interferência no CS2
+mÃ­nima interferÃªncia no CS2
 ```
 
-Salvar somente a melhor configuração conhecida.
+Salvar somente a melhor configuraÃ§Ã£o conhecida.
 
 ---
 
 # Input
 
-Input é caminho crítico.
+Input Ã© caminho crÃ­tico.
 
 ```text
 mouse
-↓
+â†“
 xHCI
-↓
+â†“
 IRQ
-↓
+â†“
 HID
-↓
+â†“
 input queue
-↓
+â†“
 CS2
 ```
 
@@ -456,7 +461,7 @@ mouse
 keyboard
 ```
 
-Não aplicar:
+NÃ£o aplicar:
 
 ```text
 acceleration
@@ -464,7 +469,7 @@ smoothing
 filtering
 ```
 
-por padrão.
+por padrÃ£o.
 
 Respeitar polling anunciado pelo dispositivo.
 
@@ -475,11 +480,11 @@ Respeitar polling anunciado pelo dispositivo.
 Objetivo:
 
 ```text
-latência baixa
+latÃªncia baixa
 jitter baixo
 ```
 
-Não otimizar para throughput sintético máximo.
+NÃ£o otimizar para throughput sintÃ©tico mÃ¡ximo.
 
 Detectar:
 
@@ -491,7 +496,7 @@ interrupt moderation
 offloads
 ```
 
-Testar poucas configurações relevantes.
+Testar poucas configuraÃ§Ãµes relevantes.
 
 ---
 
@@ -499,7 +504,7 @@ Testar poucas configurações relevantes.
 
 Implementar somente NVMe inicialmente.
 
-Não implementar:
+NÃ£o implementar:
 
 ```text
 IDE
@@ -507,7 +512,7 @@ SATA/AHCI
 optical
 ```
 
-até existir necessidade real.
+atÃ© existir necessidade real.
 
 Avaliar:
 
@@ -517,43 +522,43 @@ queue depth
 interrupt placement
 ```
 
-Priorizar consistência de latência durante gameplay.
+Priorizar consistÃªncia de latÃªncia durante gameplay.
 
 ---
 
 # GPU
 
-GPU é a parte mais cara do projeto.
+GPU Ã© a parte mais cara do projeto.
 
-Não reescrever driver moderno de GPU antes de CS2 funcionar.
+NÃ£o reescrever driver moderno de GPU antes de CS2 funcionar.
 
-Primeira estratégia:
+Primeira estratÃ©gia:
 
 ```text
 CSOS
-↓
-compatibilidade necessária
-↓
+â†“
+compatibilidade necessÃ¡ria
+â†“
 driver AMD existente
-↓
+â†“
 Mesa
-↓
+â†“
 RADV
-↓
+â†“
 Vulkan
 ```
 
 Priorizar AMD inicialmente.
 
-Não criar um driver Radeon completo em Zig antes do primeiro frame Vulkan.
+NÃ£o criar um driver Radeon completo em Zig antes do primeiro frame Vulkan.
 
 ---
 
 # Linux ABI
 
-Steam/CS2 devem enxergar o ambiente necessário para executar binários Linux x86-64.
+Steam/CS2 devem enxergar o ambiente necessÃ¡rio para executar binÃ¡rios Linux x86-64.
 
-Manter números e semântica necessários das syscalls Linux.
+Manter nÃºmeros e semÃ¢ntica necessÃ¡rios das syscalls Linux.
 
 Implementar sob demanda.
 
@@ -593,25 +598,25 @@ shared memory
 Unix sockets
 ```
 
-Não implementar syscall porque "Linux tem".
+NÃ£o implementar syscall porque "Linux tem".
 
-Implementar porque um binário necessário pediu.
+Implementar porque um binÃ¡rio necessÃ¡rio pediu.
 
 ---
 
 # Filesystem
 
-Começar:
+ComeÃ§ar:
 
 ```text
 initramfs
 tmpfs
-VFS mínimo
+VFS mÃ­nimo
 ```
 
-Depois integrar filesystem maduro necessário ao Steam.
+Depois integrar filesystem maduro necessÃ¡rio ao Steam.
 
-Não inventar filesystem próprio.
+NÃ£o inventar filesystem prÃ³prio.
 
 ---
 
@@ -634,7 +639,7 @@ AMD Radeon
 USB Audio
 ```
 
-Não priorizar:
+NÃ£o priorizar:
 
 ```text
 BIOS legacy
@@ -653,45 +658,500 @@ server workloads
 
 ---
 
-# Estrutura mínima
+# Estrutura mÃ­nima
 
 ```text
 csos/
-├── build.zig
-├── GOAL.md
-├── boot/
-├── arch/x86_64/
-├── kernel/
-├── memory/
-├── drivers/
-├── fs/
-├── net/
-├── linux_abi/
-├── gaming/
-├── installer/
-│   └── autotune/
-├── userspace/
-└── tools/
+â”œâ”€â”€ build.zig
+â”œâ”€â”€ GOAL.md
+â”œâ”€â”€ boot/
+â”œâ”€â”€ arch/x86_64/
+â”œâ”€â”€ kernel/
+â”œâ”€â”€ memory/
+â”œâ”€â”€ drivers/
+â”œâ”€â”€ fs/
+â”œâ”€â”€ net/
+â”œâ”€â”€ linux_abi/
+â”œâ”€â”€ gaming/
+â”œâ”€â”€ installer/
+â”‚   â””â”€â”€ autotune/
+â”œâ”€â”€ userspace/
+â””â”€â”€ tools/
 ```
 
-Criar novos diretórios somente quando realmente necessários.
+Criar novos diretÃ³rios somente quando realmente necessÃ¡rios.
+
+---
+
+# Application lifecycle / standby
+
+AplicaÃ§Ãµes fora de foco nÃ£o devem continuar competindo com o workload principal sem necessidade.
+
+Estados:
+
+```text
+RUNNING
+â†“
+BACKGROUND
+â†“
+FROZEN
+â†“
+STANDBY
+â†“
+RESUMING
+â†“
+RUNNING
+```
+
+PolÃ­ticas:
+
+```text
+KEEP_ALIVE
+FREEZE
+STANDBY
+AUTO
+```
+
+Ao perder foco:
+
+```text
+RUNNING
+â†“
+BACKGROUND
+â†“
+grace period
+â†“
+FROZEN
+```
+
+Freeze:
+
+- remover threads das run queues;
+- pausar execuÃ§Ã£o normal;
+- preservar estado necessÃ¡rio;
+- CPU do processo deve tender a zero;
+- timers ficam pausados por padrÃ£o, salvo exceÃ§Ãµes necessÃ¡rias.
+
+ApÃ³s freeze, o sistema pode fazer reclaim seguro.
+
+Classificar pÃ¡ginas somente no nÃ­vel necessÃ¡rio:
+
+```text
+FILE_BACKED_CLEAN
+FILE_BACKED_DIRTY
+ANONYMOUS
+SHARED
+PINNED
+GPU
+```
+
+`FILE_BACKED_CLEAN` pode ser descartada e recuperada depois via page fault + filesystem + NVMe.
+
+`FILE_BACKED_DIRTY` deve ser persistida ou mantida.
+
+`ANONYMOUS`, `SHARED`, `PINNED` e memÃ³ria ligada a GPU permanecem residentes enquanto nÃ£o existir mecanismo comprovadamente seguro para removÃª-las.
+
+NÃ£o implementar snapshot completo de processo como requisito inicial.
+
+Resume deve ser lazy:
+
+```text
+selecionar app
+â†“
+RESUMING
+â†“
+threads retornam
+â†“
+RUNNING
+â†“
+page faults recuperam pÃ¡ginas descartadas conforme necessÃ¡rio
+```
+
+AplicaÃ§Ãµes multiprocesso devem poder pertencer a um grupo lÃ³gico para evitar congelar apenas metade de um app.
+
+GAME/MATCH podem aplicar standby mais agressivamente.
+
+Durante MATCH, manter apenas o necessÃ¡rio:
+
+```text
+CS2
+kernel
+display/GPU
+input
+network
+audio
+Steam estritamente necessÃ¡rio
+processos explicitamente autorizados
+```
+
+Todo restante deve preferencialmente ficar `FROZEN` ou `STANDBY`.
+
+---
+
+# Interface HTML
+
+Toda interface do CSOS deve ser baseada em:
+
+```text
+HTML
+CSS
+JavaScript mÃ­nimo
+Jinja
+```
+
+NÃ£o usar toolkit desktop tradicional como arquitetura principal.
+
+HTML Ã© a linguagem da interface; isso NÃƒO exige navegador completo, servidor HTTP, Node, Python, nginx ou Apache.
+
+Estrutura:
+
+```text
+/system/ui/
+â”œâ”€â”€ variables.conf
+â”œâ”€â”€ providers/
+â”œâ”€â”€ scripts/
+â””â”€â”€ interface/
+    â”œâ”€â”€ index.html
+    â”œâ”€â”€ alt_tab.html
+    â”œâ”€â”€ settings.html
+    â”œâ”€â”€ performance.html
+    â”œâ”€â”€ css/
+    â””â”€â”€ js/
+```
+
+Criar um `ui-runtime` pequeno.
+
+Fluxo:
+
+```text
+variables.conf
+â†“
+providers/estado do sistema
+â†“
+ui-runtime
+â†“
+Jinja
+â†“
+HTML/CSS
+â†“
+renderer
+â†“
+display
+```
+
+O renderer deve fornecer somente HTML/CSS/JS necessÃ¡rio ao shell, com aceleraÃ§Ã£o GPU quando disponÃ­vel.
+
+A interface deve poder ser alterada sem recompilar o kernel.
+
+---
+
+# variables.conf
+
+O arquivo associa uma variÃ¡vel da interface a um provider/comando.
+
+Formato inicial:
+
+```ini
+CPU_MODEL="/system/ui/providers/cpu_model"
+CPU_TEMP="/system/ui/providers/cpu_temp"
+GPU_MODEL="/system/ui/providers/gpu_model"
+GPU_TEMP="/system/ui/providers/gpu_temp"
+RAM_USED="/system/ui/providers/ram_used"
+RAM_TOTAL="/system/ui/providers/ram_total"
+CURRENT_FPS="/system/ui/providers/current_fps"
+FRAME_TIME="/system/ui/providers/frame_time"
+GAME_MODE="/system/ui/providers/game_mode"
+NETWORK_IP="/system/ui/providers/network_ip"
+NETWORK_PING="/system/ui/providers/network_ping"
+DISPLAY_REFRESH="/system/ui/providers/display_refresh"
+DISPLAY_RESOLUTION="/system/ui/providers/display_resolution"
+```
+
+Valores acima sÃ£o exemplos.
+
+Provider simples:
+
+```text
+executar
+â†“
+stdout
+â†“
+valor
+```
+
+Na interface:
+
+```jinja
+{{ CPU_TEMP }}
+{{ CURRENT_FPS }}
+{{ GAME_MODE }}
+```
+
+Exemplo:
+
+```html
+<span>CPU {{ CPU_TEMP }}Â°C</span>
+<span data-var="CURRENT_FPS">{{ CURRENT_FPS }} FPS</span>
+```
+
+O mesmo provider nÃ£o deve ser executado vÃ¡rias vezes no mesmo ciclo de render. Resolver uma vez e usar cache.
+
+Valores rÃ¡pidos podem posteriormente usar acesso residente:
+
+```ini
+CPU_MODEL="exec:/system/ui/providers/cpu_model"
+CURRENT_FPS="sys:game.fps"
+FRAME_TIME="sys:game.frametime"
+```
+
+`exec:` executa provider.
+
+`sys:` consulta estado jÃ¡ residente no `ui-runtime`.
+
+Implementar `sys:` somente quando necessÃ¡rio.
+
+Para atualizaÃ§Ã£o rÃ¡pida:
+
+```text
+runtime
+â†“
+IPC
+â†“
+JS mÃ­nimo
+â†“
+DOM update
+```
+
+NÃ£o rerenderizar a pÃ¡gina inteira para atualizar FPS/frametime.
+
+Jinja nunca pode executar shell arbitrÃ¡rio.
+
+PROIBIDO:
+
+```jinja
+{{ exec("command") }}
+```
+
+Templates acessam somente variÃ¡veis registradas.
+
+---
+
+# Scripts da interface
+
+Separar leitura de aÃ§Ãµes:
+
+```text
+variables.conf/providers â†’ READ
+scripts/                 â†’ ACTION
+```
+
+Exemplo:
+
+```text
+/system/ui/scripts/
+â”œâ”€â”€ launch_cs2
+â”œâ”€â”€ close_cs2
+â”œâ”€â”€ set_volume
+â”œâ”€â”€ set_resolution
+â”œâ”€â”€ set_refresh_rate
+â”œâ”€â”€ enable_match_mode
+â”œâ”€â”€ disable_match_mode
+â”œâ”€â”€ reboot
+â””â”€â”€ shutdown
+```
+
+HTML:
+
+```html
+<button data-action="launch_cs2">PLAY</button>
+```
+
+A interface envia somente o nome da aÃ§Ã£o.
+
+O runtime resolve somente scripts autorizados dentro de `/system/ui/scripts/`.
+
+Nunca aceitar shell, path ou comando arbitrÃ¡rio vindo do HTML/JS.
+
+---
+
+# Alt+Tab
+
+Alt+Tab faz parte do lifecycle manager.
+
+Deve mostrar aplicaÃ§Ã£o/grupo e estado:
+
+```text
+CS2       RUNNING
+Browser   STANDBY
+Discord   FROZEN
+Settings  STANDBY
+```
+
+Ao selecionar um app em standby:
+
+```text
+STANDBY
+â†“
+RESUMING
+â†“
+RUNNING
+```
+
+A UI de Alt+Tab tambÃ©m Ã© HTML/Jinja.
+
+NÃ£o criar compositor/gerenciador visual complexo antes do mecanismo funcionar.
+
+---
+
+# GPU para tarefas do sistema
+
+A GPU pode executar tarefas do sistema quando houver ganho real e quando isso nÃ£o prejudicar CS2.
+
+Regra:
+
+```text
+CS2 > display > interactive system > system compute > background compute
+```
+
+NÃ£o colocar compute complexo no kernel.
+
+Criar userspace:
+
+```text
+userspace/
+â””â”€â”€ gpu_worker/
+```
+
+Fluxo:
+
+```text
+system request
+â†“
+gpu_worker
+â†“
+Vulkan Compute
+â†“
+GPU
+```
+
+Se `gpu_worker` falhar, kernel e sistema continuam.
+
+Manter CPU fallback quando necessÃ¡rio.
+
+Candidatos:
+
+```text
+hashing de grandes volumes
+image processing
+asset preprocessing
+tarefas paralelas grandes
+compressÃ£o/descompressÃ£o quando benchmark provar vantagem
+```
+
+NÃ£o mover para GPU:
+
+```text
+scheduler
+syscalls
+IRQ
+USB input
+timers
+filesystem metadata comum
+pequenos pacotes de rede
+process management
+```
+
+GPU dedicada possui custo de transferÃªncia RAMâ†”VRAM/PCIe. iGPU/shared memory possui caracterÃ­sticas diferentes.
+
+NÃ£o assumir que GPU em 30% significa 70% de compute grÃ¡tis.
+
+Avaliar custo completo.
+
+Budget inicial:
+
+```text
+DESKTOP â†’ HIGH
+GAME    â†’ LOW
+MATCH   â†’ ZERO
+```
+
+Durante MATCH, compute de sistema na GPU fica desligado por padrÃ£o.
+
+Se futuramente houver evidÃªncia de que um workload nÃ£o afeta frametime, a polÃ­tica pode ser ajustada.
+
+O autotuner pode comparar CPU vs GPU para workloads reais e guardar a decisÃ£o em `hardware.csc`.
+
+Exemplo:
+
+```ini
+[gpu_jobs]
+hash=gpu
+compression=cpu
+image=gpu
+```
+
+NÃ£o manter uma implementaÃ§Ã£o GPU se ela nÃ£o vencer a CPU no custo total relevante.
+
+---
+
+# Estrutura expandida
+
+```text
+csos/
+â”œâ”€â”€ build.zig
+â”œâ”€â”€ GOAL.md
+â”œâ”€â”€ boot/
+â”œâ”€â”€ arch/x86_64/
+â”œâ”€â”€ kernel/
+â”œâ”€â”€ memory/
+â”œâ”€â”€ drivers/
+â”œâ”€â”€ fs/
+â”œâ”€â”€ net/
+â”œâ”€â”€ linux_abi/
+â”œâ”€â”€ gaming/
+â”œâ”€â”€ installer/
+â”‚   â””â”€â”€ autotune/
+â”œâ”€â”€ userspace/
+â”‚   â”œâ”€â”€ init/
+â”‚   â”œâ”€â”€ ui-runtime/
+â”‚   â””â”€â”€ gpu_worker/
+â””â”€â”€ tools/
+```
+
+Interface instalada:
+
+```text
+/system/ui/
+â”œâ”€â”€ variables.conf
+â”œâ”€â”€ providers/
+â”œâ”€â”€ scripts/
+â””â”€â”€ interface/
+```
+
+Criar diretÃ³rios somente quando necessÃ¡rios.
 
 ---
 
 # Milestones
 
-Executar nesta ordem.
+A IA deve primeiro inspecionar o repositÃ³rio atual e recalcular qual milestone jÃ¡ foi concluÃ­da, qual estÃ¡ parcial e qual Ã© o prÃ³ximo bloqueio real.
 
-## M0 — Build
+NÃ£o reiniciar trabalho jÃ¡ feito.
+
+NÃ£o seguir cegamente numeraÃ§Ã£o antiga se o cÃ³digo real estiver mais avanÃ§ado.
+
+Manter a numeraÃ§Ã£o abaixo como rota oficial.
+
+## M0 â€” Build
 
 ```text
 zig build
 zig build run
 ```
 
-`zig build run` deve criar imagem e iniciar QEMU.
+`zig build run` cria imagem e inicia QEMU.
 
-## M1 — Boot
+## M1 â€” Boot
 
 ```text
 UEFI
@@ -701,13 +1161,7 @@ kernel entry
 panic
 ```
 
-Resultado:
-
-```text
-CSOS booting
-```
-
-## M2 — Memory
+## M2 â€” Memory
 
 ```text
 physical allocator
@@ -716,7 +1170,7 @@ virtual memory
 heap
 ```
 
-## M3 — CPU
+## M3 â€” CPU
 
 ```text
 GDT
@@ -728,7 +1182,7 @@ timer
 SMP
 ```
 
-## M4 — Scheduler
+## M4 â€” Scheduler
 
 ```text
 threads
@@ -739,7 +1193,7 @@ per-CPU queues
 
 Primeiro correto. Otimizar depois.
 
-## M5 — Userspace
+## M5 â€” Userspace
 
 ```text
 ring 3
@@ -749,17 +1203,19 @@ syscall
 ELF
 ```
 
-Resultado:
+Resultado mÃ­nimo:
 
 ```text
 Hello from userspace
 ```
 
-## M6 — Linux ABI básico
+## M6 â€” Linux ABI bÃ¡sico
 
-Executar ELF Linux estático.
+Executar ELF Linux estÃ¡tico.
 
-## M7 — BusyBox
+Implementar syscalls sob demanda, guiado por binÃ¡rios reais.
+
+## M7 â€” BusyBox
 
 Meta:
 
@@ -770,31 +1226,33 @@ cat
 echo
 ```
 
-## M8 — PCIe
+BusyBox Ã© ferramenta de bootstrap/validaÃ§Ã£o, nÃ£o requisito permanente do produto final.
 
-Enumerar hardware real.
+## M8 â€” PCIe
 
-## M9 — NVMe
+Enumerar hardware real e expor dados necessÃ¡rios ao hardware discovery.
+
+## M9 â€” NVMe
 
 Ler/escrever disco.
 
-## M10 — Filesystem
+## M10 â€” Filesystem
 
-Montar filesystem útil.
+Montar filesystem Ãºtil e fornecer base para page-backed reclaim futuro.
 
-## M11 — USB/xHCI
+## M11 â€” USB/xHCI
 
 Mouse e teclado.
 
-## M12 — Network
+## M12 â€” Network
 
 Ethernet + IPv4 + UDP/TCP + DNS + DHCP.
 
-## M13 — Audio
+## M13 â€” Audio
 
 Primeiro USB Audio.
 
-## M14 — GPU/Vulkan
+## M14 â€” GPU/Vulkan
 
 Primeiro objetivo:
 
@@ -802,15 +1260,17 @@ Primeiro objetivo:
 Vulkan triangle
 ```
 
-## M15 — SDL
+Reutilizar stack madura necessÃ¡ria em vez de reescrever driver moderno antes de funcionar.
 
-Vídeo + input + áudio.
+## M15 â€” SDL
 
-## M16 — Steam Runtime
+VÃ­deo + input + Ã¡udio.
+
+## M16 â€” Steam Runtime
 
 Corrigir ABI conforme erros reais.
 
-## M17 — Steam
+## M17 â€” Steam
 
 ```text
 abre
@@ -819,23 +1279,242 @@ biblioteca
 download
 ```
 
-## M18 — CS2
+## M18 â€” CS2 funcional
 
 ```text
 processo inicia
-↓
+â†“
 menu
-↓
+â†“
 mapa offline
-↓
+â†“
 servidor online
-↓
+â†“
 partida completa
 ```
 
-## M19 — Otimização
+Neste ponto existe uma baseline funcional obrigatÃ³ria.
 
-Somente depois de CS2 funcional.
+## M19 â€” Hardware discovery + installer autotune
+
+Finalizar instalaÃ§Ã£o autoconfigurÃ¡vel:
+
+```text
+detectar hardware
+â†“
+topologia
+â†“
+microbenchmarks necessÃ¡rios
+â†“
+hardware.csc
+```
+
+Validar assinatura no boot e retunar apenas componentes alterados.
+
+## M20 â€” Gaming optimization
+
+Implementar e medir:
+
+```text
+CPU topology awareness
+scheduler policy
+IRQ placement
+input tuning
+network tuning
+NVMe tuning
+audio tuning
+GAME
+MATCH
+```
+
+Toda otimizaÃ§Ã£o precisa ser comparada com baseline.
+
+## M21 â€” Process lifecycle
+
+Implementar:
+
+```text
+RUNNING
+BACKGROUND
+FROZEN
+RESUMING
+```
+
+Adicionar:
+
+```text
+KEEP_ALIVE
+FREEZE
+AUTO
+```
+
+Freeze deve remover threads das run queues e pausar timers normais.
+
+Integrar com GAME/MATCH.
+
+## M22 â€” Standby + memory reclaim
+
+Adicionar:
+
+```text
+STANDBY
+```
+
+Implementar classificaÃ§Ã£o mÃ­nima de pÃ¡ginas e reclaim seguro de `FILE_BACKED_CLEAN`.
+
+Resume deve usar page faults/lazy restore.
+
+Adicionar polÃ­tica `STANDBY`.
+
+NÃ£o implementar snapshot completo de processo nesta milestone.
+
+## M23 â€” HTML UI runtime
+
+Implementar:
+
+```text
+ui-runtime
+variables.conf
+providers
+Jinja
+HTML renderer
+CSS
+input
+```
+
+Meta:
+
+```jinja
+{{ CPU_TEMP }}
+```
+
+resolver um provider real e aparecer na interface.
+
+NÃ£o usar servidor web desnecessÃ¡rio.
+
+## M24 â€” UI actions
+
+Implementar `/system/ui/scripts/` e `data-action`.
+
+Meta:
+
+```text
+HTML button
+â†“
+aÃ§Ã£o autorizada
+â†“
+script
+â†“
+resultado
+```
+
+Nunca executar shell arbitrÃ¡rio vindo da UI.
+
+## M25 â€” Alt+Tab / application UI
+
+Integrar HTML UI ao lifecycle manager.
+
+Mostrar:
+
+```text
+RUNNING
+FROZEN
+STANDBY
+```
+
+Selecionar app deve realizar resume quando necessÃ¡rio.
+
+## M26 â€” Dynamic UI
+
+Adicionar atualizaÃ§Ãµes de alta frequÃªncia sem rerender completo:
+
+```text
+runtime state
+â†“
+IPC
+â†“
+JS mÃ­nimo
+â†“
+DOM
+```
+
+Usar para FPS, frametime e mÃ©tricas que realmente precisam disso.
+
+Quando necessÃ¡rio, adicionar providers `sys:` residentes.
+
+## M27 â€” GPU accelerated shell
+
+Acelerar renderer/composiÃ§Ã£o da UI via GPU.
+
+Quando UI nÃ£o estiver visÃ­vel, seu trabalho deve tender a zero.
+
+MATCH deve reduzir animaÃ§Ãµes, timers e telemetria visual.
+
+## M28 â€” GPU system worker
+
+Criar `userspace/gpu_worker`.
+
+Implementar Vulkan Compute mÃ­nimo e um workload real.
+
+Comparar:
+
+```text
+CPU
+vs
+GPU
+```
+
+incluindo transferÃªncia e sincronizaÃ§Ã£o.
+
+SÃ³ manter GPU path se houver ganho mensurÃ¡vel.
+
+## M29 â€” GPU autotune
+
+Integrar decisÃµes de GPU compute ao autotuner/hardware.csc.
+
+Exemplo:
+
+```text
+hash â†’ GPU
+compression â†’ CPU
+image â†’ GPU
+```
+
+Somente valores medidos.
+
+GAME deve reduzir budget.
+
+MATCH:
+
+```text
+system GPU compute = OFF
+```
+
+por padrÃ£o.
+
+## M30 â€” Final integration
+
+Validar o sistema completo:
+
+```text
+boot
+â†“
+hardware profile
+â†“
+HTML shell
+â†“
+Steam
+â†“
+CS2
+â†“
+GAME/MATCH
+â†“
+background freeze/standby
+â†“
+Alt+Tab/resume
+```
+
+Nenhuma feature de UI, standby ou GPU compute pode piorar estabilidade ou performance do CS2.
 
 ---
 
@@ -854,7 +1533,9 @@ NORMAL:
 ```text
 updates
 downloads
-diagnóstico
+diagnÃ³stico
+UI completa
+GPU system compute permitido conforme profile
 ```
 
 GAME:
@@ -864,23 +1545,28 @@ reduzir background
 aplicar scheduler profile
 aplicar IRQ profile
 priorizar input/network/audio/game
+congelar processos elegÃ­veis
+reduzir GPU system compute
 ```
 
 MATCH:
 
 ```text
-mínimo absoluto de atividade administrativa
+mÃ­nimo absoluto de atividade administrativa
+freeze/standby agressivo
+UI background quase zero
+system GPU compute off por padrÃ£o
 ```
 
-Nunca interromper tarefas críticas do jogo.
+Nunca interromper tarefas crÃ­ticas do jogo.
 
 ---
 
-# Métricas
+# MÃ©tricas
 
-Não criar sistema enorme de observabilidade.
+NÃ£o criar sistema enorme de observabilidade.
 
-Ter somente métricas úteis:
+Manter somente o necessÃ¡rio:
 
 ```text
 FPS
@@ -892,44 +1578,47 @@ input latency
 network processing latency
 audio underruns
 CPU migrations
+freeze latency
+resume latency
+memory reclaimed
 ```
 
-Instrumentação deve poder ser desligada no modo competitivo.
+InstrumentaÃ§Ã£o deve poder ser reduzida/desligada em MATCH.
 
 ---
 
 # Performance
 
-Não aceitar "parece mais rápido".
+NÃ£o aceitar "parece mais rÃ¡pido".
 
-Para otimizações importantes:
+Para mudanÃ§a relevante:
 
 ```text
 antes
-↓
+â†“
 medir
-↓
+â†“
 alterar
-↓
+â†“
 medir
 ```
 
-Não precisa criar suíte automática.
+NÃ£o precisa suÃ­te automÃ¡tica extensa.
 
-Uma ferramenta simples de benchmark é suficiente.
+Ferramentas simples bastam.
 
 ---
 
-# Código
+# CÃ³digo
 
 Preferir:
 
 ```text
-funções pequenas
+funÃ§Ãµes pequenas
 structs simples
 enums
-estado explícito
-poucas dependências
+estado explÃ­cito
+poucas dependÃªncias
 poucas allocations
 ```
 
@@ -938,16 +1627,14 @@ Evitar:
 ```text
 framework
 DI
-event bus genérico
+event bus genÃ©rico
 plugin system
 macro complexa
-metaprogramação desnecessária
+metaprogramaÃ§Ã£o desnecessÃ¡ria
 camadas artificiais
 ```
 
-Não perseguir limite arbitrário de linhas por arquivo.
-
-Dividir arquivo somente quando melhorar trabalho real.
+NÃ£o perseguir limite arbitrÃ¡rio de linhas.
 
 ---
 
@@ -963,36 +1650,43 @@ network RX/TX
 audio
 ```
 
-Preferir:
+Preferir quando necessÃ¡rio:
 
 ```text
 ring buffers
 pools
 per-CPU state
-buffers pré-alocados
+buffers prÃ©-alocados
 ```
 
-Não escrever estruturas lock-free sofisticadas sem gargalo medido.
+NÃ£o criar lock-free sofisticado sem gargalo medido.
 
 ---
 
-# Segurança mínima obrigatória
-
-Não sacrificar isolamento básico.
+# SeguranÃ§a mÃ­nima
 
 Manter:
 
 ```text
 kernel/user separation
 NX
-W^X quando possível
-validação de ponteiro de userspace
+W^X quando possÃ­vel
+validaÃ§Ã£o de ponteiro userspace
 bounds
-overflow checks críticos
-IOMMU quando útil
+overflow checks crÃ­ticos
+IOMMU quando Ãºtil
 ```
 
-Não criar infraestrutura de segurança enterprise.
+Na UI:
+
+```text
+templates nÃ£o executam shell
+actions usam allowlist
+paths nÃ£o vÃªm do HTML
+providers sÃ£o registrados
+```
+
+NÃ£o criar infraestrutura enterprise.
 
 ---
 
@@ -1005,71 +1699,82 @@ alterar VAC
 hookar VAC
 bypassar VAC
 spoofar VAC
-modificar CS2 para contornar verificações
+modificar CS2 para contornar verificaÃ§Ãµes
 ```
 
-Objetivo é compatibilidade legítima.
+Objetivo Ã© compatibilidade legÃ­tima.
 
 ---
 
-# Regra de dependências
+# Regra de implementaÃ§Ã£o da IA
 
-Antes de adicionar qualquer dependência:
-
-> Ela é necessária para chegar ao CS2 funcional?
-
-Se não:
+Ao receber este GOAL atualizado:
 
 ```text
-não adicionar
+1. ler o repositÃ³rio atual
+2. comparar implementaÃ§Ã£o real com M0â€“M30
+3. marcar internamente concluÃ­do/parcial/faltando
+4. identificar primeiro bloqueio real
+5. recalcular a rota
+6. continuar dali
 ```
 
----
+NÃ£o apagar implementaÃ§Ã£o funcional sÃ³ porque a arquitetura mudou.
 
-# Regra de implementação da IA
+NÃ£o recomeÃ§ar milestones concluÃ­das.
 
-Antes de cada mudança:
+Depois, para cada mudanÃ§a:
 
 ```text
-1. identificar milestone atual
-2. identificar bloqueio real
-3. implementar menor solução possível
-4. build
-5. boot/executar
-6. corrigir até funcionar
-7. commit pequeno
-8. seguir
+identificar bloqueio
+â†“
+implementar menor soluÃ§Ã£o
+â†“
+build
+â†“
+boot/executar
+â†“
+observar
+â†“
+corrigir
+â†“
+commit pequeno
+â†“
+seguir
 ```
 
-Não planejar dez milestones de código antecipadamente.
+NÃ£o implementar vÃ¡rias milestones antecipadamente.
 
-Não gerar centenas de linhas de documentação depois de cada alteração.
+NÃ£o gastar tokens explicando o Ã³bvio.
 
-Atualizar este GOAL somente quando arquitetura/objetivo realmente mudar.
+NÃ£o gerar documentaÃ§Ã£o paralela sem necessidade.
 
----
-
-# Regra de falha
-
-Quando algo não funcionar:
-
-```text
-reproduzir
-↓
-localizar camada
-↓
-corrigir causa
-```
-
-Não mascarar erro com fallback aleatório.
-
-Fallback é permitido somente para manter boot seguro.
+Se descobrir que uma milestone posterior precisa vir antes por dependÃªncia tÃ©cnica real, ajustar a rota e registrar de forma curta o motivo.
 
 ---
 
 # Definition of Done
 
-CSOS funcional quando:
+## Current execution order
+
+The implementation must prioritize a functional operating system before
+Steam or CS2:
+
+```text
+M13 audio
+M14 display/GPU baseline
+M15 shell and service lifecycle
+M16 installer and hardware profile
+M17 standby/resume
+M18 optimization and profiling
+M19 Steam
+M20 CS2
+```
+
+Steam and CS2 are intentionally last. They must not be used as acceptance
+criteria for earlier milestones.
+
+CSOS completo quando:
 
 ```text
 UEFI boot
@@ -1077,7 +1782,7 @@ SMP
 memory
 userspace
 Linux ELF
-ABI necessária
+ABI necessÃ¡ria
 NVMe
 filesystem
 USB mouse/keyboard
@@ -1086,80 +1791,115 @@ audio
 GPU
 Vulkan
 Steam
-login
-download
-CS2
-mapa offline
-online
-áudio
-input
+login/download
+CS2 offline/online
 partida completa
+
+hardware discovery
+hardware.csc
+autotune
+
+GAME/MATCH
+
+process freeze
+standby
+memory reclaim
+lazy resume
+
+HTML shell
+variables.conf
+providers
+Jinja
+scripts/actions
+Alt+Tab
+dynamic UI
+
+GPU accelerated UI
+gpu_worker quando vantajoso
 ```
 
 ---
 
 # Definition of Optimized
 
-Depois:
+Considerar otimizado quando houver evidÃªncia de:
 
 ```text
-hardware.csc confiável
+hardware.csc confiÃ¡vel
 CPU topology aware
 IRQ tuning
 input tuning
 network tuning
 NVMe tuning
 audio tuning
-GAME mode
-MATCH mode
-frametime melhor que baseline
-input latency melhor que baseline
+GAME/MATCH
+background sem competiÃ§Ã£o desnecessÃ¡ria
+standby funcional
+resume rÃ¡pido
+UI com overhead baixo
+GPU compute somente onde vence CPU
+frametime melhor ou igual Ã  baseline
+input latency melhor ou igual Ã  baseline
 ```
 
-O objetivo não é obter o maior número de tweaks.
+Nenhuma otimizaÃ§Ã£o Ã© obrigatÃ³ria se benchmark mostrar piora.
 
-É encontrar a menor configuração que produz o melhor comportamento medido.
+Remover/desativar o que nÃ£o funcionar.
 
 ---
 
 # Objetivo final
 
-Transformar qualquer máquina **suportada**:
+Transformar uma mÃ¡quina suportada em:
 
 ```text
 PC
-↓
-instalação CSOS
-↓
+â†“
+CSOS installer
+â†“
 hardware discovery
-↓
+â†“
 autotune
-↓
+â†“
 hardware.csc
-↓
-kernel configurado para aquela máquina
-↓
+â†“
+boot otimizado
+â†“
+HTML shell
+â†“
 Steam
-↓
+â†“
 CS2
 ```
 
-O kernel deve continuar pequeno.
-
-O instalador deve fazer o trabalho caro uma vez.
-
-O boot deve apenas validar e carregar o perfil.
-
-O projeto existe para minimizar o caminho:
+Durante uso comum:
 
 ```text
-hardware
-↓
-kernel
-↓
-Vulkan
-↓
-CS2
+foreground â†’ RUNNING
+background â†’ FREEZE/STANDBY
+GPU ociosa â†’ trabalho Ãºtil somente quando compensa
 ```
 
-Todo código que não ajuda esse caminho deve ser questionado.
+Durante partida:
+
+```text
+CS2 primeiro
+â†“
+input/network/audio/display
+â†“
+kernel essencial
+â†“
+todo o resto congelado, reduzido ou desligado quando possÃ­vel
+```
+
+O kernel deve permanecer pequeno.
+
+A interface deve permanecer simples e substituÃ­vel.
+
+O instalador faz o trabalho caro uma vez.
+
+O boot valida e aplica.
+
+O sistema mede antes de otimizar.
+
+Todo cÃ³digo que nÃ£o aproxima o CSOS desse comportamento deve ser questionado.

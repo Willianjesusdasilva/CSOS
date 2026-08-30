@@ -31,6 +31,9 @@ var per_cpu_runs: u32 = 0;
 var lifecycle_a: u8 = 0;
 var lifecycle_b: u8 = 0;
 var lifecycle_error = false;
+var workload_sequence: u8 = 0;
+var input_workload_order: u8 = 0;
+var background_workload_order: u8 = 0;
 var console_usb: ?*xhci.Controller = null;
 var console_hid: ?*xhci.HidDevices = null;
 var console_last_key: u8 = 0;
@@ -151,6 +154,14 @@ pub fn start(info: BootInfo) noreturn {
         panic("lifecycle completion failed");
     if (scheduler.mode() != .normal) panic("NORMAL lifecycle policy failed");
     serial.write("CSOS M15 service lifecycle ready\nCSOS M18 gaming modes ready\n");
+
+    _ = scheduler.spawnClassified(&backgroundWorkload, &pages, 8, .auto, .background) catch panic("background workload creation failed");
+    _ = scheduler.spawnClassified(&inputWorkload, &pages, 8, .keep_alive, .input) catch panic("input workload creation failed");
+    scheduler.setMode(.game);
+    scheduler.run();
+    scheduler.setMode(.normal);
+    if (input_workload_order != 1 or background_workload_order != 2) panic("GAME workload priority failed");
+    serial.write("CSOS M18 workload policy ready\n");
 
     const userspace_pages_before = pages.free_pages;
     process.runHelloPie(mapper.root, &pages) catch panic("PIE userspace failed");

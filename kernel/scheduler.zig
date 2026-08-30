@@ -13,6 +13,7 @@ const State = enum { ready, running, frozen, finished };
 pub const Policy = enum { keep_alive, freeze, standby, auto };
 pub const Lifecycle = enum { running, background, frozen, standby, resuming, finished };
 pub const Mode = enum { normal, game, match };
+pub const Workload = enum { system, game, input, network, audio, display, background };
 
 const Context = extern struct {
     rsp: u64 = 0,
@@ -27,6 +28,7 @@ const Thread = struct {
     group: u16 = 0,
     policy: Policy = .auto,
     lifecycle: Lifecycle = .running,
+    workload: Workload = .system,
 };
 
 const CpuQueue = struct {
@@ -85,6 +87,10 @@ pub fn spawn(entry: Entry, pages: *physical.Allocator) !void {
 }
 
 pub fn spawnManaged(entry: Entry, pages: *physical.Allocator, group: u16, policy: Policy) !usize {
+    return spawnClassified(entry, pages, group, policy, .system);
+}
+
+pub fn spawnClassified(entry: Entry, pages: *physical.Allocator, group: u16, policy: Policy, workload: Workload) !usize {
     if (thread_count == max_threads) return error.ThreadLimit;
     const stack = pages.allocate(stack_pages) orelse return error.OutOfMemory;
     const stack_top = stack + stack_pages * 4096;
@@ -98,6 +104,7 @@ pub fn spawnManaged(entry: Entry, pages: *physical.Allocator, group: u16, policy
         .state = .ready,
         .group = group,
         .policy = policy,
+        .workload = workload,
     };
     saveFxState(&thread.context.fx_state);
     threads[thread_count] = thread;
@@ -224,12 +231,32 @@ pub fn yieldNow() void {
 
 fn nextReady(start: usize) ?usize {
     if (thread_count == 0) return null;
+    var selected: ?usize = null;
+    var selected_priority: u8 = 0;
     var offset: usize = 0;
     while (offset < thread_count) : (offset += 1) {
         const index = (start + offset) % thread_count;
-        if (threads[index].state == .ready) return index;
+        if (threads[index].state != .ready) continue;
+        const priority = workloadPriority(threads[index].workload);
+        if (selected == null or priority > selected_priority) {
+            selected = index;
+            selected_priority = priority;
+        }
     }
-    return null;
+    return selected;
+}
+
+fn workloadPriority(workload: Workload) u8 {
+    if (system_mode == .normal) return 1;
+    return switch (workload) {
+        .input => 7,
+        .display => 6,
+        .audio => 5,
+        .network => 4,
+        .game => 3,
+        .system => 2,
+        .background => 1,
+    };
 }
 
 fn queueFor(apic_id: u32) ?*CpuQueue {
