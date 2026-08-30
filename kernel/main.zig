@@ -206,6 +206,13 @@ pub fn start(info: BootInfo) noreturn {
     e1000.enableInterrupts(&network);
     asm volatile ("sti");
     var network_stack = net.Stack.init(&network);
+    network_stack.configureDhcp() catch panic("DHCP configuration failed");
+    serial.write("DHCP address: ");
+    for (network_stack.local_ip, 0..) |part, index| {
+        if (index != 0) serial.write(".");
+        serial.writeDecimal(part);
+    }
+    serial.write("\n");
     network_stack.resolveGateway() catch panic("ARP reply missing");
     network_stack.pingGateway() catch panic("IPv4 ICMP failed");
     var irq_spins: usize = 0;
