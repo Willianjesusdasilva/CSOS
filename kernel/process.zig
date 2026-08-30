@@ -14,6 +14,8 @@ const page_size: u64 = 4096;
 const max_mappings = 512;
 const max_owned_ranges = 512;
 const max_shared_objects = 4;
+const tls_address: u64 = 0x0000005000000000;
+const tls_stride: u64 = 0x10000;
 
 const Mapping = struct {
     virtual: u64,
@@ -50,6 +52,8 @@ pub var shared_objects_loaded: u64 = 0;
 pub var symbol_relocations: u64 = 0;
 pub var data_symbol_relocations: u64 = 0;
 pub var gnu_hash_tables: u64 = 0;
+pub var tls_modules: u64 = 0;
+pub var tls_relocations: u64 = 0;
 pub const Lifecycle = enum { running, frozen, standby, resuming, finished };
 pub var lifecycle: Lifecycle = .finished;
 
@@ -174,6 +178,18 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
                 if (file_size > memory_size or file_offset + file_size > image.len or memory_size == 0) return error.InvalidSharedObject;
                 try loadSegment(&address_space, pages, &mappings, &mapping_count, &owned, &owned_count, virtual, file_offset, file_size, memory_size, (flags & 2) != 0, (flags & 1) != 0);
             }
+            header_index = 0;
+            while (header_index < shared_program_count) : (header_index += 1) {
+                const header: usize = @intCast(shared_program_offset + @as(u64, shared_program_entry_size) * header_index);
+                if (read32At(header) != 7) continue;
+                const file_offset = read64At(header + 8);
+                const file_size = read64At(header + 32);
+                const memory_size = read64At(header + 40);
+                if (memory_size == 0 or memory_size > tls_stride or file_size > memory_size) return error.InvalidTlsSegment;
+                const module_tls = tls_address + @as(u64, provider_count) * tls_stride;
+                try loadSegment(&address_space, pages, &mappings, &mapping_count, &owned, &owned_count, module_tls, file_offset, file_size, memory_size, true, false);
+                tls_modules += 1;
+            }
             try applyRelativeRelocations(mappings[0..mapping_count], shared_base, shared_program_offset, shared_program_entry_size, shared_program_count, true);
             providers[provider_count] = .{
                 .bytes = shared_bytes,
@@ -196,9 +212,9 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
             provider_count += 1;
             shared_objects_loaded += 1;
         }
-        try applySymbolRelocations(program_image, program_offset, program_entry_size, program_count, load_bias, providers[0..provider_count], mappings[0..mapping_count]);
-        for (providers[0..provider_count]) |provider| {
-            try applySymbolRelocations(provider.bytes, provider.program_offset, provider.program_entry_size, provider.program_count, provider.base, providers[0..provider_count], mappings[0..mapping_count]);
+        try applySymbolRelocations(program_image, program_offset, program_entry_size, program_count, load_bias, 0, providers[0..provider_count], mappings[0..mapping_count]);
+        for (providers[0..provider_count], 0..) |provider, provider_index| {
+            try applySymbolRelocations(provider.bytes, provider.program_offset, provider.program_entry_size, provider.program_count, provider.base, provider_index + 1, providers[0..provider_count], mappings[0..mapping_count]);
         }
         image = interpreter_image;
         if (image.len < 64 or !isElf() or read16(16) != 3) return error.InvalidInterpreter;
@@ -596,15 +612,16 @@ fn applySymbolRelocations(
     consumer_program_entry_size: u16,
     consumer_program_count: u16,
     consumer_base: u64,
+    consumer_module: usize,
     providers: []const Provider,
     mappings: []const Mapping,
 ) !void {
     const wanted = try dynamicSymbols(consumer, consumer_program_offset, consumer_program_entry_size, consumer_program_count, true);
-    try applySymbolTable(consumer, consumer_base, wanted, providers, mappings, wanted.regular_rela_file, wanted.regular_rela_size);
-    try applySymbolTable(consumer, consumer_base, wanted, providers, mappings, wanted.plt_rela_file, wanted.plt_rela_size);
+    try applySymbolTable(consumer, consumer_base, consumer_module, wanted, providers, mappings, wanted.regular_rela_file, wanted.regular_rela_size);
+    try applySymbolTable(consumer, consumer_base, consumer_module, wanted, providers, mappings, wanted.plt_rela_file, wanted.plt_rela_size);
 }
 
-fn applySymbolTable(consumer: []const u8, consumer_base: u64, wanted: DynamicSymbols, providers: []const Provider, mappings: []const Mapping, rela_file: u64, rela_size: u64) !void {
+fn applySymbolTable(consumer: []const u8, consumer_base: u64, consumer_module: usize, wanted: DynamicSymbols, providers: []const Provider, mappings: []const Mapping, rela_file: u64, rela_size: u64) !void {
     if (rela_size == 0) return;
     var offset: u64 = 0;
     while (offset < rela_size) : (offset += 24) {
@@ -613,6 +630,12 @@ fn applySymbolTable(consumer: []const u8, consumer_base: u64, wanted: DynamicSym
         const info = read64From(consumer, item + 8);
         const relocation_type: u32 = @truncate(info);
         if (relocation_type == 8 and (info >> 32) == 0) continue;
+        if (relocation_type == 16 and (info >> 32) == 0) {
+            if (consumer_module == 0) return error.InvalidTlsModule;
+            try writeMapped64(mappings, target, consumer_module);
+            tls_relocations += 1;
+            continue;
+        }
         if (relocation_type != 1 and relocation_type != 6 and relocation_type != 7) return error.UnsupportedSymbolRelocation;
         const symbol_index: u32 = @truncate(info >> 32);
         const consumer_symbol: usize = @intCast(wanted.symbol_file + @as(u64, symbol_index) * 24);
