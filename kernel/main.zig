@@ -148,6 +148,9 @@ pub fn start(info: BootInfo) noreturn {
     serial.write("CSOS M15 service lifecycle ready\nCSOS M18 gaming modes ready\n");
 
     const userspace_pages_before = pages.free_pages;
+    process.runHelloPie(mapper.root, &pages) catch panic("PIE userspace failed");
+    mapper.activate();
+    serial.write("Linux PIE userspace ready\n");
     const echo_arguments = [_][]const u8{ "/bin/busybox", "echo", "BusyBox userspace ready" };
     process.runBusyBox(mapper.root, &pages, &echo_arguments) catch panic("BusyBox echo failed");
     mapper.activate();

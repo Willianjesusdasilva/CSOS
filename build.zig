@@ -22,7 +22,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
     hello.entry = .{ .symbol_name = "_start" };
-    hello.image_base = 0x0000008000000000;
+    hello.pie = true;
 
     const nettest = b.addExecutable(.{
         .name = "nettest",

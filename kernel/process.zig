@@ -3,6 +3,7 @@ const physical = @import("physical");
 const syscalls = @import("syscalls");
 const busybox_image = @embedFile("busybox_elf");
 const nettest_image = @embedFile("nettest_elf");
+const hello_image = @embedFile("hello_elf");
 var image: []const u8 = busybox_image;
 const stack_address: u64 = 0x0000009000000000;
 const mmap_address: u64 = 0x000000a000000000;
@@ -23,6 +24,7 @@ var active_address_space: ?*paging.AddressSpace = null;
 var active_pages: ?*physical.Allocator = null;
 var active_mappings: ?[]Mapping = null;
 var active_owned: ?[]OwnedRange = null;
+var active_load_bias: u64 = 0;
 pub var standby_pages: u64 = 0;
 pub var restored_pages: u64 = 0;
 pub var pause_count: u64 = 0;
@@ -42,9 +44,19 @@ pub fn runNetTest(kernel_root: u64, pages: *physical.Allocator) !void {
     return runImage(kernel_root, pages, &arguments);
 }
 
+pub fn runHelloPie(kernel_root: u64, pages: *physical.Allocator) !void {
+    image = hello_image;
+    if (read16(16) != 3) return error.NotPie;
+    const arguments = [_][]const u8{"/bin/hello-pie"};
+    return runImage(kernel_root, pages, &arguments);
+}
+
 fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []const u8) !void {
     if (image.len < 64 or !isElf()) return error.InvalidElf;
-    const entry = read64(24);
+    const elf_type = read16(16);
+    if (elf_type != 2 and elf_type != 3) return error.UnsupportedElfType;
+    const load_bias: u64 = if (elf_type == 3) 0x0000008000000000 else 0;
+    const entry = read64(24) + load_bias;
     const program_offset = read64(32);
     const program_entry_size = read16(54);
     const program_count = read16(56);
@@ -69,7 +81,7 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
         if (read32At(header) != 1) continue;
         const flags = read32At(header + 4);
         const file_offset = read64At(header + 8);
-        const virtual = read64At(header + 16);
+        const virtual = read64At(header + 16) + load_bias;
         const file_size = read64At(header + 32);
         const memory_size = read64At(header + 40);
         if (file_size > memory_size or file_offset + file_size > image.len or memory_size == 0) return error.InvalidElf;
@@ -91,7 +103,7 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
     const arena_pages = 64;
     try mapAnonymous(&address_space, pages, &owned, &owned_count, break_base, arena_pages);
     try mapAnonymous(&address_space, pages, &owned, &owned_count, mmap_address, arena_pages);
-    const stack_pointer = try buildInitialStack(stack_pages, initial_stack_size, entry, program_offset, program_entry_size, program_count, arguments);
+    const stack_pointer = try buildInitialStack(stack_pages, initial_stack_size, entry, load_bias, program_offset, program_entry_size, program_count, arguments);
     syscalls.configure(
         image_start,
         image_end - image_start,
@@ -106,11 +118,13 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
     active_pages = pages;
     active_mappings = mappings[0..mapping_count];
     active_owned = owned[0..owned_count];
+    active_load_bias = load_bias;
     defer {
         active_address_space = null;
         active_pages = null;
         active_mappings = null;
         active_owned = null;
+        active_load_bias = 0;
     }
     lifecycle = .running;
     var user_instruction = entry;
@@ -147,6 +161,7 @@ fn buildInitialStack(
     physical_base: u64,
     size: u64,
     entry: u64,
+    load_bias: u64,
     program_offset: u64,
     program_entry_size: u16,
     program_count: u16,
@@ -180,7 +195,7 @@ fn buildInitialStack(
         const virtual = read64At(header + 16);
         const file_size = read64At(header + 32);
         if (program_offset >= file_offset and program_offset < file_offset + file_size) {
-            phdr_address = virtual + program_offset - file_offset;
+            phdr_address = virtual + load_bias + program_offset - file_offset;
         }
     }
     if (phdr_address == 0) return error.InvalidElf;
@@ -326,7 +341,7 @@ fn restoreFilePage(page_virtual: u64, physical_address: u64) void {
         const header: usize = @intCast(program_offset + @as(u64, program_entry_size) * header_index);
         if (read32At(header) != 1) continue;
         const file_offset = read64At(header + 8);
-        const virtual = read64At(header + 16);
+        const virtual = read64At(header + 16) + active_load_bias;
         const file_size = read64At(header + 32);
         const copy_start = @max(page_virtual, virtual);
         const copy_end = @min(page_virtual + page_size, virtual + file_size);
