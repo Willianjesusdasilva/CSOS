@@ -54,8 +54,7 @@ pub const AddressSpace = struct {
     pages: *physical.Allocator,
 
     pub fn init(kernel_root: u64, pages: *physical.Allocator) !AddressSpace {
-        const root = try allocateTable(pages);
-        table(root).* = table(kernel_root).*;
+        const root = try cloneTable(pages, kernel_root, 4);
         return .{ .root = root, .pages = pages };
     }
 
@@ -67,7 +66,7 @@ pub const AddressSpace = struct {
         const pdpt_index = (virtual >> 30) & 0x1ff;
         const directory = try childUserTable(self.pages, pdpt, pdpt_index);
         const directory_index = (virtual >> 21) & 0x1ff;
-        const page_table = try childUserTable(self.pages, directory, directory_index);
+        const page_table = try childUserPageTable(self.pages, directory, directory_index);
         const page_index = (virtual >> 12) & 0x1ff;
         page_table[page_index] = physical_address | 0x005 | if (writable) @as(u64, 0x002) else 0;
     }
@@ -80,6 +79,21 @@ pub const AddressSpace = struct {
     }
 };
 
+fn cloneTable(pages: *physical.Allocator, source_address: u64, level: u8) !u64 {
+    const destination_address = try allocateTable(pages);
+    const source = table(source_address);
+    const destination = table(destination_address);
+    for (source, destination) |source_entry, *destination_entry| {
+        if ((source_entry & 1) == 0 or level == 1 or (source_entry & 0x080) != 0) {
+            destination_entry.* = source_entry;
+            continue;
+        }
+        const child = try cloneTable(pages, source_entry & address_mask, level - 1);
+        destination_entry.* = child | (source_entry & ~address_mask);
+    }
+    return destination_address;
+}
+
 fn childTable(pages: *physical.Allocator, parent: *[entry_count]u64, index: u64) !*[entry_count]u64 {
     if ((parent[index] & 1) == 0) parent[index] = (try allocateTable(pages)) | present_writable;
     return table(parent[index] & address_mask);
@@ -89,6 +103,22 @@ fn childUserTable(pages: *physical.Allocator, parent: *[entry_count]u64, index: 
     if ((parent[index] & 1) == 0) parent[index] = (try allocateTable(pages)) | 0x007 else parent[index] |= 0x004;
     if ((parent[index] & 0x080) != 0) return error.HugePageConflict;
     return table(parent[index] & address_mask);
+}
+
+fn childUserPageTable(pages: *physical.Allocator, directory: *[entry_count]u64, index: u64) !*[entry_count]u64 {
+    if ((directory[index] & 0x080) != 0) {
+        const huge_entry = directory[index];
+        const huge_base = huge_entry & 0x000fffffffe00000;
+        const leaf_flags = huge_entry & 0x8000000000000fff & ~@as(u64, 0x080);
+        const page_table_address = try allocateTable(pages);
+        const page_table = table(page_table_address);
+        for (page_table, 0..) |*entry, page_index| {
+            entry.* = huge_base + @as(u64, page_index) * page_size | leaf_flags;
+        }
+        directory[index] = page_table_address | 0x007;
+        return page_table;
+    }
+    return childUserTable(pages, directory, index);
 }
 
 fn allocateTable(pages: *physical.Allocator) !u64 {

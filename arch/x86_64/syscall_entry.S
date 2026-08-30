@@ -6,7 +6,9 @@ syscall_entry:
     movq %rsp, syscall_user_rsp(%rip)
     movq syscall_kernel_rsp(%rip), %rsp
     cmpq $60, %rax
-    je user_exit_trampoline
+    je .Lprocess_exit
+    cmpq $231, %rax
+    je .Lprocess_exit
     pushq %rcx
     pushq %r11
     pushq %r15
@@ -21,16 +23,21 @@ syscall_entry:
     pushq %rbp
     pushq %rbx
     pushq %rdx
-    movq %rsp, %r11
+    movq %rsp, %r12
     andq $-16, %rsp
-    subq $48, %rsp
-    movq %r11, 32(%rsp)
+    subq $64, %rsp
+    movq 56(%r12), %r10
+    movq %r10, 32(%rsp)
+    movq 40(%r12), %r10
+    movq %r10, 40(%rsp)
+    movq 48(%r12), %r10
+    movq %r10, 48(%rsp)
     movq %rax, %rcx
-    movq 32(%r11), %rdx
-    movq 24(%r11), %r8
-    movq 0(%r11), %r9
+    movq 32(%r12), %rdx
+    movq 24(%r12), %r8
+    movq 0(%r12), %r9
     callq user_syscall_dispatch
-    movq 32(%rsp), %rsp
+    movq %r12, %rsp
     popq %rdx
     popq %rbx
     popq %rbp
@@ -47,3 +54,10 @@ syscall_entry:
     popq %rcx
     movq syscall_user_rsp(%rip), %rsp
     sysretq
+
+.Lprocess_exit:
+    movq %rdi, %rcx
+    subq $32, %rsp
+    callq process_exit_dispatch
+    addq $32, %rsp
+    jmp user_exit_trampoline

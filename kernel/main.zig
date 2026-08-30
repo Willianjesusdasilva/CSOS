@@ -81,6 +81,7 @@ pub fn start(info: BootInfo) noreturn {
         asm volatile ("pause");
     }
     if (@atomicLoad(u32, &per_cpu_runs, .acquire) != madt.cpu_count) panic("per-CPU queues failed");
+    scheduler.stopSecondaryWorkers();
     serial.write("SMP ready\n");
 
     var kernel_heap = heap.Heap.init(&pages, 16) catch panic("heap setup failed");
@@ -109,13 +110,23 @@ pub fn start(info: BootInfo) noreturn {
     if (preempt_a != 2 or preempt_b != 2) panic("timer preemption failed");
     serial.write("scheduler preemption ready\n");
 
-    process.runHello(mapper.root, &pages) catch panic("userspace process failed");
+    const echo_arguments = [_][]const u8{ "/bin/busybox", "echo", "BusyBox userspace ready" };
+    process.runBusyBox(mapper.root, &pages, &echo_arguments) catch panic("BusyBox echo failed");
     mapper.activate();
-    serial.write("userspace returned\n");
+    const ls_arguments = [_][]const u8{ "/bin/busybox", "ls", "/" };
+    process.runBusyBox(mapper.root, &pages, &ls_arguments) catch panic("BusyBox ls failed");
+    mapper.activate();
+    const cat_arguments = [_][]const u8{ "/bin/busybox", "cat", "/hello.txt" };
+    process.runBusyBox(mapper.root, &pages, &cat_arguments) catch panic("BusyBox cat failed");
+    mapper.activate();
+    const shell_arguments = [_][]const u8{ "/bin/busybox", "sh", "-c", "echo BusyBox shell ready" };
+    process.runBusyBox(mapper.root, &pages, &shell_arguments) catch panic("BusyBox sh failed");
+    mapper.activate();
+    serial.write("BusyBox applets returned\n");
 
     drawBootMarker(info.framebuffer);
     serial.write("framebuffer ready\n");
-    serial.write("CSOS M6 ready\n");
+    serial.write("CSOS M7 ready\n");
 
     while (true) asm volatile ("cli; hlt");
 }

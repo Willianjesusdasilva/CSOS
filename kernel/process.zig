@@ -1,16 +1,17 @@
 const paging = @import("paging");
 const physical = @import("physical");
 const syscalls = @import("syscalls");
-const image = @embedFile("hello_elf");
+const image = @embedFile("busybox_elf");
 const stack_address: u64 = 0x0000009000000000;
+const mmap_address: u64 = 0x000000a000000000;
 const page_size: u64 = 4096;
-const max_mappings = 64;
+const max_mappings = 512;
 
 const Mapping = struct { virtual: u64, physical: u64 };
 
 extern fn enter_user(entry: u64, stack: u64) callconv(.c) void;
 
-pub fn runHello(kernel_root: u64, pages: *physical.Allocator) !void {
+pub fn runBusyBox(kernel_root: u64, pages: *physical.Allocator, arguments: []const []const u8) !void {
     if (image.len < 64 or !isElf()) return error.InvalidElf;
     const entry = read64(24);
     const program_offset = read64(32);
@@ -40,13 +41,121 @@ pub fn runHello(kernel_root: u64, pages: *physical.Allocator) !void {
     }
     if (mapping_count == 0 or entry < image_start or entry >= image_end) return error.InvalidElf;
 
-    const stack_pages = pages.allocate(2) orelse return error.OutOfMemory;
-    try address_space.mapUserPage(stack_address, stack_pages, true);
-    try address_space.mapUserPage(stack_address + 4096, stack_pages + 4096, true);
-    syscalls.configure(image_start, image_end - image_start);
+    const stack_page_count = 8;
+    const initial_stack_size = 4 * page_size;
+    const stack_pages = pages.allocate(stack_page_count) orelse return error.OutOfMemory;
+    var stack_page: u64 = 0;
+    while (stack_page < stack_page_count) : (stack_page += 1) {
+        try address_space.mapUserPage(stack_address + stack_page * page_size, stack_pages + stack_page * page_size, true);
+    }
+    const break_base = (image_end + page_size - 1) & ~(page_size - 1);
+    const arena_pages = 64;
+    try mapAnonymous(&address_space, pages, break_base, arena_pages);
+    try mapAnonymous(&address_space, pages, mmap_address, arena_pages);
+    const stack_pointer = try buildInitialStack(stack_pages, initial_stack_size, entry, program_offset, program_entry_size, program_count, arguments);
+    syscalls.configure(
+        image_start,
+        image_end - image_start,
+        stack_address,
+        stack_page_count * page_size,
+        break_base,
+        break_base + arena_pages * page_size,
+        mmap_address,
+        mmap_address + arena_pages * page_size,
+    );
     address_space.activate();
-    enter_user(entry, stack_address + 8192);
-    if (syscalls.completedWrites() != 1) return error.SyscallFailed;
+    enter_user(entry, stack_pointer);
+    if (syscalls.exitStatus() != 0) return error.ProcessFailed;
+}
+
+fn mapAnonymous(address_space: *paging.AddressSpace, pages: *physical.Allocator, virtual: u64, count: u64) !void {
+    var index: u64 = 0;
+    while (index < count) : (index += 1) {
+        const physical_page = pages.allocate(1) orelse return error.OutOfMemory;
+        const bytes: [*]u8 = @ptrFromInt(physical_page);
+        @memset(bytes[0..page_size], 0);
+        try address_space.mapUserPage(virtual + index * page_size, physical_page, true);
+    }
+}
+
+fn buildInitialStack(
+    physical_base: u64,
+    size: u64,
+    entry: u64,
+    program_offset: u64,
+    program_entry_size: u16,
+    program_count: u16,
+    arguments: []const []const u8,
+) !u64 {
+    const bytes: [*]u8 = @ptrFromInt(physical_base);
+    @memset(bytes[0..@intCast(size)], 0);
+    var offset: usize = @intCast(size);
+    var argument_pointers: [16]u64 = undefined;
+    if (arguments.len > argument_pointers.len) return error.TooManyArguments;
+    var reverse = arguments.len;
+    while (reverse > 0) {
+        reverse -= 1;
+        const argument = arguments[reverse];
+        offset -= argument.len + 1;
+        @memcpy(bytes[offset .. offset + argument.len], argument);
+        bytes[offset + argument.len] = 0;
+        argument_pointers[reverse] = stack_address + offset;
+    }
+    offset -= 16;
+    const random_pointer = stack_address + offset;
+    var random_index: usize = 0;
+    while (random_index < 16) : (random_index += 1) bytes[offset + random_index] = @truncate(0x41 + random_index);
+
+    var phdr_address: u64 = 0;
+    var header_index: usize = 0;
+    while (header_index < program_count) : (header_index += 1) {
+        const header: usize = @intCast(program_offset + @as(u64, program_entry_size) * header_index);
+        if (read32At(header) != 1) continue;
+        const file_offset = read64At(header + 8);
+        const virtual = read64At(header + 16);
+        const file_size = read64At(header + 32);
+        if (program_offset >= file_offset and program_offset < file_offset + file_size) {
+            phdr_address = virtual + program_offset - file_offset;
+        }
+    }
+    if (phdr_address == 0) return error.InvalidElf;
+
+    const auxv = [_][2]u64{
+        .{ 3, phdr_address },
+        .{ 4, program_entry_size },
+        .{ 5, program_count },
+        .{ 6, page_size },
+        .{ 9, entry },
+        .{ 11, 0 }, .{ 12, 0 }, .{ 13, 0 }, .{ 14, 0 },
+        .{ 23, 0 },
+        .{ 25, random_pointer },
+        .{ 31, argument_pointers[0] },
+        .{ 0, 0 },
+    };
+    const word_count = 1 + arguments.len + 1 + 1 + auxv.len * 2;
+    offset &= ~@as(usize, 15);
+    if (((offset - word_count * 8) & 15) != 0) offset -= 8;
+    var aux_index = auxv.len;
+    while (aux_index > 0) {
+        aux_index -= 1;
+        push(bytes, &offset, auxv[aux_index][1]);
+        push(bytes, &offset, auxv[aux_index][0]);
+    }
+    push(bytes, &offset, 0);
+    push(bytes, &offset, 0);
+    reverse = arguments.len;
+    while (reverse > 0) {
+        reverse -= 1;
+        push(bytes, &offset, argument_pointers[reverse]);
+    }
+    push(bytes, &offset, arguments.len);
+    return stack_address + offset;
+}
+
+fn push(bytes: [*]u8, offset: *usize, value: u64) void {
+    offset.* -= 8;
+    var index: usize = 0;
+    while (index < 8) : (index += 1) bytes[offset.* + index] = @truncate(value >> @intCast(index * 8));
 }
 
 fn loadSegment(

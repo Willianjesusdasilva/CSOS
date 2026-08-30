@@ -27,6 +27,7 @@ pub fn build(b: *std.Build) void {
     const serial_module = b.createModule(.{ .root_source_file = b.path("arch/x86_64/serial.zig") });
     const gdt_module = b.createModule(.{ .root_source_file = b.path("arch/x86_64/gdt.zig") });
     const idt_module = b.createModule(.{ .root_source_file = b.path("arch/x86_64/idt.zig") });
+    idt_module.addImport("serial", serial_module);
     const apic_module = b.createModule(.{ .root_source_file = b.path("arch/x86_64/apic.zig") });
     const ioapic_module = b.createModule(.{ .root_source_file = b.path("arch/x86_64/ioapic.zig") });
     const acpi_module = b.createModule(.{ .root_source_file = b.path("firmware/acpi.zig") });
@@ -43,11 +44,15 @@ pub fn build(b: *std.Build) void {
     scheduler_module.addImport("idt", idt_module);
     const syscalls_module = b.createModule(.{ .root_source_file = b.path("kernel/syscalls.zig") });
     syscalls_module.addImport("serial", serial_module);
+    const vfs_module = b.createModule(.{ .root_source_file = b.path("kernel/vfs.zig") });
+    vfs_module.addAnonymousImport("busybox_elf", .{ .root_source_file = b.path("userspace/initramfs/bin/busybox") });
+    syscalls_module.addImport("vfs", vfs_module);
     const process_module = b.createModule(.{ .root_source_file = b.path("kernel/process.zig") });
     process_module.addImport("paging", paging_module);
     process_module.addImport("physical", physical_module);
     process_module.addImport("syscalls", syscalls_module);
     process_module.addAnonymousImport("hello_elf", .{ .root_source_file = hello.getEmittedBin() });
+    process_module.addAnonymousImport("busybox_elf", .{ .root_source_file = b.path("userspace/initramfs/bin/busybox") });
     const kernel_module = b.createModule(.{ .root_source_file = b.path("kernel/main.zig") });
     kernel_module.addImport("serial", serial_module);
     kernel_module.addImport("gdt", gdt_module);

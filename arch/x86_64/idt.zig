@@ -1,3 +1,5 @@
+const serial = @import("serial");
+
 const interrupt_gate = 0x8e;
 const kernel_code_selector = 0x08;
 
@@ -35,6 +37,8 @@ pub fn install() void {
         entries[vector] = Entry.from(@ptrCast(&unexpectedWithError));
     }
     entries[3] = Entry.from(@ptrCast(&breakpoint));
+    entries[13] = Entry.from(@ptrCast(&generalProtection));
+    entries[14] = Entry.from(@ptrCast(&pageFault));
     entries[32] = Entry.from(@ptrCast(&timer));
     entries[128] = Entry.from(@ptrCast(&syscall));
     entries[128].attributes = 0xee;
@@ -68,11 +72,52 @@ fn breakpoint() callconv(.naked) void {
 }
 
 fn unexpected() callconv(.naked) void {
-    asm volatile ("cli; 1: hlt; jmp 1b");
+    asm volatile ("movw $0x3f8, %dx; movb $'E', %al; outb %al, %dx; cli; 1: hlt; jmp 1b");
 }
 
 fn unexpectedWithError() callconv(.naked) void {
-    asm volatile ("cli; 1: hlt; jmp 1b");
+    asm volatile ("movw $0x3f8, %dx; movb $'E', %al; outb %al, %dx; cli; 1: hlt; jmp 1b");
+}
+
+fn generalProtection() callconv(.naked) void {
+    asm volatile ("movw $0x3f8, %dx; movb $'G', %al; outb %al, %dx; cli; 1: hlt; jmp 1b");
+}
+
+fn pageFault() callconv(.naked) void {
+    asm volatile (
+        \\pushq %%rax
+        \\pushq %%rcx
+        \\pushq %%rdx
+        \\pushq %%r8
+        \\pushq %%r9
+        \\pushq %%r10
+        \\pushq %%r11
+        \\movq %%rsp, %%rax
+        \\andq $-16, %%rsp
+        \\subq $48, %%rsp
+        \\movq %%rax, 32(%%rsp)
+        \\movq %%cr2, %%rcx
+        \\movq 64(%%rax), %%rdx
+        \\movq 56(%%rax), %%r8
+        \\callq page_fault_dispatch
+        \\cli
+        \\1: hlt
+        \\jmp 1b
+    );
+}
+
+export fn page_fault_dispatch(address: u64, instruction: u64, code: u64) callconv(.c) void {
+    const lapic_id: *volatile u32 = @ptrFromInt(0xfee00020);
+    serial.write("cpu ");
+    serial.writeDecimal(lapic_id.* >> 24);
+    serial.write(" ");
+    serial.write("page fault at ");
+    serial.writeDecimal(address);
+    serial.write(" rip ");
+    serial.writeDecimal(instruction);
+    serial.write(" code ");
+    serial.writeDecimal(code);
+    serial.write("\n");
 }
 
 fn timer() callconv(.naked) void {

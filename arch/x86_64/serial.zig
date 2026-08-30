@@ -17,6 +17,19 @@ pub fn write(text: []const u8) void {
     }
 }
 
+pub fn writeDecimal(value: u64) void {
+    var buffer: [20]u8 = undefined;
+    var index = buffer.len;
+    var remaining = value;
+    if (remaining == 0) return write("0");
+    while (remaining != 0) {
+        index -= 1;
+        buffer[index] = @truncate('0' + remaining % 10);
+        remaining /= 10;
+    }
+    write(buffer[index..]);
+}
+
 fn out(port: u16, value: u8) void {
     asm volatile ("outb %[value], %[port]"
         :

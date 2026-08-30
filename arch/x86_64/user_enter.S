@@ -4,6 +4,14 @@
 .global user_exit_trampoline
 
 enter_user:
+    pushq %rbp
+    pushq %rbx
+    pushq %rdi
+    pushq %rsi
+    pushq %r12
+    pushq %r13
+    pushq %r14
+    pushq %r15
     movq %rsp, user_kernel_rsp(%rip)
     leaq .Luser_return(%rip), %rax
     movq %rax, user_kernel_rip(%rip)
@@ -20,6 +28,14 @@ enter_user:
 user_exit_trampoline:
     cli
     movq user_kernel_rsp(%rip), %rsp
+    popq %r15
+    popq %r14
+    popq %r13
+    popq %r12
+    popq %rsi
+    popq %rdi
+    popq %rbx
+    popq %rbp
     jmpq *user_kernel_rip(%rip)
 
 .data

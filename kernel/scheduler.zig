@@ -37,6 +37,7 @@ var kernel_context = Context{};
 var cpu_ids: [max_cpus]u32 = undefined;
 var cpu_queues: [max_cpus]CpuQueue = .{CpuQueue{}} ** max_cpus;
 var cpu_count: usize = 0;
+var secondary_workers_active = true;
 
 pub fn addCpu(apic_id: u32) !void {
     if (cpu_count == max_cpus) return error.CpuLimit;
@@ -61,9 +62,14 @@ pub fn runLocal(apic_id: u32) bool {
 
 pub fn secondaryMain(apic_id: u32) callconv(.c) noreturn {
     const queue = queueFor(apic_id) orelse halt();
-    while (true) {
+    while (@atomicLoad(bool, &secondary_workers_active, .acquire)) {
         if (!runOne(queue)) asm volatile ("pause");
     }
+    halt();
+}
+
+pub fn stopSecondaryWorkers() void {
+    @atomicStore(bool, &secondary_workers_active, false, .release);
 }
 
 pub fn spawn(entry: Entry, pages: *physical.Allocator) !void {

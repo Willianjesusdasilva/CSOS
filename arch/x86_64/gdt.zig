@@ -30,7 +30,7 @@ const Tss = packed struct {
 };
 
 var tss = Tss{};
-var privilege_stack: [16 * 1024]u8 align(16) = undefined;
+var privilege_stack: [64 * 1024]u8 align(16) = undefined;
 
 const Register = packed struct {
     limit: u16,
