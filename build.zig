@@ -9,8 +9,10 @@ pub fn build(b: *std.Build) void {
     });
 
     const serial_module = b.createModule(.{ .root_source_file = b.path("arch/x86_64/serial.zig") });
+    const physical_module = b.createModule(.{ .root_source_file = b.path("memory/physical.zig") });
     const kernel_module = b.createModule(.{ .root_source_file = b.path("kernel/main.zig") });
     kernel_module.addImport("serial", serial_module);
+    kernel_module.addImport("physical", physical_module);
     const boot_module = b.createModule(.{
         .root_source_file = b.path("boot/main.zig"),
         .target = target,

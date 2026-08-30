@@ -1,4 +1,5 @@
 const serial = @import("serial");
+const physical = @import("physical");
 
 pub const BootInfo = struct {
     framebuffer: Framebuffer,
@@ -19,6 +20,11 @@ pub const Framebuffer = struct {
 pub fn start(info: BootInfo) noreturn {
     serial.write("kernel entry\n");
     if (info.memory_map_len == 0 or info.memory_descriptor_size == 0) panic("empty memory map");
+    var pages = physical.Allocator.init(info.memory_map, info.memory_map_len, info.memory_descriptor_size);
+    const first_page = pages.allocate(1) orelse panic("no physical memory");
+    const second_page = pages.allocate(2) orelse panic("physical allocation failed");
+    if (first_page < 0x100000 or second_page != first_page + 4096) panic("invalid physical allocation");
+    serial.write("physical allocator ready\n");
     drawBootMarker(info.framebuffer);
     serial.write("framebuffer ready\n");
     serial.write("CSOS M1 ready\n");
