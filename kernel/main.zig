@@ -136,9 +136,7 @@ pub fn start(info: BootInfo) noreturn {
     if (scheduler.groupProcessCount(service_group) != 2) panic("lifecycle process group failed");
     if (scheduler.backgroundGroup(service_group) != 2 or scheduler.groupLifecycle(service_group) != .background)
         panic("lifecycle background transition failed");
-    const freeze_started = timestamp(cpu_profile.tsc);
     scheduler.run();
-    const scheduler_freeze_cycles = elapsed(freeze_started, cpu_profile.tsc);
     if (lifecycle_error or lifecycle_a != 1 or lifecycle_b != 1 or scheduler.groupLifecycle(service_group) != .frozen)
         panic("lifecycle freeze failed");
     scheduler.setMode(.game);
@@ -150,9 +148,7 @@ pub fn start(info: BootInfo) noreturn {
     if (scheduler.resumeGroup(service_group) != 2 or scheduler.groupLifecycle(service_group) != .resuming)
         panic("lifecycle resume transition failed");
     scheduler.setMode(.normal);
-    const resume_started = timestamp(cpu_profile.tsc);
     scheduler.run();
-    const scheduler_resume_cycles = elapsed(resume_started, cpu_profile.tsc);
     if (lifecycle_error or lifecycle_a != 2 or lifecycle_b != 2 or scheduler.groupLifecycle(service_group) != .finished)
         panic("lifecycle completion failed");
     if (scheduler.mode() != .normal) panic("NORMAL lifecycle policy failed");
@@ -170,6 +166,19 @@ pub fn start(info: BootInfo) noreturn {
     _ = scheduler.spawnManaged(&timerLifecycleThread, &pages, timer_group, .freeze) catch panic("lifecycle timer creation failed");
     scheduler.run();
     if (timer_lifecycle_phase != 1 or scheduler.groupSleepTicks(timer_group) != 3) panic("lifecycle timer sleep failed");
+    var freeze_samples = metrics.Samples{};
+    var resume_samples = metrics.Samples{};
+    var lifecycle_sample: usize = 0;
+    while (lifecycle_sample < 16) : (lifecycle_sample += 1) {
+        const freeze_started = timestamp(cpu_profile.tsc);
+        if (scheduler.freezeGroup(timer_group) != 1) panic("lifecycle sleeping freeze failed");
+        freeze_samples.add(elapsed(freeze_started, cpu_profile.tsc)) catch panic("freeze metric capacity failed");
+        const resume_started = timestamp(cpu_profile.tsc);
+        if (scheduler.resumeGroup(timer_group) != 1) panic("lifecycle timer resume failed");
+        resume_samples.add(elapsed(resume_started, cpu_profile.tsc)) catch panic("resume metric capacity failed");
+    }
+    const freeze_latency = freeze_samples.summarize() catch panic("freeze metrics missing");
+    const resume_latency = resume_samples.summarize() catch panic("resume metrics missing");
     if (scheduler.freezeGroup(timer_group) != 1) panic("lifecycle sleeping freeze failed");
     scheduler.tick();
     scheduler.tick();
@@ -400,8 +409,12 @@ pub fn start(info: BootInfo) noreturn {
     serial.write("Ethernet ARP ready\n");
     serial.write("Ethernet MSI ready\n");
     serial.write("IPv4 ICMP ready\n");
-    serial.write("profile scheduler freeze cycles: "); serial.writeDecimal(scheduler_freeze_cycles);
-    serial.write(" resume: "); serial.writeDecimal(scheduler_resume_cycles);
+    serial.write("profile scheduler freeze cycles p50: "); serial.writeDecimal(freeze_latency.p50);
+    serial.write(" p95: "); serial.writeDecimal(freeze_latency.p95);
+    serial.write(" p99: "); serial.writeDecimal(freeze_latency.p99);
+    serial.write(" resume p50: "); serial.writeDecimal(resume_latency.p50);
+    serial.write(" p95: "); serial.writeDecimal(resume_latency.p95);
+    serial.write(" p99: "); serial.writeDecimal(resume_latency.p99);
     serial.write("\nprofile NVMe read cycles p50: "); serial.writeDecimal(nvme_latency.p50);
     serial.write(" p95: "); serial.writeDecimal(nvme_latency.p95);
     serial.write(" p99: "); serial.writeDecimal(nvme_latency.p99);
