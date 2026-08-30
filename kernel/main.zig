@@ -1,6 +1,7 @@
 const serial = @import("serial");
 const gdt = @import("gdt");
 const idt = @import("idt");
+const apic = @import("apic");
 const physical = @import("physical");
 const paging = @import("paging");
 const heap = @import("heap");
@@ -28,6 +29,12 @@ pub fn start(info: BootInfo) noreturn {
     idt.install();
     if (!idt.verifyBreakpoint()) panic("breakpoint handler failed");
     serial.write("IDT ready\n");
+    apic.init() catch panic("local APIC setup failed");
+    apic.startPeriodicTimer();
+    asm volatile ("sti; hlt; cli");
+    apic.stopTimer();
+    if (idt.timerTicks() == 0) panic("APIC timer failed");
+    serial.write("APIC timer ready\n");
     if (info.memory_map_len == 0 or info.memory_descriptor_size == 0) panic("empty memory map");
     var pages = physical.Allocator.init(info.memory_map, info.memory_map_len, info.memory_descriptor_size);
     serial.write("physical allocator ready\n");

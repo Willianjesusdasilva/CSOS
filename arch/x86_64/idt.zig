@@ -1,6 +1,8 @@
 const interrupt_gate = 0x8e;
 const kernel_code_selector = 0x08;
 
+pub export var lapic_ticks: u64 = 0;
+
 const Entry = packed struct {
     offset_low: u16 = 0,
     selector: u16 = kernel_code_selector,
@@ -32,6 +34,8 @@ pub fn install() void {
         entries[vector] = Entry.from(@ptrCast(&unexpectedWithError));
     }
     entries[3] = Entry.from(@ptrCast(&breakpoint));
+    entries[32] = Entry.from(@ptrCast(&timer));
+    entries[255] = Entry.from(@ptrCast(&spurious));
 
     const register = Register{
         .limit = @sizeOf(@TypeOf(entries)) - 1,
@@ -48,6 +52,10 @@ pub fn verifyBreakpoint() bool {
     return true;
 }
 
+pub fn timerTicks() u64 {
+    return @atomicLoad(u64, &lapic_ticks, .acquire);
+}
+
 fn breakpoint() callconv(.naked) void {
     asm volatile ("iretq");
 }
@@ -58,4 +66,19 @@ fn unexpected() callconv(.naked) void {
 
 fn unexpectedWithError() callconv(.naked) void {
     asm volatile ("cli; 1: hlt; jmp 1b");
+}
+
+fn timer() callconv(.naked) void {
+    asm volatile (
+        \\pushq %%rax
+        \\incq lapic_ticks(%%rip)
+        \\movabsq $0xfee000b0, %%rax
+        \\movl $0, (%%rax)
+        \\popq %%rax
+        \\iretq
+    );
+}
+
+fn spurious() callconv(.naked) void {
+    asm volatile ("iretq");
 }
