@@ -16,6 +16,7 @@ const Mapping = struct {
     physical: u64,
     owner_index: usize,
     writable: bool,
+    executable: bool,
     resident: bool = true,
 };
 const OwnedRange = struct { address: u64, pages: u64 };
@@ -88,7 +89,7 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
         if (file_size > memory_size or file_offset + file_size > image.len or memory_size == 0) return error.InvalidElf;
         image_start = @min(image_start, virtual);
         image_end = @max(image_end, virtual + memory_size);
-        try loadSegment(&address_space, pages, &mappings, &mapping_count, &owned, &owned_count, virtual, file_offset, file_size, memory_size, (flags & 2) != 0);
+        try loadSegment(&address_space, pages, &mappings, &mapping_count, &owned, &owned_count, virtual, file_offset, file_size, memory_size, (flags & 2) != 0, (flags & 1) != 0);
     }
     if (mapping_count == 0 or entry < image_start or entry >= image_end) return error.InvalidElf;
     try applyRelativeRelocations(mappings[0..mapping_count], load_bias, program_offset, program_entry_size, program_count);
@@ -99,8 +100,12 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
     try own(&owned, &owned_count, stack_pages, stack_page_count);
     var stack_page: u64 = 0;
     while (stack_page < stack_page_count) : (stack_page += 1) {
-        try address_space.mapUserPage(stack_address + stack_page * page_size, stack_pages + stack_page * page_size, true);
+        try address_space.mapUserPage(stack_address + stack_page * page_size, stack_pages + stack_page * page_size, true, false);
     }
+    const entry_permissions = address_space.userPermissions(entry) orelse return error.EntryNotMapped;
+    const stack_permissions = address_space.userPermissions(stack_address) orelse return error.StackNotMapped;
+    if (!entry_permissions.executable or entry_permissions.writable) return error.InvalidEntryPermissions;
+    if (stack_permissions.executable or !stack_permissions.writable) return error.InvalidStackPermissions;
     const break_base = (image_end + page_size - 1) & ~(page_size - 1);
     const arena_pages = 64;
     try mapAnonymous(&address_space, pages, &owned, &owned_count, break_base, arena_pages);
@@ -155,7 +160,7 @@ fn mapAnonymous(address_space: *paging.AddressSpace, pages: *physical.Allocator,
         const physical_page = allocation + index * page_size;
         const bytes: [*]u8 = @ptrFromInt(physical_page);
         @memset(bytes[0..page_size], 0);
-        try address_space.mapUserPage(virtual + index * page_size, physical_page, true);
+        try address_space.mapUserPage(virtual + index * page_size, physical_page, true, false);
     }
 }
 
@@ -252,6 +257,7 @@ fn loadSegment(
     file_size: u64,
     memory_size: u64,
     writable: bool,
+    executable: bool,
 ) !void {
     var page_virtual = virtual & ~(page_size - 1);
     const segment_end = virtual + memory_size;
@@ -267,17 +273,22 @@ fn loadSegment(
             try own(owned, owned_count, physical_address.?, 1);
             const bytes: [*]u8 = @ptrFromInt(physical_address.?);
             @memset(bytes[0..page_size], 0);
-            try address_space.mapUserPage(page_virtual, physical_address.?, writable);
+            try address_space.mapUserPage(page_virtual, physical_address.?, writable, executable);
             mappings[mapping_count.*] = .{
                 .virtual = page_virtual,
                 .physical = physical_address.?,
                 .owner_index = owner_index,
                 .writable = writable,
+                .executable = executable,
             };
             mapping_count.* += 1;
         } else if (writable) {
             for (mappings[0..mapping_count.*]) |*mapping| {
                 if (mapping.virtual == page_virtual) mapping.writable = true;
+            }
+        } else if (executable) {
+            for (mappings[0..mapping_count.*]) |*mapping| {
+                if (mapping.virtual == page_virtual) mapping.executable = true;
             }
         }
 
@@ -391,7 +402,7 @@ pub fn handlePageFault(address: u64, instruction: u64, code: u64) callconv(.c) b
         const bytes: [*]u8 = @ptrFromInt(physical_address);
         @memset(bytes[0..page_size], 0);
         restoreFilePage(page_virtual, physical_address);
-        address_space.mapUserPage(page_virtual, physical_address, false) catch {
+        address_space.mapUserPage(page_virtual, physical_address, false, mapping.executable) catch {
             pages.release(physical_address, 1) catch {};
             return false;
         };

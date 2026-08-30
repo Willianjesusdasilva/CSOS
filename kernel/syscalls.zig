@@ -24,14 +24,30 @@ pub const Pause = struct { instruction: u64, stack: u64 };
 
 extern fn syscall_entry() callconv(.naked) void;
 
-pub fn install(kernel_stack: u64) void {
+pub fn install(kernel_stack: u64) !void {
+    const extended = cpuid(0x80000000);
+    if (extended.eax < 0x80000001 or (cpuid(0x80000001).edx & (1 << 20)) == 0) return error.NxUnsupported;
     syscall_kernel_rsp = kernel_stack;
     var efer = readMsr(0xc0000080);
-    efer |= 1;
+    efer |= 1 | (1 << 11);
     writeMsr(0xc0000080, efer);
     writeMsr(0xc0000081, (@as(u64, 0x10) << 48) | (@as(u64, 0x08) << 32));
     writeMsr(0xc0000082, @intFromPtr(&syscall_entry));
     writeMsr(0xc0000084, 0x200);
+}
+
+const Cpuid = struct { eax: u32, ebx: u32, ecx: u32, edx: u32 };
+
+fn cpuid(leaf: u32) Cpuid {
+    var eax = leaf;
+    var ebx: u32 = undefined;
+    var ecx: u32 = 0;
+    var edx: u32 = undefined;
+    asm volatile ("cpuid"
+        : [eax] "+{eax}" (eax), [ebx] "={ebx}" (ebx), [ecx] "+{ecx}" (ecx), [edx] "={edx}" (edx),
+        :
+        : .{ .memory = true });
+    return .{ .eax = eax, .ebx = ebx, .ecx = ecx, .edx = edx };
 }
 
 pub fn configure(base: u64, size: u64, stack: u64, stack_length: u64, initial_break: u64, maximum_break: u64, mmap_start: u64, mmap_end: u64) void {

@@ -62,7 +62,7 @@ pub const AddressSpace = struct {
         return .{ .root = root, .pages = pages };
     }
 
-    pub fn mapUserPage(self: *AddressSpace, virtual: u64, physical_address: u64, writable: bool) !void {
+    pub fn mapUserPage(self: *AddressSpace, virtual: u64, physical_address: u64, writable: bool, executable: bool) !void {
         if ((virtual & (page_size - 1)) != 0 or (physical_address & (page_size - 1)) != 0) return error.Unaligned;
         const pml4 = table(self.root);
         const pml4_index = (virtual >> 39) & 0x1ff;
@@ -72,7 +72,9 @@ pub const AddressSpace = struct {
         const directory_index = (virtual >> 21) & 0x1ff;
         const page_table = try childUserPageTable(self.pages, directory, directory_index);
         const page_index = (virtual >> 12) & 0x1ff;
-        page_table[page_index] = physical_address | 0x005 | if (writable) @as(u64, 0x002) else 0;
+        page_table[page_index] = physical_address | 0x005 |
+            (if (writable) @as(u64, 0x002) else 0) |
+            (if (executable) @as(u64, 0) else @as(u64, 1) << 63);
     }
 
     pub fn unmapUserPage(self: *AddressSpace, virtual: u64) ?u64 {
@@ -85,6 +87,12 @@ pub const AddressSpace = struct {
             : [address] "r" (virtual),
             : .{ .memory = true });
         return physical_address;
+    }
+
+    pub fn userPermissions(self: *const AddressSpace, virtual: u64) ?Permissions {
+        const entry = userLeaf(self.root, virtual) orelse return null;
+        if ((entry.* & 1) == 0) return null;
+        return .{ .writable = (entry.* & 0x002) != 0, .executable = (entry.* & (@as(u64, 1) << 63)) == 0 };
     }
 
     pub fn activate(self: *const AddressSpace) void {
@@ -100,6 +108,8 @@ pub const AddressSpace = struct {
         self.root = 0;
     }
 };
+
+pub const Permissions = struct { writable: bool, executable: bool };
 
 pub fn activateRoot(root: u64) void {
     asm volatile ("mov %[root], %%cr3"
