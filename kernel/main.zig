@@ -8,6 +8,7 @@ const pci = @import("pci");
 const nvme = @import("nvme");
 const fat16 = @import("fat16");
 const xhci = @import("xhci");
+const gpu = @import("gpu");
 const display = @import("display");
 const hardware_profile = @import("hardware_profile");
 const e1000 = @import("e1000");
@@ -336,18 +337,28 @@ pub fn start(info: BootInfo) noreturn {
     serial.write("\nprofile TCP transaction cycles: "); serial.writeDecimal(tcp_cycles);
     serial.write("\nCSOS M18 profiling baseline ready\n");
 
+    const gpu_adapter = gpu.Adapter.discover(display_device) catch panic("GPU discovery failed");
+    if (gpu_adapter.bar_count == 0) panic("GPU BAR discovery failed");
     var screen = display.Context.init(info.framebuffer, display_device, &pages) catch panic("display initialization failed");
     screen.drawBaseline(@as(usize, hid.keyboards) + hid.mice, audio_info.playback_endpoints);
     const initial_pixels = screen.present();
     if (initial_pixels == 0) panic("display presentation failed");
     serial.write("GPU PCI vendor: "); serial.writeDecimal(screen.adapter.vendor);
     serial.write(" device: "); serial.writeDecimal(screen.adapter.device);
+    serial.write(" bars: "); serial.writeDecimal(gpu_adapter.bar_count);
+    serial.write(" driver: ");
+    serial.write(switch (gpu_adapter.driver) {
+        .amdgpu => "amdgpu",
+        .qemu_vga => "qemu-vga",
+        .unsupported => "unsupported",
+    });
     serial.write("\ndisplay resolution: "); serial.writeDecimal(screen.framebuffer.width);
     serial.write("x"); serial.writeDecimal(screen.framebuffer.height);
     serial.write(" stride: "); serial.writeDecimal(screen.framebuffer.stride);
     serial.write("\ndisplay backbuffer bytes: "); serial.writeDecimal(screen.buffer_bytes);
     serial.write("\ndisplay initial pixels: "); serial.writeDecimal(initial_pixels);
-    serial.write("\nCSOS M14 display baseline ready\n");
+    serial.write("\nCSOS M14 GPU discovery baseline ready\n");
+    serial.write("CSOS M14 display baseline ready\n");
     const current_profile = hardware_profile.build(cpu_profile, .{
         .logical_cpus = @intCast(madt.cpu_count),
         .memory_pages = pages.installed_pages,
