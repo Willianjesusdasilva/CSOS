@@ -1,4 +1,4 @@
-const profile_version: u8 = 2;
+const profile_version: u8 = 3;
 
 pub const Cpu = struct {
     vendor: [12]u8,
@@ -42,8 +42,20 @@ pub const Profile = struct {
         return self.bytes[0..self.length];
     }
 
-    pub fn addBaseline(self: *Profile, nvme_p50: u64, nvme_p95: u64, nvme_p99: u64, tcp_p50: u64, tcp_p95: u64, tcp_p99: u64) !void {
-        try append(self, "\n[baseline_cycles]\nnvme_p50="); try appendDecimal(self, nvme_p50);
+    pub fn addBaseline(
+        self: *Profile,
+        freeze_p50: u64, freeze_p95: u64, freeze_p99: u64,
+        resume_p50: u64, resume_p95: u64, resume_p99: u64,
+        nvme_p50: u64, nvme_p95: u64, nvme_p99: u64,
+        tcp_p50: u64, tcp_p95: u64, tcp_p99: u64,
+    ) !void {
+        try append(self, "\n[baseline_cycles]\nfreeze_p50="); try appendDecimal(self, freeze_p50);
+        try append(self, "\nfreeze_p95="); try appendDecimal(self, freeze_p95);
+        try append(self, "\nfreeze_p99="); try appendDecimal(self, freeze_p99);
+        try append(self, "\nresume_p50="); try appendDecimal(self, resume_p50);
+        try append(self, "\nresume_p95="); try appendDecimal(self, resume_p95);
+        try append(self, "\nresume_p99="); try appendDecimal(self, resume_p99);
+        try append(self, "\nnvme_p50="); try appendDecimal(self, nvme_p50);
         try append(self, "\nnvme_p95="); try appendDecimal(self, nvme_p95);
         try append(self, "\nnvme_p99="); try appendDecimal(self, nvme_p99);
         try append(self, "\ntcp_p50="); try appendDecimal(self, tcp_p50);

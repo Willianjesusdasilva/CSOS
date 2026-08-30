@@ -487,6 +487,8 @@ pub fn start(info: BootInfo) noreturn {
     const nvme_latency = nvme_samples.summarize() catch panic("NVMe metrics missing");
     const tcp_latency = tcp_samples.summarize() catch panic("TCP metrics missing");
     if (!profile_reused) current_profile.addBaseline(
+        freeze_latency.p50, freeze_latency.p95, freeze_latency.p99,
+        resume_latency.p50, resume_latency.p95, resume_latency.p99,
         nvme_latency.p50, nvme_latency.p95, nvme_latency.p99,
         tcp_latency.p50, tcp_latency.p95, tcp_latency.p99,
     ) catch panic("hardware baseline append failed");
@@ -508,7 +510,9 @@ pub fn start(info: BootInfo) noreturn {
     const verified_length = volume.readRootFile(&hardware_name, &verified_profile) catch panic("hardware profile verification read failed");
     if (!hardware_profile.matchesSignature(verified_profile[0..verified_length], current_profile.signature))
         panic("hardware profile verification failed");
-    if (!profile_reused and !containsBytes(verified_profile[0..verified_length], "[baseline_cycles]"))
+    if (!profile_reused and (!containsBytes(verified_profile[0..verified_length], "[baseline_cycles]") or
+        !containsBytes(verified_profile[0..verified_length], "freeze_p99=") or
+        !containsBytes(verified_profile[0..verified_length], "resume_p99=")))
         panic("hardware baseline persistence failed");
     serial.write("hardware signature: "); serial.writeDecimal(current_profile.signature);
     serial.write(if (profile_reused) "\nhardware.csc reused\n" else "\nhardware.csc generated\n");
