@@ -56,6 +56,7 @@ pub fn start(info: BootInfo) noreturn {
     idt.setPageFaultHook(&process.handlePageFault);
     if (!idt.verifyBreakpoint()) panic("breakpoint handler failed");
     serial.write("IDT ready\n");
+    const cpu_profile = hardware_profile.detectCpu();
     apic.init() catch panic("local APIC setup failed");
     apic.startPeriodicTimer();
     asm volatile ("sti; hlt; cli");
@@ -121,7 +122,9 @@ pub fn start(info: BootInfo) noreturn {
     _ = scheduler.spawnManaged(&lifecycleThreadB, &pages, service_group, .auto) catch panic("lifecycle thread B creation failed");
     if (scheduler.backgroundGroup(service_group) != 2 or scheduler.groupLifecycle(service_group) != .background)
         panic("lifecycle background transition failed");
+    const freeze_started = timestamp(cpu_profile.tsc);
     scheduler.run();
+    const scheduler_freeze_cycles = elapsed(freeze_started, cpu_profile.tsc);
     if (lifecycle_error or lifecycle_a != 1 or lifecycle_b != 1 or scheduler.groupLifecycle(service_group) != .frozen)
         panic("lifecycle freeze failed");
     scheduler.setMode(.game);
@@ -133,7 +136,9 @@ pub fn start(info: BootInfo) noreturn {
     if (scheduler.resumeGroup(service_group) != 2 or scheduler.groupLifecycle(service_group) != .resuming)
         panic("lifecycle resume transition failed");
     scheduler.setMode(.normal);
+    const resume_started = timestamp(cpu_profile.tsc);
     scheduler.run();
+    const scheduler_resume_cycles = elapsed(resume_started, cpu_profile.tsc);
     if (lifecycle_error or lifecycle_a != 2 or lifecycle_b != 2 or scheduler.groupLifecycle(service_group) != .finished)
         panic("lifecycle completion failed");
     if (scheduler.mode() != .normal) panic("NORMAL lifecycle policy failed");
@@ -181,7 +186,9 @@ pub fn start(info: BootInfo) noreturn {
     while (io_index < storage.block_size) : (io_index += 1) io_bytes[io_index] = @truncate(io_index ^ 0xa5);
     storage.writeBlock(1000, io_buffer) catch panic("NVMe write failed");
     @memset(io_bytes[0..storage.block_size], 0);
+    const nvme_read_started = timestamp(cpu_profile.tsc);
     storage.readBlock(1000, io_buffer) catch panic("NVMe read failed");
+    const nvme_read_cycles = elapsed(nvme_read_started, cpu_profile.tsc);
     io_index = 0;
     while (io_index < storage.block_size) : (io_index += 1) {
         if (io_bytes[io_index] != @as(u8, @truncate(io_index ^ 0xa5))) panic("NVMe data mismatch");
@@ -273,7 +280,9 @@ pub fn start(info: BootInfo) noreturn {
         serial.writeDecimal(part);
     }
     serial.write("\n");
+    const tcp_started = timestamp(cpu_profile.tsc);
     const tcp_bytes = network_stack.probeTcpHttp(resolved, "example.com") catch panic("TCP HTTP probe failed");
+    const tcp_cycles = elapsed(tcp_started, cpu_profile.tsc);
     serial.write("TCP response bytes: ");
     serial.writeDecimal(tcp_bytes);
     serial.write("\nCSOS M12 TCP ready\n");
@@ -294,6 +303,11 @@ pub fn start(info: BootInfo) noreturn {
     serial.write("Ethernet ARP ready\n");
     serial.write("Ethernet MSI ready\n");
     serial.write("IPv4 ICMP ready\n");
+    serial.write("profile scheduler freeze cycles: "); serial.writeDecimal(scheduler_freeze_cycles);
+    serial.write(" resume: "); serial.writeDecimal(scheduler_resume_cycles);
+    serial.write("\nprofile NVMe read cycles: "); serial.writeDecimal(nvme_read_cycles);
+    serial.write("\nprofile TCP transaction cycles: "); serial.writeDecimal(tcp_cycles);
+    serial.write("\nCSOS M18 profiling baseline ready\n");
 
     var screen = display.Context.init(info.framebuffer, display_device, &pages) catch panic("display initialization failed");
     screen.drawBaseline(@as(usize, hid.keyboards) + hid.mice, audio_info.playback_endpoints);
@@ -307,7 +321,6 @@ pub fn start(info: BootInfo) noreturn {
     serial.write("\ndisplay backbuffer bytes: "); serial.writeDecimal(screen.buffer_bytes);
     serial.write("\ndisplay initial pixels: "); serial.writeDecimal(initial_pixels);
     serial.write("\nCSOS M14 display baseline ready\n");
-    const cpu_profile = hardware_profile.detectCpu();
     const current_profile = hardware_profile.build(cpu_profile, .{
         .logical_cpus = @intCast(madt.cpu_count),
         .memory_pages = pages.installed_pages,
@@ -714,4 +727,20 @@ fn equalBytes(left: []const u8, right: []const u8) bool {
     if (left.len != right.len) return false;
     for (left, right) |a, b| if (a != b) return false;
     return true;
+}
+
+fn timestamp(supported: bool) u64 {
+    if (!supported) return 0;
+    var low: u32 = undefined;
+    var high: u32 = undefined;
+    asm volatile ("lfence; rdtsc"
+        : [low] "={eax}" (low),
+          [high] "={edx}" (high),
+        :
+        : .{ .memory = true });
+    return (@as(u64, high) << 32) | low;
+}
+
+fn elapsed(begin: u64, supported: bool) u64 {
+    return if (supported) timestamp(true) -% begin else 0;
 }
