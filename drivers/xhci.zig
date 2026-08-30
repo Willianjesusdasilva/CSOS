@@ -1,6 +1,7 @@
 const pci = @import("pci");
 const physical = @import("physical");
 const apic = @import("apic");
+const metrics = @import("metrics");
 
 var interrupt_runtime: u64 = 0;
 var interrupts: u64 = 0;
@@ -632,14 +633,17 @@ pub const HidDevices = struct {
     keyboard: Endpoint = .{},
     mouse: Endpoint = .{},
     queue: [64]InputEvent = undefined,
+    queue_tsc: [64]u64 = undefined,
     queue_head: u8 = 0,
     queue_tail: u8 = 0,
     events_total: u64 = 0,
+    latency: metrics.Samples = .{},
 
     fn push(self: *HidDevices, event: InputEvent) void {
         const next: u8 = (self.queue_tail + 1) % 64;
         if (next == self.queue_head) self.queue_head = (self.queue_head + 1) % 64;
         self.queue[self.queue_tail] = event;
+        self.queue_tsc[self.queue_tail] = timestamp();
         self.queue_tail = @intCast(next);
         self.events_total += 1;
     }
@@ -647,7 +651,9 @@ pub const HidDevices = struct {
     pub fn pop(self: *HidDevices) ?InputEvent {
         if (self.queue_head == self.queue_tail) return null;
         const event = self.queue[self.queue_head];
+        const enqueued = self.queue_tsc[self.queue_head];
         self.queue_head = (self.queue_head + 1) % 64;
+        if (self.latency.count < self.latency.values.len) self.latency.add(timestamp() -% enqueued) catch {};
         return event;
     }
 };
@@ -707,6 +713,15 @@ fn waitBits(address: u64, mask: u32, set: bool) !void {
 }
 
 fn zeroPage(address: u64) void { const bytes: [*]u8 = @ptrFromInt(address); @memset(bytes[0..4096], 0); }
+fn timestamp() u64 {
+    var low: u32 = undefined;
+    var high: u32 = undefined;
+    asm volatile ("lfence; rdtsc"
+        : [low] "={eax}" (low), [high] "={edx}" (high),
+        :
+        : .{ .memory = true });
+    return (@as(u64, high) << 32) | low;
+}
 fn read8(base: u64, offset: u64) u8 { const value: *volatile u8 = @ptrFromInt(base + offset); return value.*; }
 fn read32(base: u64, offset: u64) u32 { const value: *volatile u32 = @ptrFromInt(base + offset); return value.*; }
 fn write32(base: u64, offset: u64, value: u32) void { const target: *volatile u32 = @ptrFromInt(base + offset); target.* = value; }

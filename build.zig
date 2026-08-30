@@ -98,6 +98,7 @@ pub fn build(b: *std.Build) void {
     const acpi_module = b.createModule(.{ .root_source_file = b.path("firmware/acpi.zig") });
     const pci_module = b.createModule(.{ .root_source_file = b.path("drivers/pci.zig") });
     const physical_module = b.createModule(.{ .root_source_file = b.path("memory/physical.zig") });
+    const metrics_module = b.createModule(.{ .root_source_file = b.path("gaming/metrics.zig") });
     const nvme_module = b.createModule(.{ .root_source_file = b.path("drivers/nvme.zig") });
     nvme_module.addImport("pci", pci_module);
     nvme_module.addImport("physical", physical_module);
@@ -108,6 +109,7 @@ pub fn build(b: *std.Build) void {
     xhci_module.addImport("pci", pci_module);
     xhci_module.addImport("physical", physical_module);
     xhci_module.addImport("apic", apic_module);
+    xhci_module.addImport("metrics", metrics_module);
     const audio_module = b.createModule(.{ .root_source_file = b.path("drivers/audio.zig") });
     const gpu_module = b.createModule(.{ .root_source_file = b.path("drivers/gpu.zig") });
     gpu_module.addImport("pci", pci_module);
@@ -115,7 +117,6 @@ pub fn build(b: *std.Build) void {
     display_module.addImport("pci", pci_module);
     display_module.addImport("physical", physical_module);
     const hardware_profile_module = b.createModule(.{ .root_source_file = b.path("hardware/profile.zig") });
-    const metrics_module = b.createModule(.{ .root_source_file = b.path("gaming/metrics.zig") });
     const installer_state_module = b.createModule(.{ .root_source_file = b.path("installer/state.zig") });
     const e1000_module = b.createModule(.{ .root_source_file = b.path("drivers/e1000.zig") });
     e1000_module.addImport("pci", pci_module);

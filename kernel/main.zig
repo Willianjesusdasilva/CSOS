@@ -569,6 +569,13 @@ pub fn start(info: BootInfo) noreturn {
     mapper.activate();
     syscalls.configureConsole(null, null);
     serial.write("CSOS console shell exited\n");
+    if (hid.latency.count != 0) {
+        const input_latency = hid.latency.summarize() catch panic("input metrics missing");
+        serial.write("profile USB input queue cycles p50: "); serial.writeDecimal(input_latency.p50);
+        serial.write(" p95: "); serial.writeDecimal(input_latency.p95);
+        serial.write(" p99: "); serial.writeDecimal(input_latency.p99);
+        serial.write("\nCSOS M18 input latency ready\n");
+    }
     var display_ticks: u64 = 0;
 
     var reported_input: u64 = 0;
