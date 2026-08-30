@@ -109,14 +109,59 @@ pub const Controller = struct {
             const length = try self.getDescriptor(slot, transfer_ring, descriptor, 0x0200, 255);
             const bytes: [*]const u8 = @ptrFromInt(descriptor);
             var offset: usize = 0;
+            var protocol: u8 = 0;
+            var endpoint_address: u8 = 0;
+            var endpoint_packet: u16 = 0;
+            var interval: u8 = 0;
             while (offset + 2 <= length and bytes[offset] >= 2 and offset + bytes[offset] <= length) : (offset += bytes[offset]) {
                 if (bytes[offset + 1] == 4 and bytes[offset] >= 9 and bytes[offset + 5] == 3 and bytes[offset + 6] == 1) {
-                    if (bytes[offset + 7] == 1) devices.keyboards += 1;
-                    if (bytes[offset + 7] == 2) devices.mice += 1;
+                    protocol = bytes[offset + 7];
+                } else if (protocol != 0 and bytes[offset + 1] == 5 and bytes[offset] >= 7 and (bytes[offset + 2] & 0x80) != 0 and (bytes[offset + 3] & 3) == 3) {
+                    endpoint_address = bytes[offset + 2];
+                    endpoint_packet = get16(bytes + offset + 4) & 0x7ff;
+                    interval = bytes[offset + 6];
+                    break;
                 }
             }
+            if (protocol == 0 or endpoint_address == 0 or endpoint_packet == 0) return error.HidEndpointMissing;
+            const endpoint_id: u5 = @intCast((endpoint_address & 0x0f) * 2 + 1);
+            const interrupt_ring = pages.allocate(1) orelse return error.OutOfMemory;
+            const report = pages.allocate(1) orelse return error.OutOfMemory;
+            const configure = pages.allocate(1) orelse return error.OutOfMemory;
+            zeroPage(interrupt_ring); zeroPage(report); zeroPage(configure);
+            const config: [*]u32 = @ptrFromInt(configure);
+            config[1] = 1 | (@as(u32, 1) << endpoint_id);
+            const config_slot = @as(usize, self.context_size) / 4;
+            config[config_slot] = (@as(u32, speed) << 20) | (@as(u32, endpoint_id) << 27);
+            config[config_slot + 1] = @as(u32, port + 1) << 16;
+            const config_ep = @as(usize, endpoint_id + 1) * config_slot;
+            config[config_ep] = @as(u32, intervalValue(speed, interval)) << 16;
+            config[config_ep + 1] = (@as(u32, endpoint_packet) << 16) | (7 << 3) | (3 << 1);
+            config[config_ep + 2] = @as(u32, @truncate(interrupt_ring)) | 1;
+            config[config_ep + 3] = @truncate(interrupt_ring >> 32);
+            config[config_ep + 4] = @as(u32, endpoint_packet) | (@as(u32, endpoint_packet) << 16);
+            _ = try self.command(configure, 0, 0, 12, slot);
+            try self.setConfiguration(slot, transfer_ring, bytes[5]);
+            const report_trb: [*]volatile u32 = @ptrFromInt(interrupt_ring);
+            report_trb[0] = @truncate(report); report_trb[1] = @truncate(report >> 32);
+            report_trb[2] = endpoint_packet;
+            report_trb[3] = (1 << 10) | (1 << 5) | (1 << 2) | 1;
+            write32(self.doorbells + @as(u64, slot) * 4, 0, endpoint_id);
+            if (protocol == 1) { devices.keyboards += 1; devices.keyboard_slot = slot; }
+            if (protocol == 2) { devices.mice += 1; devices.mouse_slot = slot; }
         }
         return devices;
+    }
+
+    pub fn waitHidReports(self: *Controller, devices: *HidDevices) !void {
+        var received: u2 = 0;
+        while (received != 3) {
+            const event = try self.waitEvent(32);
+            if (event.completion != 1 and event.completion != 13) return error.TransferFailed;
+            if (event.slot == devices.keyboard_slot) received |= 1;
+            if (event.slot == devices.mouse_slot) received |= 2;
+        }
+        devices.reports_received = true;
     }
 
     fn command(self: *Controller, parameter: u64, status: u32, control: u32, trb_type: u6, slot: u8) !u8 {
@@ -147,9 +192,21 @@ pub const Controller = struct {
         return length - @as(u16, @truncate(event.residual));
     }
 
+    fn setConfiguration(self: *Controller, slot: u8, ring: u64, configuration: u8) !void {
+        const trbs: [*]volatile u32 = @ptrFromInt(ring + 3 * 16);
+        trbs[0] = (9 << 8) | (@as(u32, configuration) << 16);
+        trbs[1] = 0; trbs[2] = 8;
+        trbs[3] = (2 << 10) | (1 << 6) | 1;
+        trbs[4] = 0; trbs[5] = 0; trbs[6] = 0;
+        trbs[7] = (4 << 10) | (1 << 16) | (1 << 5) | 1;
+        write32(self.doorbells + @as(u64, slot) * 4, 0, 1);
+        const event = try self.waitEvent(32);
+        if (event.completion != 1) return error.SetConfigurationFailed;
+    }
+
     fn waitEvent(self: *Controller, wanted_type: u6) !Event {
         var spins: usize = 0;
-        while (spins < 100_000_000) : (spins += 1) {
+        while (spins < 10_000_000_000) : (spins += 1) {
             const trb: [*]volatile u32 = @ptrFromInt(self.event_ring + @as(u64, self.event_index) * 16);
             if ((trb[3] & 1) != self.event_phase) { asm volatile ("pause"); continue; }
             const event = Event{ .residual = trb[2] & 0xffffff, .completion = @truncate(trb[2] >> 24), .slot = @truncate(trb[3] >> 24) };
@@ -163,8 +220,22 @@ pub const Controller = struct {
     }
 };
 
-pub const HidDevices = struct { keyboards: u8 = 0, mice: u8 = 0 };
+pub const HidDevices = struct {
+    keyboards: u8 = 0,
+    mice: u8 = 0,
+    keyboard_slot: u8 = 0,
+    mouse_slot: u8 = 0,
+    reports_received: bool = false,
+};
 const Event = struct { residual: u32, completion: u8, slot: u8 };
+
+fn intervalValue(speed: u4, interval: u8) u8 {
+    if (speed >= 3) return if (interval == 0) 0 else interval - 1;
+    var value: u8 = 0;
+    var period: u16 = 1;
+    while (period < interval and value < 7) : (value += 1) period <<= 1;
+    return value + 3;
+}
 
 fn waitBits(address: u64, mask: u32, set: bool) !void {
     var spins: usize = 0;
@@ -177,3 +248,4 @@ fn read8(base: u64, offset: u64) u8 { const value: *volatile u8 = @ptrFromInt(ba
 fn read32(base: u64, offset: u64) u32 { const value: *volatile u32 = @ptrFromInt(base + offset); return value.*; }
 fn write32(base: u64, offset: u64, value: u32) void { const target: *volatile u32 = @ptrFromInt(base + offset); target.* = value; }
 fn write64(base: u64, offset: u64, value: u64) void { const target: *volatile u64 = @ptrFromInt(base + offset); target.* = value; }
+fn get16(source: [*]const u8) u16 { return @as(u16, source[0]) | (@as(u16, source[1]) << 8); }

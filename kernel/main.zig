@@ -171,10 +171,14 @@ pub fn start(info: BootInfo) noreturn {
     serial.write("\n");
     if (usb.connected_ports < 2) panic("USB HID devices missing");
     serial.write("xHCI controller ready\n");
-    const hid = usb.enumerateHid(&pages) catch panic("USB enumeration failed");
+    var hid = usb.enumerateHid(&pages) catch panic("USB enumeration failed");
     serial.write("USB keyboards: "); serial.writeDecimal(hid.keyboards);
     serial.write(" mice: "); serial.writeDecimal(hid.mice); serial.write("\n");
     if (hid.keyboards == 0 or hid.mice == 0) panic("USB HID descriptors missing");
+    serial.write("USB HID endpoints armed\n");
+    usb.waitHidReports(&hid) catch panic("USB HID report failed");
+    serial.write("USB keyboard/mouse reports ready\n");
+    serial.write("CSOS M11 ready\n");
 
     drawBootMarker(info.framebuffer);
     serial.write("framebuffer ready\n");
