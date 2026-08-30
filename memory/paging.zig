@@ -31,6 +31,10 @@ pub const Mapper = struct {
             : .{ .memory = true });
     }
 
+    pub fn mapIdentity(self: *Mapper, address: u64, size: u64) !void {
+        try self.identityMapRange(address, size);
+    }
+
     fn identityMapRange(self: *Mapper, start: u64, size: u64) !void {
         if (size == 0) return;
         var address = start & ~(huge_page_size - 1);

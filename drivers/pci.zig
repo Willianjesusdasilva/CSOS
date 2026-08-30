@@ -73,6 +73,30 @@ pub fn read32(bus: u8, slot: u5, function: u3, offset: u8) u32 {
     return in32(0xcfc);
 }
 
+pub fn write32(bus: u8, slot: u5, function: u3, offset: u8, value: u32) void {
+    const address = 0x80000000 |
+        (@as(u32, bus) << 16) |
+        (@as(u32, slot) << 11) |
+        (@as(u32, function) << 8) |
+        (offset & 0xfc);
+    out32(0xcf8, address);
+    out32(0xcfc, value);
+}
+
+pub fn enableMemoryAndBusMaster(device: Device) void {
+    const value = read32(device.bus, device.slot, device.function, 4);
+    write32(device.bus, device.slot, device.function, 4, value | 0x6);
+}
+
+pub fn barAddress(device: Device, index: u3) ?u64 {
+    const offset: u8 = 0x10 + @as(u8, index) * 4;
+    const low = read32(device.bus, device.slot, device.function, offset);
+    if ((low & 1) != 0) return null;
+    var address: u64 = low & 0xfffffff0;
+    if (((low >> 1) & 3) == 2) address |= @as(u64, read32(device.bus, device.slot, device.function, offset + 4)) << 32;
+    return if (address == 0) null else address;
+}
+
 fn read16(bus: u8, slot: u5, function: u3, offset: u8) u16 {
     return @truncate(read32(bus, slot, function, offset) >> @intCast((offset & 2) * 8));
 }

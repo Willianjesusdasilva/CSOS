@@ -5,6 +5,7 @@ const apic = @import("apic");
 const ioapic = @import("ioapic");
 const acpi = @import("acpi");
 const pci = @import("pci");
+const nvme = @import("nvme");
 const smp = @import("smp");
 const physical = @import("physical");
 const paging = @import("paging");
@@ -131,10 +132,32 @@ pub fn start(info: BootInfo) noreturn {
     serial.write("PCI devices: ");
     serial.writeDecimal(inventory.count);
     serial.write("\n");
+    const nvme_device = inventory.findClass(0x01, 0x08) orelse panic("NVMe controller missing");
+    const nvme_bar = pci.barAddress(nvme_device, 0) orelse panic("NVMe BAR missing");
+    mapper.mapIdentity(nvme_bar, 0x4000) catch panic("NVMe MMIO mapping failed");
+    mapper.activate();
+    var storage = nvme.Controller.init(nvme_device, &pages) catch panic("NVMe setup failed");
+    const namespaces = storage.identify(&pages) catch panic("NVMe identify failed");
+    serial.write("NVMe namespaces: ");
+    serial.writeDecimal(namespaces);
+    serial.write("\n");
+    storage.initIo(&pages) catch panic("NVMe I/O queues failed");
+    const io_buffer = pages.allocate(1) orelse panic("NVMe I/O buffer failed");
+    const io_bytes: [*]u8 = @ptrFromInt(io_buffer);
+    var io_index: usize = 0;
+    while (io_index < storage.block_size) : (io_index += 1) io_bytes[io_index] = @truncate(io_index ^ 0xa5);
+    storage.writeBlock(0, io_buffer) catch panic("NVMe write failed");
+    @memset(io_bytes[0..storage.block_size], 0);
+    storage.readBlock(0, io_buffer) catch panic("NVMe read failed");
+    io_index = 0;
+    while (io_index < storage.block_size) : (io_index += 1) {
+        if (io_bytes[io_index] != @as(u8, @truncate(io_index ^ 0xa5))) panic("NVMe data mismatch");
+    }
+    serial.write("NVMe read/write ready\n");
 
     drawBootMarker(info.framebuffer);
     serial.write("framebuffer ready\n");
-    serial.write("CSOS M8 ready\n");
+    serial.write("CSOS M9 ready\n");
 
     while (true) asm volatile ("cli; hlt");
 }

@@ -33,6 +33,9 @@ pub fn build(b: *std.Build) void {
     const acpi_module = b.createModule(.{ .root_source_file = b.path("firmware/acpi.zig") });
     const pci_module = b.createModule(.{ .root_source_file = b.path("drivers/pci.zig") });
     const physical_module = b.createModule(.{ .root_source_file = b.path("memory/physical.zig") });
+    const nvme_module = b.createModule(.{ .root_source_file = b.path("drivers/nvme.zig") });
+    nvme_module.addImport("pci", pci_module);
+    nvme_module.addImport("physical", physical_module);
     const smp_module = b.createModule(.{ .root_source_file = b.path("arch/x86_64/smp.zig") });
     smp_module.addImport("apic", apic_module);
     smp_module.addImport("physical", physical_module);
@@ -62,6 +65,7 @@ pub fn build(b: *std.Build) void {
     kernel_module.addImport("ioapic", ioapic_module);
     kernel_module.addImport("acpi", acpi_module);
     kernel_module.addImport("pci", pci_module);
+    kernel_module.addImport("nvme", nvme_module);
     kernel_module.addImport("smp", smp_module);
     kernel_module.addImport("physical", physical_module);
     kernel_module.addImport("paging", paging_module);
