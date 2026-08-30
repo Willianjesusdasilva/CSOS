@@ -34,6 +34,7 @@ var lifecycle_error = false;
 var workload_sequence: u8 = 0;
 var input_workload_order: u8 = 0;
 var background_workload_order: u8 = 0;
+var timer_lifecycle_phase: u8 = 0;
 var console_usb: ?*xhci.Controller = null;
 var console_hid: ?*xhci.HidDevices = null;
 var console_last_key: u8 = 0;
@@ -162,6 +163,22 @@ pub fn start(info: BootInfo) noreturn {
     scheduler.setMode(.normal);
     if (input_workload_order != 1 or background_workload_order != 2) panic("GAME workload priority failed");
     serial.write("CSOS M18 workload policy ready\n");
+
+    const timer_group: u16 = 9;
+    _ = scheduler.spawnManaged(&timerLifecycleThread, &pages, timer_group, .freeze) catch panic("lifecycle timer creation failed");
+    scheduler.run();
+    if (timer_lifecycle_phase != 1 or scheduler.groupSleepTicks(timer_group) != 3) panic("lifecycle timer sleep failed");
+    if (scheduler.freezeGroup(timer_group) != 1) panic("lifecycle sleeping freeze failed");
+    scheduler.tick();
+    scheduler.tick();
+    if (scheduler.groupSleepTicks(timer_group) != 3) panic("frozen lifecycle timer advanced");
+    if (scheduler.resumeGroup(timer_group) != 1) panic("lifecycle timer resume failed");
+    scheduler.tick();
+    scheduler.tick();
+    scheduler.tick();
+    scheduler.run();
+    if (timer_lifecycle_phase != 2 or scheduler.groupLifecycle(timer_group) != .finished) panic("lifecycle timer completion failed");
+    serial.write("CSOS M17 paused timers ready\n");
 
     const userspace_pages_before = pages.free_pages;
     process.runHelloPie(mapper.root, &pages) catch panic("PIE userspace failed");
@@ -623,6 +640,15 @@ fn inputWorkload() void {
 fn backgroundWorkload() void {
     workload_sequence += 1;
     background_workload_order = workload_sequence;
+}
+
+fn timerLifecycleThread() void {
+    timer_lifecycle_phase = 1;
+    scheduler.sleepCurrent(3) catch {
+        lifecycle_error = true;
+        return;
+    };
+    timer_lifecycle_phase = 2;
 }
 
 fn perCpuTask() void {

@@ -8,7 +8,7 @@ const stack_pages = 4;
 
 const Entry = *const fn () void;
 
-const State = enum { ready, running, frozen, finished };
+const State = enum { ready, running, sleeping, frozen, finished };
 
 pub const Policy = enum { keep_alive, freeze, standby, auto };
 pub const Lifecycle = enum { running, background, frozen, standby, resuming, finished };
@@ -29,6 +29,8 @@ const Thread = struct {
     policy: Policy = .auto,
     lifecycle: Lifecycle = .running,
     workload: Workload = .system,
+    resume_state: State = .ready,
+    sleep_ticks: u64 = 0,
 };
 
 const CpuQueue = struct {
@@ -126,7 +128,9 @@ pub fn backgroundGroup(group: u16) usize {
 pub fn freezeGroup(group: u16) usize {
     var changed: usize = 0;
     for (threads[0..thread_count]) |*thread| {
-        if (thread.group != group or thread.policy == .keep_alive or thread.state != .ready) continue;
+        if (thread.group != group or thread.policy == .keep_alive or
+            (thread.state != .ready and thread.state != .sleeping)) continue;
+        thread.resume_state = thread.state;
         thread.state = .frozen;
         thread.lifecycle = .frozen;
         changed += 1;
@@ -137,6 +141,7 @@ pub fn freezeGroup(group: u16) usize {
 pub fn freezeCurrent() !void {
     const index = current orelse return error.NoCurrentThread;
     if (threads[index].policy == .keep_alive) return error.KeepAlive;
+    threads[index].resume_state = .ready;
     threads[index].state = .frozen;
     threads[index].lifecycle = .frozen;
     yieldNow();
@@ -175,11 +180,36 @@ pub fn resumeGroup(group: u16) usize {
     var changed: usize = 0;
     for (threads[0..thread_count]) |*thread| {
         if (thread.group != group or thread.state != .frozen) continue;
-        thread.state = .ready;
+        thread.state = thread.resume_state;
         thread.lifecycle = .resuming;
         changed += 1;
     }
     return changed;
+}
+
+pub fn sleepCurrent(ticks: u64) !void {
+    const index = current orelse return error.NoCurrentThread;
+    if (ticks == 0) return;
+    threads[index].sleep_ticks = ticks;
+    threads[index].state = .sleeping;
+    threads[index].resume_state = .sleeping;
+    yieldNow();
+}
+
+pub fn tick() void {
+    for (threads[0..thread_count]) |*thread| {
+        if (thread.state != .sleeping or thread.sleep_ticks == 0) continue;
+        thread.sleep_ticks -= 1;
+        if (thread.sleep_ticks == 0) thread.state = .ready;
+    }
+}
+
+pub fn groupSleepTicks(group: u16) u64 {
+    var remaining: u64 = 0;
+    for (threads[0..thread_count]) |thread| {
+        if (thread.group == group) remaining = @max(remaining, thread.sleep_ticks);
+    }
+    return remaining;
 }
 
 pub fn groupLifecycle(group: u16) ?Lifecycle {
@@ -219,7 +249,7 @@ pub fn yieldNow() void {
         return;
     }
 
-    if (threads[previous].state == .finished or threads[previous].state == .frozen) {
+    if (threads[previous].state == .finished or threads[previous].state == .frozen or threads[previous].state == .sleeping) {
         const permanently_finished = threads[previous].state == .finished;
         current = null;
         context_switch(&threads[previous].context, &kernel_context);
@@ -305,6 +335,7 @@ fn saveFxState(state: *[512]u8) void {
 }
 
 fn preempt() callconv(.c) void {
+    tick();
     yieldNow();
 }
 
