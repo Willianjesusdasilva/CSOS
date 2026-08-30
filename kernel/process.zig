@@ -4,6 +4,8 @@ const syscalls = @import("syscalls");
 const busybox_image = @embedFile("busybox_elf");
 const nettest_image = @embedFile("nettest_elf");
 const hello_image = @embedFile("hello_elf");
+const interpreter_image = @embedFile("interpreter_elf");
+const dynamic_image = @embedFile("dynamic_elf");
 var image: []const u8 = busybox_image;
 const stack_address: u64 = 0x0000009000000000;
 const mmap_address: u64 = 0x000000a000000000;
@@ -30,6 +32,7 @@ pub var standby_pages: u64 = 0;
 pub var restored_pages: u64 = 0;
 pub var pause_count: u64 = 0;
 pub var relative_relocations: u64 = 0;
+pub var interpreter_loads: u64 = 0;
 pub const Lifecycle = enum { running, frozen, standby, resuming, finished };
 pub var lifecycle: Lifecycle = .finished;
 
@@ -53,6 +56,12 @@ pub fn runHelloPie(kernel_root: u64, pages: *physical.Allocator) !void {
     return runImage(kernel_root, pages, &arguments);
 }
 
+pub fn runDynamicTest(kernel_root: u64, pages: *physical.Allocator) !void {
+    image = dynamic_image;
+    const arguments = [_][]const u8{"/bin/dynamic-hello"};
+    return runImage(kernel_root, pages, &arguments);
+}
+
 fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []const u8) !void {
     if (image.len < 64 or !isElf()) return error.InvalidElf;
     const elf_type = read16(16);
@@ -63,6 +72,8 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
     const program_entry_size = read16(54);
     const program_count = read16(56);
     if (program_entry_size < 56 or program_offset + @as(u64, program_entry_size) * program_count > image.len) return error.InvalidElf;
+    const program_image = image;
+    const interpreter_path = try findInterpreter(program_offset, program_entry_size, program_count);
 
     var address_space = try paging.AddressSpace.init(kernel_root, pages);
     var owned: [max_owned_ranges]OwnedRange = undefined;
@@ -92,7 +103,38 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
         try loadSegment(&address_space, pages, &mappings, &mapping_count, &owned, &owned_count, virtual, file_offset, file_size, memory_size, (flags & 2) != 0, (flags & 1) != 0);
     }
     if (mapping_count == 0 or entry < image_start or entry >= image_end) return error.InvalidElf;
-    try applyRelativeRelocations(mappings[0..mapping_count], load_bias, program_offset, program_entry_size, program_count);
+    try applyRelativeRelocations(mappings[0..mapping_count], load_bias, program_offset, program_entry_size, program_count, interpreter_path != null);
+    var execution_entry = entry;
+    var interpreter_base: u64 = 0;
+    if (interpreter_path) |path| {
+        if (!equal(path, "/lib/ld-csos.so")) return error.UnsupportedInterpreter;
+        image = interpreter_image;
+        if (image.len < 64 or !isElf() or read16(16) != 3) return error.InvalidInterpreter;
+        const interpreter_program_offset = read64(32);
+        const interpreter_program_entry_size = read16(54);
+        const interpreter_program_count = read16(56);
+        if (interpreter_program_entry_size < 56 or interpreter_program_offset + @as(u64, interpreter_program_entry_size) * interpreter_program_count > image.len)
+            return error.InvalidInterpreter;
+        interpreter_base = 0x0000007000000000;
+        execution_entry = read64(24) + interpreter_base;
+        header_index = 0;
+        while (header_index < interpreter_program_count) : (header_index += 1) {
+            const header: usize = @intCast(interpreter_program_offset + @as(u64, interpreter_program_entry_size) * header_index);
+            if (read32At(header) != 1) continue;
+            const flags = read32At(header + 4);
+            const file_offset = read64At(header + 8);
+            const virtual = read64At(header + 16) + interpreter_base;
+            const file_size = read64At(header + 32);
+            const memory_size = read64At(header + 40);
+            if (file_size > memory_size or file_offset + file_size > image.len or memory_size == 0) return error.InvalidInterpreter;
+            image_start = @min(image_start, virtual);
+            image_end = @max(image_end, virtual + memory_size);
+            try loadSegment(&address_space, pages, &mappings, &mapping_count, &owned, &owned_count, virtual, file_offset, file_size, memory_size, (flags & 2) != 0, (flags & 1) != 0);
+        }
+        try applyRelativeRelocations(mappings[0..mapping_count], interpreter_base, interpreter_program_offset, interpreter_program_entry_size, interpreter_program_count, false);
+        interpreter_loads += 1;
+        image = program_image;
+    }
 
     const stack_page_count = 8;
     const initial_stack_size = 4 * page_size;
@@ -102,7 +144,7 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
     while (stack_page < stack_page_count) : (stack_page += 1) {
         try address_space.mapUserPage(stack_address + stack_page * page_size, stack_pages + stack_page * page_size, true, false);
     }
-    const entry_permissions = address_space.userPermissions(entry) orelse return error.EntryNotMapped;
+    const entry_permissions = address_space.userPermissions(execution_entry) orelse return error.EntryNotMapped;
     const stack_permissions = address_space.userPermissions(stack_address) orelse return error.StackNotMapped;
     if (!entry_permissions.executable or entry_permissions.writable) return error.InvalidEntryPermissions;
     if (stack_permissions.executable or !stack_permissions.writable) return error.InvalidStackPermissions;
@@ -110,7 +152,7 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
     const arena_pages = 64;
     try mapAnonymous(&address_space, pages, &owned, &owned_count, break_base, arena_pages);
     try mapAnonymous(&address_space, pages, &owned, &owned_count, mmap_address, arena_pages);
-    const stack_pointer = try buildInitialStack(stack_pages, initial_stack_size, entry, load_bias, program_offset, program_entry_size, program_count, arguments);
+    const stack_pointer = try buildInitialStack(stack_pages, initial_stack_size, entry, interpreter_base, load_bias, program_offset, program_entry_size, program_count, arguments);
     syscalls.configure(
         image_start,
         image_end - image_start,
@@ -136,7 +178,7 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
         syscalls.configureMmap(null, null);
     }
     lifecycle = .running;
-    var user_instruction = entry;
+    var user_instruction = execution_entry;
     var user_stack = stack_pointer;
     while (true) {
         address_space.activate();
@@ -188,6 +230,7 @@ fn buildInitialStack(
     physical_base: u64,
     size: u64,
     entry: u64,
+    interpreter_base: u64,
     load_bias: u64,
     program_offset: u64,
     program_entry_size: u16,
@@ -233,6 +276,7 @@ fn buildInitialStack(
         .{ 5, program_count },
         .{ 6, page_size },
         .{ 9, entry },
+        .{ 7, interpreter_base },
         .{ 11, 0 }, .{ 12, 0 }, .{ 13, 0 }, .{ 14, 0 },
         .{ 23, 0 },
         .{ 25, random_pointer },
@@ -257,6 +301,27 @@ fn buildInitialStack(
     }
     push(bytes, &offset, arguments.len);
     return stack_address + offset;
+}
+
+fn findInterpreter(program_offset: u64, program_entry_size: u16, program_count: u16) !?[]const u8 {
+    var header_index: usize = 0;
+    while (header_index < program_count) : (header_index += 1) {
+        const header: usize = @intCast(program_offset + @as(u64, program_entry_size) * header_index);
+        if (read32At(header) != 3) continue;
+        const offset = read64At(header + 8);
+        const size = read64At(header + 32);
+        if (size < 2 or offset > image.len or size > image.len - offset) return error.InvalidInterpreterPath;
+        const path = image[@intCast(offset)..@intCast(offset + size - 1)];
+        if (image[@intCast(offset + size - 1)] != 0) return error.InvalidInterpreterPath;
+        return path;
+    }
+    return null;
+}
+
+fn equal(left: []const u8, right: []const u8) bool {
+    if (left.len != right.len) return false;
+    for (left, right) |a, b| if (a != b) return false;
+    return true;
 }
 
 fn push(bytes: [*]u8, offset: *usize, value: u64) void {
@@ -338,7 +403,7 @@ fn discardCleanPages(address_space: *paging.AddressSpace, pages: *physical.Alloc
     return discarded;
 }
 
-fn applyRelativeRelocations(mappings: []const Mapping, load_bias: u64, program_offset: u64, program_entry_size: u16, program_count: u16) !void {
+fn applyRelativeRelocations(mappings: []const Mapping, load_bias: u64, program_offset: u64, program_entry_size: u16, program_count: u16, allow_unresolved: bool) !void {
     var dynamic_offset: ?u64 = null;
     var dynamic_size: u64 = 0;
     var header_index: usize = 0;
@@ -375,7 +440,10 @@ fn applyRelativeRelocations(mappings: []const Mapping, load_bias: u64, program_o
         const target = read64At(item) + load_bias;
         const info = read64At(item + 8);
         const addend: i64 = @bitCast(read64At(item + 16));
-        if (@as(u32, @truncate(info)) != 8 or (info >> 32) != 0) return error.UnsupportedRelocation;
+        if (@as(u32, @truncate(info)) != 8 or (info >> 32) != 0) {
+            if (allow_unresolved) continue;
+            return error.UnsupportedRelocation;
+        }
         try writeMapped64(mappings, target, load_bias +% @as(u64, @bitCast(addend)));
         relative_relocations += 1;
     }

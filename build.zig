@@ -12,6 +12,12 @@ pub fn build(b: *std.Build) void {
         .os_tag = .linux,
         .abi = .none,
     });
+    const dynamic_user_target = b.resolveTargetQuery(.{
+        .cpu_arch = .x86_64,
+        .os_tag = .linux,
+        .abi = .none,
+        .dynamic_linker = std.Target.DynamicLinker.init("/lib/ld-csos.so"),
+    });
 
     const hello = b.addExecutable(.{
         .name = "hello",
@@ -23,6 +29,41 @@ pub fn build(b: *std.Build) void {
     });
     hello.entry = .{ .symbol_name = "_start" };
     hello.pie = true;
+
+    const interpreter = b.addExecutable(.{
+        .name = "ld-csos",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("userspace/interpreter.zig"),
+            .target = user_target,
+            .optimize = .ReleaseSmall,
+        }),
+    });
+    interpreter.entry = .{ .symbol_name = "_start" };
+    interpreter.pie = true;
+
+    const shared = b.addLibrary(.{
+        .name = "csos-shared",
+        .linkage = .dynamic,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("userspace/shared.zig"),
+            .target = user_target,
+            .optimize = .ReleaseSmall,
+        }),
+    });
+    shared.bundle_compiler_rt = false;
+
+    const dynamic_hello = b.addExecutable(.{
+        .name = "dynamic-hello",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("userspace/dynamic_hello.zig"),
+            .target = dynamic_user_target,
+            .optimize = .ReleaseSmall,
+        }),
+    });
+    dynamic_hello.entry = .{ .symbol_name = "_start" };
+    dynamic_hello.pie = true;
+    dynamic_hello.bundle_compiler_rt = false;
+    dynamic_hello.root_module.linkLibrary(shared);
 
     const nettest = b.addExecutable(.{
         .name = "nettest",
@@ -84,6 +125,8 @@ pub fn build(b: *std.Build) void {
     process_module.addImport("physical", physical_module);
     process_module.addImport("syscalls", syscalls_module);
     process_module.addAnonymousImport("hello_elf", .{ .root_source_file = hello.getEmittedBin() });
+    process_module.addAnonymousImport("interpreter_elf", .{ .root_source_file = interpreter.getEmittedBin() });
+    process_module.addAnonymousImport("dynamic_elf", .{ .root_source_file = dynamic_hello.getEmittedBin() });
     process_module.addAnonymousImport("nettest_elf", .{ .root_source_file = nettest.getEmittedBin() });
     process_module.addAnonymousImport("busybox_elf", .{ .root_source_file = b.path("userspace/initramfs/bin/busybox") });
     const kernel_module = b.createModule(.{ .root_source_file = b.path("kernel/main.zig") });

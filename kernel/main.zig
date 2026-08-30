@@ -154,6 +154,10 @@ pub fn start(info: BootInfo) noreturn {
     if (syscalls.file_mmaps == 0) panic("Linux file mmap missing");
     if (syscalls.protected_mmaps == 0 or syscalls.unmapped_mmaps == 0) panic("Linux mmap lifecycle missing");
     serial.write("Linux PIE userspace ready\nLinux W^X userspace ready\n");
+    process.runDynamicTest(mapper.root, &pages) catch panic("PT_INTERP userspace failed");
+    mapper.activate();
+    if (process.interpreter_loads == 0) panic("PT_INTERP loader missing");
+    serial.write("Linux dynamic userspace ready\n");
     const echo_arguments = [_][]const u8{ "/bin/busybox", "echo", "BusyBox userspace ready" };
     process.runBusyBox(mapper.root, &pages, &echo_arguments) catch panic("BusyBox echo failed");
     mapper.activate();
