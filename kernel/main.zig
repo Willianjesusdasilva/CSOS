@@ -9,6 +9,7 @@ const physical = @import("physical");
 const paging = @import("paging");
 const heap = @import("heap");
 const scheduler = @import("scheduler");
+const process = @import("process");
 
 var thread_a_runs: usize = 0;
 var thread_b_runs: usize = 0;
@@ -106,9 +107,13 @@ pub fn start(info: BootInfo) noreturn {
     if (preempt_a != 2 or preempt_b != 2) panic("timer preemption failed");
     serial.write("scheduler preemption ready\n");
 
+    process.runHello(mapper.root, &pages) catch panic("userspace process failed");
+    mapper.activate();
+    serial.write("userspace returned\n");
+
     drawBootMarker(info.framebuffer);
     serial.write("framebuffer ready\n");
-    serial.write("CSOS M4 ready\n");
+    serial.write("CSOS M5 ready\n");
 
     while (true) asm volatile ("cli; hlt");
 }

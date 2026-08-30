@@ -36,6 +36,8 @@ pub fn install() void {
     }
     entries[3] = Entry.from(@ptrCast(&breakpoint));
     entries[32] = Entry.from(@ptrCast(&timer));
+    entries[128] = Entry.from(@ptrCast(&syscall));
+    entries[128].attributes = 0xee;
     entries[255] = Entry.from(@ptrCast(&spurious));
 
     const register = Register{
@@ -108,4 +110,50 @@ export fn timer_dispatch() callconv(.c) void {
 
 fn spurious() callconv(.naked) void {
     asm volatile ("iretq");
+}
+
+fn syscall() callconv(.naked) void {
+    asm volatile (
+        \\cmpq $60, %%rax
+        \\je user_exit_trampoline
+        \\pushq %%r15
+        \\pushq %%r14
+        \\pushq %%r13
+        \\pushq %%r12
+        \\pushq %%r11
+        \\pushq %%r10
+        \\pushq %%r9
+        \\pushq %%r8
+        \\pushq %%rdi
+        \\pushq %%rsi
+        \\pushq %%rbp
+        \\pushq %%rbx
+        \\pushq %%rdx
+        \\pushq %%rcx
+        \\movq %%rsp, %%r11
+        \\andq $-16, %%rsp
+        \\subq $48, %%rsp
+        \\movq %%r11, 32(%%rsp)
+        \\movq %%rax, %%rcx
+        \\movq 40(%%r11), %%rdx
+        \\movq 32(%%r11), %%r8
+        \\movq 8(%%r11), %%r9
+        \\callq user_syscall_dispatch
+        \\movq 32(%%rsp), %%rsp
+        \\popq %%rcx
+        \\popq %%rdx
+        \\popq %%rbx
+        \\popq %%rbp
+        \\popq %%rsi
+        \\popq %%rdi
+        \\popq %%r8
+        \\popq %%r9
+        \\popq %%r10
+        \\popq %%r11
+        \\popq %%r12
+        \\popq %%r13
+        \\popq %%r14
+        \\popq %%r15
+        \\iretq
+    );
 }

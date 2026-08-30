@@ -49,8 +49,45 @@ pub const Mapper = struct {
     }
 };
 
+pub const AddressSpace = struct {
+    root: u64,
+    pages: *physical.Allocator,
+
+    pub fn init(kernel_root: u64, pages: *physical.Allocator) !AddressSpace {
+        const root = try allocateTable(pages);
+        table(root).* = table(kernel_root).*;
+        return .{ .root = root, .pages = pages };
+    }
+
+    pub fn mapUserPage(self: *AddressSpace, virtual: u64, physical_address: u64, writable: bool) !void {
+        if ((virtual & (page_size - 1)) != 0 or (physical_address & (page_size - 1)) != 0) return error.Unaligned;
+        const pml4 = table(self.root);
+        const pml4_index = (virtual >> 39) & 0x1ff;
+        const pdpt = try childUserTable(self.pages, pml4, pml4_index);
+        const pdpt_index = (virtual >> 30) & 0x1ff;
+        const directory = try childUserTable(self.pages, pdpt, pdpt_index);
+        const directory_index = (virtual >> 21) & 0x1ff;
+        const page_table = try childUserTable(self.pages, directory, directory_index);
+        const page_index = (virtual >> 12) & 0x1ff;
+        page_table[page_index] = physical_address | 0x005 | if (writable) @as(u64, 0x002) else 0;
+    }
+
+    pub fn activate(self: *const AddressSpace) void {
+        asm volatile ("mov %[root], %%cr3"
+            :
+            : [root] "r" (self.root),
+            : .{ .memory = true });
+    }
+};
+
 fn childTable(pages: *physical.Allocator, parent: *[entry_count]u64, index: u64) !*[entry_count]u64 {
     if ((parent[index] & 1) == 0) parent[index] = (try allocateTable(pages)) | present_writable;
+    return table(parent[index] & address_mask);
+}
+
+fn childUserTable(pages: *physical.Allocator, parent: *[entry_count]u64, index: u64) !*[entry_count]u64 {
+    if ((parent[index] & 1) == 0) parent[index] = (try allocateTable(pages)) | 0x007 else parent[index] |= 0x004;
+    if ((parent[index] & 0x080) != 0) return error.HugePageConflict;
     return table(parent[index] & address_mask);
 }
 

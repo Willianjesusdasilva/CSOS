@@ -7,6 +7,22 @@ pub fn build(b: *std.Build) void {
         .os_tag = .uefi,
         .abi = .msvc,
     });
+    const user_target = b.resolveTargetQuery(.{
+        .cpu_arch = .x86_64,
+        .os_tag = .freestanding,
+        .abi = .none,
+    });
+
+    const hello = b.addExecutable(.{
+        .name = "hello",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("userspace/hello.zig"),
+            .target = user_target,
+            .optimize = .ReleaseSmall,
+        }),
+    });
+    hello.entry = .{ .symbol_name = "_start" };
+    hello.image_base = 0x0000008000000000;
 
     const serial_module = b.createModule(.{ .root_source_file = b.path("arch/x86_64/serial.zig") });
     const gdt_module = b.createModule(.{ .root_source_file = b.path("arch/x86_64/gdt.zig") });
@@ -25,6 +41,13 @@ pub fn build(b: *std.Build) void {
     const scheduler_module = b.createModule(.{ .root_source_file = b.path("kernel/scheduler.zig") });
     scheduler_module.addImport("physical", physical_module);
     scheduler_module.addImport("idt", idt_module);
+    const syscalls_module = b.createModule(.{ .root_source_file = b.path("kernel/syscalls.zig") });
+    syscalls_module.addImport("serial", serial_module);
+    const process_module = b.createModule(.{ .root_source_file = b.path("kernel/process.zig") });
+    process_module.addImport("paging", paging_module);
+    process_module.addImport("physical", physical_module);
+    process_module.addImport("syscalls", syscalls_module);
+    process_module.addAnonymousImport("hello_elf", .{ .root_source_file = hello.getEmittedBin() });
     const kernel_module = b.createModule(.{ .root_source_file = b.path("kernel/main.zig") });
     kernel_module.addImport("serial", serial_module);
     kernel_module.addImport("gdt", gdt_module);
@@ -37,6 +60,8 @@ pub fn build(b: *std.Build) void {
     kernel_module.addImport("paging", paging_module);
     kernel_module.addImport("heap", heap_module);
     kernel_module.addImport("scheduler", scheduler_module);
+    kernel_module.addImport("process", process_module);
+    kernel_module.addImport("syscalls", syscalls_module);
     const boot_module = b.createModule(.{
         .root_source_file = b.path("boot/main.zig"),
         .target = target,
@@ -46,6 +71,7 @@ pub fn build(b: *std.Build) void {
     boot_module.addImport("kernel", kernel_module);
     boot_module.addAssemblyFile(b.path("arch/x86_64/ap_trampoline.S"));
     boot_module.addAssemblyFile(b.path("arch/x86_64/context_switch.S"));
+    boot_module.addAssemblyFile(b.path("arch/x86_64/user_enter.S"));
     const boot = b.addExecutable(.{ .name = "BOOTX64", .root_module = boot_module });
     b.installArtifact(boot);
 
