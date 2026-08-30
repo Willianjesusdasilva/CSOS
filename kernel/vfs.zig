@@ -90,13 +90,8 @@ pub fn read(fd: usize, output: []u8) !usize {
     if (fd >= descriptors.len or descriptors[fd].kind != .file) return error.BadFd;
     if (descriptors[fd].node == .disk) {
         const volume = disk orelse return error.NotFound;
-        var contents: [8192]u8 = undefined;
-        if (descriptors[fd].size > contents.len) return error.FileTooLarge;
-        const size = try volume.readRootFile(&descriptors[fd].fat_name, contents[0..descriptors[fd].size]);
-        const start = @min(descriptors[fd].offset, size);
-        const count = @min(output.len, size - start);
-        @memcpy(output[0..count], contents[start .. start + count]);
-        descriptors[fd].offset = start + count;
+        const count = try volume.readRootFileAt(&descriptors[fd].fat_name, output, descriptors[fd].offset);
+        descriptors[fd].offset += count;
         return count;
     }
     const data = nodeData(descriptors[fd].node);
@@ -111,13 +106,7 @@ pub fn pread(fd: usize, output: []u8, offset: usize) !usize {
     if (fd >= descriptors.len or descriptors[fd].kind != .file) return error.BadFd;
     if (descriptors[fd].node == .disk) {
         const volume = disk orelse return error.NotFound;
-        var contents: [8192]u8 = undefined;
-        if (descriptors[fd].size > contents.len) return error.FileTooLarge;
-        const size = try volume.readRootFile(&descriptors[fd].fat_name, contents[0..descriptors[fd].size]);
-        const start = @min(offset, size);
-        const count = @min(output.len, size - start);
-        @memcpy(output[0..count], contents[start .. start + count]);
-        return count;
+        return volume.readRootFileAt(&descriptors[fd].fat_name, output, offset);
     }
     const data = nodeData(descriptors[fd].node);
     const start = @min(offset, data.len);

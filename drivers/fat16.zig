@@ -92,6 +92,57 @@ pub const Volume = struct {
         return error.NotFound;
     }
 
+    pub fn readRootFileAt(self: *Volume, name: *const [11]u8, output: []u8, file_offset: usize) !usize {
+        var first_cluster: u16 = 0;
+        var size: usize = 0;
+        var sector: u32 = 0;
+        var found = false;
+        while (sector < self.root_sectors and !found) : (sector += 1) {
+            try self.storage.readBlock(self.root_start + sector, self.buffer);
+            const bytes: [*]const u8 = @ptrFromInt(self.buffer);
+            var offset: usize = 0;
+            while (offset < 512) : (offset += 32) {
+                if (bytes[offset] == 0) break;
+                if (bytes[offset] == 0xe5 or (bytes[offset + 11] & 0x0f) == 0x0f or !equal11(bytes + offset, name)) continue;
+                first_cluster = get16(bytes + offset + 26);
+                size = get32(bytes + offset + 28);
+                found = true;
+                break;
+            }
+        }
+        if (!found) return error.NotFound;
+        if (file_offset >= size or output.len == 0) return 0;
+        if (first_cluster < 2) return error.BrokenChain;
+        const cluster_bytes = @as(usize, self.sectors_per_cluster) * 512;
+        var cluster = first_cluster;
+        var skip = file_offset / cluster_bytes;
+        while (skip != 0) : (skip -= 1) {
+            cluster = try self.fatEntry(cluster);
+            if (cluster < 2 or cluster >= 0xfff8) return error.BrokenChain;
+        }
+        var within_cluster = file_offset % cluster_bytes;
+        var copied: usize = 0;
+        const wanted = @min(output.len, size - file_offset);
+        while (copied < wanted) {
+            var cluster_sector: u32 = @intCast(within_cluster / 512);
+            var sector_offset = within_cluster % 512;
+            while (cluster_sector < self.sectors_per_cluster and copied < wanted) : (cluster_sector += 1) {
+                try self.storage.readBlock(self.clusterLba(cluster) + cluster_sector, self.buffer);
+                const bytes: [*]const u8 = @ptrFromInt(self.buffer);
+                const count = @min(wanted - copied, 512 - sector_offset);
+                @memcpy(output[copied .. copied + count], bytes[sector_offset .. sector_offset + count]);
+                copied += count;
+                sector_offset = 0;
+            }
+            within_cluster = 0;
+            if (copied < wanted) {
+                cluster = try self.fatEntry(cluster);
+                if (cluster < 2 or cluster >= 0xfff8) return error.BrokenChain;
+            }
+        }
+        return copied;
+    }
+
     pub fn writeRootFile(self: *Volume, name: *const [11]u8, data: []const u8) !void {
         const cluster_bytes = @as(usize, self.sectors_per_cluster) * 512;
         const needed = if (data.len == 0) 0 else (data.len + cluster_bytes - 1) / cluster_bytes;

@@ -231,13 +231,27 @@ pub fn start(info: BootInfo) noreturn {
     var file_data: [128]u8 = undefined;
     const file_size = volume.readRootFile("SYSTEM  TXT", &file_data) catch panic("FAT16 read failed");
     serial.write(file_data[0..file_size]);
-    const state = "persistent CSOS state\n" ** 150;
+    const state = "persistent CSOS state\n" ** 600;
     volume.writeRootFile("STATE   TXT", state) catch panic("FAT16 write failed");
-    var state_readback: [state.len]u8 = undefined;
-    const state_size = volume.readRootFile("STATE   TXT", &state_readback) catch panic("FAT16 write verification failed");
-    if (state_size != state.len or !equalBytes(state, &state_readback)) panic("FAT16 data mismatch");
+    var state_readback: [1024]u8 = undefined;
+    var state_offset: usize = 0;
+    while (state_offset < state.len) {
+        const state_size = volume.readRootFileAt("STATE   TXT", &state_readback, state_offset) catch panic("FAT16 ranged read failed");
+        if (state_size == 0 or !equalBytes(state[state_offset .. state_offset + state_size], state_readback[0..state_size])) panic("FAT16 ranged data mismatch");
+        state_offset += state_size;
+    }
     serial.write("FAT16 write ready\n");
     vfs.mount(&volume);
+    vfs.reset();
+    const state_fd = vfs.openAt(-100, "/state.txt", 0) catch panic("VFS large file open failed");
+    state_offset = 0;
+    while (state_offset < state.len) {
+        const state_size = vfs.read(state_fd, &state_readback) catch panic("VFS large file read failed");
+        if (state_size == 0 or !equalBytes(state[state_offset .. state_offset + state_size], state_readback[0..state_size])) panic("VFS large file mismatch");
+        state_offset += state_size;
+    }
+    vfs.close(state_fd) catch panic("VFS large file close failed");
+    serial.write("VFS large file streaming ready\n");
     const persist_arguments = [_][]const u8{ "/bin/busybox", "sh", "-c", "echo userspace-persisted > /user.txt" };
     process.runBusyBox(mapper.root, &pages, &persist_arguments) catch panic("userspace filesystem failed");
     mapper.activate();
