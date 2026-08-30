@@ -1,0 +1,181 @@
+pub const Cpu = struct {
+    vendor: [12]u8,
+    family: u16,
+    model: u16,
+    stepping: u8,
+    tsc: bool,
+};
+
+pub const Facts = struct {
+    logical_cpus: u16,
+    memory_pages: u64,
+    pci_devices: u16,
+    gpu_vendor: u16,
+    gpu_device: u16,
+    gpu_bus: u8,
+    gpu_slot: u5,
+    nvme_vendor: u16,
+    nvme_device: u16,
+    nvme_namespaces: u16,
+    nic_vendor: u16,
+    nic_device: u16,
+    usb_ports: u8,
+    keyboards: u8,
+    mice: u8,
+    audio_interfaces: u8,
+    display_width: u32,
+    display_height: u32,
+    display_stride: u32,
+};
+
+pub const Profile = struct {
+    bytes: [2048]u8 = undefined,
+    length: usize = 0,
+    signature: u64 = 0,
+
+    pub fn text(self: *const Profile) []const u8 {
+        return self.bytes[0..self.length];
+    }
+};
+
+pub fn detectCpu() Cpu {
+    const vendor_leaf = cpuid(0, 0);
+    var vendor: [12]u8 = undefined;
+    putNative32(vendor[0..4], vendor_leaf.ebx);
+    putNative32(vendor[4..8], vendor_leaf.edx);
+    putNative32(vendor[8..12], vendor_leaf.ecx);
+    const version = cpuid(1, 0);
+    const base_family = (version.eax >> 8) & 0x0f;
+    const base_model = (version.eax >> 4) & 0x0f;
+    const extended_family = (version.eax >> 20) & 0xff;
+    const extended_model = (version.eax >> 16) & 0x0f;
+    return .{
+        .vendor = vendor,
+        .family = @intCast(if (base_family == 0x0f) base_family + extended_family else base_family),
+        .model = @intCast(if (base_family == 0x06 or base_family == 0x0f) base_model | (extended_model << 4) else base_model),
+        .stepping = @truncate(version.eax & 0x0f),
+        .tsc = (version.edx & (1 << 4)) != 0,
+    };
+}
+
+pub fn build(cpu: Cpu, facts: Facts) !Profile {
+    var result = Profile{};
+    result.signature = signature(cpu, facts);
+    try append(&result, "[system]\nversion=1\nsignature=");
+    try appendHex(&result, result.signature);
+    try append(&result, "\n\n[cpu]\nvendor="); try append(&result, &cpu.vendor);
+    try append(&result, "\nfamily="); try appendDecimal(&result, cpu.family);
+    try append(&result, "\nmodel="); try appendDecimal(&result, cpu.model);
+    try append(&result, "\nstepping="); try appendDecimal(&result, cpu.stepping);
+    try append(&result, "\nlogical="); try appendDecimal(&result, facts.logical_cpus);
+    try append(&result, "\ntsc="); try append(&result, if (cpu.tsc) "true" else "false");
+    try append(&result, "\n\n[memory]\npages="); try appendDecimal(&result, facts.memory_pages);
+    try append(&result, "\n\n[pci]\ndevices="); try appendDecimal(&result, facts.pci_devices);
+    try append(&result, "\n\n[gpu]\nvendor="); try appendHex(&result, facts.gpu_vendor);
+    try append(&result, "\ndevice="); try appendHex(&result, facts.gpu_device);
+    try append(&result, "\nbus="); try appendDecimal(&result, facts.gpu_bus);
+    try append(&result, "\nslot="); try appendDecimal(&result, facts.gpu_slot);
+    try append(&result, "\n\n[nvme]\nvendor="); try appendHex(&result, facts.nvme_vendor);
+    try append(&result, "\ndevice="); try appendHex(&result, facts.nvme_device);
+    try append(&result, "\nnamespaces="); try appendDecimal(&result, facts.nvme_namespaces);
+    try append(&result, "\n\n[network]\nvendor="); try appendHex(&result, facts.nic_vendor);
+    try append(&result, "\ndevice="); try appendHex(&result, facts.nic_device);
+    try append(&result, "\n\n[usb]\nports="); try appendDecimal(&result, facts.usb_ports);
+    try append(&result, "\nkeyboards="); try appendDecimal(&result, facts.keyboards);
+    try append(&result, "\nmice="); try appendDecimal(&result, facts.mice);
+    try append(&result, "\n\n[audio]\ninterfaces="); try appendDecimal(&result, facts.audio_interfaces);
+    try append(&result, "\n\n[display]\nwidth="); try appendDecimal(&result, facts.display_width);
+    try append(&result, "\nheight="); try appendDecimal(&result, facts.display_height);
+    try append(&result, "\nstride="); try appendDecimal(&result, facts.display_stride);
+    try append(&result, "\n");
+    return result;
+}
+
+fn signature(cpu: Cpu, facts: Facts) u64 {
+    var hash: u64 = 0xcbf29ce484222325;
+    hash = hashBytes(hash, &cpu.vendor);
+    hash = hashInteger(hash, cpu.family); hash = hashInteger(hash, cpu.model); hash = hashInteger(hash, cpu.stepping);
+    hash = hashInteger(hash, facts.logical_cpus); hash = hashInteger(hash, facts.memory_pages);
+    hash = hashInteger(hash, facts.pci_devices); hash = hashInteger(hash, facts.gpu_vendor); hash = hashInteger(hash, facts.gpu_device);
+    hash = hashInteger(hash, facts.gpu_bus); hash = hashInteger(hash, facts.gpu_slot);
+    hash = hashInteger(hash, facts.nvme_vendor); hash = hashInteger(hash, facts.nvme_device); hash = hashInteger(hash, facts.nvme_namespaces);
+    hash = hashInteger(hash, facts.nic_vendor); hash = hashInteger(hash, facts.nic_device);
+    hash = hashInteger(hash, facts.usb_ports); hash = hashInteger(hash, facts.keyboards); hash = hashInteger(hash, facts.mice);
+    hash = hashInteger(hash, facts.audio_interfaces); hash = hashInteger(hash, facts.display_width);
+    hash = hashInteger(hash, facts.display_height); hash = hashInteger(hash, facts.display_stride);
+    return hash;
+}
+
+fn hashInteger(initial: u64, value: anytype) u64 {
+    var hash = initial;
+    var remaining: u64 = @intCast(value);
+    var count: usize = 0;
+    while (count < @sizeOf(@TypeOf(value))) : (count += 1) {
+        hash = (hash ^ @as(u8, @truncate(remaining))) *% 0x100000001b3;
+        remaining >>= 8;
+    }
+    return hash;
+}
+
+fn hashBytes(initial: u64, bytes: []const u8) u64 {
+    var hash = initial;
+    for (bytes) |byte| hash = (hash ^ byte) *% 0x100000001b3;
+    return hash;
+}
+
+fn append(profile: *Profile, value: []const u8) !void {
+    if (value.len > profile.bytes.len - profile.length) return error.ProfileTooLarge;
+    @memcpy(profile.bytes[profile.length .. profile.length + value.len], value);
+    profile.length += value.len;
+}
+
+fn appendDecimal(profile: *Profile, value: anytype) !void {
+    var digits: [20]u8 = undefined;
+    var index = digits.len;
+    var remaining: u64 = @intCast(value);
+    if (remaining == 0) return append(profile, "0");
+    while (remaining != 0) {
+        index -= 1;
+        digits[index] = @truncate('0' + remaining % 10);
+        remaining /= 10;
+    }
+    try append(profile, digits[index..]);
+}
+
+fn appendHex(profile: *Profile, value: anytype) !void {
+    const alphabet = "0123456789abcdef";
+    var digits: [16]u8 = undefined;
+    var index = digits.len;
+    var remaining: u64 = @intCast(value);
+    if (remaining == 0) return append(profile, "0");
+    while (remaining != 0) {
+        index -= 1;
+        digits[index] = alphabet[@truncate(remaining & 0xf)];
+        remaining >>= 4;
+    }
+    try append(profile, digits[index..]);
+}
+
+fn putNative32(output: []u8, value: u32) void {
+    output[0] = @truncate(value);
+    output[1] = @truncate(value >> 8);
+    output[2] = @truncate(value >> 16);
+    output[3] = @truncate(value >> 24);
+}
+
+const Cpuid = struct { eax: u32, ebx: u32, ecx: u32, edx: u32 };
+
+fn cpuid(leaf: u32, subleaf: u32) Cpuid {
+    var eax = leaf;
+    var ebx: u32 = undefined;
+    var ecx = subleaf;
+    var edx: u32 = undefined;
+    asm volatile ("cpuid"
+        : [eax] "+{eax}" (eax),
+          [ebx] "={ebx}" (ebx),
+          [ecx] "+{ecx}" (ecx),
+          [edx] "={edx}" (edx),
+        :
+        : .{ .memory = true });
+    return .{ .eax = eax, .ebx = ebx, .ecx = ecx, .edx = edx };
+}

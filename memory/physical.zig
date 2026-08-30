@@ -19,6 +19,7 @@ pub const Allocator = struct {
     ranges: [128]Range = undefined,
     range_count: usize = 0,
     free_pages: u64 = 0,
+    total_pages: u64 = 0,
 
     pub fn init(map: [*]align(8) const u8, descriptor_count: usize, descriptor_size: usize) Allocator {
         var self = Allocator{};
@@ -34,6 +35,7 @@ pub const Allocator = struct {
             self.ranges[self.range_count] = .{ .next = start, .end = end };
             self.range_count += 1;
             self.free_pages += (end - start) / page_size;
+            self.total_pages += (end - start) / page_size;
         }
         return self;
     }

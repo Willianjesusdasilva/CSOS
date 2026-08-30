@@ -1,6 +1,7 @@
 param(
     [Parameter(Mandatory = $true)][string]$EfiBinary,
     [switch]$UsbAudio,
+    [switch]$ResetDisk,
     [string]$AudioBackend = 'none'
 )
 
@@ -30,7 +31,9 @@ Copy-Item -Force -LiteralPath $EfiBinary -Destination (Join-Path $bootDir 'BOOTX
 $localOvmf = Join-Path $PSScriptRoot '..\zig-out\OVMF_CODE.fd'
 Copy-Item -Force -LiteralPath $ovmf -Destination $localOvmf
 $nvmeDisk = Join-Path $PSScriptRoot '..\zig-out\nvme.img'
-& (Join-Path $PSScriptRoot 'make-fat16.ps1') -Path $nvmeDisk
+if ($ResetDisk -or -not (Test-Path -LiteralPath $nvmeDisk)) {
+    & (Join-Path $PSScriptRoot 'make-fat16.ps1') -Path $nvmeDisk
+}
 
 $audioArguments = @()
 if ($UsbAudio) {

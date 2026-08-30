@@ -9,6 +9,7 @@ const nvme = @import("nvme");
 const fat16 = @import("fat16");
 const xhci = @import("xhci");
 const display = @import("display");
+const hardware_profile = @import("hardware_profile");
 const e1000 = @import("e1000");
 const net = @import("net");
 const smp = @import("smp");
@@ -286,6 +287,44 @@ pub fn start(info: BootInfo) noreturn {
     serial.write("\ndisplay backbuffer bytes: "); serial.writeDecimal(screen.buffer_bytes);
     serial.write("\ndisplay initial pixels: "); serial.writeDecimal(initial_pixels);
     serial.write("\nCSOS M14 display baseline ready\n");
+    const cpu_profile = hardware_profile.detectCpu();
+    const current_profile = hardware_profile.build(cpu_profile, .{
+        .logical_cpus = @intCast(madt.cpu_count),
+        .memory_pages = pages.total_pages,
+        .pci_devices = @intCast(inventory.count),
+        .gpu_vendor = display_device.vendor,
+        .gpu_device = display_device.device,
+        .gpu_bus = display_device.bus,
+        .gpu_slot = display_device.slot,
+        .nvme_vendor = nvme_device.vendor,
+        .nvme_device = nvme_device.device,
+        .nvme_namespaces = @intCast(namespaces),
+        .nic_vendor = network_device.vendor,
+        .nic_device = network_device.device,
+        .usb_ports = usb.connected_ports,
+        .keyboards = hid.keyboards,
+        .mice = hid.mice,
+        .audio_interfaces = audio_info.interfaces,
+        .display_width = screen.framebuffer.width,
+        .display_height = screen.framebuffer.height,
+        .display_stride = screen.framebuffer.stride,
+    }) catch panic("hardware profile generation failed");
+    const hardware_name: [11]u8 = "HARDWARECSC".*;
+    var stored_profile: [2048]u8 = undefined;
+    const stored_length = volume.readRootFile(&hardware_name, &stored_profile) catch |err| switch (err) {
+        error.NotFound => 0,
+        else => panic("hardware profile read failed"),
+    };
+    const profile_reused = stored_length == current_profile.length and
+        equalBytes(stored_profile[0..stored_length], current_profile.text());
+    if (!profile_reused) volume.writeRootFile(&hardware_name, current_profile.text()) catch panic("hardware profile write failed");
+    var verified_profile: [2048]u8 = undefined;
+    const verified_length = volume.readRootFile(&hardware_name, &verified_profile) catch panic("hardware profile verification read failed");
+    if (verified_length != current_profile.length or !equalBytes(verified_profile[0..verified_length], current_profile.text()))
+        panic("hardware profile verification failed");
+    serial.write("hardware signature: "); serial.writeDecimal(current_profile.signature);
+    serial.write(if (profile_reused) "\nhardware.csc reused\n" else "\nhardware.csc generated\n");
+    serial.write("CSOS M16 hardware profile ready\n");
     if (usb.audioReady()) {
         usb.audioPrime(&pages) catch |err| switch (err) {
             error.AudioSetInterfaceFailed => panic("USB audio SET_INTERFACE failed"),
