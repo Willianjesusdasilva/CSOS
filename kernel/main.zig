@@ -4,6 +4,7 @@ const idt = @import("idt");
 const apic = @import("apic");
 const ioapic = @import("ioapic");
 const acpi = @import("acpi");
+const smp = @import("smp");
 const physical = @import("physical");
 const paging = @import("paging");
 const heap = @import("heap");
@@ -53,6 +54,14 @@ pub fn start(info: BootInfo) noreturn {
     mapper.activate();
     serial.write("paging ready\n");
 
+    smp.prepare(mapper.root) catch panic("SMP trampoline failed");
+    const bsp_id = apic.id();
+    for (madt.cpus[0..madt.cpu_count]) |cpu| {
+        if (cpu.apic_id != bsp_id) smp.start(cpu.apic_id, &pages) catch panic("AP startup failed");
+    }
+    if (smp.online_aps + 1 != madt.cpu_count) panic("SMP CPU count mismatch");
+    serial.write("SMP ready\n");
+
     var kernel_heap = heap.Heap.init(&pages, 16) catch panic("heap setup failed");
     const first = kernel_heap.allocate(31, 16) orelse panic("heap allocation failed");
     const second = kernel_heap.allocate(4096, 4096) orelse panic("aligned heap allocation failed");
@@ -63,7 +72,7 @@ pub fn start(info: BootInfo) noreturn {
 
     drawBootMarker(info.framebuffer);
     serial.write("framebuffer ready\n");
-    serial.write("CSOS M2 ready\n");
+    serial.write("CSOS M3 ready\n");
 
     while (true) asm volatile ("cli; hlt");
 }

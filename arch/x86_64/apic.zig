@@ -5,6 +5,9 @@ const spurious = 0x0f0;
 const timer_lvt = 0x320;
 const timer_initial_count = 0x380;
 const timer_divide = 0x3e0;
+const id_register = 0x020;
+const icr_low = 0x300;
+const icr_high = 0x310;
 
 pub fn init() !void {
     var base = readMsr(apic_base_msr);
@@ -28,9 +31,41 @@ pub fn stopTimer() void {
     write(timer_initial_count, 0);
 }
 
+pub fn id() u32 {
+    return read(id_register) >> 24;
+}
+
+pub fn startCpu(apic_id: u32, vector: u8) void {
+    write(icr_high, apic_id << 24);
+    write(icr_low, 0x0000c500);
+    waitForIpi();
+    delay();
+    write(icr_high, apic_id << 24);
+    write(icr_low, 0x00004600 | @as(u32, vector));
+    waitForIpi();
+    delay();
+    write(icr_high, apic_id << 24);
+    write(icr_low, 0x00004600 | @as(u32, vector));
+    waitForIpi();
+}
+
 fn write(offset: u64, value: u32) void {
     const register: *volatile u32 = @ptrFromInt(expected_base + offset);
     register.* = value;
+}
+
+fn read(offset: u64) u32 {
+    const register: *volatile u32 = @ptrFromInt(expected_base + offset);
+    return register.*;
+}
+
+fn waitForIpi() void {
+    while ((read(icr_low) & (1 << 12)) != 0) asm volatile ("pause");
+}
+
+fn delay() void {
+    var count: usize = 0;
+    while (count < 1_000_000) : (count += 1) asm volatile ("pause");
 }
 
 fn readMsr(msr: u32) u64 {

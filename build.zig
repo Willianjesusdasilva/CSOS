@@ -15,6 +15,9 @@ pub fn build(b: *std.Build) void {
     const ioapic_module = b.createModule(.{ .root_source_file = b.path("arch/x86_64/ioapic.zig") });
     const acpi_module = b.createModule(.{ .root_source_file = b.path("firmware/acpi.zig") });
     const physical_module = b.createModule(.{ .root_source_file = b.path("memory/physical.zig") });
+    const smp_module = b.createModule(.{ .root_source_file = b.path("arch/x86_64/smp.zig") });
+    smp_module.addImport("apic", apic_module);
+    smp_module.addImport("physical", physical_module);
     const paging_module = b.createModule(.{ .root_source_file = b.path("memory/paging.zig") });
     paging_module.addImport("physical", physical_module);
     const heap_module = b.createModule(.{ .root_source_file = b.path("memory/heap.zig") });
@@ -26,6 +29,7 @@ pub fn build(b: *std.Build) void {
     kernel_module.addImport("apic", apic_module);
     kernel_module.addImport("ioapic", ioapic_module);
     kernel_module.addImport("acpi", acpi_module);
+    kernel_module.addImport("smp", smp_module);
     kernel_module.addImport("physical", physical_module);
     kernel_module.addImport("paging", paging_module);
     kernel_module.addImport("heap", heap_module);
@@ -36,6 +40,7 @@ pub fn build(b: *std.Build) void {
     });
     boot_module.addImport("serial", serial_module);
     boot_module.addImport("kernel", kernel_module);
+    boot_module.addAssemblyFile(b.path("arch/x86_64/ap_trampoline.S"));
     const boot = b.addExecutable(.{ .name = "BOOTX64", .root_module = boot_module });
     b.installArtifact(boot);
 
