@@ -1,4 +1,8 @@
-param([Parameter(Mandatory = $true)][string]$EfiBinary)
+param(
+    [Parameter(Mandatory = $true)][string]$EfiBinary,
+    [switch]$UsbAudio,
+    [string]$AudioBackend = 'none'
+)
 
 $qemu = Get-Command qemu-system-x86_64 -ErrorAction SilentlyContinue
 if (-not $qemu) {
@@ -28,5 +32,13 @@ Copy-Item -Force -LiteralPath $ovmf -Destination $localOvmf
 $nvmeDisk = Join-Path $PSScriptRoot '..\zig-out\nvme.img'
 & (Join-Path $PSScriptRoot 'make-fat16.ps1') -Path $nvmeDisk
 
-& $qemu.FullName -machine q35 -smp 4 -m 256M -drive "if=pflash,format=raw,readonly=on,file=$localOvmf" -drive "format=raw,file=fat:rw:$esp" -drive "if=none,id=nvme0,format=raw,file=$nvmeDisk" -device "nvme,drive=nvme0,serial=CSOS0001" -device "qemu-xhci,id=xhci" -device "usb-kbd,bus=xhci.0" -device "usb-mouse,bus=xhci.0" -netdev "user,id=net0" -device "e1000e,netdev=net0" -monitor "tcp:127.0.0.1:4444,server=on,wait=off" -serial stdio -no-reboot
+$audioArguments = @()
+if ($UsbAudio) {
+    $audioArguments += '-audiodev'
+    $audioArguments += "driver=$AudioBackend,id=audio0"
+    $audioArguments += '-device'
+    $audioArguments += 'usb-audio,bus=xhci.0,audiodev=audio0'
+}
+
+& $qemu.FullName -machine q35 -smp 4 -m 256M -drive "if=pflash,format=raw,readonly=on,file=$localOvmf" -drive "format=raw,file=fat:rw:$esp" -drive "if=none,id=nvme0,format=raw,file=$nvmeDisk" -device "nvme,drive=nvme0,serial=CSOS0001" -device "qemu-xhci,id=xhci" -device "usb-kbd,bus=xhci.0" -device "usb-mouse,bus=xhci.0" @audioArguments -netdev "user,id=net0" -device "e1000e,netdev=net0" -monitor "tcp:127.0.0.1:4444,server=on,wait=off" -serial stdio -no-reboot
 exit $LASTEXITCODE
