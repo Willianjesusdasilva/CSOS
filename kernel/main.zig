@@ -198,6 +198,20 @@ pub fn start(info: BootInfo) noreturn {
     }
     serial.write("NVMe read/write ready\n");
     var volume = fat16.Volume.mount(&storage, &pages) catch panic("FAT16 mount failed");
+    const boot_state_name: [11]u8 = "BOOTSTATCSC".*;
+    const boot_starting = "starting\n";
+    const boot_ready = "ready\n";
+    var previous_boot_state: [16]u8 = undefined;
+    const previous_boot_length = volume.readRootFile(&boot_state_name, &previous_boot_state) catch |err| switch (err) {
+        error.NotFound => 0,
+        else => panic("boot recovery state read failed"),
+    };
+    const recovering = equalBytes(previous_boot_state[0..previous_boot_length], boot_starting);
+    if (recovering) {
+        scheduler.setMode(.normal);
+        serial.write("recovery: previous boot incomplete, safe defaults active\n");
+    }
+    volume.writeRootFile(&boot_state_name, boot_starting) catch panic("boot recovery state write failed");
     var file_data: [128]u8 = undefined;
     const file_size = volume.readRootFile("SYSTEM  TXT", &file_data) catch panic("FAT16 read failed");
     serial.write(file_data[0..file_size]);
@@ -368,6 +382,11 @@ pub fn start(info: BootInfo) noreturn {
         };
         serial.write("USB audio stream started\n");
     }
+    volume.writeRootFile(&boot_state_name, boot_ready) catch panic("boot ready state write failed");
+    var verified_boot_state: [16]u8 = undefined;
+    const verified_boot_length = volume.readRootFile(&boot_state_name, &verified_boot_state) catch panic("boot ready state read failed");
+    if (!equalBytes(verified_boot_state[0..verified_boot_length], boot_ready)) panic("boot ready state verification failed");
+    serial.write(if (recovering) "CSOS recovery completed\n" else "CSOS boot health ready\n");
     var display_ticks: u64 = 0;
 
     var reported_input: u64 = 0;
