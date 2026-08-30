@@ -75,6 +75,113 @@ pub const Stack = struct {
         return error.DnsAddressMissing;
     }
 
+    pub fn probeTcpHttp(self: *Stack, destination: [4]u8, host: []const u8) !usize {
+        if (host.len == 0 or host.len > 128) return error.InvalidHostName;
+        const source_port: u16 = 49153;
+        const destination_port: u16 = 80;
+        var sequence: u32 = 0x43534f53;
+        try self.sendTcp(destination, self.gateway_mac, source_port, destination_port, sequence, 0, tcp_syn, "");
+
+        const syn_ack = try self.receiveTcp(destination, destination_port, source_port);
+        if ((syn_ack.flags & (tcp_syn | tcp_ack)) != (tcp_syn | tcp_ack) or syn_ack.acknowledgement != sequence +% 1)
+            return error.InvalidTcpSynAck;
+        sequence +%= 1;
+        var peer_sequence = syn_ack.sequence +% 1;
+        try self.sendTcp(destination, self.gateway_mac, source_port, destination_port, sequence, peer_sequence, tcp_ack, "");
+
+        var request: [192]u8 = undefined;
+        const prefix = "GET / HTTP/1.0\r\nHost: ";
+        const suffix = "\r\nConnection: close\r\n\r\n";
+        const request_length = prefix.len + host.len + suffix.len;
+        if (request_length > request.len) return error.RequestTooLarge;
+        @memcpy(request[0..prefix.len], prefix);
+        @memcpy(request[prefix.len .. prefix.len + host.len], host);
+        @memcpy(request[prefix.len + host.len .. request_length], suffix);
+        try self.sendTcp(destination, self.gateway_mac, source_port, destination_port, sequence, peer_sequence, tcp_psh | tcp_ack, request[0..request_length]);
+        sequence +%= @intCast(request_length);
+
+        var received_bytes: usize = 0;
+        var saw_fin = false;
+        var attempts: u8 = 0;
+        while (attempts < 64 and received_bytes == 0) : (attempts += 1) {
+            const segment = try self.receiveTcp(destination, destination_port, source_port);
+            if (segment.acknowledgement > sequence) return error.InvalidTcpAcknowledgement;
+            if (segment.sequence != peer_sequence and segment.payload_length != 0) continue;
+            if (segment.payload_length != 0) {
+                received_bytes += segment.payload_length;
+                peer_sequence +%= @intCast(segment.payload_length);
+            }
+            if ((segment.flags & tcp_fin) != 0) {
+                peer_sequence +%= 1;
+                saw_fin = true;
+            }
+            try self.sendTcp(destination, self.gateway_mac, source_port, destination_port, sequence, peer_sequence, tcp_ack, "");
+        }
+        if (received_bytes == 0) return error.TcpPayloadMissing;
+
+        if (!saw_fin) {
+            try self.sendTcp(destination, self.gateway_mac, source_port, destination_port, sequence, peer_sequence, tcp_fin | tcp_ack, "");
+            sequence +%= 1;
+            attempts = 0;
+            while (attempts < 16) : (attempts += 1) {
+                const segment = try self.receiveTcp(destination, destination_port, source_port);
+                if ((segment.flags & tcp_fin) != 0) {
+                    peer_sequence = segment.sequence +% @as(u32, @intCast(segment.payload_length)) +% 1;
+                    try self.sendTcp(destination, self.gateway_mac, source_port, destination_port, sequence, peer_sequence, tcp_ack, "");
+                    saw_fin = true;
+                    break;
+                }
+                if ((segment.flags & tcp_ack) != 0 and segment.acknowledgement == sequence) break;
+            }
+        }
+        return received_bytes;
+    }
+
+    fn sendTcp(self: *Stack, destination: [4]u8, destination_mac: [6]u8, source_port: u16, destination_port: u16, sequence: u32, acknowledgement: u32, flags: u8, payload: []const u8) !void {
+        if (payload.len > 1400) return error.SegmentTooLarge;
+        var frame: [1454]u8 = undefined;
+        const tcp_length = 20 + payload.len;
+        const size = 14 + 20 + tcp_length;
+        @memcpy(frame[0..6], &destination_mac); @memcpy(frame[6..12], &self.device.mac); put16(frame[12..], 0x0800);
+        const ip = frame[14..34]; @memset(ip, 0);
+        ip[0] = 0x45; put16(ip[2..], @intCast(20 + tcp_length)); put16(ip[4..], self.identification); self.identification +%= 1;
+        put16(ip[6..], 0x4000); ip[8] = 64; ip[9] = 6;
+        @memcpy(ip[12..16], &self.local_ip); @memcpy(ip[16..20], &destination); put16(ip[10..], checksum(ip));
+        const tcp = frame[34..size]; @memset(tcp, 0);
+        put16(tcp[0..], source_port); put16(tcp[2..], destination_port);
+        put32(tcp[4..], sequence); put32(tcp[8..], acknowledgement);
+        tcp[12] = 5 << 4; tcp[13] = flags; put16(tcp[14..], 64240);
+        @memcpy(tcp[20..], payload);
+        put16(tcp[16..], tcpChecksum(self.local_ip, destination, tcp));
+        try self.device.send(frame[0..size]);
+    }
+
+    fn receiveTcp(self: *Stack, source: [4]u8, source_port: u16, destination_port: u16) !TcpSegment {
+        var frame: [2048]u8 = undefined;
+        var attempts: u8 = 0;
+        while (attempts < 64) : (attempts += 1) {
+            const length = try self.device.receive(&frame);
+            if (length < 54 or get16(frame[12..]) != 0x0800 or frame[23] != 6) continue;
+            const ip_header = @as(usize, frame[14] & 0x0f) * 4;
+            const total_length = get16(frame[16..]);
+            if (ip_header < 20 or total_length < ip_header + 20 or length < 14 + total_length) continue;
+            if (checksum(frame[14 .. 14 + ip_header]) != 0 or !equal(frame[26..30], &source) or !equal(frame[30..34], &self.local_ip)) continue;
+            const tcp_offset = 14 + ip_header;
+            const tcp_length = total_length - ip_header;
+            const tcp = frame[tcp_offset .. tcp_offset + tcp_length];
+            const tcp_header = @as(usize, tcp[12] >> 4) * 4;
+            if (tcp_header < 20 or tcp_header > tcp.len or get16(tcp[0..]) != source_port or get16(tcp[2..]) != destination_port) continue;
+            if (tcpChecksum(source, self.local_ip, tcp) != 0) continue;
+            return .{
+                .sequence = get32(tcp[4..]),
+                .acknowledgement = get32(tcp[8..]),
+                .flags = tcp[13],
+                .payload_length = tcp.len - tcp_header,
+            };
+        }
+        return error.TcpReplyMissing;
+    }
+
     fn resolveAddress(self: *Stack, address: [4]u8) ![6]u8 {
         var frame: [42]u8 = .{0} ** 42;
         @memset(frame[0..6], 0xff);
@@ -244,6 +351,18 @@ const Lease = struct {
     dns: [4]u8 = .{0} ** 4,
 };
 
+const tcp_fin: u8 = 0x01;
+const tcp_syn: u8 = 0x02;
+const tcp_psh: u8 = 0x08;
+const tcp_ack: u8 = 0x10;
+
+const TcpSegment = struct {
+    sequence: u32,
+    acknowledgement: u32,
+    flags: u8,
+    payload_length: usize,
+};
+
 fn checksum(bytes: []const u8) u16 {
     var sum: u32 = 0;
     var index: usize = 0;
@@ -258,6 +377,15 @@ fn udpChecksum(source: [4]u8, destination: [4]u8, udp: []const u8) u16 {
     sum = addWords(sum, &source); sum = addWords(sum, &destination);
     sum += 17; sum += @intCast(udp.len);
     sum = addWords(sum, udp);
+    while ((sum >> 16) != 0) sum = (sum & 0xffff) + (sum >> 16);
+    return @truncate(~sum);
+}
+
+fn tcpChecksum(source: [4]u8, destination: [4]u8, tcp: []const u8) u16 {
+    var sum: u32 = 0;
+    sum = addWords(sum, &source); sum = addWords(sum, &destination);
+    sum += 6; sum += @intCast(tcp.len);
+    sum = addWords(sum, tcp);
     while ((sum >> 16) != 0) sum = (sum & 0xffff) + (sum >> 16);
     return @truncate(~sum);
 }

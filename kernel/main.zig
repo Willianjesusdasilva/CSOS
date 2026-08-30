@@ -244,6 +244,10 @@ pub fn start(info: BootInfo) noreturn {
         serial.writeDecimal(part);
     }
     serial.write("\n");
+    const tcp_bytes = network_stack.probeTcpHttp(resolved, "example.com") catch panic("TCP HTTP probe failed");
+    serial.write("TCP response bytes: ");
+    serial.writeDecimal(tcp_bytes);
+    serial.write("\nCSOS M12 TCP ready\n");
     var irq_spins: usize = 0;
     while (e1000.interruptCount() == 0 and irq_spins < 100_000_000) : (irq_spins += 1) asm volatile ("pause");
     asm volatile ("cli");
