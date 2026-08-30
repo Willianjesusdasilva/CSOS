@@ -8,14 +8,17 @@ pub fn build(b: *std.Build) void {
         .abi = .msvc,
     });
 
-    const boot = b.addExecutable(.{
-        .name = "BOOTX64",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("boot/main.zig"),
-            .target = target,
-            .optimize = optimize,
-        }),
+    const serial_module = b.createModule(.{ .root_source_file = b.path("arch/x86_64/serial.zig") });
+    const kernel_module = b.createModule(.{ .root_source_file = b.path("kernel/main.zig") });
+    kernel_module.addImport("serial", serial_module);
+    const boot_module = b.createModule(.{
+        .root_source_file = b.path("boot/main.zig"),
+        .target = target,
+        .optimize = optimize,
     });
+    boot_module.addImport("serial", serial_module);
+    boot_module.addImport("kernel", kernel_module);
+    const boot = b.addExecutable(.{ .name = "BOOTX64", .root_module = boot_module });
     b.installArtifact(boot);
 
     const run = b.step("run", "Build and boot CSOS in QEMU");
