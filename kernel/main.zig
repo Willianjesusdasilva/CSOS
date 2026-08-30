@@ -172,7 +172,7 @@ pub fn start(info: BootInfo) noreturn {
     serial.write("\n");
     if (usb.connected_ports < 2) panic("USB HID devices missing");
     serial.write("xHCI controller ready\n");
-    const hid = usb.enumerateHid(&pages) catch panic("USB enumeration failed");
+    var hid = usb.enumerateHid(&pages) catch panic("USB enumeration failed");
     serial.write("USB keyboards: "); serial.writeDecimal(hid.keyboards);
     serial.write(" mice: "); serial.writeDecimal(hid.mice); serial.write("\n");
     if (hid.keyboards == 0 or hid.mice == 0) panic("USB HID descriptors missing");
@@ -205,7 +205,18 @@ pub fn start(info: BootInfo) noreturn {
     drawBootMarker(info.framebuffer);
     serial.write("framebuffer ready\n");
 
-    while (true) asm volatile ("cli; hlt");
+    var reported_input: u64 = 0;
+    while (true) {
+        _ = usb.pollHid(&hid) catch panic("USB HID polling failed");
+        while (hid.pop()) |_| {}
+        if (hid.events_total != reported_input) {
+            reported_input = hid.events_total;
+            serial.write("USB input events: ");
+            serial.writeDecimal(reported_input);
+            serial.write("\n");
+        }
+        asm volatile ("pause");
+    }
 }
 
 fn threadA() void {

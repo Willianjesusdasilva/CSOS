@@ -142,26 +142,52 @@ pub const Controller = struct {
             config[config_ep + 4] = @as(u32, endpoint_packet) | (@as(u32, endpoint_packet) << 16);
             _ = try self.command(configure, 0, 0, 12, slot);
             try self.setConfiguration(slot, transfer_ring, bytes[5]);
-            const report_trb: [*]volatile u32 = @ptrFromInt(interrupt_ring);
-            report_trb[0] = @truncate(report); report_trb[1] = @truncate(report >> 32);
-            report_trb[2] = endpoint_packet;
-            report_trb[3] = (1 << 10) | (1 << 5) | (1 << 2) | 1;
-            write32(self.doorbells + @as(u64, slot) * 4, 0, endpoint_id);
-            if (protocol == 1) { devices.keyboards += 1; devices.keyboard_slot = slot; }
-            if (protocol == 2) { devices.mice += 1; devices.mouse_slot = slot; }
+            var endpoint = Endpoint{ .slot = slot, .id = endpoint_id, .ring = interrupt_ring, .report = report, .packet_size = endpoint_packet };
+            endpoint.installLink();
+            self.armEndpoint(&endpoint);
+            if (protocol == 1) { devices.keyboards += 1; devices.keyboard = endpoint; }
+            if (protocol == 2) { devices.mice += 1; devices.mouse = endpoint; }
         }
         return devices;
     }
 
-    pub fn waitHidReports(self: *Controller, devices: *HidDevices) !void {
-        var received: u2 = 0;
-        while (received != 3) {
-            const event = try self.waitEvent(32);
+    pub fn pollHid(self: *Controller, devices: *HidDevices) !bool {
+        var handled = false;
+        while (self.nextEvent()) |typed| {
+            if (typed.kind != 32) continue;
+            const event = typed.event;
             if (event.completion != 1 and event.completion != 13) return error.TransferFailed;
-            if (event.slot == devices.keyboard_slot) received |= 1;
-            if (event.slot == devices.mouse_slot) received |= 2;
+            const endpoint: *Endpoint = if (event.slot == devices.keyboard.slot and event.endpoint == devices.keyboard.id)
+                &devices.keyboard
+            else if (event.slot == devices.mouse.slot and event.endpoint == devices.mouse.id)
+                &devices.mouse
+            else
+                continue;
+            const size: u16 = endpoint.packet_size - @min(endpoint.packet_size, @as(u16, @truncate(event.residual)));
+            const report: [*]const u8 = @ptrFromInt(endpoint.report);
+            if (endpoint.slot == devices.keyboard.slot) {
+                devices.push(.{ .kind = .keyboard, .a = if (size > 2) report[2] else 0, .b = if (size > 0) report[0] else 0 });
+            } else {
+                devices.push(.{ .kind = .mouse, .a = if (size > 1) report[1] else 0, .b = if (size > 2) report[2] else 0 });
+            }
+            self.armEndpoint(endpoint);
+            handled = true;
         }
-        devices.reports_received = true;
+        return handled;
+    }
+
+    fn armEndpoint(self: *Controller, endpoint: *Endpoint) void {
+        if (endpoint.enqueue == 255) {
+            endpoint.installLink();
+            endpoint.enqueue = 0;
+            endpoint.cycle ^= 1;
+        }
+        const trb: [*]volatile u32 = @ptrFromInt(endpoint.ring + @as(u64, endpoint.enqueue) * 16);
+        trb[0] = @truncate(endpoint.report); trb[1] = @truncate(endpoint.report >> 32);
+        trb[2] = endpoint.packet_size;
+        trb[3] = (1 << 10) | (1 << 5) | (1 << 2) | @as(u32, endpoint.cycle);
+        endpoint.enqueue += 1;
+        write32(self.doorbells + @as(u64, endpoint.slot) * 4, 0, endpoint.id);
     }
 
     fn command(self: *Controller, parameter: u64, status: u32, control: u32, trb_type: u6, slot: u8) !u8 {
@@ -207,27 +233,77 @@ pub const Controller = struct {
     fn waitEvent(self: *Controller, wanted_type: u6) !Event {
         var spins: usize = 0;
         while (spins < 10_000_000_000) : (spins += 1) {
-            const trb: [*]volatile u32 = @ptrFromInt(self.event_ring + @as(u64, self.event_index) * 16);
-            if ((trb[3] & 1) != self.event_phase) { asm volatile ("pause"); continue; }
-            const event = Event{ .residual = trb[2] & 0xffffff, .completion = @truncate(trb[2] >> 24), .slot = @truncate(trb[3] >> 24) };
-            const event_type: u6 = @truncate(trb[3] >> 10);
-            self.event_index += 1;
-            if (self.event_index == 256) { self.event_index = 0; self.event_phase ^= 1; }
-            write64(self.runtime, 0x38, self.event_ring + @as(u64, self.event_index) * 16 | 8);
-            if (event_type == wanted_type) return event;
+            if (self.nextEvent()) |typed| {
+                if (typed.kind == wanted_type) return typed.event;
+            } else asm volatile ("pause");
         }
         return error.EventTimeout;
     }
+
+    fn nextEvent(self: *Controller) ?TypedEvent {
+        const trb: [*]volatile u32 = @ptrFromInt(self.event_ring + @as(u64, self.event_index) * 16);
+        if ((trb[3] & 1) != self.event_phase) return null;
+        const typed = TypedEvent{
+            .kind = @truncate(trb[3] >> 10),
+            .event = .{
+                .residual = trb[2] & 0xffffff,
+                .completion = @truncate(trb[2] >> 24),
+                .endpoint = @truncate(trb[3] >> 16),
+                .slot = @truncate(trb[3] >> 24),
+            },
+        };
+        self.event_index += 1;
+        if (self.event_index == 256) { self.event_index = 0; self.event_phase ^= 1; }
+        write64(self.runtime, 0x38, self.event_ring + @as(u64, self.event_index) * 16 | 8);
+        return typed;
+    }
 };
 
+const Endpoint = struct {
+    slot: u8 = 0,
+    id: u5 = 0,
+    ring: u64 = 0,
+    report: u64 = 0,
+    packet_size: u16 = 0,
+    enqueue: u16 = 0,
+    cycle: u1 = 1,
+
+    fn installLink(self: *Endpoint) void {
+        const link: [*]volatile u32 = @ptrFromInt(self.ring + 255 * 16);
+        link[0] = @truncate(self.ring); link[1] = @truncate(self.ring >> 32); link[2] = 0;
+        link[3] = (6 << 10) | (1 << 1) | @as(u32, self.cycle);
+    }
+};
+
+pub const InputKind = enum { keyboard, mouse };
+pub const InputEvent = struct { kind: InputKind, a: u8, b: u8 };
 pub const HidDevices = struct {
     keyboards: u8 = 0,
     mice: u8 = 0,
-    keyboard_slot: u8 = 0,
-    mouse_slot: u8 = 0,
-    reports_received: bool = false,
+    keyboard: Endpoint = .{},
+    mouse: Endpoint = .{},
+    queue: [64]InputEvent = undefined,
+    queue_head: u8 = 0,
+    queue_tail: u8 = 0,
+    events_total: u64 = 0,
+
+    fn push(self: *HidDevices, event: InputEvent) void {
+        const next: u8 = (self.queue_tail + 1) % 64;
+        if (next == self.queue_head) self.queue_head = (self.queue_head + 1) % 64;
+        self.queue[self.queue_tail] = event;
+        self.queue_tail = @intCast(next);
+        self.events_total += 1;
+    }
+
+    pub fn pop(self: *HidDevices) ?InputEvent {
+        if (self.queue_head == self.queue_tail) return null;
+        const event = self.queue[self.queue_head];
+        self.queue_head = (self.queue_head + 1) % 64;
+        return event;
+    }
 };
-const Event = struct { residual: u32, completion: u8, slot: u8 };
+const Event = struct { residual: u32, completion: u8, endpoint: u5, slot: u8 };
+const TypedEvent = struct { kind: u6, event: Event };
 
 fn intervalValue(speed: u4, interval: u8) u8 {
     if (speed >= 3) return if (interval == 0) 0 else interval - 1;
