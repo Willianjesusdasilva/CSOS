@@ -11,11 +11,14 @@ var break_limit: u64 = 0;
 var mmap_next: u64 = 0;
 var mmap_base: u64 = 0;
 var mmap_limit: u64 = 0;
+var device_mmap_next: u64 = 0;
+var device_mmap_limit: u64 = 0;
 var writes: usize = 0;
 var process_exit_status: u64 = 0;
 var process_pause: ?Pause = null;
 var mmap_protect_hook: ?*const fn (u64, u64, bool, bool) callconv(.c) bool = null;
 var mmap_unmap_hook: ?*const fn (u64, u64) callconv(.c) bool = null;
+var device_mmap_hook: ?*const fn (u64, u64, u64, bool) callconv(.c) bool = null;
 var stdin_hook: ?*const fn ([*]u8, usize) callconv(.c) usize = null;
 var idle_hook: ?*const fn () callconv(.c) void = null;
 pub var file_mmaps: u64 = 0;
@@ -23,6 +26,7 @@ pub var protected_mmaps: u64 = 0;
 pub var unmapped_mmaps: u64 = 0;
 pub var sendfile_calls: u64 = 0;
 pub var framebuffer_ioctls: u64 = 0;
+pub var framebuffer_mmaps: u64 = 0;
 var network_stack: ?*net.Stack = null;
 var framebuffer = Framebuffer{};
 var sockets: [4]Socket = .{Socket{}} ** 4;
@@ -71,11 +75,14 @@ pub fn configure(base: u64, size: u64, stack: u64, stack_length: u64, initial_br
     mmap_next = mmap_start;
     mmap_base = mmap_start;
     mmap_limit = mmap_end;
+    device_mmap_next = mmap_end;
+    device_mmap_limit = mmap_end + ((@as(u64, framebuffer.size) + 4095) & ~@as(u64, 4095));
     writes = 0;
     unknown_seen = .{false} ** unknown_seen.len;
     process_exit_status = 0xffffffffffffffff;
     process_pause = null;
     framebuffer_ioctls = 0;
+    framebuffer_mmaps = 0;
     sockets = .{Socket{}} ** sockets.len;
     vfs.reset();
 }
@@ -92,9 +99,10 @@ pub fn configureFramebuffer(info: Framebuffer) void {
     framebuffer = info;
 }
 
-pub fn configureMmap(protect_hook: ?*const fn (u64, u64, bool, bool) callconv(.c) bool, unmap_hook: ?*const fn (u64, u64) callconv(.c) bool) void {
+pub fn configureMmap(protect_hook: ?*const fn (u64, u64, bool, bool) callconv(.c) bool, unmap_hook: ?*const fn (u64, u64) callconv(.c) bool, device_hook: ?*const fn (u64, u64, u64, bool) callconv(.c) bool) void {
     mmap_protect_hook = protect_hook;
     mmap_unmap_hook = unmap_hook;
+    device_mmap_hook = device_hook;
 }
 
 pub fn configureConsole(read_hook: ?*const fn ([*]u8, usize) callconv(.c) usize, wait_hook: ?*const fn () callconv(.c) void) void {
@@ -500,6 +508,17 @@ fn brk(requested: u64) u64 {
 fn mmap(requested: u64, length: u64, protection: u64, flags: u64, fd: u64, file_offset: u64) u64 {
     if (length == 0 or (file_offset & 4095) != 0 or (protection & 2) != 0 and (protection & 4) != 0) return errno(22);
     const anonymous = (flags & 0x20) != 0;
+    if (!anonymous and vfs.isFramebuffer(@intCast(fd))) {
+        if ((flags & 1) == 0 or (protection & 4) != 0 or file_offset > framebuffer.size or length > framebuffer.size - file_offset) return errno(22);
+        const aligned_length = (length + 4095) & ~@as(u64, 4095);
+        const address = if (requested != 0) requested else (device_mmap_next + 4095) & ~@as(u64, 4095);
+        if (address < mmap_limit or address > device_mmap_limit or aligned_length > device_mmap_limit - address) return errno(12);
+        const hook = device_mmap_hook orelse return errno(19);
+        if (!hook(address, framebuffer.base + file_offset, aligned_length, (protection & 2) != 0)) return errno(12);
+        device_mmap_next = address + aligned_length;
+        framebuffer_mmaps += 1;
+        return address;
+    }
     if (!anonymous and (flags & 2) == 0) return errno(22);
     const aligned_length = (length + 4095) & ~@as(u64, 4095);
     const address = if (requested != 0) requested else (mmap_next + 4095) & ~@as(u64, 4095);
@@ -520,7 +539,7 @@ fn mmap(requested: u64, length: u64, protection: u64, flags: u64, fd: u64, file_
 fn mprotect(address: u64, length: u64, protection: u64) u64 {
     if ((address & 4095) != 0 or length == 0 or ((protection & 2) != 0 and (protection & 4) != 0)) return errno(22);
     const aligned_length = (length + 4095) & ~@as(u64, 4095);
-    if (!inRegion(address, aligned_length, mmap_base, mmap_limit - mmap_base)) return errno(12);
+    if (!mmapRegion(address, aligned_length)) return errno(12);
     const hook = mmap_protect_hook orelse return errno(12);
     if (!hook(address, aligned_length, (protection & 2) != 0, (protection & 4) != 0)) return errno(12);
     protected_mmaps += 1;
@@ -530,7 +549,7 @@ fn mprotect(address: u64, length: u64, protection: u64) u64 {
 fn munmap(address: u64, length: u64) u64 {
     if ((address & 4095) != 0 or length == 0) return errno(22);
     const aligned_length = (length + 4095) & ~@as(u64, 4095);
-    if (!inRegion(address, aligned_length, mmap_base, mmap_limit - mmap_base)) return errno(22);
+    if (!mmapRegion(address, aligned_length)) return errno(22);
     const hook = mmap_unmap_hook orelse return errno(22);
     if (!hook(address, aligned_length)) return errno(22);
     unmapped_mmaps += 1;
@@ -551,7 +570,13 @@ fn validUserSlice(address: u64, length: u64) bool {
     return inRegion(address, length, user_base, user_size) or
         inRegion(address, length, stack_base, stack_size) or
         inRegion(address, length, user_base + user_size, break_limit - (user_base + user_size)) or
-        inRegion(address, length, mmap_base, mmap_limit - mmap_base);
+        inRegion(address, length, mmap_base, mmap_limit - mmap_base) or
+        inRegion(address, length, mmap_limit, device_mmap_limit - mmap_limit);
+}
+
+fn mmapRegion(address: u64, length: u64) bool {
+    return inRegion(address, length, mmap_base, mmap_limit - mmap_base) or
+        inRegion(address, length, mmap_limit, device_mmap_limit - mmap_limit);
 }
 
 fn inRegion(address: u64, length: u64, base: u64, size: u64) bool {

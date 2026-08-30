@@ -284,14 +284,14 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
     active_mappings = mappings[0..mapping_count];
     active_owned = owned[0..owned_count];
     active_load_bias = load_bias;
-    syscalls.configureMmap(&protectMmap, &unmapMmap);
+    syscalls.configureMmap(&protectMmap, &unmapMmap, &mapDevice);
     defer {
         active_address_space = null;
         active_pages = null;
         active_mappings = null;
         active_owned = null;
         active_load_bias = 0;
-        syscalls.configureMmap(null, null);
+        syscalls.configureMmap(null, null, null);
     }
     lifecycle = .running;
     var user_instruction = execution_entry;
@@ -327,6 +327,15 @@ fn unmapMmap(address: u64, length: u64) callconv(.c) bool {
     while (offset < length) : (offset += page_size) {
         if (address_space.unmapUserPage(address + offset) == null) return false;
     }
+    return true;
+}
+
+fn mapDevice(virtual: u64, physical_address: u64, length: u64, writable: bool) callconv(.c) bool {
+    const address_space = active_address_space orelse return false;
+    if ((virtual & (page_size - 1)) != 0 or (physical_address & (page_size - 1)) != 0) return false;
+    var offset: u64 = 0;
+    while (offset < length) : (offset += page_size)
+        address_space.mapUserPage(virtual + offset, physical_address + offset, writable, false) catch return false;
     return true;
 }
 

@@ -217,7 +217,9 @@ pub fn start(info: BootInfo) noreturn {
     process.runFramebufferTest(mapper.root, &pages) catch panic("Linux framebuffer ioctl userspace failed");
     mapper.activate();
     if (syscalls.framebuffer_ioctls != 2) panic("Linux framebuffer ioctl coverage failed");
+    if (syscalls.framebuffer_mmaps != 1) panic("Linux framebuffer mmap coverage failed");
     serial.write("CSOS M14 userspace framebuffer ioctl ready\n");
+    serial.write("CSOS M14 userspace framebuffer mmap ready\n");
     const echo_arguments = [_][]const u8{ "/bin/busybox", "echo", "BusyBox userspace ready" };
     process.runBusyBox(mapper.root, &pages, &echo_arguments) catch panic("BusyBox echo failed");
     mapper.activate();
