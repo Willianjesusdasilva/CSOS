@@ -161,6 +161,12 @@ pub fn start(info: BootInfo) noreturn {
     var file_data: [128]u8 = undefined;
     const file_size = volume.readRootFile("SYSTEM  TXT", &file_data) catch panic("FAT16 read failed");
     serial.write(file_data[0..file_size]);
+    const state = "persistent CSOS state\n" ** 150;
+    volume.writeRootFile("STATE   TXT", state) catch panic("FAT16 write failed");
+    var state_readback: [state.len]u8 = undefined;
+    const state_size = volume.readRootFile("STATE   TXT", &state_readback) catch panic("FAT16 write verification failed");
+    if (state_size != state.len or !equalBytes(state, &state_readback)) panic("FAT16 data mismatch");
+    serial.write("FAT16 write ready\n");
     serial.write("CSOS M10 ready\n");
     const xhci_device = inventory.findClassInterface(0x0c, 0x03, 0x30) orelse panic("xHCI controller missing");
     const xhci_bar = pci.barAddress(xhci_device, 0) orelse panic("xHCI BAR missing");
@@ -271,4 +277,10 @@ fn drawBootMarker(framebuffer: Framebuffer) void {
             pixels[offset] = if (framebuffer.pixel_format == 0) 0x0000a040 else 0x0040a000;
         }
     }
+}
+
+fn equalBytes(left: []const u8, right: []const u8) bool {
+    if (left.len != right.len) return false;
+    for (left, right) |a, b| if (a != b) return false;
+    return true;
 }
