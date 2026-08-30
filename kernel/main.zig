@@ -130,8 +130,9 @@ pub fn start(info: BootInfo) noreturn {
     serial.write("scheduler preemption ready\n");
 
     const service_group: u16 = 7;
-    _ = scheduler.spawnManaged(&lifecycleThreadA, &pages, service_group, .freeze) catch panic("lifecycle thread A creation failed");
-    _ = scheduler.spawnManaged(&lifecycleThreadB, &pages, service_group, .auto) catch panic("lifecycle thread B creation failed");
+    _ = scheduler.spawnProcess(&lifecycleThreadA, &pages, 100, service_group, .freeze, .background) catch panic("lifecycle process A creation failed");
+    _ = scheduler.spawnProcess(&lifecycleThreadB, &pages, 101, service_group, .auto, .background) catch panic("lifecycle process B creation failed");
+    if (scheduler.groupProcessCount(service_group) != 2) panic("lifecycle process group failed");
     if (scheduler.backgroundGroup(service_group) != 2 or scheduler.groupLifecycle(service_group) != .background)
         panic("lifecycle background transition failed");
     const freeze_started = timestamp(cpu_profile.tsc);
@@ -154,7 +155,7 @@ pub fn start(info: BootInfo) noreturn {
     if (lifecycle_error or lifecycle_a != 2 or lifecycle_b != 2 or scheduler.groupLifecycle(service_group) != .finished)
         panic("lifecycle completion failed");
     if (scheduler.mode() != .normal) panic("NORMAL lifecycle policy failed");
-    serial.write("CSOS M15 service lifecycle ready\nCSOS M18 gaming modes ready\n");
+    serial.write("CSOS M17 multiprocess lifecycle ready\nCSOS M18 gaming modes ready\n");
 
     _ = scheduler.spawnClassified(&backgroundWorkload, &pages, 8, .auto, .background) catch panic("background workload creation failed");
     _ = scheduler.spawnClassified(&inputWorkload, &pages, 8, .keep_alive, .input) catch panic("input workload creation failed");

@@ -25,6 +25,7 @@ const Thread = struct {
     context: Context,
     entry: Entry,
     state: State,
+    process_id: u32 = 0,
     group: u16 = 0,
     policy: Policy = .auto,
     lifecycle: Lifecycle = .running,
@@ -93,6 +94,10 @@ pub fn spawnManaged(entry: Entry, pages: *physical.Allocator, group: u16, policy
 }
 
 pub fn spawnClassified(entry: Entry, pages: *physical.Allocator, group: u16, policy: Policy, workload: Workload) !usize {
+    return spawnProcess(entry, pages, 0, group, policy, workload);
+}
+
+pub fn spawnProcess(entry: Entry, pages: *physical.Allocator, process_id: u32, group: u16, policy: Policy, workload: Workload) !usize {
     if (thread_count == max_threads) return error.ThreadLimit;
     const stack = pages.allocate(stack_pages) orelse return error.OutOfMemory;
     const stack_top = stack + stack_pages * 4096;
@@ -104,6 +109,7 @@ pub fn spawnClassified(entry: Entry, pages: *physical.Allocator, group: u16, pol
         .context = .{ .rsp = stack_top - 80 },
         .entry = entry,
         .state = .ready,
+        .process_id = process_id,
         .group = group,
         .policy = policy,
         .workload = workload,
@@ -219,6 +225,26 @@ pub fn groupLifecycle(group: u16) ?Lifecycle {
         if (result == null or lifecyclePriority(thread.lifecycle) > lifecyclePriority(result.?)) result = thread.lifecycle;
     }
     return result;
+}
+
+pub fn groupProcessCount(group: u16) usize {
+    var process_ids: [max_threads]u32 = undefined;
+    var count: usize = 0;
+    for (threads[0..thread_count]) |thread| {
+        if (thread.group != group or thread.process_id == 0) continue;
+        var known = false;
+        for (process_ids[0..count]) |process_id| {
+            if (process_id == thread.process_id) {
+                known = true;
+                break;
+            }
+        }
+        if (!known) {
+            process_ids[count] = thread.process_id;
+            count += 1;
+        }
+    }
+    return count;
 }
 
 pub fn enablePreemption() void {
