@@ -165,12 +165,16 @@ pub fn start(info: BootInfo) noreturn {
     const xhci_bar = pci.barAddress(xhci_device, 0) orelse panic("xHCI BAR missing");
     mapper.mapIdentity(xhci_bar, 0x10000) catch panic("xHCI MMIO mapping failed");
     mapper.activate();
-    const usb = xhci.Controller.init(xhci_device, &pages) catch panic("xHCI setup failed");
+    var usb = xhci.Controller.init(xhci_device, &pages) catch panic("xHCI setup failed");
     serial.write("xHCI ports connected: ");
     serial.writeDecimal(usb.connected_ports);
     serial.write("\n");
     if (usb.connected_ports < 2) panic("USB HID devices missing");
     serial.write("xHCI controller ready\n");
+    const hid = usb.enumerateHid(&pages) catch panic("USB enumeration failed");
+    serial.write("USB keyboards: "); serial.writeDecimal(hid.keyboards);
+    serial.write(" mice: "); serial.writeDecimal(hid.mice); serial.write("\n");
+    if (hid.keyboards == 0 or hid.mice == 0) panic("USB HID descriptors missing");
 
     drawBootMarker(info.framebuffer);
     serial.write("framebuffer ready\n");
