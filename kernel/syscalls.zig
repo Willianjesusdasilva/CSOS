@@ -15,7 +15,10 @@ var writes: usize = 0;
 var process_exit_status: u64 = 0;
 var process_pause: ?Pause = null;
 var mmap_protect_hook: ?*const fn (u64, u64, bool, bool) callconv(.c) bool = null;
+var mmap_unmap_hook: ?*const fn (u64, u64) callconv(.c) bool = null;
 pub var file_mmaps: u64 = 0;
+pub var protected_mmaps: u64 = 0;
+pub var unmapped_mmaps: u64 = 0;
 var network_stack: ?*net.Stack = null;
 var sockets: [4]Socket = .{Socket{}} ** 4;
 var unknown_seen: [512]bool = .{false} ** 512;
@@ -78,8 +81,9 @@ pub fn configureNetwork(stack: *net.Stack) void {
     network_stack = stack;
 }
 
-pub fn configureMmap(hook: ?*const fn (u64, u64, bool, bool) callconv(.c) bool) void {
-    mmap_protect_hook = hook;
+pub fn configureMmap(protect_hook: ?*const fn (u64, u64, bool, bool) callconv(.c) bool, unmap_hook: ?*const fn (u64, u64) callconv(.c) bool) void {
+    mmap_protect_hook = protect_hook;
+    mmap_unmap_hook = unmap_hook;
 }
 
 pub fn exitStatus() ?u8 {
@@ -112,7 +116,8 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         6 => stat(arg1, arg2, -100),
         8 => lseek(arg1, arg2, arg3),
         9 => mmap(arg1, arg2, arg3, arg4, arg5, arg6),
-        10, 11 => 0,
+        10 => mprotect(arg1, arg2, arg3),
+        11 => munmap(arg1, arg2),
         12 => brk(arg1),
         13 => rtSigaction(arg3),
         14 => rtSigprocmask(arg3, arg4),
@@ -406,6 +411,26 @@ fn mmap(requested: u64, length: u64, protection: u64, flags: u64, fd: u64, file_
     if (!hook(address, aligned_length, (protection & 2) != 0, (protection & 4) != 0)) return errno(12);
     mmap_next = address + aligned_length;
     return address;
+}
+
+fn mprotect(address: u64, length: u64, protection: u64) u64 {
+    if ((address & 4095) != 0 or length == 0 or ((protection & 2) != 0 and (protection & 4) != 0)) return errno(22);
+    const aligned_length = (length + 4095) & ~@as(u64, 4095);
+    if (!inRegion(address, aligned_length, mmap_base, mmap_limit - mmap_base)) return errno(12);
+    const hook = mmap_protect_hook orelse return errno(12);
+    if (!hook(address, aligned_length, (protection & 2) != 0, (protection & 4) != 0)) return errno(12);
+    protected_mmaps += 1;
+    return 0;
+}
+
+fn munmap(address: u64, length: u64) u64 {
+    if ((address & 4095) != 0 or length == 0) return errno(22);
+    const aligned_length = (length + 4095) & ~@as(u64, 4095);
+    if (!inRegion(address, aligned_length, mmap_base, mmap_limit - mmap_base)) return errno(22);
+    const hook = mmap_unmap_hook orelse return errno(22);
+    if (!hook(address, aligned_length)) return errno(22);
+    unmapped_mmaps += 1;
+    return 0;
 }
 
 fn unsupported(number: u64) u64 {

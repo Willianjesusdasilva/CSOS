@@ -152,6 +152,7 @@ pub fn start(info: BootInfo) noreturn {
     mapper.activate();
     if (process.relative_relocations == 0) panic("PIE relative relocation missing");
     if (syscalls.file_mmaps == 0) panic("Linux file mmap missing");
+    if (syscalls.protected_mmaps == 0 or syscalls.unmapped_mmaps == 0) panic("Linux mmap lifecycle missing");
     serial.write("Linux PIE userspace ready\nLinux W^X userspace ready\n");
     const echo_arguments = [_][]const u8{ "/bin/busybox", "echo", "BusyBox userspace ready" };
     process.runBusyBox(mapper.root, &pages, &echo_arguments) catch panic("BusyBox echo failed");

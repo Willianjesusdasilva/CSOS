@@ -35,6 +35,19 @@ pub export fn _start() callconv(.naked) noreturn {
         \\leaq mmap_success(%%rip), %%rsi
         \\movq $32, %%rdx
         \\syscall
+        \\movq $10, %%rax
+        \\movq $0x000000a000000000, %%rdi
+        \\movq $4096, %%rsi
+        \\movq $1, %%rdx
+        \\syscall
+        \\testq %%rax, %%rax
+        \\jne 1f
+        \\movq $11, %%rax
+        \\movq $0x000000a000000000, %%rdi
+        \\movq $4096, %%rsi
+        \\syscall
+        \\testq %%rax, %%rax
+        \\jne 1f
         \\movl $60, %%eax
         \\xorl %%edi, %%edi
         \\syscall
