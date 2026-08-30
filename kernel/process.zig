@@ -4,6 +4,7 @@ const syscalls = @import("syscalls");
 const vfs = @import("vfs");
 const busybox_image = @embedFile("busybox_elf");
 const nettest_image = @embedFile("nettest_elf");
+const fbtest_image = @embedFile("fbtest_elf");
 const hello_image = @embedFile("hello_elf");
 const interpreter_image = @embedFile("interpreter_elf");
 const dynamic_image = @embedFile("dynamic_elf");
@@ -68,6 +69,12 @@ pub fn runBusyBox(kernel_root: u64, pages: *physical.Allocator, arguments: []con
 pub fn runNetTest(kernel_root: u64, pages: *physical.Allocator) !void {
     image = nettest_image;
     const arguments = [_][]const u8{"/bin/nettest"};
+    return runImage(kernel_root, pages, &arguments);
+}
+
+pub fn runFramebufferTest(kernel_root: u64, pages: *physical.Allocator) !void {
+    image = fbtest_image;
+    const arguments = [_][]const u8{"/bin/fbtest"};
     return runImage(kernel_root, pages, &arguments);
 }
 

@@ -22,13 +22,16 @@ pub var file_mmaps: u64 = 0;
 pub var protected_mmaps: u64 = 0;
 pub var unmapped_mmaps: u64 = 0;
 pub var sendfile_calls: u64 = 0;
+pub var framebuffer_ioctls: u64 = 0;
 var network_stack: ?*net.Stack = null;
+var framebuffer = Framebuffer{};
 var sockets: [4]Socket = .{Socket{}} ** 4;
 var unknown_seen: [512]bool = .{false} ** 512;
 pub export var syscall_kernel_rsp: u64 = 0;
 pub export var syscall_user_rsp: u64 = 0;
 
 pub const Pause = struct { instruction: u64, stack: u64 };
+pub const Framebuffer = struct { base: u64 = 0, size: u32 = 0, width: u32 = 0, height: u32 = 0, stride: u32 = 0, pixel_format: u32 = 0 };
 
 extern fn syscall_entry() callconv(.naked) void;
 
@@ -72,6 +75,7 @@ pub fn configure(base: u64, size: u64, stack: u64, stack_length: u64, initial_br
     unknown_seen = .{false} ** unknown_seen.len;
     process_exit_status = 0xffffffffffffffff;
     process_pause = null;
+    framebuffer_ioctls = 0;
     sockets = .{Socket{}} ** sockets.len;
     vfs.reset();
 }
@@ -82,6 +86,10 @@ pub fn completedWrites() usize {
 
 pub fn configureNetwork(stack: *net.Stack) void {
     network_stack = stack;
+}
+
+pub fn configureFramebuffer(info: Framebuffer) void {
+    framebuffer = info;
 }
 
 pub fn configureMmap(protect_hook: ?*const fn (u64, u64, bool, bool) callconv(.c) bool, unmap_hook: ?*const fn (u64, u64) callconv(.c) bool) void {
@@ -129,7 +137,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         12 => brk(arg1),
         13 => rtSigaction(arg3),
         14 => rtSigprocmask(arg3, arg4),
-        16 => errno(25),
+        16 => ioctl(arg1, arg2, arg3),
         20 => writev(arg1, arg2, arg3),
         33 => duplicate(arg1, arg2),
         39 => 1,
@@ -255,6 +263,48 @@ fn fcntl(fd: u64, command: u64, argument: u64) u64 {
         2, 4 => 0,
         else => errno(22),
     };
+}
+
+fn ioctl(fd: u64, request: u64, address: u64) u64 {
+    if (!vfs.isFramebuffer(@intCast(fd))) return errno(25);
+    const result = switch (request) {
+        0x4600 => framebufferVariable(address),
+        0x4602 => framebufferFixed(address),
+        else => errno(25),
+    };
+    if (result == 0) framebuffer_ioctls += 1;
+    return result;
+}
+
+fn framebufferVariable(address: u64) u64 {
+    if (framebuffer.base == 0 or !validUserSlice(address, 160)) return errno(14);
+    const output: [*]u8 = @ptrFromInt(address);
+    @memset(output[0..160], 0);
+    put32(output + 0, framebuffer.width);
+    put32(output + 4, framebuffer.height);
+    put32(output + 8, framebuffer.width);
+    put32(output + 12, framebuffer.height);
+    put32(output + 24, 32);
+    const red_offset: u32 = if (framebuffer.pixel_format == 1) 0 else 16;
+    const blue_offset: u32 = if (framebuffer.pixel_format == 1) 16 else 0;
+    put32(output + 32, red_offset); put32(output + 36, 8);
+    put32(output + 44, 8); put32(output + 48, 8);
+    put32(output + 56, blue_offset); put32(output + 60, 8);
+    put32(output + 68, 24); put32(output + 72, 8);
+    return 0;
+}
+
+fn framebufferFixed(address: u64) u64 {
+    if (framebuffer.base == 0 or !validUserSlice(address, 80)) return errno(14);
+    const output: [*]u8 = @ptrFromInt(address);
+    @memset(output[0..80], 0);
+    @memcpy(output[0..4], "CSOS");
+    put64(output + 16, framebuffer.base);
+    put32(output + 24, framebuffer.size);
+    put32(output + 28, 0);
+    put32(output + 36, 2);
+    put32(output + 48, framebuffer.stride * 4);
+    return 0;
 }
 
 fn openat(directory_fd: u64, path_address: u64, flags: u64) u64 {

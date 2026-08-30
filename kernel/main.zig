@@ -54,6 +54,14 @@ pub const Framebuffer = display.Framebuffer;
 
 pub fn start(info: BootInfo) noreturn {
     serial.write("kernel entry\n");
+    syscalls.configureFramebuffer(.{
+        .base = info.framebuffer.base,
+        .size = @intCast(info.framebuffer.size),
+        .width = info.framebuffer.width,
+        .height = info.framebuffer.height,
+        .stride = info.framebuffer.stride,
+        .pixel_format = info.framebuffer.pixel_format,
+    });
     const madt = acpi.findMadt(info.rsdp) catch panic("ACPI MADT invalid");
     const power = acpi.findPower(info.rsdp) catch panic("ACPI power invalid");
     if (madt.cpu_count == 0 or madt.ioapic_count == 0) panic("ACPI topology missing");
@@ -206,6 +214,10 @@ pub fn start(info: BootInfo) noreturn {
     if (syscalls.file_mmaps == 0) panic("Linux file mmap missing");
     if (syscalls.protected_mmaps == 0 or syscalls.unmapped_mmaps == 0) panic("Linux mmap lifecycle missing");
     serial.write("Linux PIE userspace ready\nLinux W^X userspace ready\n");
+    process.runFramebufferTest(mapper.root, &pages) catch panic("Linux framebuffer ioctl userspace failed");
+    mapper.activate();
+    if (syscalls.framebuffer_ioctls != 2) panic("Linux framebuffer ioctl coverage failed");
+    serial.write("CSOS M14 userspace framebuffer ioctl ready\n");
     const echo_arguments = [_][]const u8{ "/bin/busybox", "echo", "BusyBox userspace ready" };
     process.runBusyBox(mapper.root, &pages, &echo_arguments) catch panic("BusyBox echo failed");
     mapper.activate();
