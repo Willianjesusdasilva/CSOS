@@ -322,6 +322,7 @@ pub fn start(info: BootInfo) noreturn {
     if (input_irq_apic > 255) panic("xHCI MSI APIC ID unsupported");
     idt.setUsbHook(&xhci.handleInterrupt);
     usb.enableInterrupts();
+    if (!usb.interruptEnabled()) panic("xHCI interrupter enable failed");
     if (xhci_device.msi)
         pci.enableMsi(xhci_device, 49, @truncate(input_irq_apic)) catch panic("xHCI MSI setup failed")
     else

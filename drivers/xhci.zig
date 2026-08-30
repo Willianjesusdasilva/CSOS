@@ -134,8 +134,12 @@ pub const Controller = struct {
         interrupt_runtime = self.runtime;
         interrupts = 0;
         last_interrupt_apic = 0xffffffff;
-        write32(self.runtime + 0x20, 8, 3);
+        write32(self.runtime + 0x20, 0, 3);
         write32(self.operational, 0, read32(self.operational, 0) | 4);
+    }
+
+    pub fn interruptEnabled(self: *const Controller) bool {
+        return (read32(self.runtime + 0x20, 0) & 2) != 0 and (read32(self.operational, 0) & 4) != 0;
     }
 
     pub fn enumerateAudio(self: *Controller, pages: *physical.Allocator) !AudioDevices {
@@ -583,9 +587,9 @@ pub const Controller = struct {
 
 pub fn handleInterrupt() callconv(.c) void {
     if (interrupt_runtime == 0) return;
-    const iman = read32(interrupt_runtime + 0x20, 8);
+    const iman = read32(interrupt_runtime + 0x20, 0);
     if ((iman & 1) == 0) return;
-    write32(interrupt_runtime + 0x20, 8, iman | 3);
+    write32(interrupt_runtime + 0x20, 0, iman | 3);
     @atomicStore(u32, &last_interrupt_apic, apic.id(), .release);
     _ = @atomicRmw(u64, &interrupts, .Add, 1, .release);
 }
