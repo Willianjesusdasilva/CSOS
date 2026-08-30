@@ -52,6 +52,17 @@ pub fn build(b: *std.Build) void {
     });
     shared.bundle_compiler_rt = false;
 
+    const extra = b.addLibrary(.{
+        .name = "extra",
+        .linkage = .dynamic,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("userspace/extra.zig"),
+            .target = user_target,
+            .optimize = .ReleaseSmall,
+        }),
+    });
+    extra.bundle_compiler_rt = false;
+
     const dynamic_hello = b.addExecutable(.{
         .name = "dynamic-hello",
         .root_module = b.createModule(.{
@@ -64,6 +75,7 @@ pub fn build(b: *std.Build) void {
     dynamic_hello.pie = true;
     dynamic_hello.bundle_compiler_rt = false;
     dynamic_hello.root_module.linkLibrary(shared);
+    dynamic_hello.root_module.linkLibrary(extra);
 
     const nettest = b.addExecutable(.{
         .name = "nettest",
@@ -177,5 +189,6 @@ pub fn build(b: *std.Build) void {
     qemu.addFileArg(b.path("tools/run.ps1"));
     qemu.addFileArg(boot.getEmittedBin());
     qemu.addFileArg(shared.getEmittedBin());
+    qemu.addFileArg(extra.getEmittedBin());
     run.dependOn(&qemu.step);
 }

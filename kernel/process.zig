@@ -13,6 +13,7 @@ const mmap_address: u64 = 0x000000a000000000;
 const page_size: u64 = 4096;
 const max_mappings = 512;
 const max_owned_ranges = 512;
+const max_shared_objects = 4;
 
 const Mapping = struct {
     virtual: u64,
@@ -23,6 +24,17 @@ const Mapping = struct {
     resident: bool = true,
 };
 const OwnedRange = struct { address: u64, pages: u64 };
+const Provider = struct {
+    bytes: []const u8,
+    program_offset: u64,
+    program_entry_size: u16,
+    program_count: u16,
+    base: u64,
+};
+const NeededList = struct {
+    names: [max_shared_objects][]const u8 = undefined,
+    count: usize = 0,
+};
 
 var active_address_space: ?*paging.AddressSpace = null;
 var active_pages: ?*physical.Allocator = null;
@@ -77,7 +89,7 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
     if (program_entry_size < 56 or program_offset + @as(u64, program_entry_size) * program_count > image.len) return error.InvalidElf;
     const program_image = image;
     const interpreter_path = try findInterpreter(program_offset, program_entry_size, program_count);
-    const needed_name = try findNeeded(program_offset, program_entry_size, program_count);
+    const needed = try findNeeded(program_offset, program_entry_size, program_count);
 
     var address_space = try paging.AddressSpace.init(kernel_root, pages);
     var owned: [max_owned_ranges]OwnedRange = undefined;
@@ -112,43 +124,62 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
     var interpreter_base: u64 = 0;
     if (interpreter_path) |path| {
         if (!equal(path, "/lib/ld-csos.so")) return error.UnsupportedInterpreter;
-        const dependency = needed_name orelse return error.SharedObjectMissing;
-        const dependency_info = try vfs.infoAt(-100, dependency);
-        if (dependency_info.directory or dependency_info.size < 64 or dependency_info.size > 16 * 1024 * 1024) return error.InvalidSharedObject;
-        const dependency_pages = (dependency_info.size + page_size - 1) / page_size;
-        const dependency_address = pages.allocate(dependency_pages) orelse return error.OutOfMemory;
-        defer pages.release(dependency_address, dependency_pages) catch {};
-        const dependency_bytes: [*]u8 = @ptrFromInt(dependency_address);
-        const dependency_file = try vfs.openAt(-100, dependency, 0);
-        defer vfs.close(dependency_file) catch {};
-        var dependency_read: usize = 0;
-        while (dependency_read < dependency_info.size) {
-            const count = try vfs.pread(dependency_file, dependency_bytes[dependency_read..@intCast(dependency_info.size)], dependency_read);
-            if (count == 0) return error.TruncatedSharedObject;
-            dependency_read += count;
+        if (needed.count == 0) return error.SharedObjectMissing;
+        var dependency_ranges: [max_shared_objects]OwnedRange = undefined;
+        var dependency_count: usize = 0;
+        defer releaseOwned(pages, dependency_ranges[0..dependency_count]);
+        var providers: [max_shared_objects]Provider = undefined;
+        var provider_count: usize = 0;
+        for (needed.names[0..needed.count], 0..) |dependency, dependency_index| {
+            const dependency_info = try vfs.infoAt(-100, dependency);
+            if (dependency_info.directory or dependency_info.size < 64 or dependency_info.size > 16 * 1024 * 1024) return error.InvalidSharedObject;
+            const dependency_pages = (dependency_info.size + page_size - 1) / page_size;
+            const dependency_address = pages.allocate(dependency_pages) orelse return error.OutOfMemory;
+            dependency_ranges[dependency_count] = .{ .address = dependency_address, .pages = dependency_pages };
+            dependency_count += 1;
+            const dependency_bytes: [*]u8 = @ptrFromInt(dependency_address);
+            const dependency_file = try vfs.openAt(-100, dependency, 0);
+            var dependency_read: usize = 0;
+            while (dependency_read < dependency_info.size) {
+                const count = vfs.pread(dependency_file, dependency_bytes[dependency_read..@intCast(dependency_info.size)], dependency_read) catch |err| {
+                    vfs.close(dependency_file) catch {};
+                    return err;
+                };
+                if (count == 0) return error.TruncatedSharedObject;
+                dependency_read += count;
+            }
+            try vfs.close(dependency_file);
+            const shared_bytes = dependency_bytes[0..@intCast(dependency_info.size)];
+            const shared_base = 0x0000006000000000 + @as(u64, dependency_index) * 0x0000000010000000;
+            image = shared_bytes;
+            if (image.len < 64 or !isElf() or read16(16) != 3) return error.InvalidSharedObject;
+            const shared_program_offset = read64(32);
+            const shared_program_entry_size = read16(54);
+            const shared_program_count = read16(56);
+            header_index = 0;
+            while (header_index < shared_program_count) : (header_index += 1) {
+                const header: usize = @intCast(shared_program_offset + @as(u64, shared_program_entry_size) * header_index);
+                if (read32At(header) != 1) continue;
+                const flags = read32At(header + 4);
+                const file_offset = read64At(header + 8);
+                const virtual = read64At(header + 16) + shared_base;
+                const file_size = read64At(header + 32);
+                const memory_size = read64At(header + 40);
+                if (file_size > memory_size or file_offset + file_size > image.len or memory_size == 0) return error.InvalidSharedObject;
+                try loadSegment(&address_space, pages, &mappings, &mapping_count, &owned, &owned_count, virtual, file_offset, file_size, memory_size, (flags & 2) != 0, (flags & 1) != 0);
+            }
+            try applyRelativeRelocations(mappings[0..mapping_count], shared_base, shared_program_offset, shared_program_entry_size, shared_program_count, false);
+            providers[provider_count] = .{
+                .bytes = shared_bytes,
+                .program_offset = shared_program_offset,
+                .program_entry_size = shared_program_entry_size,
+                .program_count = shared_program_count,
+                .base = shared_base,
+            };
+            provider_count += 1;
+            shared_objects_loaded += 1;
         }
-        const shared_bytes = dependency_bytes[0..@intCast(dependency_info.size)];
-        const shared_base: u64 = 0x0000006000000000;
-        image = shared_bytes;
-        if (image.len < 64 or !isElf() or read16(16) != 3) return error.InvalidSharedObject;
-        const shared_program_offset = read64(32);
-        const shared_program_entry_size = read16(54);
-        const shared_program_count = read16(56);
-        header_index = 0;
-        while (header_index < shared_program_count) : (header_index += 1) {
-            const header: usize = @intCast(shared_program_offset + @as(u64, shared_program_entry_size) * header_index);
-            if (read32At(header) != 1) continue;
-            const flags = read32At(header + 4);
-            const file_offset = read64At(header + 8);
-            const virtual = read64At(header + 16) + shared_base;
-            const file_size = read64At(header + 32);
-            const memory_size = read64At(header + 40);
-            if (file_size > memory_size or file_offset + file_size > image.len or memory_size == 0) return error.InvalidSharedObject;
-            try loadSegment(&address_space, pages, &mappings, &mapping_count, &owned, &owned_count, virtual, file_offset, file_size, memory_size, (flags & 2) != 0, (flags & 1) != 0);
-        }
-        try applyRelativeRelocations(mappings[0..mapping_count], shared_base, shared_program_offset, shared_program_entry_size, shared_program_count, false);
-        try applySymbolRelocations(program_image, program_offset, program_entry_size, program_count, load_bias, shared_bytes, shared_program_offset, shared_program_entry_size, shared_program_count, shared_base, mappings[0..mapping_count]);
-        shared_objects_loaded += 1;
+        try applySymbolRelocations(program_image, program_offset, program_entry_size, program_count, load_bias, providers[0..provider_count], mappings[0..mapping_count]);
         image = interpreter_image;
         if (image.len < 64 or !isElf() or read16(16) != 3) return error.InvalidInterpreter;
         const interpreter_program_offset = read64(32);
@@ -359,7 +390,7 @@ fn findInterpreter(program_offset: u64, program_entry_size: u16, program_count: 
     return null;
 }
 
-fn findNeeded(program_offset: u64, program_entry_size: u16, program_count: u16) !?[]const u8 {
+fn findNeeded(program_offset: u64, program_entry_size: u16, program_count: u16) !NeededList {
     var dynamic_offset: ?u64 = null;
     var dynamic_size: u64 = 0;
     var header_index: usize = 0;
@@ -370,10 +401,11 @@ fn findNeeded(program_offset: u64, program_entry_size: u16, program_count: u16) 
         dynamic_size = read64At(header + 32);
         break;
     }
-    const table = dynamic_offset orelse return null;
+    const table = dynamic_offset orelse return .{};
     if (table > image.len or dynamic_size > image.len - table) return error.InvalidDynamicTable;
     var string_virtual: u64 = 0;
-    var needed_offset: ?u64 = null;
+    var needed_offsets: [max_shared_objects]u64 = undefined;
+    var needed_count: usize = 0;
     var offset = table;
     while (offset + 16 <= table + dynamic_size) : (offset += 16) {
         const tag = read64At(@intCast(offset));
@@ -381,14 +413,20 @@ fn findNeeded(program_offset: u64, program_entry_size: u16, program_count: u16) 
         if (tag == 0) break;
         if (tag == 5) string_virtual = value;
         if (tag == 1) {
-            if (needed_offset != null) return error.MultipleDependenciesUnsupported;
-            needed_offset = value;
+            if (needed_count == needed_offsets.len) return error.TooManyDependencies;
+            needed_offsets[needed_count] = value;
+            needed_count += 1;
         }
     }
-    const name_offset = needed_offset orelse return null;
+    if (needed_count == 0) return .{};
     if (string_virtual == 0) return error.InvalidDynamicString;
-    const string_file = try virtualFileOffset(string_virtual + name_offset, 1, program_offset, program_entry_size, program_count);
-    return try stringFrom(image, string_file);
+    var result = NeededList{};
+    for (needed_offsets[0..needed_count]) |name_offset| {
+        const string_file = try virtualFileOffset(string_virtual + name_offset, 1, program_offset, program_entry_size, program_count);
+        result.names[result.count] = try stringFrom(image, string_file);
+        result.count += 1;
+    }
+    return result;
 }
 
 fn equal(left: []const u8, right: []const u8) bool {
@@ -536,15 +574,10 @@ fn applySymbolRelocations(
     consumer_program_entry_size: u16,
     consumer_program_count: u16,
     consumer_base: u64,
-    provider: []const u8,
-    provider_program_offset: u64,
-    provider_program_entry_size: u16,
-    provider_program_count: u16,
-    provider_base: u64,
+    providers: []const Provider,
     mappings: []const Mapping,
 ) !void {
     const wanted = try dynamicSymbols(consumer, consumer_program_offset, consumer_program_entry_size, consumer_program_count, true);
-    const supplied = try dynamicSymbols(provider, provider_program_offset, provider_program_entry_size, provider_program_count, false);
     if (wanted.rela_size == 0) return;
     var offset: u64 = 0;
     while (offset < wanted.rela_size) : (offset += 24) {
@@ -557,14 +590,21 @@ fn applySymbolRelocations(
         const consumer_symbol: usize = @intCast(wanted.symbol_file + @as(u64, symbol_index) * 24);
         const name_offset = read32From(consumer, consumer_symbol);
         const name = try stringFrom(consumer, wanted.string_file + name_offset);
-        var provider_index: u32 = 0;
         var resolved: ?u64 = null;
-        while (provider_index < supplied.symbol_count) : (provider_index += 1) {
-            const provider_symbol: usize = @intCast(supplied.symbol_file + @as(u64, provider_index) * 24);
-            if (read16From(provider, provider_symbol + 6) == 0) continue;
-            const provider_name_offset = read32From(provider, provider_symbol);
-            const provider_name = try stringFrom(provider, supplied.string_file + provider_name_offset);
-            if (equal(name, provider_name)) resolved = provider_base + read64From(provider, provider_symbol + 8);
+        for (providers) |provider| {
+            const supplied = try dynamicSymbols(provider.bytes, provider.program_offset, provider.program_entry_size, provider.program_count, false);
+            var provider_index: u32 = 0;
+            while (provider_index < supplied.symbol_count) : (provider_index += 1) {
+                const provider_symbol: usize = @intCast(supplied.symbol_file + @as(u64, provider_index) * 24);
+                if (read16From(provider.bytes, provider_symbol + 6) == 0) continue;
+                const provider_name_offset = read32From(provider.bytes, provider_symbol);
+                const provider_name = try stringFrom(provider.bytes, supplied.string_file + provider_name_offset);
+                if (equal(name, provider_name)) {
+                    resolved = provider.base + read64From(provider.bytes, provider_symbol + 8);
+                    break;
+                }
+            }
+            if (resolved != null) break;
         }
         try writeMapped64(mappings, target, resolved orelse return error.DynamicSymbolMissing);
         symbol_relocations += 1;

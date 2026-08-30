@@ -1,6 +1,7 @@
 param(
     [Parameter(Mandatory = $true)][string]$EfiBinary,
     [Parameter(Mandatory = $true)][string]$SharedLibrary,
+    [Parameter(Mandatory = $true)][string]$ExtraLibrary,
     [switch]$UsbAudio,
     [switch]$ResetDisk,
     [string]$AudioBackend = 'none'
@@ -33,7 +34,7 @@ $localOvmf = Join-Path $PSScriptRoot '..\zig-out\OVMF_CODE.fd'
 Copy-Item -Force -LiteralPath $ovmf -Destination $localOvmf
 $nvmeDisk = Join-Path $PSScriptRoot '..\zig-out\nvme.img'
 if ($ResetDisk -or -not (Test-Path -LiteralPath $nvmeDisk)) {
-    & (Join-Path $PSScriptRoot 'make-fat16.ps1') -Path $nvmeDisk -SharedLibrary $SharedLibrary
+    & (Join-Path $PSScriptRoot 'make-fat16.ps1') -Path $nvmeDisk -SharedLibrary $SharedLibrary -ExtraLibrary $ExtraLibrary
 }
 
 $audioArguments = @()

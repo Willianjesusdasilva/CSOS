@@ -251,7 +251,7 @@ pub fn start(info: BootInfo) noreturn {
     process.runDynamicTest(mapper.root, &pages) catch panic("filesystem PT_INTERP userspace failed");
     mapper.activate();
     if (process.interpreter_loads == 0) panic("PT_INTERP loader missing");
-    if (process.shared_objects_loaded == 0 or process.symbol_relocations == 0) panic("dynamic shared object resolution missing");
+    if (process.shared_objects_loaded < 2 or process.symbol_relocations < 2) panic("multiple shared object resolution missing");
     if (pages.free_pages != dynamic_pages_before) panic("dynamic loader page reclaim mismatch");
     serial.write("Linux filesystem shared object ready\nLinux dynamic userspace ready\n");
     const persist_arguments = [_][]const u8{ "/bin/busybox", "sh", "-c", "echo userspace-persisted > /user.txt" };

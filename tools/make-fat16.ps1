@@ -1,6 +1,7 @@
 param(
     [Parameter(Mandatory = $true)][string]$Path,
-    [string]$SharedLibrary
+    [string]$SharedLibrary,
+    [string]$ExtraLibrary
 )
 
 $sectorSize = 512
@@ -43,6 +44,7 @@ try {
     $dataStart = $rootStart + $rootSectors
     $stream.Position = $dataStart * $sectorSize
     $writer.Write($content)
+    $nextFreeCluster = 3
     if ($SharedLibrary) {
         $library = [IO.File]::ReadAllBytes($SharedLibrary)
         $clusterBytes = $sectorSize * $sectorsPerCluster
@@ -50,7 +52,7 @@ try {
         if ($clusterCount -gt 32) { throw 'shared library is too large for bootstrap FAT allocation' }
         foreach ($fatStart in @(1, 1 + $fatSectors)) {
             for ($index = 0; $index -lt $clusterCount; $index++) {
-                $cluster = 3 + $index
+                $cluster = $nextFreeCluster + $index
                 $next = if ($index + 1 -eq $clusterCount) { 0xFFFF } else { $cluster + 1 }
                 $stream.Position = $fatStart * $sectorSize + $cluster * 2
                 $writer.Write([uint16]$next)
@@ -60,9 +62,32 @@ try {
         $writer.Write([Text.Encoding]::ASCII.GetBytes('LIBCSOS SO '))
         $writer.Write([byte]0x20)
         $writer.Write([byte[]]::new(14))
-        $writer.Write([uint16]3)
+        $writer.Write([uint16]$nextFreeCluster)
         $writer.Write([uint32]$library.Length)
-        $stream.Position = $dataStart * $sectorSize + $clusterBytes
+        $stream.Position = $dataStart * $sectorSize + ($nextFreeCluster - 2) * $clusterBytes
+        $writer.Write($library)
+        $nextFreeCluster += $clusterCount
+    }
+    if ($ExtraLibrary) {
+        $library = [IO.File]::ReadAllBytes($ExtraLibrary)
+        $clusterBytes = $sectorSize * $sectorsPerCluster
+        $clusterCount = [Math]::Ceiling($library.Length / $clusterBytes)
+        if ($clusterCount -gt 32) { throw 'extra library is too large for bootstrap FAT allocation' }
+        foreach ($fatStart in @(1, 1 + $fatSectors)) {
+            for ($index = 0; $index -lt $clusterCount; $index++) {
+                $cluster = $nextFreeCluster + $index
+                $next = if ($index + 1 -eq $clusterCount) { 0xFFFF } else { $cluster + 1 }
+                $stream.Position = $fatStart * $sectorSize + $cluster * 2
+                $writer.Write([uint16]$next)
+            }
+        }
+        $stream.Position = $rootStart * $sectorSize + 64
+        $writer.Write([Text.Encoding]::ASCII.GetBytes('LIBEXTRASO '))
+        $writer.Write([byte]0x20)
+        $writer.Write([byte[]]::new(14))
+        $writer.Write([uint16]$nextFreeCluster)
+        $writer.Write([uint32]$library.Length)
+        $stream.Position = $dataStart * $sectorSize + ($nextFreeCluster - 2) * $clusterBytes
         $writer.Write($library)
     }
 } finally {
