@@ -8,6 +8,7 @@ const pci = @import("pci");
 const nvme = @import("nvme");
 const fat16 = @import("fat16");
 const xhci = @import("xhci");
+const display = @import("display");
 const e1000 = @import("e1000");
 const net = @import("net");
 const smp = @import("smp");
@@ -33,14 +34,7 @@ pub const BootInfo = struct {
     rsdp: u64,
 };
 
-pub const Framebuffer = struct {
-    base: u64,
-    size: usize,
-    width: u32,
-    height: u32,
-    stride: u32,
-    pixel_format: u32,
-};
+pub const Framebuffer = display.Framebuffer;
 
 pub fn start(info: BootInfo) noreturn {
     serial.write("kernel entry\n");
@@ -134,6 +128,8 @@ pub fn start(info: BootInfo) noreturn {
     const inventory = pci.Inventory.scan();
     if (inventory.count == 0) panic("PCI enumeration failed");
     if (inventory.findClass(0x06, 0x01) == null) panic("PCI ISA bridge missing");
+    const display_device = inventory.findClass(0x03, 0x00) orelse
+        inventory.findClass(0x03, 0x80) orelse panic("display adapter missing");
     serial.write("PCI devices: ");
     serial.writeDecimal(inventory.count);
     serial.write("\n");
@@ -260,8 +256,18 @@ pub fn start(info: BootInfo) noreturn {
     serial.write("Ethernet MSI ready\n");
     serial.write("IPv4 ICMP ready\n");
 
-    drawDisplay(info.framebuffer, hid, audio_info);
-    serial.write("display baseline ready\n");
+    var screen = display.Context.init(info.framebuffer, display_device, &pages) catch panic("display initialization failed");
+    screen.drawBaseline(@as(usize, hid.keyboards) + hid.mice, audio_info.playback_endpoints);
+    const initial_pixels = screen.present();
+    if (initial_pixels == 0) panic("display presentation failed");
+    serial.write("GPU PCI vendor: "); serial.writeDecimal(screen.adapter.vendor);
+    serial.write(" device: "); serial.writeDecimal(screen.adapter.device);
+    serial.write("\ndisplay resolution: "); serial.writeDecimal(screen.framebuffer.width);
+    serial.write("x"); serial.writeDecimal(screen.framebuffer.height);
+    serial.write(" stride: "); serial.writeDecimal(screen.framebuffer.stride);
+    serial.write("\ndisplay backbuffer bytes: "); serial.writeDecimal(screen.buffer_bytes);
+    serial.write("\ndisplay initial pixels: "); serial.writeDecimal(initial_pixels);
+    serial.write("\nCSOS M14 display baseline ready\n");
     if (usb.audioReady()) {
         usb.audioPrime(&pages) catch |err| switch (err) {
             error.AudioSetInterfaceFailed => panic("USB audio SET_INTERFACE failed"),
@@ -275,7 +281,10 @@ pub fn start(info: BootInfo) noreturn {
     var reported_audio = false;
     while (true) {
         display_ticks +%= 1;
-        if ((display_ticks & 0xfffff) == 0) drawDisplayHeartbeat(info.framebuffer, display_ticks);
+        if ((display_ticks & 0xfffff) == 0) {
+            screen.heartbeat(@intCast(display_ticks >> 20));
+            if (screen.present() == 0) panic("display heartbeat presentation failed");
+        }
         _ = usb.pollHid(&hid) catch |err| switch (err) {
             error.AudioMissedService => panic("USB audio missed service"),
             error.AudioRingOverrun => panic("USB audio ring overrun"),
