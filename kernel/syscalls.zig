@@ -21,6 +21,7 @@ var idle_hook: ?*const fn () callconv(.c) void = null;
 pub var file_mmaps: u64 = 0;
 pub var protected_mmaps: u64 = 0;
 pub var unmapped_mmaps: u64 = 0;
+pub var sendfile_calls: u64 = 0;
 var network_stack: ?*net.Stack = null;
 var sockets: [4]Socket = .{Socket{}} ** 4;
 var unknown_seen: [512]bool = .{false} ** 512;
@@ -132,6 +133,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         20 => writev(arg1, arg2, arg3),
         33 => duplicate(arg1, arg2),
         39 => 1,
+        40 => sendfile(arg1, arg2, arg3, arg4),
         41 => socket(arg1, arg2, arg3),
         42 => connect(arg1, arg2, arg3),
         44 => sendTo(arg1, arg2, arg3),
@@ -188,6 +190,47 @@ fn read(fd: u64, address: u64, length: u64) u64 {
     }
     if (socketIndex(fd)) |index| return socketReceive(index, output[0..@intCast(length)]);
     return vfs.read(@intCast(fd), output[0..@intCast(length)]) catch |err| vfsError(err);
+}
+
+fn sendfile(output_fd: u64, input_fd: u64, offset_address: u64, count: u64) u64 {
+    var explicit_offset: ?u64 = null;
+    if (offset_address != 0) {
+        if (!validUserSlice(offset_address, 8)) return errno(14);
+        const pointer: *align(1) u64 = @ptrFromInt(offset_address);
+        explicit_offset = pointer.*;
+    }
+    var buffer: [1024]u8 = undefined;
+    var transferred: u64 = 0;
+    while (transferred < count) {
+        const wanted: usize = @intCast(@min(@as(u64, buffer.len), count - transferred));
+        const read_count = if (explicit_offset) |position|
+            vfs.pread(@intCast(input_fd), buffer[0..wanted], @intCast(position + transferred)) catch |err| return if (transferred == 0) vfsError(err) else transferred
+        else
+            vfs.read(@intCast(input_fd), buffer[0..wanted]) catch |err| return if (transferred == 0) vfsError(err) else transferred;
+        if (read_count == 0) break;
+        const written = writeKernel(output_fd, buffer[0..read_count]) catch |err| return if (transferred == 0) vfsError(err) else transferred;
+        transferred += written;
+        if (written != read_count) break;
+    }
+    if (offset_address != 0) {
+        const pointer: *align(1) u64 = @ptrFromInt(offset_address);
+        pointer.* = explicit_offset.? + transferred;
+    }
+    sendfile_calls += 1;
+    return transferred;
+}
+
+fn writeKernel(fd: u64, bytes: []const u8) !usize {
+    if (socketIndex(fd)) |index| {
+        const result = socketSend(index, bytes);
+        if (@as(i64, @bitCast(result)) < 0) return error.NetworkWriteFailed;
+        return @intCast(result);
+    }
+    if (vfs.isDiskFile(@intCast(fd))) return vfs.write(@intCast(fd), bytes);
+    if (!vfs.isConsole(@intCast(fd))) return error.BadFd;
+    serial.write(bytes);
+    writes += 1;
+    return bytes.len;
 }
 
 fn close(fd: u64) u64 {

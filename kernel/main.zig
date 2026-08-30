@@ -168,6 +168,7 @@ pub fn start(info: BootInfo) noreturn {
     const cat_arguments = [_][]const u8{ "/bin/busybox", "cat", "/hello.txt" };
     process.runBusyBox(mapper.root, &pages, &cat_arguments) catch panic("BusyBox cat failed");
     mapper.activate();
+    if (syscalls.sendfile_calls == 0) panic("Linux sendfile missing");
     const shell_arguments = [_][]const u8{ "/bin/busybox", "sh", "-c", "echo BusyBox shell ready" };
     process.runBusyBox(mapper.root, &pages, &shell_arguments) catch panic("BusyBox sh failed");
     mapper.activate();
