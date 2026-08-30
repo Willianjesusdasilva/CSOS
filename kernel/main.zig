@@ -11,6 +11,7 @@ const xhci = @import("xhci");
 const gpu = @import("gpu");
 const display = @import("display");
 const hardware_profile = @import("hardware_profile");
+const metrics = @import("metrics");
 const installer_state = @import("installer_state");
 const e1000 = @import("e1000");
 const net = @import("net");
@@ -230,9 +231,14 @@ pub fn start(info: BootInfo) noreturn {
     while (io_index < storage.block_size) : (io_index += 1) io_bytes[io_index] = @truncate(io_index ^ 0xa5);
     storage.writeBlock(1000, io_buffer) catch panic("NVMe write failed");
     @memset(io_bytes[0..storage.block_size], 0);
-    const nvme_read_started = timestamp(cpu_profile.tsc);
-    storage.readBlock(1000, io_buffer) catch panic("NVMe read failed");
-    const nvme_read_cycles = elapsed(nvme_read_started, cpu_profile.tsc);
+    var nvme_samples = metrics.Samples{};
+    var nvme_sample: usize = 0;
+    while (nvme_sample < 16) : (nvme_sample += 1) {
+        const nvme_read_started = timestamp(cpu_profile.tsc);
+        storage.readBlock(1000, io_buffer) catch panic("NVMe read failed");
+        nvme_samples.add(elapsed(nvme_read_started, cpu_profile.tsc)) catch panic("NVMe metric capacity failed");
+    }
+    const nvme_latency = nvme_samples.summarize() catch panic("NVMe metrics missing");
     io_index = 0;
     while (io_index < storage.block_size) : (io_index += 1) {
         if (io_bytes[io_index] != @as(u8, @truncate(io_index ^ 0xa5))) panic("NVMe data mismatch");
@@ -388,7 +394,9 @@ pub fn start(info: BootInfo) noreturn {
     serial.write("IPv4 ICMP ready\n");
     serial.write("profile scheduler freeze cycles: "); serial.writeDecimal(scheduler_freeze_cycles);
     serial.write(" resume: "); serial.writeDecimal(scheduler_resume_cycles);
-    serial.write("\nprofile NVMe read cycles: "); serial.writeDecimal(nvme_read_cycles);
+    serial.write("\nprofile NVMe read cycles p50: "); serial.writeDecimal(nvme_latency.p50);
+    serial.write(" p95: "); serial.writeDecimal(nvme_latency.p95);
+    serial.write(" p99: "); serial.writeDecimal(nvme_latency.p99);
     serial.write("\nprofile TCP transaction cycles: "); serial.writeDecimal(tcp_cycles);
     serial.write("\nCSOS M18 profiling baseline ready\n");
 
