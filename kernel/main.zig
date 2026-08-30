@@ -242,12 +242,11 @@ pub fn start(info: BootInfo) noreturn {
     @memset(io_bytes[0..storage.block_size], 0);
     var nvme_samples = metrics.Samples{};
     var nvme_sample: usize = 0;
-    while (nvme_sample < 16) : (nvme_sample += 1) {
+    while (nvme_sample < 1) : (nvme_sample += 1) {
         const nvme_read_started = timestamp(cpu_profile.tsc);
         storage.readBlock(1000, io_buffer) catch panic("NVMe read failed");
         nvme_samples.add(elapsed(nvme_read_started, cpu_profile.tsc)) catch panic("NVMe metric capacity failed");
     }
-    const nvme_latency = nvme_samples.summarize() catch panic("NVMe metrics missing");
     io_index = 0;
     while (io_index < storage.block_size) : (io_index += 1) {
         if (io_bytes[io_index] != @as(u8, @truncate(io_index ^ 0xa5))) panic("NVMe data mismatch");
@@ -381,14 +380,13 @@ pub fn start(info: BootInfo) noreturn {
     var tcp_samples = metrics.Samples{};
     var tcp_sample: usize = 0;
     var tcp_bytes: usize = 0;
-    while (tcp_sample < 8) : (tcp_sample += 1) {
+    while (tcp_sample < 1) : (tcp_sample += 1) {
         const tcp_started = timestamp(cpu_profile.tsc);
         const received = network_stack.probeTcpHttp(resolved, "example.com") catch panic("TCP HTTP probe failed");
         tcp_samples.add(elapsed(tcp_started, cpu_profile.tsc)) catch panic("TCP metric capacity failed");
         if (received == 0 or (tcp_bytes != 0 and received != tcp_bytes)) panic("TCP response instability");
         tcp_bytes = received;
     }
-    const tcp_latency = tcp_samples.summarize() catch panic("TCP metrics missing");
     serial.write("TCP response bytes: ");
     serial.writeDecimal(tcp_bytes);
     serial.write("\nCSOS M12 TCP ready\n");
@@ -409,20 +407,6 @@ pub fn start(info: BootInfo) noreturn {
     serial.write("Ethernet ARP ready\n");
     serial.write("Ethernet MSI ready\n");
     serial.write("IPv4 ICMP ready\n");
-    serial.write("profile scheduler freeze cycles p50: "); serial.writeDecimal(freeze_latency.p50);
-    serial.write(" p95: "); serial.writeDecimal(freeze_latency.p95);
-    serial.write(" p99: "); serial.writeDecimal(freeze_latency.p99);
-    serial.write(" resume p50: "); serial.writeDecimal(resume_latency.p50);
-    serial.write(" p95: "); serial.writeDecimal(resume_latency.p95);
-    serial.write(" p99: "); serial.writeDecimal(resume_latency.p99);
-    serial.write("\nprofile NVMe read cycles p50: "); serial.writeDecimal(nvme_latency.p50);
-    serial.write(" p95: "); serial.writeDecimal(nvme_latency.p95);
-    serial.write(" p99: "); serial.writeDecimal(nvme_latency.p99);
-    serial.write("\nprofile TCP transaction cycles p50: "); serial.writeDecimal(tcp_latency.p50);
-    serial.write(" p95: "); serial.writeDecimal(tcp_latency.p95);
-    serial.write(" p99: "); serial.writeDecimal(tcp_latency.p99);
-    serial.write("\nCSOS M18 profiling baseline ready\n");
-
     const gpu_adapter = gpu.Adapter.discover(display_device) catch panic("GPU discovery failed");
     if (gpu_adapter.bar_count == 0) panic("GPU BAR discovery failed");
     var screen = display.Context.init(info.framebuffer, display_device, &pages) catch panic("display initialization failed");
@@ -488,6 +472,34 @@ pub fn start(info: BootInfo) noreturn {
     };
     const profile_reused = stored_length == current_profile.length and
         equalBytes(stored_profile[0..stored_length], current_profile.text());
+    if (!installation_current or !profile_reused) {
+        while (nvme_sample < 16) : (nvme_sample += 1) {
+            const started = timestamp(cpu_profile.tsc);
+            storage.readBlock(1000, io_buffer) catch panic("NVMe profiling read failed");
+            nvme_samples.add(elapsed(started, cpu_profile.tsc)) catch panic("NVMe metric capacity failed");
+        }
+        while (tcp_sample < 8) : (tcp_sample += 1) {
+            const started = timestamp(cpu_profile.tsc);
+            const received = network_stack.probeTcpHttp(resolved, "example.com") catch panic("TCP profiling probe failed");
+            tcp_samples.add(elapsed(started, cpu_profile.tsc)) catch panic("TCP metric capacity failed");
+            if (received != tcp_bytes) panic("TCP response instability");
+        }
+    }
+    const nvme_latency = nvme_samples.summarize() catch panic("NVMe metrics missing");
+    const tcp_latency = tcp_samples.summarize() catch panic("TCP metrics missing");
+    serial.write("profile scheduler freeze cycles p50: "); serial.writeDecimal(freeze_latency.p50);
+    serial.write(" p95: "); serial.writeDecimal(freeze_latency.p95);
+    serial.write(" p99: "); serial.writeDecimal(freeze_latency.p99);
+    serial.write(" resume p50: "); serial.writeDecimal(resume_latency.p50);
+    serial.write(" p95: "); serial.writeDecimal(resume_latency.p95);
+    serial.write(" p99: "); serial.writeDecimal(resume_latency.p99);
+    serial.write("\nprofile NVMe read cycles p50: "); serial.writeDecimal(nvme_latency.p50);
+    serial.write(" p95: "); serial.writeDecimal(nvme_latency.p95);
+    serial.write(" p99: "); serial.writeDecimal(nvme_latency.p99);
+    serial.write("\nprofile TCP transaction cycles p50: "); serial.writeDecimal(tcp_latency.p50);
+    serial.write(" p95: "); serial.writeDecimal(tcp_latency.p95);
+    serial.write(" p99: "); serial.writeDecimal(tcp_latency.p99);
+    serial.write(if (installation_current and profile_reused) "\nCSOS M18 boot validation ready\n" else "\nCSOS M18 install profiling baseline ready\n");
     if (!profile_reused) volume.writeRootFile(&hardware_name, current_profile.text()) catch panic("hardware profile write failed");
     var verified_profile: [2048]u8 = undefined;
     const verified_length = volume.readRootFile(&hardware_name, &verified_profile) catch panic("hardware profile verification read failed");
