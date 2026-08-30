@@ -1,4 +1,4 @@
-const profile_version: u8 = 4;
+const profile_version: u8 = 5;
 
 pub const Cpu = struct {
     vendor: [12]u8,
@@ -28,6 +28,7 @@ pub const Facts = struct {
     usb_ports: u8,
     keyboards: u8,
     mice: u8,
+    input_irq_apic: u32,
     audio_interfaces: u8,
     display_width: u32,
     display_height: u32,
@@ -168,6 +169,7 @@ pub fn build(cpu: Cpu, facts: Facts) !Profile {
     try append(&result, "\n\n[usb]\nports="); try appendDecimal(&result, facts.usb_ports);
     try append(&result, "\nkeyboards="); try appendDecimal(&result, facts.keyboards);
     try append(&result, "\nmice="); try appendDecimal(&result, facts.mice);
+    try append(&result, "\nirq_apic="); try appendDecimal(&result, facts.input_irq_apic);
     try append(&result, "\n\n[audio]\ninterfaces="); try appendDecimal(&result, facts.audio_interfaces);
     try append(&result, "\n\n[display]\nwidth="); try appendDecimal(&result, facts.display_width);
     try append(&result, "\nheight="); try appendDecimal(&result, facts.display_height);
@@ -190,6 +192,7 @@ fn signature(cpu: Cpu, facts: Facts) u64 {
     hash = hashInteger(hash, facts.nic_vendor); hash = hashInteger(hash, facts.nic_device);
     hash = hashInteger(hash, facts.network_irq_apic);
     hash = hashInteger(hash, facts.usb_ports); hash = hashInteger(hash, facts.keyboards); hash = hashInteger(hash, facts.mice);
+    hash = hashInteger(hash, facts.input_irq_apic);
     hash = hashInteger(hash, facts.audio_interfaces); hash = hashInteger(hash, facts.display_width);
     hash = hashInteger(hash, facts.display_height); hash = hashInteger(hash, facts.display_stride);
     return hash;

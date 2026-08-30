@@ -39,6 +39,7 @@ var timer_lifecycle_phase: u8 = 0;
 var console_usb: ?*xhci.Controller = null;
 var console_hid: ?*xhci.HidDevices = null;
 var console_last_key: u8 = 0;
+var console_input_irq_apic: u32 = 0;
 
 pub const BootInfo = struct {
     framebuffer: Framebuffer,
@@ -316,6 +317,15 @@ pub fn start(info: BootInfo) noreturn {
     mapper.mapIdentity(xhci_bar, 0x10000) catch panic("xHCI MMIO mapping failed");
     mapper.activate();
     var usb = xhci.Controller.init(xhci_device, &pages) catch panic("xHCI setup failed");
+    if (!xhci_device.msi and !xhci_device.msix) panic("xHCI MSI/MSI-X missing");
+    const input_irq_apic = bsp_id;
+    if (input_irq_apic > 255) panic("xHCI MSI APIC ID unsupported");
+    idt.setUsbHook(&xhci.handleInterrupt);
+    usb.enableInterrupts();
+    if (xhci_device.msi)
+        pci.enableMsi(xhci_device, 49, @truncate(input_irq_apic)) catch panic("xHCI MSI setup failed")
+    else
+        pci.enableMsix(xhci_device, 49, @truncate(input_irq_apic)) catch panic("xHCI MSI-X setup failed");
     serial.write("xHCI ports connected: ");
     serial.writeDecimal(usb.connected_ports);
     serial.write("\n");
@@ -416,6 +426,7 @@ pub fn start(info: BootInfo) noreturn {
     serial.write("Ethernet ARP ready\n");
     serial.write("Ethernet MSI ready\n");
     serial.write("Ethernet IRQ APIC: "); serial.writeDecimal(network_irq_apic); serial.write("\n");
+    serial.write("xHCI MSI-X armed APIC: "); serial.writeDecimal(input_irq_apic); serial.write("\n");
     serial.write("IPv4 ICMP ready\n");
     const gpu_adapter = gpu.Adapter.discover(display_device) catch panic("GPU discovery failed");
     if (gpu_adapter.bar_count == 0) panic("GPU BAR discovery failed");
@@ -456,6 +467,7 @@ pub fn start(info: BootInfo) noreturn {
         .usb_ports = usb.connected_ports,
         .keyboards = hid.keyboards,
         .mice = hid.mice,
+        .input_irq_apic = input_irq_apic,
         .audio_interfaces = audio_info.interfaces,
         .display_width = screen.framebuffer.width,
         .display_height = screen.framebuffer.height,
@@ -548,6 +560,7 @@ pub fn start(info: BootInfo) noreturn {
     serial.write(if (recovering) "CSOS recovery completed\n" else "CSOS boot health ready\n");
     console_usb = &usb;
     console_hid = &hid;
+    console_input_irq_apic = input_irq_apic;
     syscalls.configureConsole(&consoleRead, &consoleWait);
     serial.write("CSOS console shell ready\n");
     const console_arguments = [_][]const u8{ "/bin/busybox", "sh" };
@@ -648,6 +661,8 @@ fn consoleWait() callconv(.c) void {
     const usb = console_usb orelse return;
     const hid = console_hid orelse return;
     _ = usb.pollHid(hid) catch {};
+    if (xhci.interruptCount() != 0 and xhci.interruptApic() != console_input_irq_apic)
+        panic("xHCI MSI affinity mismatch");
 }
 
 fn threadA() void {

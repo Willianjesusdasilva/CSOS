@@ -107,6 +107,7 @@ pub fn build(b: *std.Build) void {
     const xhci_module = b.createModule(.{ .root_source_file = b.path("drivers/xhci.zig") });
     xhci_module.addImport("pci", pci_module);
     xhci_module.addImport("physical", physical_module);
+    xhci_module.addImport("apic", apic_module);
     const audio_module = b.createModule(.{ .root_source_file = b.path("drivers/audio.zig") });
     const gpu_module = b.createModule(.{ .root_source_file = b.path("drivers/gpu.zig") });
     gpu_module.addImport("pci", pci_module);

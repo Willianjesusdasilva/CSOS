@@ -1,5 +1,10 @@
 const pci = @import("pci");
 const physical = @import("physical");
+const apic = @import("apic");
+
+var interrupt_runtime: u64 = 0;
+var interrupts: u64 = 0;
+var last_interrupt_apic: u32 = 0xffffffff;
 
 pub const Controller = struct {
     base: u64,
@@ -123,6 +128,14 @@ pub const Controller = struct {
             if (protocol == 2) { devices.mice += 1; devices.mouse = endpoint; }
         }
         return devices;
+    }
+
+    pub fn enableInterrupts(self: *Controller) void {
+        interrupt_runtime = self.runtime;
+        interrupts = 0;
+        last_interrupt_apic = 0xffffffff;
+        write32(self.runtime + 0x20, 8, 3);
+        write32(self.operational, 0, read32(self.operational, 0) | 4);
     }
 
     pub fn enumerateAudio(self: *Controller, pages: *physical.Allocator) !AudioDevices {
@@ -567,6 +580,18 @@ pub const Controller = struct {
         return typed;
     }
 };
+
+pub fn handleInterrupt() callconv(.c) void {
+    if (interrupt_runtime == 0) return;
+    const iman = read32(interrupt_runtime + 0x20, 8);
+    if ((iman & 1) == 0) return;
+    write32(interrupt_runtime + 0x20, 8, iman | 3);
+    @atomicStore(u32, &last_interrupt_apic, apic.id(), .release);
+    _ = @atomicRmw(u64, &interrupts, .Add, 1, .release);
+}
+
+pub fn interruptCount() u64 { return @atomicLoad(u64, &interrupts, .acquire); }
+pub fn interruptApic() u32 { return @atomicLoad(u32, &last_interrupt_apic, .acquire); }
 
 const Endpoint = struct {
     slot: u8 = 0,

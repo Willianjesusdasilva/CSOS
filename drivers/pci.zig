@@ -97,6 +97,28 @@ pub fn enableMsi(device: Device, vector: u8, destination_apic: u8) !void {
     write16(device.bus, device.slot, device.function, offset + 2, control);
 }
 
+pub fn enableMsix(device: Device, vector: u8, destination_apic: u8) !void {
+    const offset = capabilityOffset(device, 0x11) orelse return error.MsixUnavailable;
+    var control = read16(device.bus, device.slot, device.function, offset + 2);
+    const table = read32(device.bus, device.slot, device.function, offset + 4);
+    const bir: u3 = @truncate(table & 7);
+    const table_base = (barAddress(device, bir) orelse return error.MsixTableBarMissing) + (table & ~@as(u32, 7));
+    const entry: [*]volatile u32 = @ptrFromInt(table_base);
+    control |= 1 << 14;
+    write16(device.bus, device.slot, device.function, offset + 2, control);
+    entry[3] = 1;
+    entry[0] = 0xfee00000 | (@as(u32, destination_apic) << 12);
+    entry[1] = 0;
+    entry[2] = vector;
+    entry[3] = 0;
+    control = (control | (1 << 15)) & ~@as(u16, 1 << 14);
+    write16(device.bus, device.slot, device.function, offset + 2, control);
+    if (entry[0] != 0xfee00000 | (@as(u32, destination_apic) << 12) or entry[1] != 0 or entry[2] != vector or entry[3] != 0)
+        return error.MsixTableVerificationFailed;
+    if ((read16(device.bus, device.slot, device.function, offset + 2) & (1 << 15)) == 0)
+        return error.MsixEnableFailed;
+}
+
 pub fn read32(bus: u8, slot: u5, function: u3, offset: u8) u32 {
     const address = 0x80000000 |
         (@as(u32, bus) << 16) |
