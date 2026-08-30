@@ -1,4 +1,5 @@
 const serial = @import("serial");
+const gdt = @import("gdt");
 const physical = @import("physical");
 const paging = @import("paging");
 const heap = @import("heap");
@@ -21,6 +22,8 @@ pub const Framebuffer = struct {
 
 pub fn start(info: BootInfo) noreturn {
     serial.write("kernel entry\n");
+    gdt.install();
+    serial.write("GDT ready\n");
     if (info.memory_map_len == 0 or info.memory_descriptor_size == 0) panic("empty memory map");
     var pages = physical.Allocator.init(info.memory_map, info.memory_map_len, info.memory_descriptor_size);
     serial.write("physical allocator ready\n");

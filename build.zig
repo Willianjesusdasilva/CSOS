@@ -9,6 +9,7 @@ pub fn build(b: *std.Build) void {
     });
 
     const serial_module = b.createModule(.{ .root_source_file = b.path("arch/x86_64/serial.zig") });
+    const gdt_module = b.createModule(.{ .root_source_file = b.path("arch/x86_64/gdt.zig") });
     const physical_module = b.createModule(.{ .root_source_file = b.path("memory/physical.zig") });
     const paging_module = b.createModule(.{ .root_source_file = b.path("memory/paging.zig") });
     paging_module.addImport("physical", physical_module);
@@ -16,6 +17,7 @@ pub fn build(b: *std.Build) void {
     heap_module.addImport("physical", physical_module);
     const kernel_module = b.createModule(.{ .root_source_file = b.path("kernel/main.zig") });
     kernel_module.addImport("serial", serial_module);
+    kernel_module.addImport("gdt", gdt_module);
     kernel_module.addImport("physical", physical_module);
     kernel_module.addImport("paging", paging_module);
     kernel_module.addImport("heap", heap_module);
