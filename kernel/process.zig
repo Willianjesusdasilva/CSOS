@@ -126,12 +126,14 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
     active_mappings = mappings[0..mapping_count];
     active_owned = owned[0..owned_count];
     active_load_bias = load_bias;
+    syscalls.configureMmap(&protectMmap);
     defer {
         active_address_space = null;
         active_pages = null;
         active_mappings = null;
         active_owned = null;
         active_load_bias = 0;
+        syscalls.configureMmap(null);
     }
     lifecycle = .running;
     var user_instruction = entry;
@@ -150,6 +152,15 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
     }
     lifecycle = .finished;
     if (syscalls.exitStatus() != 0) return error.ProcessFailed;
+}
+
+fn protectMmap(address: u64, length: u64, writable: bool, executable: bool) callconv(.c) bool {
+    const address_space = active_address_space orelse return false;
+    var offset: u64 = 0;
+    while (offset < length) : (offset += page_size) {
+        if (!address_space.protectUserPage(address + offset, writable, executable)) return false;
+    }
+    return true;
 }
 
 fn mapAnonymous(address_space: *paging.AddressSpace, pages: *physical.Allocator, owned: *[max_owned_ranges]OwnedRange, owned_count: *usize, virtual: u64, count: u64) !void {

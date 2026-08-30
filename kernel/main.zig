@@ -151,6 +151,7 @@ pub fn start(info: BootInfo) noreturn {
     process.runHelloPie(mapper.root, &pages) catch panic("PIE userspace failed");
     mapper.activate();
     if (process.relative_relocations == 0) panic("PIE relative relocation missing");
+    if (syscalls.file_mmaps == 0) panic("Linux file mmap missing");
     serial.write("Linux PIE userspace ready\nLinux W^X userspace ready\n");
     const echo_arguments = [_][]const u8{ "/bin/busybox", "echo", "BusyBox userspace ready" };
     process.runBusyBox(mapper.root, &pages, &echo_arguments) catch panic("BusyBox echo failed");

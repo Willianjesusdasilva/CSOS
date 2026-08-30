@@ -14,6 +14,8 @@ var mmap_limit: u64 = 0;
 var writes: usize = 0;
 var process_exit_status: u64 = 0;
 var process_pause: ?Pause = null;
+var mmap_protect_hook: ?*const fn (u64, u64, bool, bool) callconv(.c) bool = null;
+pub var file_mmaps: u64 = 0;
 var network_stack: ?*net.Stack = null;
 var sockets: [4]Socket = .{Socket{}} ** 4;
 var unknown_seen: [512]bool = .{false} ** 512;
@@ -76,6 +78,10 @@ pub fn configureNetwork(stack: *net.Stack) void {
     network_stack = stack;
 }
 
+pub fn configureMmap(hook: ?*const fn (u64, u64, bool, bool) callconv(.c) bool) void {
+    mmap_protect_hook = hook;
+}
+
 pub fn exitStatus() ?u8 {
     if (process_exit_status == 0xffffffffffffffff) return null;
     return @truncate(process_exit_status);
@@ -96,8 +102,6 @@ pub fn takePause() ?Pause {
 }
 
 export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, arg4: u64, arg5: u64, arg6: u64) callconv(.c) u64 {
-    _ = arg5;
-    _ = arg6;
     return switch (number) {
         0 => read(arg1, arg2, arg3),
         1 => write(arg1, arg2, arg3),
@@ -107,7 +111,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         5 => fstat(arg1, arg2),
         6 => stat(arg1, arg2, -100),
         8 => lseek(arg1, arg2, arg3),
-        9 => mmap(arg1, arg2, arg3, arg4),
+        9 => mmap(arg1, arg2, arg3, arg4, arg5, arg6),
         10, 11 => 0,
         12 => brk(arg1),
         13 => rtSigaction(arg3),
@@ -384,12 +388,22 @@ fn brk(requested: u64) u64 {
     return program_break;
 }
 
-fn mmap(requested: u64, length: u64, protection: u64, flags: u64) u64 {
-    _ = protection;
-    if ((flags & 0x20) == 0 or length == 0) return errno(22);
+fn mmap(requested: u64, length: u64, protection: u64, flags: u64, fd: u64, file_offset: u64) u64 {
+    if (length == 0 or (file_offset & 4095) != 0 or (protection & 2) != 0 and (protection & 4) != 0) return errno(22);
+    const anonymous = (flags & 0x20) != 0;
+    if (!anonymous and (flags & 2) == 0) return errno(22);
     const aligned_length = (length + 4095) & ~@as(u64, 4095);
     const address = if (requested != 0) requested else (mmap_next + 4095) & ~@as(u64, 4095);
     if (address < mmap_next or address > mmap_limit or aligned_length > mmap_limit - address) return errno(12);
+    const hook = mmap_protect_hook orelse return errno(12);
+    const target: [*]u8 = @ptrFromInt(address);
+    @memset(target[0..@intCast(aligned_length)], 0);
+    if (!anonymous) {
+        const count = vfs.pread(@intCast(fd), target[0..@intCast(length)], @intCast(file_offset)) catch |err| return vfsError(err);
+        if (count == 0) return errno(19);
+        file_mmaps += 1;
+    }
+    if (!hook(address, aligned_length, (protection & 2) != 0, (protection & 4) != 0)) return errno(12);
     mmap_next = address + aligned_length;
     return address;
 }

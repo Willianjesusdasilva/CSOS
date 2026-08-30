@@ -95,6 +95,16 @@ pub const AddressSpace = struct {
         return .{ .writable = (entry.* & 0x002) != 0, .executable = (entry.* & (@as(u64, 1) << 63)) == 0 };
     }
 
+    pub fn protectUserPage(self: *AddressSpace, virtual: u64, writable: bool, executable: bool) bool {
+        const entry = userLeaf(self.root, virtual) orelse return false;
+        if ((entry.* & 1) == 0) return false;
+        entry.* = (entry.* & ~(@as(u64, 0x002) | (@as(u64, 1) << 63))) |
+            (if (writable) @as(u64, 0x002) else 0) |
+            (if (executable) @as(u64, 0) else @as(u64, 1) << 63);
+        asm volatile ("invlpg (%[address])" :: [address] "r" (virtual) : .{ .memory = true });
+        return true;
+    }
+
     pub fn activate(self: *const AddressSpace) void {
         asm volatile ("mov %[root], %%cr3"
             :

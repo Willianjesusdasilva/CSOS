@@ -107,6 +107,25 @@ pub fn read(fd: usize, output: []u8) !usize {
     return count;
 }
 
+pub fn pread(fd: usize, output: []u8, offset: usize) !usize {
+    if (fd >= descriptors.len or descriptors[fd].kind != .file) return error.BadFd;
+    if (descriptors[fd].node == .disk) {
+        const volume = disk orelse return error.NotFound;
+        var contents: [8192]u8 = undefined;
+        if (descriptors[fd].size > contents.len) return error.FileTooLarge;
+        const size = try volume.readRootFile(&descriptors[fd].fat_name, contents[0..descriptors[fd].size]);
+        const start = @min(offset, size);
+        const count = @min(output.len, size - start);
+        @memcpy(output[0..count], contents[start .. start + count]);
+        return count;
+    }
+    const data = nodeData(descriptors[fd].node);
+    const start = @min(offset, data.len);
+    const count = @min(output.len, data.len - start);
+    @memcpy(output[0..count], data[start .. start + count]);
+    return count;
+}
+
 pub fn write(fd: usize, input: []const u8) !usize {
     if (fd >= descriptors.len or descriptors[fd].kind != .file or descriptors[fd].node != .disk) return error.BadFd;
     const volume = disk orelse return error.NotFound;
