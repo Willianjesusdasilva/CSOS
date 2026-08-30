@@ -9,6 +9,7 @@ const nvme = @import("nvme");
 const fat16 = @import("fat16");
 const xhci = @import("xhci");
 const e1000 = @import("e1000");
+const net = @import("net");
 const smp = @import("smp");
 const physical = @import("physical");
 const paging = @import("paging");
@@ -204,29 +205,16 @@ pub fn start(info: BootInfo) noreturn {
     pci.enableMsi(network_device, 48, @truncate(bsp_id)) catch panic("Ethernet MSI setup failed");
     e1000.enableInterrupts(&network);
     asm volatile ("sti");
-    var arp: [42]u8 = .{0} ** 42;
-    @memset(arp[0..6], 0xff);
-    @memcpy(arp[6..12], &network.mac);
-    arp[12] = 0x08; arp[13] = 0x06;
-    arp[14] = 0; arp[15] = 1; arp[16] = 0x08; arp[17] = 0;
-    arp[18] = 6; arp[19] = 4; arp[20] = 0; arp[21] = 1;
-    @memcpy(arp[22..28], &network.mac);
-    arp[38] = 10; arp[39] = 0; arp[40] = 2; arp[41] = 2;
-    network.send(&arp) catch panic("Ethernet transmit failed");
-    var received: [2048]u8 = undefined;
-    var arp_reply = false;
-    var packets: u8 = 0;
-    while (packets < 8 and !arp_reply) : (packets += 1) {
-        const length = network.receive(&received) catch panic("Ethernet receive failed");
-        arp_reply = length >= 42 and received[12] == 0x08 and received[13] == 0x06 and received[20] == 0 and received[21] == 2;
-    }
-    if (!arp_reply) panic("ARP reply missing");
+    var network_stack = net.Stack.init(&network);
+    network_stack.resolveGateway() catch panic("ARP reply missing");
+    network_stack.pingGateway() catch panic("IPv4 ICMP failed");
     var irq_spins: usize = 0;
     while (e1000.interruptCount() == 0 and irq_spins < 100_000_000) : (irq_spins += 1) asm volatile ("pause");
     asm volatile ("cli");
     if (e1000.interruptCount() == 0) panic("Ethernet MSI interrupt missing");
     serial.write("Ethernet ARP ready\n");
     serial.write("Ethernet MSI ready\n");
+    serial.write("IPv4 ICMP ready\n");
 
     drawBootMarker(info.framebuffer);
     serial.write("framebuffer ready\n");
