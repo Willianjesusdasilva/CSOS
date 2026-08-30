@@ -130,7 +130,11 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
         defer releaseOwned(pages, dependency_ranges[0..dependency_count]);
         var providers: [max_shared_objects]Provider = undefined;
         var provider_count: usize = 0;
-        for (needed.names[0..needed.count], 0..) |dependency, dependency_index| {
+        var dependency_names: [max_shared_objects][]const u8 = undefined;
+        var dependency_name_count = needed.count;
+        @memcpy(dependency_names[0..needed.count], needed.names[0..needed.count]);
+        while (provider_count < dependency_name_count) {
+            const dependency = dependency_names[provider_count];
             const dependency_info = try vfs.infoAt(-100, dependency);
             if (dependency_info.directory or dependency_info.size < 64 or dependency_info.size > 16 * 1024 * 1024) return error.InvalidSharedObject;
             const dependency_pages = (dependency_info.size + page_size - 1) / page_size;
@@ -150,7 +154,7 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
             }
             try vfs.close(dependency_file);
             const shared_bytes = dependency_bytes[0..@intCast(dependency_info.size)];
-            const shared_base = 0x0000006000000000 + @as(u64, dependency_index) * 0x0000000010000000;
+            const shared_base = 0x0000006000000000 + @as(u64, provider_count) * 0x0000000010000000;
             image = shared_bytes;
             if (image.len < 64 or !isElf() or read16(16) != 3) return error.InvalidSharedObject;
             const shared_program_offset = read64(32);
@@ -176,10 +180,24 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
                 .program_count = shared_program_count,
                 .base = shared_base,
             };
+            const transitive = try findNeeded(shared_program_offset, shared_program_entry_size, shared_program_count);
+            for (transitive.names[0..transitive.count]) |name| {
+                var duplicate = false;
+                for (dependency_names[0..dependency_name_count]) |existing| {
+                    if (equal(name, existing)) duplicate = true;
+                }
+                if (duplicate) continue;
+                if (dependency_name_count == dependency_names.len) return error.TooManyDependencies;
+                dependency_names[dependency_name_count] = name;
+                dependency_name_count += 1;
+            }
             provider_count += 1;
             shared_objects_loaded += 1;
         }
         try applySymbolRelocations(program_image, program_offset, program_entry_size, program_count, load_bias, providers[0..provider_count], mappings[0..mapping_count]);
+        for (providers[0..provider_count]) |provider| {
+            try applySymbolRelocations(provider.bytes, provider.program_offset, provider.program_entry_size, provider.program_count, provider.base, providers[0..provider_count], mappings[0..mapping_count]);
+        }
         image = interpreter_image;
         if (image.len < 64 or !isElf() or read16(16) != 3) return error.InvalidInterpreter;
         const interpreter_program_offset = read64(32);

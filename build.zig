@@ -62,6 +62,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
     extra.bundle_compiler_rt = false;
+    extra.root_module.linkLibrary(shared);
 
     const dynamic_hello = b.addExecutable(.{
         .name = "dynamic-hello",
@@ -74,7 +75,6 @@ pub fn build(b: *std.Build) void {
     dynamic_hello.entry = .{ .symbol_name = "_start" };
     dynamic_hello.pie = true;
     dynamic_hello.bundle_compiler_rt = false;
-    dynamic_hello.root_module.linkLibrary(shared);
     dynamic_hello.root_module.linkLibrary(extra);
 
     const nettest = b.addExecutable(.{
