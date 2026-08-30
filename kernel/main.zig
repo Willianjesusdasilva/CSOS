@@ -425,6 +425,11 @@ pub fn start(info: BootInfo) noreturn {
     asm volatile ("cli");
     if (e1000.interruptCount() == 0) panic("Ethernet MSI interrupt missing");
     if (e1000.interruptApic() != network_irq_apic) panic("Ethernet MSI affinity mismatch");
+    const network_rx_latency = network.rx_latency.summarize() catch panic("Ethernet RX latency metrics missing");
+    serial.write("profile Ethernet RX IRQ-to-consume cycles p50: "); serial.writeDecimal(network_rx_latency.p50);
+    serial.write(" p95: "); serial.writeDecimal(network_rx_latency.p95);
+    serial.write(" p99: "); serial.writeDecimal(network_rx_latency.p99);
+    serial.write("\nCSOS M18 network processing latency ready\n");
     serial.write("Ethernet ARP ready\n");
     serial.write("Ethernet MSI ready\n");
     serial.write("Ethernet IRQ APIC: "); serial.writeDecimal(network_irq_apic); serial.write("\n");

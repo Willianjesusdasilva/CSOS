@@ -1,11 +1,14 @@
 const pci = @import("pci");
 const physical = @import("physical");
 const apic = @import("apic");
+const metrics = @import("metrics");
 
 const descriptor_count = 16;
 var interrupt_base: u64 = 0;
 var interrupts: u64 = 0;
 var last_interrupt_apic: u32 = 0xffffffff;
+var last_rx_interrupt_tsc: u64 = 0;
+var rx_interrupts: u64 = 0;
 
 pub const Controller = struct {
     base: u64,
@@ -16,6 +19,8 @@ pub const Controller = struct {
     tx_buffer: u64,
     rx_index: u16 = 0,
     tx_index: u16 = 0,
+    sampled_rx_interrupts: u64 = 0,
+    rx_latency: metrics.Samples = .{},
 
     pub fn init(device: pci.Device, pages: *physical.Allocator) !Controller {
         pci.enableMemoryAndBusMaster(device);
@@ -51,6 +56,8 @@ pub const Controller = struct {
         interrupt_base = base;
         interrupts = 0;
         last_interrupt_apic = 0xffffffff;
+        last_rx_interrupt_tsc = 0;
+        rx_interrupts = 0;
         return .{ .base = base, .mac = mac, .rx_ring = rx_ring, .tx_ring = tx_ring, .rx_buffers = buffers, .tx_buffer = tx_buffer };
     }
 
@@ -77,6 +84,13 @@ pub const Controller = struct {
         if (length > output.len) return error.BufferTooSmall;
         const source: [*]const u8 = @ptrFromInt(self.rx_buffers[self.rx_index]);
         @memcpy(output[0..length], source[0..length]);
+        const rx_interrupt_count = @atomicLoad(u64, &rx_interrupts, .acquire);
+        if (rx_interrupt_count != self.sampled_rx_interrupts) {
+            const rx_interrupt_tsc = @atomicLoad(u64, &last_rx_interrupt_tsc, .acquire);
+            if (rx_interrupt_tsc != 0 and self.rx_latency.count < self.rx_latency.values.len)
+                self.rx_latency.add(timestamp() -% rx_interrupt_tsc) catch {};
+            self.sampled_rx_interrupts = rx_interrupt_count;
+        }
         descriptor[12] = 0;
         const completed = self.rx_index;
         self.rx_index = (self.rx_index + 1) % descriptor_count;
@@ -94,6 +108,10 @@ pub fn handleInterrupt() callconv(.c) void {
     if (interrupt_base == 0) return;
     const cause = read32(interrupt_base, 0x00c0);
     if (cause != 0) {
+        if ((cause & 0x000000d0) != 0) {
+            @atomicStore(u64, &last_rx_interrupt_tsc, timestamp(), .release);
+            _ = @atomicRmw(u64, &rx_interrupts, .Add, 1, .release);
+        }
         @atomicStore(u32, &last_interrupt_apic, apic.id(), .release);
         _ = @atomicRmw(u64, &interrupts, .Add, 1, .release);
     }
@@ -108,3 +126,13 @@ fn write32(base: u64, offset: u64, value: u32) void { const target: *volatile u3
 fn put16(target: [*]volatile u8, value: u16) void { target[0] = @truncate(value); target[1] = @truncate(value >> 8); }
 fn put64(target: [*]volatile u8, value: u64) void { var i: usize = 0; while (i < 8) : (i += 1) target[i] = @truncate(value >> @intCast(i * 8)); }
 fn get16(source: [*]volatile u8) u16 { return @as(u16, source[0]) | (@as(u16, source[1]) << 8); }
+
+fn timestamp() u64 {
+    var low: u32 = undefined;
+    var high: u32 = undefined;
+    asm volatile ("lfence; rdtsc"
+        : [low] "={eax}" (low), [high] "={edx}" (high)
+        :
+        : .{ .memory = true });
+    return (@as(u64, high) << 32) | low;
+}
