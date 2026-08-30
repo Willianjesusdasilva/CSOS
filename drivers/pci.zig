@@ -10,6 +10,8 @@ pub const Device = struct {
     subclass: u8,
     programming_interface: u8,
     header_type: u8,
+    msi: bool,
+    msix: bool,
 };
 
 pub const Inventory = struct {
@@ -54,6 +56,7 @@ pub const Inventory = struct {
         if (vendor == 0xffff or self.count == max_devices) return;
         const class = read8(bus, slot, function, 0x0b);
         const subclass = read8(bus, slot, function, 0x0a);
+        const probe = Device{ .bus = bus, .slot = slot, .function = function, .vendor = vendor, .device = 0, .class = class, .subclass = subclass, .programming_interface = 0, .header_type = 0, .msi = false, .msix = false };
         self.devices[self.count] = .{
             .bus = bus,
             .slot = slot,
@@ -64,11 +67,35 @@ pub const Inventory = struct {
             .subclass = subclass,
             .programming_interface = read8(bus, slot, function, 9),
             .header_type = read8(bus, slot, function, 0x0e) & 0x7f,
+            .msi = capabilityOffset(probe, 0x05) != null,
+            .msix = capabilityOffset(probe, 0x11) != null,
         };
         self.count += 1;
         if (class == 0x06 and subclass == 0x04) self.scanBus(read8(bus, slot, function, 0x19));
     }
 };
+
+pub fn capabilityOffset(device: Device, wanted: u8) ?u8 {
+    if ((read16(device.bus, device.slot, device.function, 6) & (1 << 4)) == 0) return null;
+    var offset = read8(device.bus, device.slot, device.function, 0x34) & 0xfc;
+    var visited: u8 = 0;
+    while (offset >= 0x40 and visited < 48) : (visited += 1) {
+        if (read8(device.bus, device.slot, device.function, offset) == wanted) return offset;
+        offset = read8(device.bus, device.slot, device.function, offset + 1) & 0xfc;
+    }
+    return null;
+}
+
+pub fn enableMsi(device: Device, vector: u8, destination_apic: u8) !void {
+    const offset = capabilityOffset(device, 0x05) orelse return error.MsiUnavailable;
+    var control = read16(device.bus, device.slot, device.function, offset + 2);
+    write32(device.bus, device.slot, device.function, offset + 4, 0xfee00000 | (@as(u32, destination_apic) << 12));
+    const data_offset: u8 = if ((control & (1 << 7)) != 0) offset + 12 else offset + 8;
+    write16(device.bus, device.slot, device.function, data_offset, vector);
+    control &= ~@as(u16, 0x70);
+    control |= 1;
+    write16(device.bus, device.slot, device.function, offset + 2, control);
+}
 
 pub fn read32(bus: u8, slot: u5, function: u3, offset: u8) u32 {
     const address = 0x80000000 |
@@ -104,8 +131,15 @@ pub fn barAddress(device: Device, index: u3) ?u64 {
     return if (address == 0) null else address;
 }
 
-fn read16(bus: u8, slot: u5, function: u3, offset: u8) u16 {
+pub fn read16(bus: u8, slot: u5, function: u3, offset: u8) u16 {
     return @truncate(read32(bus, slot, function, offset) >> @intCast((offset & 2) * 8));
+}
+
+pub fn write16(bus: u8, slot: u5, function: u3, offset: u8, value: u16) void {
+    const shift: u5 = @intCast((offset & 2) * 8);
+    const current = read32(bus, slot, function, offset);
+    const mask = @as(u32, 0xffff) << shift;
+    write32(bus, slot, function, offset, (current & ~mask) | (@as(u32, value) << shift));
 }
 
 fn read8(bus: u8, slot: u5, function: u3, offset: u8) u8 {

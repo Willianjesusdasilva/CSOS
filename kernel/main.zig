@@ -199,6 +199,11 @@ pub fn start(info: BootInfo) noreturn {
     mapper.mapIdentity(network_bar, 0x20000) catch panic("Ethernet MMIO mapping failed");
     mapper.activate();
     var network = e1000.Controller.init(network_device, &pages) catch panic("Ethernet setup failed");
+    if (!network_device.msi) panic("Ethernet MSI missing");
+    idt.setExternalHook(&e1000.handleInterrupt);
+    pci.enableMsi(network_device, 48, @truncate(bsp_id)) catch panic("Ethernet MSI setup failed");
+    e1000.enableInterrupts(&network);
+    asm volatile ("sti");
     var arp: [42]u8 = .{0} ** 42;
     @memset(arp[0..6], 0xff);
     @memcpy(arp[6..12], &network.mac);
@@ -216,7 +221,12 @@ pub fn start(info: BootInfo) noreturn {
         arp_reply = length >= 42 and received[12] == 0x08 and received[13] == 0x06 and received[20] == 0 and received[21] == 2;
     }
     if (!arp_reply) panic("ARP reply missing");
+    var irq_spins: usize = 0;
+    while (e1000.interruptCount() == 0 and irq_spins < 100_000_000) : (irq_spins += 1) asm volatile ("pause");
+    asm volatile ("cli");
+    if (e1000.interruptCount() == 0) panic("Ethernet MSI interrupt missing");
     serial.write("Ethernet ARP ready\n");
+    serial.write("Ethernet MSI ready\n");
 
     drawBootMarker(info.framebuffer);
     serial.write("framebuffer ready\n");
