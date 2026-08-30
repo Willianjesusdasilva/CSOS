@@ -28,6 +28,7 @@ var active_load_bias: u64 = 0;
 pub var standby_pages: u64 = 0;
 pub var restored_pages: u64 = 0;
 pub var pause_count: u64 = 0;
+pub var relative_relocations: u64 = 0;
 pub const Lifecycle = enum { running, frozen, standby, resuming, finished };
 pub var lifecycle: Lifecycle = .finished;
 
@@ -90,6 +91,7 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
         try loadSegment(&address_space, pages, &mappings, &mapping_count, &owned, &owned_count, virtual, file_offset, file_size, memory_size, (flags & 2) != 0);
     }
     if (mapping_count == 0 or entry < image_start or entry >= image_end) return error.InvalidElf;
+    try applyRelativeRelocations(mappings[0..mapping_count], load_bias, program_offset, program_entry_size, program_count);
 
     const stack_page_count = 8;
     const initial_stack_size = 4 * page_size;
@@ -303,6 +305,76 @@ fn discardCleanPages(address_space: *paging.AddressSpace, pages: *physical.Alloc
         discarded += 1;
     }
     return discarded;
+}
+
+fn applyRelativeRelocations(mappings: []const Mapping, load_bias: u64, program_offset: u64, program_entry_size: u16, program_count: u16) !void {
+    var dynamic_offset: ?u64 = null;
+    var dynamic_size: u64 = 0;
+    var header_index: usize = 0;
+    while (header_index < program_count) : (header_index += 1) {
+        const header: usize = @intCast(program_offset + @as(u64, program_entry_size) * header_index);
+        if (read32At(header) != 2) continue;
+        dynamic_offset = read64At(header + 8);
+        dynamic_size = read64At(header + 32);
+        break;
+    }
+    const table_offset = dynamic_offset orelse return;
+    if (table_offset > image.len or dynamic_size > image.len - table_offset) return error.InvalidDynamicTable;
+    var rela_virtual: u64 = 0;
+    var rela_size: u64 = 0;
+    var rela_entry_size: u64 = 24;
+    var offset = table_offset;
+    while (offset + 16 <= table_offset + dynamic_size) : (offset += 16) {
+        const tag = read64At(@intCast(offset));
+        const value = read64At(@intCast(offset + 8));
+        if (tag == 0) break;
+        switch (tag) {
+            7 => rela_virtual = value,
+            8 => rela_size = value,
+            9 => rela_entry_size = value,
+            else => {},
+        }
+    }
+    if (rela_size == 0) return;
+    if (rela_virtual == 0 or rela_entry_size != 24 or rela_size % rela_entry_size != 0) return error.InvalidRelaTable;
+    const rela_file = try virtualFileOffset(rela_virtual, rela_size, program_offset, program_entry_size, program_count);
+    var rela_offset: u64 = 0;
+    while (rela_offset < rela_size) : (rela_offset += rela_entry_size) {
+        const item: usize = @intCast(rela_file + rela_offset);
+        const target = read64At(item) + load_bias;
+        const info = read64At(item + 8);
+        const addend: i64 = @bitCast(read64At(item + 16));
+        if (@as(u32, @truncate(info)) != 8 or (info >> 32) != 0) return error.UnsupportedRelocation;
+        try writeMapped64(mappings, target, load_bias +% @as(u64, @bitCast(addend)));
+        relative_relocations += 1;
+    }
+}
+
+fn virtualFileOffset(virtual: u64, size: u64, program_offset: u64, program_entry_size: u16, program_count: u16) !u64 {
+    var header_index: usize = 0;
+    while (header_index < program_count) : (header_index += 1) {
+        const header: usize = @intCast(program_offset + @as(u64, program_entry_size) * header_index);
+        if (read32At(header) != 1) continue;
+        const file_offset = read64At(header + 8);
+        const segment_virtual = read64At(header + 16);
+        const file_size = read64At(header + 32);
+        if (virtual >= segment_virtual and size <= file_size and virtual - segment_virtual <= file_size - size)
+            return file_offset + virtual - segment_virtual;
+    }
+    return error.InvalidDynamicAddress;
+}
+
+fn writeMapped64(mappings: []const Mapping, virtual: u64, value: u64) !void {
+    const page_virtual = virtual & ~(page_size - 1);
+    const offset = virtual - page_virtual;
+    if (offset > page_size - 8) return error.CrossPageRelocation;
+    for (mappings) |mapping| {
+        if (mapping.virtual != page_virtual or !mapping.resident) continue;
+        const target: *align(1) u64 = @ptrFromInt(mapping.physical + offset);
+        target.* = value;
+        return;
+    }
+    return error.RelocationTargetMissing;
 }
 
 pub fn handlePageFault(address: u64, instruction: u64, code: u64) callconv(.c) bool {
