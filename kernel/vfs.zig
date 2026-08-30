@@ -1,15 +1,18 @@
 const busybox = @embedFile("busybox_elf");
+const fat16 = @import("fat16");
 const hello = "Hello from initramfs\n";
 
 const max_fds = 32;
 
-const Kind = enum { unused, file, directory };
-const Node = enum { root, bin, busybox, hello };
+const Kind = enum { unused, console, file, directory };
+const Node = enum { root, bin, busybox, hello, disk };
 
 const Descriptor = struct {
     kind: Kind = .unused,
     node: Node = .root,
     offset: usize = 0,
+    size: usize = 0,
+    fat_name: [11]u8 = .{' '} ** 11,
 };
 
 pub const Info = struct {
@@ -19,28 +22,83 @@ pub const Info = struct {
 };
 
 var descriptors: [max_fds]Descriptor = .{Descriptor{}} ** max_fds;
+var disk: ?*fat16.Volume = null;
+
+pub fn mount(volume: *fat16.Volume) void { disk = volume; }
 
 pub fn reset() void {
     descriptors = .{Descriptor{}} ** max_fds;
+    descriptors[1].kind = .console;
+    descriptors[2].kind = .console;
 }
 
-pub fn openAt(directory_fd: i64, path: []const u8) !usize {
-    const node = try resolve(directory_fd, path);
+pub fn openAt(directory_fd: i64, path: []const u8, flags: u64) !usize {
     var fd: usize = 3;
     while (fd < descriptors.len and descriptors[fd].kind != .unused) : (fd += 1) {}
     if (fd == descriptors.len) return error.TooManyFiles;
+    if (toFatName(path)) |fat_name| if (disk) |volume| {
+        var size = volume.fileSize(&fat_name) catch |err| switch (err) {
+            error.NotFound => if ((flags & 0x40) != 0) @as(usize, 0) else return error.NotFound,
+            else => return err,
+        };
+        if ((flags & 0x200) != 0 or (size == 0 and (flags & 0x40) != 0)) {
+            try volume.writeRootFile(&fat_name, "");
+            size = 0;
+        }
+        descriptors[fd] = .{ .kind = .file, .node = .disk, .size = size, .fat_name = fat_name };
+        return fd;
+    };
+    const node = try resolve(directory_fd, path);
     const info = nodeInfo(node);
-    descriptors[fd] = .{ .kind = if (info.directory) .directory else .file, .node = node };
+    descriptors[fd] = .{ .kind = if (info.directory) .directory else .file, .node = node, .size = @intCast(info.size) };
     return fd;
 }
 
 pub fn close(fd: usize) !void {
-    if (fd < 3 or fd >= descriptors.len or descriptors[fd].kind == .unused) return error.BadFd;
+    if (fd >= descriptors.len or descriptors[fd].kind == .unused) return error.BadFd;
     descriptors[fd] = .{};
+}
+
+pub fn duplicate(old_fd: usize, new_fd: usize) !usize {
+    if (old_fd >= descriptors.len or new_fd >= descriptors.len or descriptors[old_fd].kind == .unused) return error.BadFd;
+    if (old_fd != new_fd) descriptors[new_fd] = descriptors[old_fd];
+    return new_fd;
+}
+
+pub fn isOpen(fd: usize) bool {
+    return fd < descriptors.len and descriptors[fd].kind != .unused;
+}
+
+pub fn isDiskFile(fd: usize) bool {
+    return fd < descriptors.len and descriptors[fd].kind == .file and descriptors[fd].node == .disk;
+}
+
+pub fn isConsole(fd: usize) bool {
+    return fd < descriptors.len and descriptors[fd].kind == .console;
+}
+
+pub fn duplicateMinimum(old_fd: usize, minimum: usize) !usize {
+    if (old_fd >= descriptors.len or descriptors[old_fd].kind == .unused or minimum >= descriptors.len) return error.BadFd;
+    var target = minimum;
+    while (target < descriptors.len and descriptors[target].kind != .unused) : (target += 1) {}
+    if (target == descriptors.len) return error.TooManyFiles;
+    descriptors[target] = descriptors[old_fd];
+    return target;
 }
 
 pub fn read(fd: usize, output: []u8) !usize {
     if (fd >= descriptors.len or descriptors[fd].kind != .file) return error.BadFd;
+    if (descriptors[fd].node == .disk) {
+        const volume = disk orelse return error.NotFound;
+        var contents: [8192]u8 = undefined;
+        if (descriptors[fd].size > contents.len) return error.FileTooLarge;
+        const size = try volume.readRootFile(&descriptors[fd].fat_name, contents[0..descriptors[fd].size]);
+        const start = @min(descriptors[fd].offset, size);
+        const count = @min(output.len, size - start);
+        @memcpy(output[0..count], contents[start .. start + count]);
+        descriptors[fd].offset = start + count;
+        return count;
+    }
     const data = nodeData(descriptors[fd].node);
     const start = @min(descriptors[fd].offset, data.len);
     const count = @min(output.len, data.len - start);
@@ -49,9 +107,24 @@ pub fn read(fd: usize, output: []u8) !usize {
     return count;
 }
 
+pub fn write(fd: usize, input: []const u8) !usize {
+    if (fd >= descriptors.len or descriptors[fd].kind != .file or descriptors[fd].node != .disk) return error.BadFd;
+    const volume = disk orelse return error.NotFound;
+    var contents: [8192]u8 = undefined;
+    const descriptor = &descriptors[fd];
+    if (descriptor.offset > contents.len or input.len > contents.len - descriptor.offset or descriptor.size > contents.len) return error.FileTooLarge;
+    if (descriptor.size != 0) _ = try volume.readRootFile(&descriptor.fat_name, contents[0..descriptor.size]);
+    if (descriptor.offset > descriptor.size) @memset(contents[descriptor.size..descriptor.offset], 0);
+    @memcpy(contents[descriptor.offset .. descriptor.offset + input.len], input);
+    descriptor.offset += input.len;
+    descriptor.size = @max(descriptor.size, descriptor.offset);
+    try volume.writeRootFile(&descriptor.fat_name, contents[0..descriptor.size]);
+    return input.len;
+}
+
 pub fn seek(fd: usize, offset: i64, whence: u64) !usize {
     if (fd >= descriptors.len or descriptors[fd].kind != .file) return error.BadFd;
-    const size: i64 = @intCast(nodeData(descriptors[fd].node).len);
+    const size: i64 = @intCast(descriptors[fd].size);
     const base: i64 = switch (whence) { 0 => 0, 1 => @intCast(descriptors[fd].offset), 2 => size, else => return error.Invalid };
     if (offset < -base or base + offset < 0) return error.Invalid;
     descriptors[fd].offset = @intCast(base + offset);
@@ -59,11 +132,15 @@ pub fn seek(fd: usize, offset: i64, whence: u64) !usize {
 }
 
 pub fn infoAt(directory_fd: i64, path: []const u8) !Info {
+    if (toFatName(path)) |fat_name| if (disk) |volume| {
+        return .{ .mode = 0o100644, .size = try volume.fileSize(&fat_name), .directory = false };
+    };
     return nodeInfo(try resolve(directory_fd, path));
 }
 
 pub fn infoFd(fd: usize) !Info {
     if (fd >= descriptors.len or descriptors[fd].kind == .unused) return error.BadFd;
+    if (descriptors[fd].node == .disk) return .{ .mode = 0o100644, .size = descriptors[fd].size, .directory = false };
     return nodeInfo(descriptors[fd].node);
 }
 
@@ -107,7 +184,29 @@ fn nodeInfo(node: Node) Info {
         .root, .bin => .{ .mode = 0o040755, .size = 0, .directory = true },
         .busybox => .{ .mode = 0o100755, .size = busybox.len, .directory = false },
         .hello => .{ .mode = 0o100644, .size = hello.len, .directory = false },
+        .disk => .{ .mode = 0o100644, .size = 0, .directory = false },
     };
+}
+
+fn toFatName(path: []const u8) ?[11]u8 {
+    var start: usize = 0;
+    if (path.len != 0 and path[0] == '/') start = 1;
+    if (start == path.len) return null;
+    var result: [11]u8 = .{' '} ** 11;
+    var name_index: usize = 0;
+    var extension_index: usize = 8;
+    var extension = false;
+    for (path[start..]) |character| {
+        if (character == '/') return null;
+        if (character == '.') { if (extension) return null; extension = true; continue; }
+        if ((!extension and name_index == 8) or (extension and extension_index == 11)) return null;
+        const upper = if (character >= 'a' and character <= 'z') character - 32 else character;
+        if (upper <= ' ' or upper == 0x7f) return null;
+        if (extension) { result[extension_index] = upper; extension_index += 1; }
+        else { result[name_index] = upper; name_index += 1; }
+    }
+    if (name_index == 0) return null;
+    return result;
 }
 
 fn nodeData(node: Node) []const u8 {

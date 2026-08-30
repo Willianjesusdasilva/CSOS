@@ -16,6 +16,7 @@ const heap = @import("heap");
 const scheduler = @import("scheduler");
 const process = @import("process");
 const syscalls = @import("syscalls");
+const vfs = @import("vfs");
 
 var thread_a_runs: usize = 0;
 var thread_b_runs: usize = 0;
@@ -167,6 +168,15 @@ pub fn start(info: BootInfo) noreturn {
     const state_size = volume.readRootFile("STATE   TXT", &state_readback) catch panic("FAT16 write verification failed");
     if (state_size != state.len or !equalBytes(state, &state_readback)) panic("FAT16 data mismatch");
     serial.write("FAT16 write ready\n");
+    vfs.mount(&volume);
+    const persist_arguments = [_][]const u8{ "/bin/busybox", "sh", "-c", "echo userspace-persisted > /user.txt" };
+    process.runBusyBox(mapper.root, &pages, &persist_arguments) catch panic("userspace filesystem failed");
+    mapper.activate();
+    var persisted: [64]u8 = undefined;
+    const persisted_size = volume.readRootFile("USER    TXT", &persisted) catch panic("userspace file missing");
+    if (!equalBytes(persisted[0..persisted_size], "userspace-persisted\n")) panic("userspace file mismatch");
+    serial.write(persisted[0..persisted_size]);
+    serial.write("userspace filesystem ready\n");
     serial.write("CSOS M10 ready\n");
     const xhci_device = inventory.findClassInterface(0x0c, 0x03, 0x30) orelse panic("xHCI controller missing");
     const xhci_bar = pci.barAddress(xhci_device, 0) orelse panic("xHCI BAR missing");

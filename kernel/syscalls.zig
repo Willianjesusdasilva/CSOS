@@ -63,7 +63,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
     return switch (number) {
         0 => read(arg1, arg2, arg3),
         1 => write(arg1, arg2, arg3),
-        2 => openat(@bitCast(@as(i64, -100)), arg1),
+        2 => openat(@bitCast(@as(i64, -100)), arg1, arg2),
         3 => close(arg1),
         4 => stat(arg1, arg2, -100),
         5 => fstat(arg1, arg2),
@@ -76,9 +76,10 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         14 => rtSigprocmask(arg3, arg4),
         16 => errno(25),
         20 => writev(arg1, arg2, arg3),
+        33 => duplicate(arg1, arg2),
         39 => 1,
         63 => uname(arg1),
-        72 => 0,
+        72 => fcntl(arg1, arg2, arg3),
         79 => getcwd(arg1, arg2),
         96 => writeTime(arg1, 16),
         102, 104 => 0,
@@ -88,7 +89,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         217 => getdents(arg1, arg2, arg3),
         218 => 1,
         228 => writeTime(arg2, 16),
-        257 => openat(arg1, arg2),
+        257 => openat(arg1, arg2, arg3),
         262 => stat(arg2, arg3, @bitCast(arg1)),
         else => unsupported(number),
     };
@@ -126,14 +127,28 @@ fn read(fd: u64, address: u64, length: u64) u64 {
 }
 
 fn close(fd: u64) u64 {
+    if (fd <= 2 and !vfs.isOpen(@intCast(fd))) return 0;
     vfs.close(@intCast(fd)) catch |err| return vfsError(err);
     return 0;
 }
 
-fn openat(directory_fd: u64, path_address: u64) u64 {
+fn duplicate(old_fd: u64, new_fd: u64) u64 {
+    return vfs.duplicate(@intCast(old_fd), @intCast(new_fd)) catch |err| vfsError(err);
+}
+
+fn fcntl(fd: u64, command: u64, argument: u64) u64 {
+    return switch (command) {
+        0, 1030 => vfs.duplicateMinimum(@intCast(fd), @intCast(argument)) catch |err| vfsError(err),
+        1, 3 => 0,
+        2, 4 => 0,
+        else => errno(22),
+    };
+}
+
+fn openat(directory_fd: u64, path_address: u64, flags: u64) u64 {
     var path_buffer: [256]u8 = undefined;
     const path = userString(path_address, &path_buffer) orelse return errno(14);
-    const fd = vfs.openAt(@bitCast(directory_fd), path) catch |err| return vfsError(err);
+    const fd = vfs.openAt(@bitCast(directory_fd), path, flags) catch |err| return vfsError(err);
     return fd;
 }
 
@@ -229,9 +244,10 @@ fn read64(source: [*]const u8) u64 { var value: u64 = 0; var i: usize = 0; while
 fn copyZ(target: [*]u8, text: []const u8) void { @memcpy(target[0..text.len], text); target[text.len] = 0; }
 
 fn write(fd: u64, address: u64, length: u64) u64 {
-    if (fd != 1 and fd != 2) return errno(9);
     if (!validUserSlice(address, length)) return errno(14);
     const text: [*]const u8 = @ptrFromInt(address);
+    if (vfs.isDiskFile(@intCast(fd))) return vfs.write(@intCast(fd), text[0..@intCast(length)]) catch |err| vfsError(err);
+    if (!vfs.isConsole(@intCast(fd))) return errno(9);
     serial.write(text[0..@intCast(length)]);
     writes += 1;
     return length;

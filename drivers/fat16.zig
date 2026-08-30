@@ -77,6 +77,21 @@ pub const Volume = struct {
         return error.NotFound;
     }
 
+    pub fn fileSize(self: *Volume, name: *const [11]u8) !usize {
+        var sector: u32 = 0;
+        while (sector < self.root_sectors) : (sector += 1) {
+            try self.storage.readBlock(self.root_start + sector, self.buffer);
+            const bytes: [*]const u8 = @ptrFromInt(self.buffer);
+            var offset: usize = 0;
+            while (offset < 512) : (offset += 32) {
+                if (bytes[offset] == 0) return error.NotFound;
+                if (bytes[offset] != 0xe5 and (bytes[offset + 11] & 0x0f) != 0x0f and equal11(bytes + offset, name))
+                    return get32(bytes + offset + 28);
+            }
+        }
+        return error.NotFound;
+    }
+
     pub fn writeRootFile(self: *Volume, name: *const [11]u8, data: []const u8) !void {
         const cluster_bytes = @as(usize, self.sectors_per_cluster) * 512;
         const needed = if (data.len == 0) 0 else (data.len + cluster_bytes - 1) / cluster_bytes;

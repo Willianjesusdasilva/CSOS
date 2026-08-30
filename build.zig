@@ -59,6 +59,7 @@ pub fn build(b: *std.Build) void {
     syscalls_module.addImport("serial", serial_module);
     const vfs_module = b.createModule(.{ .root_source_file = b.path("kernel/vfs.zig") });
     vfs_module.addAnonymousImport("busybox_elf", .{ .root_source_file = b.path("userspace/initramfs/bin/busybox") });
+    vfs_module.addImport("fat16", fat16_module);
     syscalls_module.addImport("vfs", vfs_module);
     const process_module = b.createModule(.{ .root_source_file = b.path("kernel/process.zig") });
     process_module.addImport("paging", paging_module);
@@ -85,6 +86,7 @@ pub fn build(b: *std.Build) void {
     kernel_module.addImport("scheduler", scheduler_module);
     kernel_module.addImport("process", process_module);
     kernel_module.addImport("syscalls", syscalls_module);
+    kernel_module.addImport("vfs", vfs_module);
     const boot_module = b.createModule(.{
         .root_source_file = b.path("boot/main.zig"),
         .target = target,
