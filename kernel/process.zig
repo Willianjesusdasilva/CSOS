@@ -49,6 +49,7 @@ pub var interpreter_loads: u64 = 0;
 pub var shared_objects_loaded: u64 = 0;
 pub var symbol_relocations: u64 = 0;
 pub var data_symbol_relocations: u64 = 0;
+pub var gnu_hash_tables: u64 = 0;
 pub const Lifecycle = enum { running, frozen, standby, resuming, finished };
 pub var lifecycle: Lifecycle = .finished;
 
@@ -658,6 +659,7 @@ fn dynamicSymbols(bytes: []const u8, program_offset: u64, program_entry_size: u1
     var symbol_virtual: u64 = 0;
     var string_virtual: u64 = 0;
     var hash_virtual: u64 = 0;
+    var gnu_hash_virtual: u64 = 0;
     var rela_virtual: u64 = 0;
     var rela_size: u64 = 0;
     var plt_rela_virtual: u64 = 0;
@@ -669,6 +671,7 @@ fn dynamicSymbols(bytes: []const u8, program_offset: u64, program_entry_size: u1
         if (tag == 0) break;
         switch (tag) {
             4 => hash_virtual = value,
+            0x6ffffef5 => gnu_hash_virtual = value,
             5 => string_virtual = value,
             6 => symbol_virtual = value,
             7 => { if (consumer) rela_virtual = value; },
@@ -678,17 +681,53 @@ fn dynamicSymbols(bytes: []const u8, program_offset: u64, program_entry_size: u1
             else => {},
         }
     }
-    if (symbol_virtual == 0 or string_virtual == 0 or hash_virtual == 0) return error.InvalidDynamicSymbols;
-    const hash_file = try virtualFileOffsetFor(bytes, hash_virtual, 8, program_offset, program_entry_size, program_count);
+    if (symbol_virtual == 0 or string_virtual == 0 or (hash_virtual == 0 and gnu_hash_virtual == 0)) return error.InvalidDynamicSymbols;
+    const symbol_count = if (gnu_hash_virtual != 0) blk: {
+        const gnu_hash_file = try virtualFileOffsetFor(bytes, gnu_hash_virtual, 16, program_offset, program_entry_size, program_count);
+        gnu_hash_tables += 1;
+        break :blk try gnuHashSymbolCount(bytes, gnu_hash_file);
+    } else blk: {
+        const hash_file = try virtualFileOffsetFor(bytes, hash_virtual, 8, program_offset, program_entry_size, program_count);
+        break :blk read32From(bytes, @intCast(hash_file + 4));
+    };
     return .{
         .symbol_file = try virtualFileOffsetFor(bytes, symbol_virtual, 24, program_offset, program_entry_size, program_count),
         .string_file = try virtualFileOffsetFor(bytes, string_virtual, 1, program_offset, program_entry_size, program_count),
-        .symbol_count = read32From(bytes, @intCast(hash_file + 4)),
+        .symbol_count = symbol_count,
         .regular_rela_file = if (rela_size == 0) 0 else try virtualFileOffsetFor(bytes, rela_virtual, rela_size, program_offset, program_entry_size, program_count),
         .regular_rela_size = rela_size,
         .plt_rela_file = if (plt_rela_size == 0) 0 else try virtualFileOffsetFor(bytes, plt_rela_virtual, plt_rela_size, program_offset, program_entry_size, program_count),
         .plt_rela_size = plt_rela_size,
     };
+}
+
+fn gnuHashSymbolCount(bytes: []const u8, raw_offset: u64) !u32 {
+    const offset: usize = @intCast(raw_offset);
+    if (offset > bytes.len or bytes.len - offset < 16) return error.InvalidGnuHash;
+    const bucket_count = read32From(bytes, offset);
+    const symbol_offset = read32From(bytes, offset + 4);
+    const bloom_size = read32From(bytes, offset + 8);
+    if (bucket_count == 0 or bloom_size == 0) return error.InvalidGnuHash;
+    const buckets_offset = offset + 16 + @as(usize, bloom_size) * 8;
+    const chains_offset = buckets_offset + @as(usize, bucket_count) * 4;
+    if (buckets_offset > bytes.len or chains_offset > bytes.len) return error.InvalidGnuHash;
+    var highest = symbol_offset;
+    var bucket_index: u32 = 0;
+    while (bucket_index < bucket_count) : (bucket_index += 1) {
+        const first = read32From(bytes, buckets_offset + @as(usize, bucket_index) * 4);
+        if (first == 0) continue;
+        if (first < symbol_offset) return error.InvalidGnuHash;
+        var symbol = first;
+        while (true) : (symbol += 1) {
+            const chain_index = @as(usize, symbol - symbol_offset);
+            const chain_offset = chains_offset + chain_index * 4;
+            if (chain_offset > bytes.len - 4) return error.InvalidGnuHash;
+            const hash = read32From(bytes, chain_offset);
+            highest = @max(highest, symbol + 1);
+            if ((hash & 1) != 0) break;
+        }
+    }
+    return highest;
 }
 
 fn virtualFileOffsetFor(bytes: []const u8, virtual: u64, size: u64, program_offset: u64, program_entry_size: u16, program_count: u16) !u64 {
