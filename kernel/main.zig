@@ -215,6 +215,13 @@ pub fn start(info: BootInfo) noreturn {
     serial.write("\n");
     network_stack.resolveGateway() catch panic("ARP reply missing");
     network_stack.pingGateway() catch panic("IPv4 ICMP failed");
+    const resolved = network_stack.resolveDns("example.com") catch panic("DNS resolution failed");
+    serial.write("DNS example.com: ");
+    for (resolved, 0..) |part, index| {
+        if (index != 0) serial.write(".");
+        serial.writeDecimal(part);
+    }
+    serial.write("\n");
     var irq_spins: usize = 0;
     while (e1000.interruptCount() == 0 and irq_spins < 100_000_000) : (irq_spins += 1) asm volatile ("pause");
     asm volatile ("cli");
