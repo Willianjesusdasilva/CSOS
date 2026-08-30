@@ -51,6 +51,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
     shared.bundle_compiler_rt = false;
+    shared.setVersionScript(b.path("userspace/csos.map"));
 
     const extra = b.addLibrary(.{
         .name = "extra",

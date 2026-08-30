@@ -1,0 +1,4 @@
+CSOS_1.0 {
+    global: shared_marker; __tls_get_addr;
+    local: *;
+};

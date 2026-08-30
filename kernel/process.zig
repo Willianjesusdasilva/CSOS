@@ -54,6 +54,7 @@ pub var data_symbol_relocations: u64 = 0;
 pub var gnu_hash_tables: u64 = 0;
 pub var tls_modules: u64 = 0;
 pub var tls_relocations: u64 = 0;
+pub var versioned_symbols: u64 = 0;
 pub const Lifecycle = enum { running, frozen, standby, resuming, finished };
 pub var lifecycle: Lifecycle = .finished;
 
@@ -604,6 +605,11 @@ const DynamicSymbols = struct {
     regular_rela_size: u64 = 0,
     plt_rela_file: u64 = 0,
     plt_rela_size: u64 = 0,
+    version_file: u64 = 0,
+    version_need_file: u64 = 0,
+    version_need_count: u64 = 0,
+    version_definition_file: u64 = 0,
+    version_definition_count: u64 = 0,
 };
 
 fn applySymbolRelocations(
@@ -641,6 +647,7 @@ fn applySymbolTable(consumer: []const u8, consumer_base: u64, consumer_module: u
         const consumer_symbol: usize = @intCast(wanted.symbol_file + @as(u64, symbol_index) * 24);
         const name_offset = read32From(consumer, consumer_symbol);
         const name = try stringFrom(consumer, wanted.string_file + name_offset);
+        const required_version = try requiredSymbolVersion(consumer, wanted, symbol_index);
         var resolved: ?u64 = null;
         for (providers) |provider| {
             const supplied = try dynamicSymbols(provider.bytes, provider.program_offset, provider.program_entry_size, provider.program_count, false);
@@ -651,6 +658,11 @@ fn applySymbolTable(consumer: []const u8, consumer_base: u64, consumer_module: u
                 const provider_name_offset = read32From(provider.bytes, provider_symbol);
                 const provider_name = try stringFrom(provider.bytes, supplied.string_file + provider_name_offset);
                 if (equal(name, provider_name)) {
+                    if (required_version) |required| {
+                        const provided = try definedSymbolVersion(provider.bytes, supplied, provider_index);
+                        if (provided == null or !equal(required, provided.?)) continue;
+                        versioned_symbols += 1;
+                    }
                     resolved = provider.base + read64From(provider.bytes, provider_symbol + 8);
                     break;
                 }
@@ -665,6 +677,53 @@ fn applySymbolTable(consumer: []const u8, consumer_base: u64, consumer_module: u
         symbol_relocations += 1;
         if (relocation_type == 1 or relocation_type == 6) data_symbol_relocations += 1;
     }
+}
+
+fn requiredSymbolVersion(bytes: []const u8, symbols: DynamicSymbols, symbol_index: u32) !?[]const u8 {
+    if (symbols.version_file == 0 or symbols.version_need_file == 0) return null;
+    const version_index = read16From(bytes, @intCast(symbols.version_file + @as(u64, symbol_index) * 2)) & 0x7fff;
+    if (version_index <= 1) return null;
+    var need_offset: usize = @intCast(symbols.version_need_file);
+    var need_index: u64 = 0;
+    while (need_index < symbols.version_need_count) : (need_index += 1) {
+        if (need_offset > bytes.len or bytes.len - need_offset < 16) return error.InvalidVersionNeed;
+        const auxiliary_offset = read32From(bytes, need_offset + 8);
+        const auxiliary_count = read16From(bytes, need_offset + 2);
+        var auxiliary = need_offset + auxiliary_offset;
+        var auxiliary_index: u16 = 0;
+        while (auxiliary_index < auxiliary_count) : (auxiliary_index += 1) {
+            if (auxiliary > bytes.len or bytes.len - auxiliary < 16) return error.InvalidVersionNeed;
+            if ((read16From(bytes, auxiliary + 6) & 0x7fff) == version_index)
+                return try stringFrom(bytes, symbols.string_file + read32From(bytes, auxiliary + 8));
+            const next = read32From(bytes, auxiliary + 12);
+            if (next == 0) break;
+            auxiliary += next;
+        }
+        const next = read32From(bytes, need_offset + 12);
+        if (next == 0) break;
+        need_offset += next;
+    }
+    return error.RequiredVersionMissing;
+}
+
+fn definedSymbolVersion(bytes: []const u8, symbols: DynamicSymbols, symbol_index: u32) !?[]const u8 {
+    if (symbols.version_file == 0 or symbols.version_definition_file == 0) return null;
+    const version_index = read16From(bytes, @intCast(symbols.version_file + @as(u64, symbol_index) * 2)) & 0x7fff;
+    if (version_index <= 1) return null;
+    var definition: usize = @intCast(symbols.version_definition_file);
+    var definition_index: u64 = 0;
+    while (definition_index < symbols.version_definition_count) : (definition_index += 1) {
+        if (definition > bytes.len or bytes.len - definition < 20) return error.InvalidVersionDefinition;
+        if ((read16From(bytes, definition + 4) & 0x7fff) == version_index) {
+            const auxiliary = definition + read32From(bytes, definition + 12);
+            if (auxiliary > bytes.len or bytes.len - auxiliary < 8) return error.InvalidVersionDefinition;
+            return try stringFrom(bytes, symbols.string_file + read32From(bytes, auxiliary));
+        }
+        const next = read32From(bytes, definition + 16);
+        if (next == 0) break;
+        definition += next;
+    }
+    return error.DefinedVersionMissing;
 }
 
 fn dynamicSymbols(bytes: []const u8, program_offset: u64, program_entry_size: u16, program_count: u16, consumer: bool) !DynamicSymbols {
@@ -687,6 +746,11 @@ fn dynamicSymbols(bytes: []const u8, program_offset: u64, program_entry_size: u1
     var rela_size: u64 = 0;
     var plt_rela_virtual: u64 = 0;
     var plt_rela_size: u64 = 0;
+    var version_virtual: u64 = 0;
+    var version_need_virtual: u64 = 0;
+    var version_need_count: u64 = 0;
+    var version_definition_virtual: u64 = 0;
+    var version_definition_count: u64 = 0;
     var offset = table;
     while (offset + 16 <= table + dynamic_size) : (offset += 16) {
         const tag = read64From(bytes, @intCast(offset));
@@ -701,6 +765,11 @@ fn dynamicSymbols(bytes: []const u8, program_offset: u64, program_entry_size: u1
             8 => { if (consumer) rela_size = value; },
             23 => { if (consumer) plt_rela_virtual = value; },
             2 => { if (consumer) plt_rela_size = value; },
+            0x6ffffff0 => version_virtual = value,
+            0x6ffffffe => version_need_virtual = value,
+            0x6fffffff => version_need_count = value,
+            0x6ffffffc => version_definition_virtual = value,
+            0x6ffffffd => version_definition_count = value,
             else => {},
         }
     }
@@ -721,6 +790,11 @@ fn dynamicSymbols(bytes: []const u8, program_offset: u64, program_entry_size: u1
         .regular_rela_size = rela_size,
         .plt_rela_file = if (plt_rela_size == 0) 0 else try virtualFileOffsetFor(bytes, plt_rela_virtual, plt_rela_size, program_offset, program_entry_size, program_count),
         .plt_rela_size = plt_rela_size,
+        .version_file = if (version_virtual == 0) 0 else try virtualFileOffsetFor(bytes, version_virtual, @as(u64, symbol_count) * 2, program_offset, program_entry_size, program_count),
+        .version_need_file = if (version_need_virtual == 0) 0 else try virtualFileOffsetFor(bytes, version_need_virtual, 16, program_offset, program_entry_size, program_count),
+        .version_need_count = version_need_count,
+        .version_definition_file = if (version_definition_virtual == 0) 0 else try virtualFileOffsetFor(bytes, version_definition_virtual, 20, program_offset, program_entry_size, program_count),
+        .version_definition_count = version_definition_count,
     };
 }
 
