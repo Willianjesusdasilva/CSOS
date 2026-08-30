@@ -48,6 +48,7 @@ pub var relative_relocations: u64 = 0;
 pub var interpreter_loads: u64 = 0;
 pub var shared_objects_loaded: u64 = 0;
 pub var symbol_relocations: u64 = 0;
+pub var data_symbol_relocations: u64 = 0;
 pub const Lifecycle = enum { running, frozen, standby, resuming, finished };
 pub var lifecycle: Lifecycle = .finished;
 
@@ -172,7 +173,7 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
                 if (file_size > memory_size or file_offset + file_size > image.len or memory_size == 0) return error.InvalidSharedObject;
                 try loadSegment(&address_space, pages, &mappings, &mapping_count, &owned, &owned_count, virtual, file_offset, file_size, memory_size, (flags & 2) != 0, (flags & 1) != 0);
             }
-            try applyRelativeRelocations(mappings[0..mapping_count], shared_base, shared_program_offset, shared_program_entry_size, shared_program_count, false);
+            try applyRelativeRelocations(mappings[0..mapping_count], shared_base, shared_program_offset, shared_program_entry_size, shared_program_count, true);
             providers[provider_count] = .{
                 .bytes = shared_bytes,
                 .program_offset = shared_program_offset,
@@ -582,8 +583,10 @@ const DynamicSymbols = struct {
     symbol_file: u64,
     string_file: u64,
     symbol_count: u32,
-    rela_file: u64 = 0,
-    rela_size: u64 = 0,
+    regular_rela_file: u64 = 0,
+    regular_rela_size: u64 = 0,
+    plt_rela_file: u64 = 0,
+    plt_rela_size: u64 = 0,
 };
 
 fn applySymbolRelocations(
@@ -596,14 +599,20 @@ fn applySymbolRelocations(
     mappings: []const Mapping,
 ) !void {
     const wanted = try dynamicSymbols(consumer, consumer_program_offset, consumer_program_entry_size, consumer_program_count, true);
-    if (wanted.rela_size == 0) return;
+    try applySymbolTable(consumer, consumer_base, wanted, providers, mappings, wanted.regular_rela_file, wanted.regular_rela_size);
+    try applySymbolTable(consumer, consumer_base, wanted, providers, mappings, wanted.plt_rela_file, wanted.plt_rela_size);
+}
+
+fn applySymbolTable(consumer: []const u8, consumer_base: u64, wanted: DynamicSymbols, providers: []const Provider, mappings: []const Mapping, rela_file: u64, rela_size: u64) !void {
+    if (rela_size == 0) return;
     var offset: u64 = 0;
-    while (offset < wanted.rela_size) : (offset += 24) {
-        const item: usize = @intCast(wanted.rela_file + offset);
+    while (offset < rela_size) : (offset += 24) {
+        const item: usize = @intCast(rela_file + offset);
         const target = read64From(consumer, item) + consumer_base;
         const info = read64From(consumer, item + 8);
         const relocation_type: u32 = @truncate(info);
-        if (relocation_type != 6 and relocation_type != 7) return error.UnsupportedSymbolRelocation;
+        if (relocation_type == 8 and (info >> 32) == 0) continue;
+        if (relocation_type != 1 and relocation_type != 6 and relocation_type != 7) return error.UnsupportedSymbolRelocation;
         const symbol_index: u32 = @truncate(info >> 32);
         const consumer_symbol: usize = @intCast(wanted.symbol_file + @as(u64, symbol_index) * 24);
         const name_offset = read32From(consumer, consumer_symbol);
@@ -624,8 +633,13 @@ fn applySymbolRelocations(
             }
             if (resolved != null) break;
         }
-        try writeMapped64(mappings, target, resolved orelse return error.DynamicSymbolMissing);
+        if (resolved == null and (consumer[consumer_symbol + 4] >> 4) == 2) resolved = 0;
+        const symbol_value = resolved orelse return error.DynamicSymbolMissing;
+        const addend: i64 = @bitCast(read64From(consumer, item + 16));
+        const value = if (relocation_type == 1) symbol_value +% @as(u64, @bitCast(addend)) else symbol_value;
+        try writeMapped64(mappings, target, value);
         symbol_relocations += 1;
+        if (relocation_type == 1 or relocation_type == 6) data_symbol_relocations += 1;
     }
 }
 
@@ -646,6 +660,8 @@ fn dynamicSymbols(bytes: []const u8, program_offset: u64, program_entry_size: u1
     var hash_virtual: u64 = 0;
     var rela_virtual: u64 = 0;
     var rela_size: u64 = 0;
+    var plt_rela_virtual: u64 = 0;
+    var plt_rela_size: u64 = 0;
     var offset = table;
     while (offset + 16 <= table + dynamic_size) : (offset += 16) {
         const tag = read64From(bytes, @intCast(offset));
@@ -655,8 +671,10 @@ fn dynamicSymbols(bytes: []const u8, program_offset: u64, program_entry_size: u1
             4 => hash_virtual = value,
             5 => string_virtual = value,
             6 => symbol_virtual = value,
-            23 => { if (consumer) rela_virtual = value; },
-            2 => { if (consumer) rela_size = value; },
+            7 => { if (consumer) rela_virtual = value; },
+            8 => { if (consumer) rela_size = value; },
+            23 => { if (consumer) plt_rela_virtual = value; },
+            2 => { if (consumer) plt_rela_size = value; },
             else => {},
         }
     }
@@ -666,8 +684,10 @@ fn dynamicSymbols(bytes: []const u8, program_offset: u64, program_entry_size: u1
         .symbol_file = try virtualFileOffsetFor(bytes, symbol_virtual, 24, program_offset, program_entry_size, program_count),
         .string_file = try virtualFileOffsetFor(bytes, string_virtual, 1, program_offset, program_entry_size, program_count),
         .symbol_count = read32From(bytes, @intCast(hash_file + 4)),
-        .rela_file = if (rela_size == 0) 0 else try virtualFileOffsetFor(bytes, rela_virtual, rela_size, program_offset, program_entry_size, program_count),
-        .rela_size = rela_size,
+        .regular_rela_file = if (rela_size == 0) 0 else try virtualFileOffsetFor(bytes, rela_virtual, rela_size, program_offset, program_entry_size, program_count),
+        .regular_rela_size = rela_size,
+        .plt_rela_file = if (plt_rela_size == 0) 0 else try virtualFileOffsetFor(bytes, plt_rela_virtual, plt_rela_size, program_offset, program_entry_size, program_count),
+        .plt_rela_size = plt_rela_size,
     };
 }
 
