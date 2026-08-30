@@ -1,3 +1,5 @@
+const profile_version: u8 = 2;
+
 pub const Cpu = struct {
     vendor: [12]u8,
     family: u16,
@@ -39,7 +41,39 @@ pub const Profile = struct {
     pub fn text(self: *const Profile) []const u8 {
         return self.bytes[0..self.length];
     }
+
+    pub fn addBaseline(self: *Profile, nvme_p50: u64, nvme_p95: u64, nvme_p99: u64, tcp_p50: u64, tcp_p95: u64, tcp_p99: u64) !void {
+        try append(self, "\n[baseline_cycles]\nnvme_p50="); try appendDecimal(self, nvme_p50);
+        try append(self, "\nnvme_p95="); try appendDecimal(self, nvme_p95);
+        try append(self, "\nnvme_p99="); try appendDecimal(self, nvme_p99);
+        try append(self, "\ntcp_p50="); try appendDecimal(self, tcp_p50);
+        try append(self, "\ntcp_p95="); try appendDecimal(self, tcp_p95);
+        try append(self, "\ntcp_p99="); try appendDecimal(self, tcp_p99);
+        try append(self, "\n");
+    }
 };
+
+pub fn matchesSignature(text: []const u8, expected: u64) bool {
+    const key = "signature=";
+    var offset: usize = 0;
+    while (offset + key.len <= text.len) : (offset += 1) {
+        if (!equal(text[offset .. offset + key.len], key)) continue;
+        offset += key.len;
+        var value: u64 = 0;
+        var digits: usize = 0;
+        while (offset < text.len) : (offset += 1) {
+            const digit: u8 = if (text[offset] >= '0' and text[offset] <= '9')
+                text[offset] - '0'
+            else if (text[offset] >= 'a' and text[offset] <= 'f')
+                text[offset] - 'a' + 10
+            else break;
+            value = value *% 16 +% digit;
+            digits += 1;
+        }
+        return digits != 0 and value == expected;
+    }
+    return false;
+}
 
 pub fn detectCpu() Cpu {
     const vendor_leaf = cpuid(0, 0);
@@ -91,7 +125,8 @@ pub fn detectCpu() Cpu {
 pub fn build(cpu: Cpu, facts: Facts) !Profile {
     var result = Profile{};
     result.signature = signature(cpu, facts);
-    try append(&result, "[system]\nversion=1\nsignature=");
+    try append(&result, "[system]\nversion="); try appendDecimal(&result, profile_version);
+    try append(&result, "\nsignature=");
     try appendHex(&result, result.signature);
     try append(&result, "\n\n[cpu]\nvendor="); try append(&result, &cpu.vendor);
     try append(&result, "\nfamily="); try appendDecimal(&result, cpu.family);
@@ -129,6 +164,7 @@ pub fn build(cpu: Cpu, facts: Facts) !Profile {
 
 fn signature(cpu: Cpu, facts: Facts) u64 {
     var hash: u64 = 0xcbf29ce484222325;
+    hash = hashInteger(hash, profile_version);
     hash = hashBytes(hash, &cpu.vendor);
     hash = hashInteger(hash, cpu.family); hash = hashInteger(hash, cpu.model); hash = hashInteger(hash, cpu.stepping);
     hash = hashInteger(hash, cpu.threads_per_core); hash = hashInteger(hash, cpu.logical_per_package);
@@ -199,6 +235,12 @@ fn putNative32(output: []u8, value: u32) void {
     output[1] = @truncate(value >> 8);
     output[2] = @truncate(value >> 16);
     output[3] = @truncate(value >> 24);
+}
+
+fn equal(left: []const u8, right: []const u8) bool {
+    if (left.len != right.len) return false;
+    for (left, right) |a, b| if (a != b) return false;
+    return true;
 }
 
 const Cpuid = struct { eax: u32, ebx: u32, ecx: u32, edx: u32 };

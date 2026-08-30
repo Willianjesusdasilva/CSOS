@@ -429,7 +429,7 @@ pub fn start(info: BootInfo) noreturn {
     serial.write("\ndisplay initial pixels: "); serial.writeDecimal(initial_pixels);
     serial.write("\nCSOS M14 GPU discovery baseline ready\n");
     serial.write("CSOS M14 display baseline ready\n");
-    const current_profile = hardware_profile.build(cpu_profile, .{
+    var current_profile = hardware_profile.build(cpu_profile, .{
         .logical_cpus = @intCast(madt.cpu_count),
         .memory_pages = pages.installed_pages,
         .pci_devices = @intCast(inventory.count),
@@ -470,8 +470,7 @@ pub fn start(info: BootInfo) noreturn {
         error.NotFound => 0,
         else => panic("hardware profile read failed"),
     };
-    const profile_reused = stored_length == current_profile.length and
-        equalBytes(stored_profile[0..stored_length], current_profile.text());
+    const profile_reused = hardware_profile.matchesSignature(stored_profile[0..stored_length], current_profile.signature);
     if (!installation_current or !profile_reused) {
         while (nvme_sample < 16) : (nvme_sample += 1) {
             const started = timestamp(cpu_profile.tsc);
@@ -487,6 +486,10 @@ pub fn start(info: BootInfo) noreturn {
     }
     const nvme_latency = nvme_samples.summarize() catch panic("NVMe metrics missing");
     const tcp_latency = tcp_samples.summarize() catch panic("TCP metrics missing");
+    if (!profile_reused) current_profile.addBaseline(
+        nvme_latency.p50, nvme_latency.p95, nvme_latency.p99,
+        tcp_latency.p50, tcp_latency.p95, tcp_latency.p99,
+    ) catch panic("hardware baseline append failed");
     serial.write("profile scheduler freeze cycles p50: "); serial.writeDecimal(freeze_latency.p50);
     serial.write(" p95: "); serial.writeDecimal(freeze_latency.p95);
     serial.write(" p99: "); serial.writeDecimal(freeze_latency.p99);
@@ -503,8 +506,10 @@ pub fn start(info: BootInfo) noreturn {
     if (!profile_reused) volume.writeRootFile(&hardware_name, current_profile.text()) catch panic("hardware profile write failed");
     var verified_profile: [2048]u8 = undefined;
     const verified_length = volume.readRootFile(&hardware_name, &verified_profile) catch panic("hardware profile verification read failed");
-    if (verified_length != current_profile.length or !equalBytes(verified_profile[0..verified_length], current_profile.text()))
+    if (!hardware_profile.matchesSignature(verified_profile[0..verified_length], current_profile.signature))
         panic("hardware profile verification failed");
+    if (!profile_reused and !containsBytes(verified_profile[0..verified_length], "[baseline_cycles]"))
+        panic("hardware baseline persistence failed");
     serial.write("hardware signature: "); serial.writeDecimal(current_profile.signature);
     serial.write(if (profile_reused) "\nhardware.csc reused\n" else "\nhardware.csc generated\n");
     serial.write("CSOS M16 hardware profile ready\n");
@@ -974,6 +979,15 @@ fn equalBytes(left: []const u8, right: []const u8) bool {
     if (left.len != right.len) return false;
     for (left, right) |a, b| if (a != b) return false;
     return true;
+}
+
+fn containsBytes(haystack: []const u8, needle: []const u8) bool {
+    if (needle.len == 0) return true;
+    if (needle.len > haystack.len) return false;
+    var offset: usize = 0;
+    while (offset + needle.len <= haystack.len) : (offset += 1)
+        if (equalBytes(haystack[offset .. offset + needle.len], needle)) return true;
+    return false;
 }
 
 fn timestamp(supported: bool) u64 {
