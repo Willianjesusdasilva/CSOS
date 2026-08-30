@@ -40,6 +40,7 @@ var console_usb: ?*xhci.Controller = null;
 var console_hid: ?*xhci.HidDevices = null;
 var console_last_key: u8 = 0;
 var console_input_irq_apic: u32 = 0;
+var audio_reported = false;
 
 pub const BootInfo = struct {
     framebuffer: Framebuffer,
@@ -579,7 +580,6 @@ pub fn start(info: BootInfo) noreturn {
     var display_ticks: u64 = 0;
 
     var reported_input: u64 = 0;
-    var reported_audio = false;
     while (true) {
         display_ticks +%= 1;
         if ((display_ticks & 0xfffff) == 0) {
@@ -604,13 +604,21 @@ pub fn start(info: BootInfo) noreturn {
             serial.writeDecimal(reported_input);
             serial.write("\n");
         }
-        if (!reported_audio and usb.audio.completed >= 32) {
-            if (usb.audio.underruns != 0) panic("USB audio underrun");
-            serial.write("CSOS M13 audio streaming ready\n");
-            reported_audio = true;
-        }
+        reportAudio(&usb);
         asm volatile ("pause");
     }
+}
+
+fn reportAudio(usb: *xhci.Controller) void {
+    if (audio_reported or usb.audio.completed < 32) return;
+    if (usb.audio.underruns != 0) panic("USB audio underrun");
+    const audio_jitter = usb.audio.completion_intervals.summarize() catch panic("USB audio jitter metrics missing");
+    serial.write("profile USB audio period cycles p50: "); serial.writeDecimal(audio_jitter.p50);
+    serial.write(" p95: "); serial.writeDecimal(audio_jitter.p95);
+    serial.write(" p99: "); serial.writeDecimal(audio_jitter.p99);
+    serial.write("\nCSOS M18 audio jitter ready\n");
+    serial.write("CSOS M13 audio streaming ready\n");
+    audio_reported = true;
 }
 
 fn consoleRead(output: [*]u8, length: usize) callconv(.c) usize {
@@ -669,6 +677,7 @@ fn consoleWait() callconv(.c) void {
     const usb = console_usb orelse return;
     const hid = console_hid orelse return;
     _ = usb.pollHid(hid) catch {};
+    reportAudio(usb);
     if (xhci.interruptCount() != 0 and xhci.interruptApic() != console_input_irq_apic)
         panic("xHCI MSI affinity mismatch");
 }

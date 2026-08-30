@@ -361,6 +361,10 @@ pub const Controller = struct {
 
     fn handleAudioEvent(self: *Controller, event: Event) !bool {
         if (event.slot != self.audio.slot or event.endpoint != self.audio.endpoint_id) return false;
+        const now = timestamp();
+        if (self.audio.last_completion_tsc != 0 and self.audio.completion_intervals.count < self.audio.completion_intervals.values.len)
+            self.audio.completion_intervals.add(now -% self.audio.last_completion_tsc) catch {};
+        self.audio.last_completion_tsc = now;
         self.audio.last_completion = event.completion;
         if (event.completion == 14) {
             self.audio.cycle ^= 1;
@@ -685,6 +689,8 @@ pub const AudioDevices = struct {
     underruns: u64 = 0,
     control_enqueue: u8 = 3,
     last_completion: u8 = 0,
+    last_completion_tsc: u64 = 0,
+    completion_intervals: metrics.Samples = .{},
 };
 
 pub const AudioStatus = struct {
