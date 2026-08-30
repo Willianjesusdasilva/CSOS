@@ -8,8 +8,10 @@ const stack_address: u64 = 0x0000009000000000;
 const mmap_address: u64 = 0x000000a000000000;
 const page_size: u64 = 4096;
 const max_mappings = 512;
+const max_owned_ranges = 512;
 
 const Mapping = struct { virtual: u64, physical: u64 };
+const OwnedRange = struct { address: u64, pages: u64 };
 
 extern fn enter_user(entry: u64, stack: u64) callconv(.c) void;
 
@@ -33,6 +35,13 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
     if (program_entry_size < 56 or program_offset + @as(u64, program_entry_size) * program_count > image.len) return error.InvalidElf;
 
     var address_space = try paging.AddressSpace.init(kernel_root, pages);
+    var owned: [max_owned_ranges]OwnedRange = undefined;
+    var owned_count: usize = 0;
+    defer {
+        paging.activateRoot(kernel_root);
+        address_space.destroy();
+        releaseOwned(pages, owned[0..owned_count]);
+    }
     var mappings: [max_mappings]Mapping = undefined;
     var mapping_count: usize = 0;
     var image_start: u64 = ~@as(u64, 0);
@@ -50,21 +59,22 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
         if (file_size > memory_size or file_offset + file_size > image.len or memory_size == 0) return error.InvalidElf;
         image_start = @min(image_start, virtual);
         image_end = @max(image_end, virtual + memory_size);
-        try loadSegment(&address_space, pages, &mappings, &mapping_count, virtual, file_offset, file_size, memory_size, (flags & 2) != 0);
+        try loadSegment(&address_space, pages, &mappings, &mapping_count, &owned, &owned_count, virtual, file_offset, file_size, memory_size, (flags & 2) != 0);
     }
     if (mapping_count == 0 or entry < image_start or entry >= image_end) return error.InvalidElf;
 
     const stack_page_count = 8;
     const initial_stack_size = 4 * page_size;
     const stack_pages = pages.allocate(stack_page_count) orelse return error.OutOfMemory;
+    try own(&owned, &owned_count, stack_pages, stack_page_count);
     var stack_page: u64 = 0;
     while (stack_page < stack_page_count) : (stack_page += 1) {
         try address_space.mapUserPage(stack_address + stack_page * page_size, stack_pages + stack_page * page_size, true);
     }
     const break_base = (image_end + page_size - 1) & ~(page_size - 1);
     const arena_pages = 64;
-    try mapAnonymous(&address_space, pages, break_base, arena_pages);
-    try mapAnonymous(&address_space, pages, mmap_address, arena_pages);
+    try mapAnonymous(&address_space, pages, &owned, &owned_count, break_base, arena_pages);
+    try mapAnonymous(&address_space, pages, &owned, &owned_count, mmap_address, arena_pages);
     const stack_pointer = try buildInitialStack(stack_pages, initial_stack_size, entry, program_offset, program_entry_size, program_count, arguments);
     syscalls.configure(
         image_start,
@@ -81,10 +91,12 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
     if (syscalls.exitStatus() != 0) return error.ProcessFailed;
 }
 
-fn mapAnonymous(address_space: *paging.AddressSpace, pages: *physical.Allocator, virtual: u64, count: u64) !void {
+fn mapAnonymous(address_space: *paging.AddressSpace, pages: *physical.Allocator, owned: *[max_owned_ranges]OwnedRange, owned_count: *usize, virtual: u64, count: u64) !void {
+    const allocation = pages.allocate(count) orelse return error.OutOfMemory;
+    try own(owned, owned_count, allocation, count);
     var index: u64 = 0;
     while (index < count) : (index += 1) {
-        const physical_page = pages.allocate(1) orelse return error.OutOfMemory;
+        const physical_page = allocation + index * page_size;
         const bytes: [*]u8 = @ptrFromInt(physical_page);
         @memset(bytes[0..page_size], 0);
         try address_space.mapUserPage(virtual + index * page_size, physical_page, true);
@@ -176,6 +188,8 @@ fn loadSegment(
     pages: *physical.Allocator,
     mappings: *[max_mappings]Mapping,
     mapping_count: *usize,
+    owned: *[max_owned_ranges]OwnedRange,
+    owned_count: *usize,
     virtual: u64,
     file_offset: u64,
     file_size: u64,
@@ -192,6 +206,7 @@ fn loadSegment(
         if (physical_address == null) {
             if (mapping_count.* == max_mappings) return error.TooManyMappings;
             physical_address = pages.allocate(1) orelse return error.OutOfMemory;
+            try own(owned, owned_count, physical_address.?, 1);
             const bytes: [*]u8 = @ptrFromInt(physical_address.?);
             @memset(bytes[0..page_size], 0);
             try address_space.mapUserPage(page_virtual, physical_address.?, writable);
@@ -207,6 +222,20 @@ fn loadSegment(
             const length: usize = @intCast(copy_end - copy_start);
             @memcpy(destination[0..length], image[source .. source + length]);
         }
+    }
+}
+
+fn own(ranges: *[max_owned_ranges]OwnedRange, count: *usize, address: u64, pages: u64) !void {
+    if (count.* == ranges.len) return error.TooManyOwnedRanges;
+    ranges[count.*] = .{ .address = address, .pages = pages };
+    count.* += 1;
+}
+
+fn releaseOwned(allocator: *physical.Allocator, ranges: []const OwnedRange) void {
+    var index = ranges.len;
+    while (index > 0) {
+        index -= 1;
+        allocator.release(ranges[index].address, ranges[index].pages) catch unreachable;
     }
 }
 

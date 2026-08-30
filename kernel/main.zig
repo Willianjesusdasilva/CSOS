@@ -130,6 +130,7 @@ pub fn start(info: BootInfo) noreturn {
         panic("lifecycle completion failed");
     serial.write("CSOS M15 service lifecycle ready\n");
 
+    const userspace_pages_before = pages.free_pages;
     const echo_arguments = [_][]const u8{ "/bin/busybox", "echo", "BusyBox userspace ready" };
     process.runBusyBox(mapper.root, &pages, &echo_arguments) catch panic("BusyBox echo failed");
     mapper.activate();
@@ -142,6 +143,9 @@ pub fn start(info: BootInfo) noreturn {
     const shell_arguments = [_][]const u8{ "/bin/busybox", "sh", "-c", "echo BusyBox shell ready" };
     process.runBusyBox(mapper.root, &pages, &shell_arguments) catch panic("BusyBox sh failed");
     mapper.activate();
+    if (pages.free_pages != userspace_pages_before) panic("userspace page reclaim mismatch");
+    serial.write("userspace reclaimed pages: "); serial.writeDecimal(pages.reclaimed_pages);
+    serial.write("\nCSOS M17 process reclaim ready\n");
     serial.write("BusyBox applets returned\n");
 
     const inventory = pci.Inventory.scan();
@@ -264,8 +268,10 @@ pub fn start(info: BootInfo) noreturn {
     serial.write("TCP response bytes: ");
     serial.writeDecimal(tcp_bytes);
     serial.write("\nCSOS M12 TCP ready\n");
+    const nettest_pages_before = pages.free_pages;
     process.runNetTest(mapper.root, &pages) catch panic("Linux socket userspace test failed");
     mapper.activate();
+    if (pages.free_pages != nettest_pages_before) panic("network userspace page reclaim mismatch");
     serial.write("CSOS Linux socket ABI ready\n");
     var irq_spins: usize = 0;
     while (e1000.interruptCount() == 0 and irq_spins < 100_000_000) : (irq_spins += 1) asm volatile ("pause");
@@ -290,7 +296,7 @@ pub fn start(info: BootInfo) noreturn {
     const cpu_profile = hardware_profile.detectCpu();
     const current_profile = hardware_profile.build(cpu_profile, .{
         .logical_cpus = @intCast(madt.cpu_count),
-        .memory_pages = pages.total_pages,
+        .memory_pages = pages.installed_pages,
         .pci_devices = @intCast(inventory.count),
         .gpu_vendor = display_device.vendor,
         .gpu_device = display_device.device,

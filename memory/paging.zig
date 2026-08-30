@@ -81,7 +81,20 @@ pub const AddressSpace = struct {
             : [root] "r" (self.root),
             : .{ .memory = true });
     }
+
+    pub fn destroy(self: *AddressSpace) void {
+        if (self.root == 0) return;
+        destroyTable(self.pages, self.root, 4);
+        self.root = 0;
+    }
 };
+
+pub fn activateRoot(root: u64) void {
+    asm volatile ("mov %[root], %%cr3"
+        :
+        : [root] "r" (root),
+        : .{ .memory = true });
+}
 
 fn cloneTable(pages: *physical.Allocator, source_address: u64, level: u8) !u64 {
     const destination_address = try allocateTable(pages);
@@ -133,4 +146,14 @@ fn allocateTable(pages: *physical.Allocator) !u64 {
 
 fn table(address: u64) *[entry_count]u64 {
     return @ptrFromInt(address);
+}
+
+fn destroyTable(pages: *physical.Allocator, address: u64, level: u8) void {
+    if (level > 1) {
+        for (table(address)) |entry| {
+            if ((entry & 1) == 0 or (entry & 0x080) != 0) continue;
+            destroyTable(pages, entry & address_mask, level - 1);
+        }
+    }
+    pages.release(address, 1) catch unreachable;
 }
