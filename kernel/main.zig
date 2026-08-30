@@ -11,6 +11,7 @@ const xhci = @import("xhci");
 const gpu = @import("gpu");
 const display = @import("display");
 const hardware_profile = @import("hardware_profile");
+const installer_state = @import("installer_state");
 const e1000 = @import("e1000");
 const net = @import("net");
 const smp = @import("smp");
@@ -383,6 +384,20 @@ pub fn start(info: BootInfo) noreturn {
         .display_height = screen.framebuffer.height,
         .display_stride = screen.framebuffer.stride,
     }) catch panic("hardware profile generation failed");
+    const install_name: [11]u8 = "INSTALL CSC".*;
+    var stored_install: [64]u8 = undefined;
+    const stored_install_length = volume.readRootFile(&install_name, &stored_install) catch |err| switch (err) {
+        error.NotFound => 0,
+        else => panic("installation state read failed"),
+    };
+    const installation_current = installer_state.matches(stored_install[0..stored_install_length], current_profile.signature);
+    if (!installation_current) {
+        volume.writeRootFile(&install_name, installer_state.installing) catch panic("installation transaction start failed");
+        var installation_started: [16]u8 = undefined;
+        const started_length = volume.readRootFile(&install_name, &installation_started) catch panic("installation transaction verification failed");
+        if (!equalBytes(installation_started[0..started_length], installer_state.installing)) panic("installation transaction state mismatch");
+        serial.write("CSOS first installation started\n");
+    }
     const hardware_name: [11]u8 = "HARDWARECSC".*;
     var stored_profile: [2048]u8 = undefined;
     const stored_length = volume.readRootFile(&hardware_name, &stored_profile) catch |err| switch (err) {
@@ -410,6 +425,12 @@ pub fn start(info: BootInfo) noreturn {
     var verified_boot_state: [16]u8 = undefined;
     const verified_boot_length = volume.readRootFile(&boot_state_name, &verified_boot_state) catch panic("boot ready state read failed");
     if (!equalBytes(verified_boot_state[0..verified_boot_length], boot_ready)) panic("boot ready state verification failed");
+    const completed_install = installer_state.completed(current_profile.signature);
+    if (!installation_current) volume.writeRootFile(&install_name, completed_install.text()) catch panic("installation completion write failed");
+    var verified_install: [64]u8 = undefined;
+    const verified_install_length = volume.readRootFile(&install_name, &verified_install) catch panic("installation completion read failed");
+    if (!installer_state.matches(verified_install[0..verified_install_length], current_profile.signature)) panic("installation completion verification failed");
+    serial.write(if (installation_current) "CSOS installation reused\n" else "CSOS installation completed\n");
     serial.write(if (recovering) "CSOS recovery completed\n" else "CSOS boot health ready\n");
     console_usb = &usb;
     console_hid = &hid;

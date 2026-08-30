@@ -100,6 +100,7 @@ pub fn build(b: *std.Build) void {
     display_module.addImport("pci", pci_module);
     display_module.addImport("physical", physical_module);
     const hardware_profile_module = b.createModule(.{ .root_source_file = b.path("hardware/profile.zig") });
+    const installer_state_module = b.createModule(.{ .root_source_file = b.path("installer/state.zig") });
     const e1000_module = b.createModule(.{ .root_source_file = b.path("drivers/e1000.zig") });
     e1000_module.addImport("pci", pci_module);
     e1000_module.addImport("physical", physical_module);
@@ -145,6 +146,7 @@ pub fn build(b: *std.Build) void {
     kernel_module.addImport("gpu", gpu_module);
     kernel_module.addImport("display", display_module);
     kernel_module.addImport("hardware_profile", hardware_profile_module);
+    kernel_module.addImport("installer_state", installer_state_module);
     kernel_module.addImport("e1000", e1000_module);
     kernel_module.addImport("net", net_module);
     kernel_module.addImport("smp", smp_module);
