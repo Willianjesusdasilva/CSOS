@@ -228,6 +228,7 @@ pub fn start(info: BootInfo) noreturn {
     e1000.enableInterrupts(&network);
     asm volatile ("sti");
     var network_stack = net.Stack.init(&network);
+    syscalls.configureNetwork(&network_stack);
     network_stack.configureDhcp() catch panic("DHCP configuration failed");
     serial.write("DHCP address: ");
     for (network_stack.local_ip, 0..) |part, index| {
@@ -248,6 +249,9 @@ pub fn start(info: BootInfo) noreturn {
     serial.write("TCP response bytes: ");
     serial.writeDecimal(tcp_bytes);
     serial.write("\nCSOS M12 TCP ready\n");
+    process.runNetTest(mapper.root, &pages) catch panic("Linux socket userspace test failed");
+    mapper.activate();
+    serial.write("CSOS Linux socket ABI ready\n");
     var irq_spins: usize = 0;
     while (e1000.interruptCount() == 0 and irq_spins < 100_000_000) : (irq_spins += 1) asm volatile ("pause");
     asm volatile ("cli");

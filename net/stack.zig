@@ -14,6 +14,57 @@ pub const Stack = struct {
 
     pub fn init(device: *e1000.Controller) Stack { return .{ .device = device }; }
 
+    pub fn tcpConnect(self: *Stack, destination: [4]u8, destination_port: u16, source_port: u16) !TcpConnection {
+        var connection = TcpConnection{
+            .destination = destination,
+            .destination_port = destination_port,
+            .source_port = source_port,
+            .sequence = 0x43534f53,
+        };
+        try self.sendTcp(destination, self.gateway_mac, source_port, destination_port, connection.sequence, 0, tcp_syn, "");
+        const reply = try self.receiveTcp(destination, destination_port, source_port, null);
+        if ((reply.flags & (tcp_syn | tcp_ack)) != (tcp_syn | tcp_ack) or reply.acknowledgement != connection.sequence +% 1)
+            return error.InvalidTcpSynAck;
+        connection.sequence +%= 1;
+        connection.peer_sequence = reply.sequence +% 1;
+        try self.sendTcp(destination, self.gateway_mac, source_port, destination_port, connection.sequence, connection.peer_sequence, tcp_ack, "");
+        connection.connected = true;
+        return connection;
+    }
+
+    pub fn tcpSend(self: *Stack, connection: *TcpConnection, payload: []const u8) !usize {
+        if (!connection.connected) return error.NotConnected;
+        try self.sendTcp(connection.destination, self.gateway_mac, connection.source_port, connection.destination_port, connection.sequence, connection.peer_sequence, tcp_psh | tcp_ack, payload);
+        connection.sequence +%= @intCast(payload.len);
+        return payload.len;
+    }
+
+    pub fn tcpReceive(self: *Stack, connection: *TcpConnection, output: []u8) !usize {
+        if (!connection.connected) return error.NotConnected;
+        var attempts: u8 = 0;
+        while (attempts < 64) : (attempts += 1) {
+            const segment = try self.receiveTcp(connection.destination, connection.destination_port, connection.source_port, output);
+            if (segment.sequence != connection.peer_sequence and segment.payload_length != 0) continue;
+            if (segment.payload_length != 0) connection.peer_sequence +%= @intCast(segment.payload_length);
+            if ((segment.flags & tcp_fin) != 0) {
+                connection.peer_sequence +%= 1;
+                connection.peer_closed = true;
+            }
+            try self.sendTcp(connection.destination, self.gateway_mac, connection.source_port, connection.destination_port, connection.sequence, connection.peer_sequence, tcp_ack, "");
+            if (segment.payload_length != 0 or connection.peer_closed) return segment.payload_length;
+        }
+        return error.TcpPayloadMissing;
+    }
+
+    pub fn tcpClose(self: *Stack, connection: *TcpConnection) !void {
+        if (!connection.connected) return;
+        if (!connection.peer_closed) {
+            try self.sendTcp(connection.destination, self.gateway_mac, connection.source_port, connection.destination_port, connection.sequence, connection.peer_sequence, tcp_fin | tcp_ack, "");
+            connection.sequence +%= 1;
+        }
+        connection.connected = false;
+    }
+
     pub fn configureDhcp(self: *Stack) !void {
         try self.sendDhcp(1, null, null);
         const offer = try self.receiveDhcp(2);
@@ -82,7 +133,7 @@ pub const Stack = struct {
         var sequence: u32 = 0x43534f53;
         try self.sendTcp(destination, self.gateway_mac, source_port, destination_port, sequence, 0, tcp_syn, "");
 
-        const syn_ack = try self.receiveTcp(destination, destination_port, source_port);
+        const syn_ack = try self.receiveTcp(destination, destination_port, source_port, null);
         if ((syn_ack.flags & (tcp_syn | tcp_ack)) != (tcp_syn | tcp_ack) or syn_ack.acknowledgement != sequence +% 1)
             return error.InvalidTcpSynAck;
         sequence +%= 1;
@@ -104,7 +155,7 @@ pub const Stack = struct {
         var saw_fin = false;
         var attempts: u8 = 0;
         while (attempts < 64 and received_bytes == 0) : (attempts += 1) {
-            const segment = try self.receiveTcp(destination, destination_port, source_port);
+            const segment = try self.receiveTcp(destination, destination_port, source_port, null);
             if (segment.acknowledgement > sequence) return error.InvalidTcpAcknowledgement;
             if (segment.sequence != peer_sequence and segment.payload_length != 0) continue;
             if (segment.payload_length != 0) {
@@ -124,7 +175,7 @@ pub const Stack = struct {
             sequence +%= 1;
             attempts = 0;
             while (attempts < 16) : (attempts += 1) {
-                const segment = try self.receiveTcp(destination, destination_port, source_port);
+                const segment = try self.receiveTcp(destination, destination_port, source_port, null);
                 if ((segment.flags & tcp_fin) != 0) {
                     peer_sequence = segment.sequence +% @as(u32, @intCast(segment.payload_length)) +% 1;
                     try self.sendTcp(destination, self.gateway_mac, source_port, destination_port, sequence, peer_sequence, tcp_ack, "");
@@ -156,7 +207,7 @@ pub const Stack = struct {
         try self.device.send(frame[0..size]);
     }
 
-    fn receiveTcp(self: *Stack, source: [4]u8, source_port: u16, destination_port: u16) !TcpSegment {
+    fn receiveTcp(self: *Stack, source: [4]u8, source_port: u16, destination_port: u16, output: ?[]u8) !TcpSegment {
         var frame: [2048]u8 = undefined;
         var attempts: u8 = 0;
         while (attempts < 64) : (attempts += 1) {
@@ -172,11 +223,16 @@ pub const Stack = struct {
             const tcp_header = @as(usize, tcp[12] >> 4) * 4;
             if (tcp_header < 20 or tcp_header > tcp.len or get16(tcp[0..]) != source_port or get16(tcp[2..]) != destination_port) continue;
             if (tcpChecksum(source, self.local_ip, tcp) != 0) continue;
+            const payload_length = tcp.len - tcp_header;
+            if (output) |target| {
+                if (payload_length > target.len) return error.BufferTooSmall;
+                @memcpy(target[0..payload_length], tcp[tcp_header..]);
+            }
             return .{
                 .sequence = get32(tcp[4..]),
                 .acknowledgement = get32(tcp[8..]),
                 .flags = tcp[13],
-                .payload_length = tcp.len - tcp_header,
+                .payload_length = payload_length,
             };
         }
         return error.TcpReplyMissing;
@@ -361,6 +417,16 @@ const TcpSegment = struct {
     acknowledgement: u32,
     flags: u8,
     payload_length: usize,
+};
+
+pub const TcpConnection = struct {
+    destination: [4]u8,
+    destination_port: u16,
+    source_port: u16,
+    sequence: u32,
+    peer_sequence: u32 = 0,
+    connected: bool = false,
+    peer_closed: bool = false,
 };
 
 fn checksum(bytes: []const u8) u16 {

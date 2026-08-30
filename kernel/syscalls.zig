@@ -1,5 +1,6 @@
 const serial = @import("serial");
 const vfs = @import("vfs");
+const net = @import("net");
 
 var user_base: u64 = 0;
 var user_size: u64 = 0;
@@ -12,6 +13,8 @@ var mmap_base: u64 = 0;
 var mmap_limit: u64 = 0;
 var writes: usize = 0;
 var process_exit_status: u64 = 0;
+var network_stack: ?*net.Stack = null;
+var sockets: [4]Socket = .{Socket{}} ** 4;
 var unknown_seen: [512]bool = .{false} ** 512;
 pub export var syscall_kernel_rsp: u64 = 0;
 pub export var syscall_user_rsp: u64 = 0;
@@ -41,11 +44,16 @@ pub fn configure(base: u64, size: u64, stack: u64, stack_length: u64, initial_br
     writes = 0;
     unknown_seen = .{false} ** unknown_seen.len;
     process_exit_status = 0xffffffffffffffff;
+    sockets = .{Socket{}} ** sockets.len;
     vfs.reset();
 }
 
 pub fn completedWrites() usize {
     return writes;
+}
+
+pub fn configureNetwork(stack: *net.Stack) void {
+    network_stack = stack;
 }
 
 pub fn exitStatus() ?u8 {
@@ -78,6 +86,11 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         20 => writev(arg1, arg2, arg3),
         33 => duplicate(arg1, arg2),
         39 => 1,
+        41 => socket(arg1, arg2, arg3),
+        42 => connect(arg1, arg2, arg3),
+        44 => sendTo(arg1, arg2, arg3),
+        45 => receiveFrom(arg1, arg2, arg3),
+        48 => shutdown(arg1),
         63 => uname(arg1),
         72 => fcntl(arg1, arg2, arg3),
         79 => getcwd(arg1, arg2),
@@ -123,10 +136,16 @@ fn read(fd: u64, address: u64, length: u64) u64 {
     if (fd == 0) return 0;
     if (!validUserSlice(address, length)) return errno(14);
     const output: [*]u8 = @ptrFromInt(address);
+    if (socketIndex(fd)) |index| return socketReceive(index, output[0..@intCast(length)]);
     return vfs.read(@intCast(fd), output[0..@intCast(length)]) catch |err| vfsError(err);
 }
 
 fn close(fd: u64) u64 {
+    if (socketIndex(fd)) |index| {
+        if (sockets[index].connection) |*connection| if (network_stack) |stack| stack.tcpClose(connection) catch {};
+        sockets[index] = .{};
+        return 0;
+    }
     if (fd <= 2 and !vfs.isOpen(@intCast(fd))) return 0;
     vfs.close(@intCast(fd)) catch |err| return vfsError(err);
     return 0;
@@ -246,11 +265,81 @@ fn copyZ(target: [*]u8, text: []const u8) void { @memcpy(target[0..text.len], te
 fn write(fd: u64, address: u64, length: u64) u64 {
     if (!validUserSlice(address, length)) return errno(14);
     const text: [*]const u8 = @ptrFromInt(address);
+    if (socketIndex(fd)) |index| return socketSend(index, text[0..@intCast(length)]);
     if (vfs.isDiskFile(@intCast(fd))) return vfs.write(@intCast(fd), text[0..@intCast(length)]) catch |err| vfsError(err);
     if (!vfs.isConsole(@intCast(fd))) return errno(9);
     serial.write(text[0..@intCast(length)]);
     writes += 1;
     return length;
+}
+
+const Socket = struct {
+    allocated: bool = false,
+    connection: ?net.TcpConnection = null,
+};
+
+fn socket(domain: u64, kind: u64, protocol: u64) u64 {
+    if (domain != 2 or (kind & 0xf) != 1 or (protocol != 0 and protocol != 6)) return errno(97);
+    for (&sockets, 0..) |*entry, index| {
+        if (!entry.allocated) {
+            entry.* = .{ .allocated = true };
+            return 32 + index;
+        }
+    }
+    return errno(24);
+}
+
+fn connect(fd: u64, address: u64, length: u64) u64 {
+    const index = socketIndex(fd) orelse return errno(9);
+    if (length < 16 or !validUserSlice(address, 16)) return errno(14);
+    const bytes: [*]const u8 = @ptrFromInt(address);
+    if (bytes[0] != 2 or bytes[1] != 0) return errno(97);
+    const port = (@as(u16, bytes[2]) << 8) | bytes[3];
+    const destination = [4]u8{ bytes[4], bytes[5], bytes[6], bytes[7] };
+    const stack = network_stack orelse return errno(100);
+    sockets[index].connection = stack.tcpConnect(destination, port, @intCast(49153 + index)) catch return errno(111);
+    return 0;
+}
+
+fn sendTo(fd: u64, address: u64, length: u64) u64 {
+    const index = socketIndex(fd) orelse return errno(9);
+    if (!validUserSlice(address, length)) return errno(14);
+    const bytes: [*]const u8 = @ptrFromInt(address);
+    return socketSend(index, bytes[0..@intCast(length)]);
+}
+
+fn receiveFrom(fd: u64, address: u64, length: u64) u64 {
+    const index = socketIndex(fd) orelse return errno(9);
+    if (!validUserSlice(address, length)) return errno(14);
+    const bytes: [*]u8 = @ptrFromInt(address);
+    return socketReceive(index, bytes[0..@intCast(length)]);
+}
+
+fn shutdown(fd: u64) u64 {
+    const index = socketIndex(fd) orelse return errno(9);
+    const stack = network_stack orelse return errno(100);
+    if (sockets[index].connection) |*connection| stack.tcpClose(connection) catch return errno(5) else return errno(107);
+    return 0;
+}
+
+fn socketSend(index: usize, data: []const u8) u64 {
+    const stack = network_stack orelse return errno(100);
+    if (sockets[index].connection) |*connection|
+        return stack.tcpSend(connection, data) catch errno(5);
+    return errno(107);
+}
+
+fn socketReceive(index: usize, data: []u8) u64 {
+    const stack = network_stack orelse return errno(100);
+    if (sockets[index].connection) |*connection|
+        return stack.tcpReceive(connection, data) catch errno(5);
+    return errno(107);
+}
+
+fn socketIndex(fd: u64) ?usize {
+    if (fd < 32 or fd >= 32 + sockets.len) return null;
+    const index: usize = @intCast(fd - 32);
+    return if (sockets[index].allocated) index else null;
 }
 
 fn archPrctl(code: u64, address: u64) u64 {

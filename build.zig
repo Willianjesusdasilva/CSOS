@@ -24,6 +24,17 @@ pub fn build(b: *std.Build) void {
     hello.entry = .{ .symbol_name = "_start" };
     hello.image_base = 0x0000008000000000;
 
+    const nettest = b.addExecutable(.{
+        .name = "nettest",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("userspace/nettest.zig"),
+            .target = user_target,
+            .optimize = .ReleaseSmall,
+        }),
+    });
+    nettest.entry = .{ .symbol_name = "_start" };
+    nettest.image_base = 0x0000008000000000;
+
     const serial_module = b.createModule(.{ .root_source_file = b.path("arch/x86_64/serial.zig") });
     const gdt_module = b.createModule(.{ .root_source_file = b.path("arch/x86_64/gdt.zig") });
     const idt_module = b.createModule(.{ .root_source_file = b.path("arch/x86_64/idt.zig") });
@@ -63,11 +74,13 @@ pub fn build(b: *std.Build) void {
     vfs_module.addAnonymousImport("busybox_elf", .{ .root_source_file = b.path("userspace/initramfs/bin/busybox") });
     vfs_module.addImport("fat16", fat16_module);
     syscalls_module.addImport("vfs", vfs_module);
+    syscalls_module.addImport("net", net_module);
     const process_module = b.createModule(.{ .root_source_file = b.path("kernel/process.zig") });
     process_module.addImport("paging", paging_module);
     process_module.addImport("physical", physical_module);
     process_module.addImport("syscalls", syscalls_module);
     process_module.addAnonymousImport("hello_elf", .{ .root_source_file = hello.getEmittedBin() });
+    process_module.addAnonymousImport("nettest_elf", .{ .root_source_file = nettest.getEmittedBin() });
     process_module.addAnonymousImport("busybox_elf", .{ .root_source_file = b.path("userspace/initramfs/bin/busybox") });
     const kernel_module = b.createModule(.{ .root_source_file = b.path("kernel/main.zig") });
     kernel_module.addImport("serial", serial_module);

@@ -1,7 +1,9 @@
 const paging = @import("paging");
 const physical = @import("physical");
 const syscalls = @import("syscalls");
-const image = @embedFile("busybox_elf");
+const busybox_image = @embedFile("busybox_elf");
+const nettest_image = @embedFile("nettest_elf");
+var image: []const u8 = busybox_image;
 const stack_address: u64 = 0x0000009000000000;
 const mmap_address: u64 = 0x000000a000000000;
 const page_size: u64 = 4096;
@@ -12,6 +14,17 @@ const Mapping = struct { virtual: u64, physical: u64 };
 extern fn enter_user(entry: u64, stack: u64) callconv(.c) void;
 
 pub fn runBusyBox(kernel_root: u64, pages: *physical.Allocator, arguments: []const []const u8) !void {
+    image = busybox_image;
+    return runImage(kernel_root, pages, arguments);
+}
+
+pub fn runNetTest(kernel_root: u64, pages: *physical.Allocator) !void {
+    image = nettest_image;
+    const arguments = [_][]const u8{"/bin/nettest"};
+    return runImage(kernel_root, pages, &arguments);
+}
+
+fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []const u8) !void {
     if (image.len < 64 or !isElf()) return error.InvalidElf;
     const entry = read64(24);
     const program_offset = read64(32);
