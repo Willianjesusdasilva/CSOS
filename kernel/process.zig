@@ -25,6 +25,9 @@ var active_mappings: ?[]Mapping = null;
 var active_owned: ?[]OwnedRange = null;
 pub var standby_pages: u64 = 0;
 pub var restored_pages: u64 = 0;
+pub var pause_count: u64 = 0;
+pub const Lifecycle = enum { running, frozen, standby, resuming, finished };
+pub var lifecycle: Lifecycle = .finished;
 
 extern fn enter_user(entry: u64, stack: u64) callconv(.c) void;
 
@@ -109,9 +112,22 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
         active_mappings = null;
         active_owned = null;
     }
-    standby_pages += try discardCleanPages(&address_space, pages, mappings[0..mapping_count], owned[0..owned_count]);
-    address_space.activate();
-    enter_user(entry, stack_pointer);
+    lifecycle = .running;
+    var user_instruction = entry;
+    var user_stack = stack_pointer;
+    while (true) {
+        address_space.activate();
+        enter_user(user_instruction, user_stack);
+        const pause = syscalls.takePause() orelse break;
+        lifecycle = .frozen;
+        pause_count += 1;
+        standby_pages += try discardCleanPages(&address_space, pages, mappings[0..mapping_count], owned[0..owned_count]);
+        lifecycle = .standby;
+        user_instruction = pause.instruction;
+        user_stack = pause.stack;
+        lifecycle = .resuming;
+    }
+    lifecycle = .finished;
     if (syscalls.exitStatus() != 0) return error.ProcessFailed;
 }
 

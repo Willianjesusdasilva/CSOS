@@ -52,6 +52,8 @@ pub export fn _start() callconv(.naked) noreturn {
         \\leaq success(%%rip), %%rsi
         \\movq $29, %%rdx
         \\syscall
+        \\movq $24, %%rax
+        \\syscall
         \\movq $60, %%rax
         \\xorq %%rdi, %%rdi
         \\syscall

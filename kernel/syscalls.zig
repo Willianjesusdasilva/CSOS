@@ -13,11 +13,14 @@ var mmap_base: u64 = 0;
 var mmap_limit: u64 = 0;
 var writes: usize = 0;
 var process_exit_status: u64 = 0;
+var process_pause: ?Pause = null;
 var network_stack: ?*net.Stack = null;
 var sockets: [4]Socket = .{Socket{}} ** 4;
 var unknown_seen: [512]bool = .{false} ** 512;
 pub export var syscall_kernel_rsp: u64 = 0;
 pub export var syscall_user_rsp: u64 = 0;
+
+pub const Pause = struct { instruction: u64, stack: u64 };
 
 extern fn syscall_entry() callconv(.naked) void;
 
@@ -44,6 +47,7 @@ pub fn configure(base: u64, size: u64, stack: u64, stack_length: u64, initial_br
     writes = 0;
     unknown_seen = .{false} ** unknown_seen.len;
     process_exit_status = 0xffffffffffffffff;
+    process_pause = null;
     sockets = .{Socket{}} ** sockets.len;
     vfs.reset();
 }
@@ -63,6 +67,16 @@ pub fn exitStatus() ?u8 {
 
 export fn process_exit_dispatch(status: u64) callconv(.c) void {
     process_exit_status = status;
+}
+
+export fn process_pause_dispatch(instruction: u64, stack: u64) callconv(.c) void {
+    process_pause = .{ .instruction = instruction, .stack = stack };
+}
+
+pub fn takePause() ?Pause {
+    const result = process_pause;
+    process_pause = null;
+    return result;
 }
 
 export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, arg4: u64, arg5: u64, arg6: u64) callconv(.c) u64 {

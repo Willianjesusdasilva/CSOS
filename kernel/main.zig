@@ -147,11 +147,8 @@ pub fn start(info: BootInfo) noreturn {
     process.runBusyBox(mapper.root, &pages, &shell_arguments) catch panic("BusyBox sh failed");
     mapper.activate();
     if (pages.free_pages != userspace_pages_before) panic("userspace page reclaim mismatch");
-    if (process.standby_pages == 0 or process.restored_pages == 0) panic("lazy userspace resume failed");
     serial.write("userspace reclaimed pages: "); serial.writeDecimal(pages.reclaimed_pages);
-    serial.write("\nstandby pages discarded: "); serial.writeDecimal(process.standby_pages);
-    serial.write(" restored: "); serial.writeDecimal(process.restored_pages);
-    serial.write("\nCSOS M17 standby resume ready\n");
+    serial.write("\nCSOS M17 process reclaim ready\n");
     serial.write("BusyBox applets returned\n");
 
     const inventory = pci.Inventory.scan();
@@ -278,6 +275,11 @@ pub fn start(info: BootInfo) noreturn {
     process.runNetTest(mapper.root, &pages) catch panic("Linux socket userspace test failed");
     mapper.activate();
     if (pages.free_pages != nettest_pages_before) panic("network userspace page reclaim mismatch");
+    if (process.pause_count != 1 or process.standby_pages == 0 or process.restored_pages == 0 or process.lifecycle != .finished)
+        panic("persistent userspace standby failed");
+    serial.write("standby pages discarded: "); serial.writeDecimal(process.standby_pages);
+    serial.write(" restored: "); serial.writeDecimal(process.restored_pages);
+    serial.write("\nCSOS M17 persistent standby resume ready\n");
     serial.write("CSOS Linux socket ABI ready\n");
     var irq_spins: usize = 0;
     while (e1000.interruptCount() == 0 and irq_spins < 100_000_000) : (irq_spins += 1) asm volatile ("pause");

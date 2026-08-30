@@ -9,6 +9,8 @@ syscall_entry:
     je .Lprocess_exit
     cmpq $231, %rax
     je .Lprocess_exit
+    cmpq $24, %rax
+    je .Lprocess_pause
     pushq %rcx
     pushq %r11
     pushq %r15
@@ -59,5 +61,12 @@ syscall_entry:
     movq %rdi, %rcx
     subq $32, %rsp
     callq process_exit_dispatch
+    addq $32, %rsp
+    jmp user_exit_trampoline
+
+.Lprocess_pause:
+    movq syscall_user_rsp(%rip), %rdx
+    subq $32, %rsp
+    callq process_pause_dispatch
     addq $32, %rsp
     jmp user_exit_trampoline
