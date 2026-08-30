@@ -28,5 +28,5 @@ Copy-Item -Force -LiteralPath $ovmf -Destination $localOvmf
 $nvmeDisk = Join-Path $PSScriptRoot '..\zig-out\nvme.img'
 & (Join-Path $PSScriptRoot 'make-fat16.ps1') -Path $nvmeDisk
 
-& $qemu.FullName -machine q35 -smp 4 -m 256M -drive "if=pflash,format=raw,readonly=on,file=$localOvmf" -drive "format=raw,file=fat:rw:$esp" -drive "if=none,id=nvme0,format=raw,file=$nvmeDisk" -device "nvme,drive=nvme0,serial=CSOS0001" -serial stdio -no-reboot
+& $qemu.FullName -machine q35 -smp 4 -m 256M -drive "if=pflash,format=raw,readonly=on,file=$localOvmf" -drive "format=raw,file=fat:rw:$esp" -drive "if=none,id=nvme0,format=raw,file=$nvmeDisk" -device "nvme,drive=nvme0,serial=CSOS0001" -device "qemu-xhci,id=xhci" -device "usb-kbd,bus=xhci.0" -device "usb-mouse,bus=xhci.0" -serial stdio -no-reboot
 exit $LASTEXITCODE

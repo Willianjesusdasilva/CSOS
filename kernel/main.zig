@@ -7,6 +7,7 @@ const acpi = @import("acpi");
 const pci = @import("pci");
 const nvme = @import("nvme");
 const fat16 = @import("fat16");
+const xhci = @import("xhci");
 const smp = @import("smp");
 const physical = @import("physical");
 const paging = @import("paging");
@@ -160,6 +161,16 @@ pub fn start(info: BootInfo) noreturn {
     const file_size = volume.readRootFile("SYSTEM  TXT", &file_data) catch panic("FAT16 read failed");
     serial.write(file_data[0..file_size]);
     serial.write("CSOS M10 ready\n");
+    const xhci_device = inventory.findClassInterface(0x0c, 0x03, 0x30) orelse panic("xHCI controller missing");
+    const xhci_bar = pci.barAddress(xhci_device, 0) orelse panic("xHCI BAR missing");
+    mapper.mapIdentity(xhci_bar, 0x10000) catch panic("xHCI MMIO mapping failed");
+    mapper.activate();
+    const usb = xhci.Controller.init(xhci_device, &pages) catch panic("xHCI setup failed");
+    serial.write("xHCI ports connected: ");
+    serial.writeDecimal(usb.connected_ports);
+    serial.write("\n");
+    if (usb.connected_ports < 2) panic("USB HID devices missing");
+    serial.write("xHCI controller ready\n");
 
     drawBootMarker(info.framebuffer);
     serial.write("framebuffer ready\n");

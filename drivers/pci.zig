@@ -30,6 +30,13 @@ pub const Inventory = struct {
         return null;
     }
 
+    pub fn findClassInterface(self: *const Inventory, class: u8, subclass: u8, programming_interface: u8) ?Device {
+        for (self.devices[0..self.count]) |device| {
+            if (device.class == class and device.subclass == subclass and device.programming_interface == programming_interface) return device;
+        }
+        return null;
+    }
+
     fn scanBus(self: *Inventory, bus: u8) void {
         if (self.visited_buses[bus]) return;
         self.visited_buses[bus] = true;
