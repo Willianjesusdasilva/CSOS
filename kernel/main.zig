@@ -615,6 +615,16 @@ fn lifecycleThreadB() void {
     lifecycle_b = 2;
 }
 
+fn inputWorkload() void {
+    workload_sequence += 1;
+    input_workload_order = workload_sequence;
+}
+
+fn backgroundWorkload() void {
+    workload_sequence += 1;
+    background_workload_order = workload_sequence;
+}
+
 fn perCpuTask() void {
     _ = @atomicRmw(u32, &per_cpu_runs, .Add, 1, .release);
 }
