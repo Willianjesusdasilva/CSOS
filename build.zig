@@ -9,7 +9,7 @@ pub fn build(b: *std.Build) void {
     });
     const user_target = b.resolveTargetQuery(.{
         .cpu_arch = .x86_64,
-        .os_tag = .freestanding,
+        .os_tag = .linux,
         .abi = .none,
     });
 
@@ -72,6 +72,7 @@ pub fn build(b: *std.Build) void {
     boot_module.addAssemblyFile(b.path("arch/x86_64/ap_trampoline.S"));
     boot_module.addAssemblyFile(b.path("arch/x86_64/context_switch.S"));
     boot_module.addAssemblyFile(b.path("arch/x86_64/user_enter.S"));
+    boot_module.addAssemblyFile(b.path("arch/x86_64/syscall_entry.S"));
     const boot = b.addExecutable(.{ .name = "BOOTX64", .root_module = boot_module });
     b.installArtifact(boot);
 

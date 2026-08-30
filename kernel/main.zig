@@ -10,6 +10,7 @@ const paging = @import("paging");
 const heap = @import("heap");
 const scheduler = @import("scheduler");
 const process = @import("process");
+const syscalls = @import("syscalls");
 
 var thread_a_runs: usize = 0;
 var thread_b_runs: usize = 0;
@@ -44,6 +45,7 @@ pub fn start(info: BootInfo) noreturn {
     }
     serial.write("IOAPIC ready\n");
     gdt.install();
+    syscalls.install(gdt.privilegeStackTop());
     serial.write("GDT ready\n");
     idt.install();
     if (!idt.verifyBreakpoint()) panic("breakpoint handler failed");
@@ -113,7 +115,7 @@ pub fn start(info: BootInfo) noreturn {
 
     drawBootMarker(info.framebuffer);
     serial.write("framebuffer ready\n");
-    serial.write("CSOS M5 ready\n");
+    serial.write("CSOS M6 ready\n");
 
     while (true) asm volatile ("cli; hlt");
 }

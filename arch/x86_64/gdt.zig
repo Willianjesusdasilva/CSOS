@@ -75,3 +75,7 @@ pub fn install() void {
     _ = code_selector;
     _ = data_selector;
 }
+
+pub fn privilegeStackTop() u64 {
+    return @intFromPtr(&privilege_stack) + privilege_stack.len;
+}

@@ -3,6 +3,20 @@ const serial = @import("serial");
 var user_base: u64 = 0;
 var user_size: u64 = 0;
 var writes: usize = 0;
+pub export var syscall_kernel_rsp: u64 = 0;
+pub export var syscall_user_rsp: u64 = 0;
+
+extern fn syscall_entry() callconv(.naked) void;
+
+pub fn install(kernel_stack: u64) void {
+    syscall_kernel_rsp = kernel_stack;
+    var efer = readMsr(0xc0000080);
+    efer |= 1;
+    writeMsr(0xc0000080, efer);
+    writeMsr(0xc0000081, (@as(u64, 0x10) << 48) | (@as(u64, 0x08) << 32));
+    writeMsr(0xc0000082, @intFromPtr(&syscall_entry));
+    writeMsr(0xc0000084, 0x200);
+}
 
 pub fn configure(base: u64, size: u64) void {
     user_base = base;
@@ -30,4 +44,22 @@ fn validUserSlice(address: u64, length: u64) bool {
 
 fn errno(value: i64) u64 {
     return @bitCast(-value);
+}
+
+fn readMsr(msr: u32) u64 {
+    var low: u32 = undefined;
+    var high: u32 = undefined;
+    asm volatile ("rdmsr"
+        : [low] "={eax}" (low),
+          [high] "={edx}" (high),
+        : [msr] "{ecx}" (msr));
+    return (@as(u64, high) << 32) | low;
+}
+
+fn writeMsr(msr: u32, value: u64) void {
+    asm volatile ("wrmsr"
+        :
+        : [msr] "{ecx}" (msr),
+          [low] "{eax}" (@as(u32, @truncate(value))),
+          [high] "{edx}" (@as(u32, @truncate(value >> 32))));
 }

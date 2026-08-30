@@ -6,10 +6,10 @@ pub export fn _start() callconv(.naked) noreturn {
         \\movl $1, %%edi
         \\leaq hello_message(%%rip), %%rsi
         \\movl $21, %%edx
-        \\int $0x80
+        \\syscall
         \\movl $60, %%eax
         \\xorl %%edi, %%edi
-        \\int $0x80
+        \\syscall
         \\ud2
     );
 }
