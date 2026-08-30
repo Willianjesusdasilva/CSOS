@@ -8,7 +8,10 @@ const stack_pages = 4;
 
 const Entry = *const fn () void;
 
-const State = enum { ready, running, finished };
+const State = enum { ready, running, frozen, finished };
+
+pub const Policy = enum { keep_alive, freeze, auto };
+pub const Lifecycle = enum { running, background, frozen, resuming, finished };
 
 const Context = extern struct {
     rsp: u64 = 0,
@@ -20,6 +23,9 @@ const Thread = struct {
     context: Context,
     entry: Entry,
     state: State,
+    group: u16 = 0,
+    policy: Policy = .auto,
+    lifecycle: Lifecycle = .running,
 };
 
 const CpuQueue = struct {
@@ -73,6 +79,10 @@ pub fn stopSecondaryWorkers() void {
 }
 
 pub fn spawn(entry: Entry, pages: *physical.Allocator) !void {
+    _ = try spawnManaged(entry, pages, 0, .auto);
+}
+
+pub fn spawnManaged(entry: Entry, pages: *physical.Allocator, group: u16, policy: Policy) !usize {
     if (thread_count == max_threads) return error.ThreadLimit;
     const stack = pages.allocate(stack_pages) orelse return error.OutOfMemory;
     const stack_top = stack + stack_pages * 4096;
@@ -84,10 +94,63 @@ pub fn spawn(entry: Entry, pages: *physical.Allocator) !void {
         .context = .{ .rsp = stack_top - 80 },
         .entry = entry,
         .state = .ready,
+        .group = group,
+        .policy = policy,
     };
     saveFxState(&thread.context.fx_state);
     threads[thread_count] = thread;
+    const index = thread_count;
     thread_count += 1;
+    return index;
+}
+
+pub fn backgroundGroup(group: u16) usize {
+    var changed: usize = 0;
+    for (threads[0..thread_count]) |*thread| {
+        if (thread.group != group or thread.state == .finished or thread.state == .frozen) continue;
+        thread.lifecycle = .background;
+        changed += 1;
+    }
+    return changed;
+}
+
+pub fn freezeGroup(group: u16) usize {
+    var changed: usize = 0;
+    for (threads[0..thread_count]) |*thread| {
+        if (thread.group != group or thread.policy == .keep_alive or thread.state != .ready) continue;
+        thread.state = .frozen;
+        thread.lifecycle = .frozen;
+        changed += 1;
+    }
+    return changed;
+}
+
+pub fn freezeCurrent() !void {
+    const index = current orelse return error.NoCurrentThread;
+    if (threads[index].policy == .keep_alive) return error.KeepAlive;
+    threads[index].state = .frozen;
+    threads[index].lifecycle = .frozen;
+    yieldNow();
+}
+
+pub fn resumeGroup(group: u16) usize {
+    var changed: usize = 0;
+    for (threads[0..thread_count]) |*thread| {
+        if (thread.group != group or thread.state != .frozen) continue;
+        thread.state = .ready;
+        thread.lifecycle = .resuming;
+        changed += 1;
+    }
+    return changed;
+}
+
+pub fn groupLifecycle(group: u16) ?Lifecycle {
+    var result: ?Lifecycle = null;
+    for (threads[0..thread_count]) |thread| {
+        if (thread.group != group) continue;
+        if (result == null or lifecyclePriority(thread.lifecycle) > lifecyclePriority(result.?)) result = thread.lifecycle;
+    }
+    return result;
 }
 
 pub fn enablePreemption() void {
@@ -102,6 +165,7 @@ pub fn run() void {
     const next = nextReady(0) orelse return;
     current = next;
     threads[next].state = .running;
+    if (threads[next].lifecycle == .resuming) threads[next].lifecycle = .running;
     context_switch(&kernel_context, &threads[next].context);
 }
 
@@ -112,14 +176,17 @@ pub fn yieldNow() void {
     if (nextReady((previous + 1) % thread_count)) |next| {
         current = next;
         threads[next].state = .running;
+        if (threads[next].lifecycle == .resuming) threads[next].lifecycle = .running;
         context_switch(&threads[previous].context, &threads[next].context);
         return;
     }
 
-    if (threads[previous].state == .finished) {
+    if (threads[previous].state == .finished or threads[previous].state == .frozen) {
+        const permanently_finished = threads[previous].state == .finished;
         current = null;
         context_switch(&threads[previous].context, &kernel_context);
-        unreachable;
+        if (permanently_finished) unreachable;
+        return;
     }
     threads[previous].state = .running;
 }
@@ -156,8 +223,19 @@ fn threadBootstrap() callconv(.c) noreturn {
     const index = current orelse halt();
     threads[index].entry();
     threads[index].state = .finished;
+    threads[index].lifecycle = .finished;
     yieldNow();
     halt();
+}
+
+fn lifecyclePriority(value: Lifecycle) u8 {
+    return switch (value) {
+        .running => 5,
+        .resuming => 4,
+        .background => 3,
+        .frozen => 2,
+        .finished => 1,
+    };
 }
 
 fn saveFxState(state: *[512]u8) void {

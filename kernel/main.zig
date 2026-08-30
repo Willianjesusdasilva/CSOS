@@ -25,6 +25,9 @@ var thread_b_runs: usize = 0;
 var preempt_a: usize = 0;
 var preempt_b: usize = 0;
 var per_cpu_runs: u32 = 0;
+var lifecycle_a: u8 = 0;
+var lifecycle_b: u8 = 0;
+var lifecycle_error = false;
 
 pub const BootInfo = struct {
     framebuffer: Framebuffer,
@@ -110,6 +113,21 @@ pub fn start(info: BootInfo) noreturn {
     scheduler.disablePreemption();
     if (preempt_a != 2 or preempt_b != 2) panic("timer preemption failed");
     serial.write("scheduler preemption ready\n");
+
+    const service_group: u16 = 7;
+    _ = scheduler.spawnManaged(&lifecycleThreadA, &pages, service_group, .freeze) catch panic("lifecycle thread A creation failed");
+    _ = scheduler.spawnManaged(&lifecycleThreadB, &pages, service_group, .auto) catch panic("lifecycle thread B creation failed");
+    if (scheduler.backgroundGroup(service_group) != 2 or scheduler.groupLifecycle(service_group) != .background)
+        panic("lifecycle background transition failed");
+    scheduler.run();
+    if (lifecycle_error or lifecycle_a != 1 or lifecycle_b != 1 or scheduler.groupLifecycle(service_group) != .frozen)
+        panic("lifecycle freeze failed");
+    if (scheduler.resumeGroup(service_group) != 2 or scheduler.groupLifecycle(service_group) != .resuming)
+        panic("lifecycle resume transition failed");
+    scheduler.run();
+    if (lifecycle_error or lifecycle_a != 2 or lifecycle_b != 2 or scheduler.groupLifecycle(service_group) != .finished)
+        panic("lifecycle completion failed");
+    serial.write("CSOS M15 service lifecycle ready\n");
 
     const echo_arguments = [_][]const u8{ "/bin/busybox", "echo", "BusyBox userspace ready" };
     process.runBusyBox(mapper.root, &pages, &echo_arguments) catch panic("BusyBox echo failed");
@@ -338,6 +356,24 @@ fn preemptThreadB() void {
     preempt_b = 1;
     while (preempt_a == 0) asm volatile ("pause" ::: .{ .memory = true });
     preempt_b = 2;
+}
+
+fn lifecycleThreadA() void {
+    lifecycle_a = 1;
+    scheduler.freezeCurrent() catch {
+        lifecycle_error = true;
+        return;
+    };
+    lifecycle_a = 2;
+}
+
+fn lifecycleThreadB() void {
+    lifecycle_b = 1;
+    scheduler.freezeCurrent() catch {
+        lifecycle_error = true;
+        return;
+    };
+    lifecycle_b = 2;
 }
 
 fn perCpuTask() void {
