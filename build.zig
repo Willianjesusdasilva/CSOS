@@ -136,6 +136,8 @@ pub fn build(b: *std.Build) void {
     const scheduler_module = b.createModule(.{ .root_source_file = b.path("kernel/scheduler.zig") });
     scheduler_module.addImport("physical", physical_module);
     scheduler_module.addImport("idt", idt_module);
+    scheduler_module.addImport("apic", apic_module);
+    scheduler_module.addImport("metrics", metrics_module);
     const syscalls_module = b.createModule(.{ .root_source_file = b.path("kernel/syscalls.zig") });
     syscalls_module.addImport("serial", serial_module);
     const vfs_module = b.createModule(.{ .root_source_file = b.path("kernel/vfs.zig") });

@@ -1,5 +1,7 @@
 const physical = @import("physical");
 const idt = @import("idt");
+const apic = @import("apic");
+const metrics = @import("metrics");
 
 const max_threads = 64;
 const max_cpus = 256;
@@ -32,6 +34,8 @@ const Thread = struct {
     workload: Workload = .system,
     resume_state: State = .ready,
     sleep_ticks: u64 = 0,
+    ready_tsc: u64 = 0,
+    last_apic: u32 = 0xffffffff,
 };
 
 const CpuQueue = struct {
@@ -51,6 +55,8 @@ var cpu_queues: [max_cpus]CpuQueue = .{CpuQueue{}} ** max_cpus;
 var cpu_count: usize = 0;
 var secondary_workers_active = true;
 var system_mode: Mode = .normal;
+var dispatch_latency = metrics.Samples{};
+var migrations: u64 = 0;
 
 pub fn addCpu(apic_id: u32) !void {
     if (cpu_count == max_cpus) return error.CpuLimit;
@@ -113,6 +119,7 @@ pub fn spawnProcess(entry: Entry, pages: *physical.Allocator, process_id: u32, g
         .group = group,
         .policy = policy,
         .workload = workload,
+        .ready_tsc = timestamp(),
     };
     saveFxState(&thread.context.fx_state);
     threads[thread_count] = thread;
@@ -187,6 +194,7 @@ pub fn resumeGroup(group: u16) usize {
     for (threads[0..thread_count]) |*thread| {
         if (thread.group != group or thread.state != .frozen) continue;
         thread.state = thread.resume_state;
+        if (thread.state == .ready) thread.ready_tsc = timestamp();
         thread.lifecycle = .resuming;
         changed += 1;
     }
@@ -206,7 +214,10 @@ pub fn tick() void {
     for (threads[0..thread_count]) |*thread| {
         if (thread.state != .sleeping or thread.sleep_ticks == 0) continue;
         thread.sleep_ticks -= 1;
-        if (thread.sleep_ticks == 0) thread.state = .ready;
+        if (thread.sleep_ticks == 0) {
+            thread.state = .ready;
+            thread.ready_tsc = timestamp();
+        }
     }
 }
 
@@ -258,19 +269,20 @@ pub fn disablePreemption() void {
 pub fn run() void {
     const next = nextReady(0) orelse return;
     current = next;
-    threads[next].state = .running;
-    if (threads[next].lifecycle == .resuming) threads[next].lifecycle = .running;
+    markRunning(next);
     context_switch(&kernel_context, &threads[next].context);
 }
 
 pub fn yieldNow() void {
     const previous = current orelse return;
-    if (threads[previous].state == .running) threads[previous].state = .ready;
+    if (threads[previous].state == .running) {
+        threads[previous].state = .ready;
+        threads[previous].ready_tsc = timestamp();
+    }
 
     if (nextReady((previous + 1) % thread_count)) |next| {
         current = next;
-        threads[next].state = .running;
-        if (threads[next].lifecycle == .resuming) threads[next].lifecycle = .running;
+        markRunning(next);
         context_switch(&threads[previous].context, &threads[next].context);
         return;
     }
@@ -283,6 +295,25 @@ pub fn yieldNow() void {
         return;
     }
     threads[previous].state = .running;
+}
+
+pub fn dispatchLatency() !metrics.Summary {
+    return dispatch_latency.summarize();
+}
+
+pub fn migrationCount() u64 {
+    return migrations;
+}
+
+fn markRunning(index: usize) void {
+    const now = timestamp();
+    if (threads[index].ready_tsc != 0 and dispatch_latency.count < dispatch_latency.values.len)
+        dispatch_latency.add(now -% threads[index].ready_tsc) catch {};
+    const current_apic = apic.id();
+    if (threads[index].last_apic != 0xffffffff and threads[index].last_apic != current_apic) migrations += 1;
+    threads[index].last_apic = current_apic;
+    threads[index].state = .running;
+    if (threads[index].lifecycle == .resuming) threads[index].lifecycle = .running;
 }
 
 fn nextReady(start: usize) ?usize {
@@ -367,4 +398,14 @@ fn preempt() callconv(.c) void {
 
 fn halt() noreturn {
     while (true) asm volatile ("cli; hlt");
+}
+
+fn timestamp() u64 {
+    var low: u32 = undefined;
+    var high: u32 = undefined;
+    asm volatile ("lfence; rdtsc"
+        : [low] "={eax}" (low), [high] "={edx}" (high)
+        :
+        : .{ .memory = true });
+    return (@as(u64, high) << 32) | low;
 }

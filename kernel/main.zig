@@ -162,6 +162,12 @@ pub fn start(info: BootInfo) noreturn {
     scheduler.run();
     scheduler.setMode(.normal);
     if (input_workload_order != 1 or background_workload_order != 2) panic("GAME workload priority failed");
+    const scheduler_latency = scheduler.dispatchLatency() catch panic("scheduler latency metrics missing");
+    serial.write("profile scheduler dispatch cycles p50: "); serial.writeDecimal(scheduler_latency.p50);
+    serial.write(" p95: "); serial.writeDecimal(scheduler_latency.p95);
+    serial.write(" p99: "); serial.writeDecimal(scheduler_latency.p99);
+    serial.write(" migrations: "); serial.writeDecimal(scheduler.migrationCount());
+    serial.write("\nCSOS M18 scheduler latency ready\n");
     serial.write("CSOS M18 workload policy ready\n");
 
     const timer_group: u16 = 9;
