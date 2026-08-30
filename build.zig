@@ -130,6 +130,7 @@ pub fn build(b: *std.Build) void {
     process_module.addAnonymousImport("hello_elf", .{ .root_source_file = hello.getEmittedBin() });
     process_module.addAnonymousImport("interpreter_elf", .{ .root_source_file = interpreter.getEmittedBin() });
     process_module.addAnonymousImport("dynamic_elf", .{ .root_source_file = dynamic_hello.getEmittedBin() });
+    process_module.addAnonymousImport("shared_elf", .{ .root_source_file = shared.getEmittedBin() });
     process_module.addAnonymousImport("nettest_elf", .{ .root_source_file = nettest.getEmittedBin() });
     process_module.addAnonymousImport("busybox_elf", .{ .root_source_file = b.path("userspace/initramfs/bin/busybox") });
     const kernel_module = b.createModule(.{ .root_source_file = b.path("kernel/main.zig") });

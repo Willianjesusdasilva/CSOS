@@ -162,6 +162,7 @@ pub fn start(info: BootInfo) noreturn {
     process.runDynamicTest(mapper.root, &pages) catch panic("PT_INTERP userspace failed");
     mapper.activate();
     if (process.interpreter_loads == 0) panic("PT_INTERP loader missing");
+    if (process.shared_objects_loaded == 0 or process.symbol_relocations == 0) panic("dynamic shared object resolution missing");
     serial.write("Linux dynamic userspace ready\n");
     const echo_arguments = [_][]const u8{ "/bin/busybox", "echo", "BusyBox userspace ready" };
     process.runBusyBox(mapper.root, &pages, &echo_arguments) catch panic("BusyBox echo failed");

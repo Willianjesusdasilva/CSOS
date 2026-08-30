@@ -6,6 +6,7 @@ const nettest_image = @embedFile("nettest_elf");
 const hello_image = @embedFile("hello_elf");
 const interpreter_image = @embedFile("interpreter_elf");
 const dynamic_image = @embedFile("dynamic_elf");
+const shared_image = @embedFile("shared_elf");
 var image: []const u8 = busybox_image;
 const stack_address: u64 = 0x0000009000000000;
 const mmap_address: u64 = 0x000000a000000000;
@@ -33,6 +34,8 @@ pub var restored_pages: u64 = 0;
 pub var pause_count: u64 = 0;
 pub var relative_relocations: u64 = 0;
 pub var interpreter_loads: u64 = 0;
+pub var shared_objects_loaded: u64 = 0;
+pub var symbol_relocations: u64 = 0;
 pub const Lifecycle = enum { running, frozen, standby, resuming, finished };
 pub var lifecycle: Lifecycle = .finished;
 
@@ -108,6 +111,27 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
     var interpreter_base: u64 = 0;
     if (interpreter_path) |path| {
         if (!equal(path, "/lib/ld-csos.so")) return error.UnsupportedInterpreter;
+        const shared_base: u64 = 0x0000006000000000;
+        image = shared_image;
+        if (image.len < 64 or !isElf() or read16(16) != 3) return error.InvalidSharedObject;
+        const shared_program_offset = read64(32);
+        const shared_program_entry_size = read16(54);
+        const shared_program_count = read16(56);
+        header_index = 0;
+        while (header_index < shared_program_count) : (header_index += 1) {
+            const header: usize = @intCast(shared_program_offset + @as(u64, shared_program_entry_size) * header_index);
+            if (read32At(header) != 1) continue;
+            const flags = read32At(header + 4);
+            const file_offset = read64At(header + 8);
+            const virtual = read64At(header + 16) + shared_base;
+            const file_size = read64At(header + 32);
+            const memory_size = read64At(header + 40);
+            if (file_size > memory_size or file_offset + file_size > image.len or memory_size == 0) return error.InvalidSharedObject;
+            try loadSegment(&address_space, pages, &mappings, &mapping_count, &owned, &owned_count, virtual, file_offset, file_size, memory_size, (flags & 2) != 0, (flags & 1) != 0);
+        }
+        try applyRelativeRelocations(mappings[0..mapping_count], shared_base, shared_program_offset, shared_program_entry_size, shared_program_count, false);
+        try applySymbolRelocations(program_image, program_offset, program_entry_size, program_count, load_bias, shared_image, shared_program_offset, shared_program_entry_size, shared_program_count, shared_base, mappings[0..mapping_count]);
+        shared_objects_loaded += 1;
         image = interpreter_image;
         if (image.len < 64 or !isElf() or read16(16) != 3) return error.InvalidInterpreter;
         const interpreter_program_offset = read64(32);
@@ -447,6 +471,132 @@ fn applyRelativeRelocations(mappings: []const Mapping, load_bias: u64, program_o
         try writeMapped64(mappings, target, load_bias +% @as(u64, @bitCast(addend)));
         relative_relocations += 1;
     }
+}
+
+const DynamicSymbols = struct {
+    symbol_file: u64,
+    string_file: u64,
+    symbol_count: u32,
+    rela_file: u64 = 0,
+    rela_size: u64 = 0,
+};
+
+fn applySymbolRelocations(
+    consumer: []const u8,
+    consumer_program_offset: u64,
+    consumer_program_entry_size: u16,
+    consumer_program_count: u16,
+    consumer_base: u64,
+    provider: []const u8,
+    provider_program_offset: u64,
+    provider_program_entry_size: u16,
+    provider_program_count: u16,
+    provider_base: u64,
+    mappings: []const Mapping,
+) !void {
+    const wanted = try dynamicSymbols(consumer, consumer_program_offset, consumer_program_entry_size, consumer_program_count, true);
+    const supplied = try dynamicSymbols(provider, provider_program_offset, provider_program_entry_size, provider_program_count, false);
+    if (wanted.rela_size == 0) return;
+    var offset: u64 = 0;
+    while (offset < wanted.rela_size) : (offset += 24) {
+        const item: usize = @intCast(wanted.rela_file + offset);
+        const target = read64From(consumer, item) + consumer_base;
+        const info = read64From(consumer, item + 8);
+        const relocation_type: u32 = @truncate(info);
+        if (relocation_type != 6 and relocation_type != 7) return error.UnsupportedSymbolRelocation;
+        const symbol_index: u32 = @truncate(info >> 32);
+        const consumer_symbol: usize = @intCast(wanted.symbol_file + @as(u64, symbol_index) * 24);
+        const name_offset = read32From(consumer, consumer_symbol);
+        const name = try stringFrom(consumer, wanted.string_file + name_offset);
+        var provider_index: u32 = 0;
+        var resolved: ?u64 = null;
+        while (provider_index < supplied.symbol_count) : (provider_index += 1) {
+            const provider_symbol: usize = @intCast(supplied.symbol_file + @as(u64, provider_index) * 24);
+            if (read16From(provider, provider_symbol + 6) == 0) continue;
+            const provider_name_offset = read32From(provider, provider_symbol);
+            const provider_name = try stringFrom(provider, supplied.string_file + provider_name_offset);
+            if (equal(name, provider_name)) resolved = provider_base + read64From(provider, provider_symbol + 8);
+        }
+        try writeMapped64(mappings, target, resolved orelse return error.DynamicSymbolMissing);
+        symbol_relocations += 1;
+    }
+}
+
+fn dynamicSymbols(bytes: []const u8, program_offset: u64, program_entry_size: u16, program_count: u16, consumer: bool) !DynamicSymbols {
+    var dynamic_file: ?u64 = null;
+    var dynamic_size: u64 = 0;
+    var header_index: usize = 0;
+    while (header_index < program_count) : (header_index += 1) {
+        const header: usize = @intCast(program_offset + @as(u64, program_entry_size) * header_index);
+        if (read32From(bytes, header) != 2) continue;
+        dynamic_file = read64From(bytes, header + 8);
+        dynamic_size = read64From(bytes, header + 32);
+        break;
+    }
+    const table = dynamic_file orelse return error.DynamicTableMissing;
+    var symbol_virtual: u64 = 0;
+    var string_virtual: u64 = 0;
+    var hash_virtual: u64 = 0;
+    var rela_virtual: u64 = 0;
+    var rela_size: u64 = 0;
+    var offset = table;
+    while (offset + 16 <= table + dynamic_size) : (offset += 16) {
+        const tag = read64From(bytes, @intCast(offset));
+        const value = read64From(bytes, @intCast(offset + 8));
+        if (tag == 0) break;
+        switch (tag) {
+            4 => hash_virtual = value,
+            5 => string_virtual = value,
+            6 => symbol_virtual = value,
+            23 => { if (consumer) rela_virtual = value; },
+            2 => { if (consumer) rela_size = value; },
+            else => {},
+        }
+    }
+    if (symbol_virtual == 0 or string_virtual == 0 or hash_virtual == 0) return error.InvalidDynamicSymbols;
+    const hash_file = try virtualFileOffsetFor(bytes, hash_virtual, 8, program_offset, program_entry_size, program_count);
+    return .{
+        .symbol_file = try virtualFileOffsetFor(bytes, symbol_virtual, 24, program_offset, program_entry_size, program_count),
+        .string_file = try virtualFileOffsetFor(bytes, string_virtual, 1, program_offset, program_entry_size, program_count),
+        .symbol_count = read32From(bytes, @intCast(hash_file + 4)),
+        .rela_file = if (rela_size == 0) 0 else try virtualFileOffsetFor(bytes, rela_virtual, rela_size, program_offset, program_entry_size, program_count),
+        .rela_size = rela_size,
+    };
+}
+
+fn virtualFileOffsetFor(bytes: []const u8, virtual: u64, size: u64, program_offset: u64, program_entry_size: u16, program_count: u16) !u64 {
+    var header_index: usize = 0;
+    while (header_index < program_count) : (header_index += 1) {
+        const header: usize = @intCast(program_offset + @as(u64, program_entry_size) * header_index);
+        if (read32From(bytes, header) != 1) continue;
+        const file_offset = read64From(bytes, header + 8);
+        const segment_virtual = read64From(bytes, header + 16);
+        const file_size = read64From(bytes, header + 32);
+        if (virtual >= segment_virtual and size <= file_size and virtual - segment_virtual <= file_size - size)
+            return file_offset + virtual - segment_virtual;
+    }
+    return error.InvalidDynamicAddress;
+}
+
+fn stringFrom(bytes: []const u8, raw_offset: u64) ![]const u8 {
+    const start: usize = @intCast(raw_offset);
+    if (start >= bytes.len) return error.InvalidDynamicString;
+    var end = start;
+    while (end < bytes.len and bytes[end] != 0) : (end += 1) {}
+    if (end == bytes.len) return error.InvalidDynamicString;
+    return bytes[start..end];
+}
+
+fn read16From(bytes: []const u8, offset: usize) u16 {
+    return @as(u16, bytes[offset]) | (@as(u16, bytes[offset + 1]) << 8);
+}
+
+fn read32From(bytes: []const u8, offset: usize) u32 {
+    return @as(u32, read16From(bytes, offset)) | (@as(u32, read16From(bytes, offset + 2)) << 16);
+}
+
+fn read64From(bytes: []const u8, offset: usize) u64 {
+    return @as(u64, read32From(bytes, offset)) | (@as(u64, read32From(bytes, offset + 4)) << 32);
 }
 
 fn virtualFileOffset(virtual: u64, size: u64, program_offset: u64, program_entry_size: u16, program_count: u16) !u64 {
