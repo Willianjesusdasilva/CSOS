@@ -124,14 +124,20 @@ pub fn start(info: BootInfo) noreturn {
     scheduler.run();
     if (lifecycle_error or lifecycle_a != 1 or lifecycle_b != 1 or scheduler.groupLifecycle(service_group) != .frozen)
         panic("lifecycle freeze failed");
-    if (scheduler.standbyGroup(service_group) != 2 or scheduler.groupLifecycle(service_group) != .standby)
+    scheduler.setMode(.game);
+    if (scheduler.applyMode(service_group) != 0 or scheduler.groupLifecycle(service_group) != .frozen)
+        panic("GAME lifecycle policy failed");
+    scheduler.setMode(.match);
+    if (scheduler.applyMode(service_group) != 2 or scheduler.groupLifecycle(service_group) != .standby)
         panic("lifecycle standby transition failed");
     if (scheduler.resumeGroup(service_group) != 2 or scheduler.groupLifecycle(service_group) != .resuming)
         panic("lifecycle resume transition failed");
+    scheduler.setMode(.normal);
     scheduler.run();
     if (lifecycle_error or lifecycle_a != 2 or lifecycle_b != 2 or scheduler.groupLifecycle(service_group) != .finished)
         panic("lifecycle completion failed");
-    serial.write("CSOS M15 service lifecycle ready\n");
+    if (scheduler.mode() != .normal) panic("NORMAL lifecycle policy failed");
+    serial.write("CSOS M15 service lifecycle ready\nCSOS M18 gaming modes ready\n");
 
     const userspace_pages_before = pages.free_pages;
     const echo_arguments = [_][]const u8{ "/bin/busybox", "echo", "BusyBox userspace ready" };

@@ -12,6 +12,7 @@ const State = enum { ready, running, frozen, finished };
 
 pub const Policy = enum { keep_alive, freeze, standby, auto };
 pub const Lifecycle = enum { running, background, frozen, standby, resuming, finished };
+pub const Mode = enum { normal, game, match };
 
 const Context = extern struct {
     rsp: u64 = 0,
@@ -44,6 +45,7 @@ var cpu_ids: [max_cpus]u32 = undefined;
 var cpu_queues: [max_cpus]CpuQueue = .{CpuQueue{}} ** max_cpus;
 var cpu_count: usize = 0;
 var secondary_workers_active = true;
+var system_mode: Mode = .normal;
 
 pub fn addCpu(apic_id: u32) !void {
     if (cpu_count == max_cpus) return error.CpuLimit;
@@ -141,6 +143,25 @@ pub fn standbyGroup(group: u16) usize {
         changed += 1;
     }
     return changed;
+}
+
+pub fn setMode(value: Mode) void {
+    system_mode = value;
+}
+
+pub fn mode() Mode {
+    return system_mode;
+}
+
+pub fn applyMode(group: u16) usize {
+    return switch (system_mode) {
+        .normal => 0,
+        .game => freezeGroup(group),
+        .match => blk: {
+            const frozen = freezeGroup(group);
+            break :blk frozen + standbyGroup(group);
+        },
+    };
 }
 
 pub fn resumeGroup(group: u16) usize {
