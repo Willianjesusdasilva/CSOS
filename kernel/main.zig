@@ -1,5 +1,6 @@
 const serial = @import("serial");
 const gdt = @import("gdt");
+const idt = @import("idt");
 const physical = @import("physical");
 const paging = @import("paging");
 const heap = @import("heap");
@@ -24,6 +25,9 @@ pub fn start(info: BootInfo) noreturn {
     serial.write("kernel entry\n");
     gdt.install();
     serial.write("GDT ready\n");
+    idt.install();
+    if (!idt.verifyBreakpoint()) panic("breakpoint handler failed");
+    serial.write("IDT ready\n");
     if (info.memory_map_len == 0 or info.memory_descriptor_size == 0) panic("empty memory map");
     var pages = physical.Allocator.init(info.memory_map, info.memory_map_len, info.memory_descriptor_size);
     serial.write("physical allocator ready\n");
