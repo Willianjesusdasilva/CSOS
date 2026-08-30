@@ -10,8 +10,8 @@ const Entry = *const fn () void;
 
 const State = enum { ready, running, frozen, finished };
 
-pub const Policy = enum { keep_alive, freeze, auto };
-pub const Lifecycle = enum { running, background, frozen, resuming, finished };
+pub const Policy = enum { keep_alive, freeze, standby, auto };
+pub const Lifecycle = enum { running, background, frozen, standby, resuming, finished };
 
 const Context = extern struct {
     rsp: u64 = 0,
@@ -133,6 +133,16 @@ pub fn freezeCurrent() !void {
     yieldNow();
 }
 
+pub fn standbyGroup(group: u16) usize {
+    var changed: usize = 0;
+    for (threads[0..thread_count]) |*thread| {
+        if (thread.group != group or thread.state != .frozen or thread.policy == .keep_alive) continue;
+        thread.lifecycle = .standby;
+        changed += 1;
+    }
+    return changed;
+}
+
 pub fn resumeGroup(group: u16) usize {
     var changed: usize = 0;
     for (threads[0..thread_count]) |*thread| {
@@ -234,6 +244,7 @@ fn lifecyclePriority(value: Lifecycle) u8 {
         .resuming => 4,
         .background => 3,
         .frozen => 2,
+        .standby => 2,
         .finished => 1,
     };
 }

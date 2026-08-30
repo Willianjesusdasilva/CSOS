@@ -123,6 +123,8 @@ pub fn start(info: BootInfo) noreturn {
     scheduler.run();
     if (lifecycle_error or lifecycle_a != 1 or lifecycle_b != 1 or scheduler.groupLifecycle(service_group) != .frozen)
         panic("lifecycle freeze failed");
+    if (scheduler.standbyGroup(service_group) != 2 or scheduler.groupLifecycle(service_group) != .standby)
+        panic("lifecycle standby transition failed");
     if (scheduler.resumeGroup(service_group) != 2 or scheduler.groupLifecycle(service_group) != .resuming)
         panic("lifecycle resume transition failed");
     scheduler.run();
