@@ -4,6 +4,7 @@ const idt = @import("idt");
 const apic = @import("apic");
 const ioapic = @import("ioapic");
 const acpi = @import("acpi");
+const pci = @import("pci");
 const smp = @import("smp");
 const physical = @import("physical");
 const paging = @import("paging");
@@ -124,9 +125,16 @@ pub fn start(info: BootInfo) noreturn {
     mapper.activate();
     serial.write("BusyBox applets returned\n");
 
+    const inventory = pci.Inventory.scan();
+    if (inventory.count == 0) panic("PCI enumeration failed");
+    if (inventory.findClass(0x06, 0x01) == null) panic("PCI ISA bridge missing");
+    serial.write("PCI devices: ");
+    serial.writeDecimal(inventory.count);
+    serial.write("\n");
+
     drawBootMarker(info.framebuffer);
     serial.write("framebuffer ready\n");
-    serial.write("CSOS M7 ready\n");
+    serial.write("CSOS M8 ready\n");
 
     while (true) asm volatile ("cli; hlt");
 }
