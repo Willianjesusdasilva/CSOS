@@ -134,6 +134,10 @@ pub const Firmware = struct {
         return null;
     }
 
+    pub fn selected(self: Firmware, selection: Selection) SelectedIterator {
+        return .{ .iterator = .{ .archive = self.bytes() }, .prefix = selection.prefix };
+    }
+
     pub fn countPrefix(self: Firmware, prefix: []const u8) !usize {
         var iterator = CpioIterator{ .archive = self.bytes() };
         var count: usize = 0;
@@ -182,7 +186,7 @@ pub const Firmware = struct {
         var validated: usize = 0;
         while (try iterator.next()) |entry| {
             if (!startsWith(entry.name, selection.prefix) or entry.data.len == 0) continue;
-            try validateAmdgpuFirmware(entry.data);
+            _ = try parseAmdgpuFirmware(entry.data);
             validated += 1;
         }
         if (validated != selection.entries) return error.FirmwareSelectionIncomplete;
@@ -191,6 +195,19 @@ pub const Firmware = struct {
 };
 
 pub const Selection = struct { prefix: []const u8, entries: usize };
+pub const SelectedEntry = struct { name: []const u8, data: []const u8 };
+pub const SelectedIterator = struct {
+    iterator: CpioIterator,
+    prefix: []const u8,
+
+    pub fn next(self: *SelectedIterator) !?SelectedEntry {
+        while (try self.iterator.next()) |entry| {
+            if (!startsWith(entry.name, self.prefix)) continue;
+            return .{ .name = entry.name[self.prefix.len..], .data = entry.data };
+        }
+        return null;
+    }
+};
 const Mapping = struct { vendor: u16, device: u16, revision: ?u8, subsystem_vendor: ?u16, subsystem_device: ?u16, prefix: []const u8 };
 
 const ManifestIterator = struct {
@@ -294,7 +311,17 @@ fn startsWith(value: []const u8, prefix: []const u8) bool {
     return value.len >= prefix.len and equal(value[0..prefix.len], prefix);
 }
 
-pub fn validateAmdgpuFirmware(bytes: []const u8) !void {
+pub const AmdgpuFirmware = struct {
+    header_version_major: u16,
+    header_version_minor: u16,
+    ip_version_major: u16,
+    ip_version_minor: u16,
+    ucode_version: u32,
+    crc32: u32,
+    payload: []const u8,
+};
+
+pub fn parseAmdgpuFirmware(bytes: []const u8) !AmdgpuFirmware {
     const common_header_bytes = 32;
     if (bytes.len < common_header_bytes) return error.AmdgpuFirmwareHeaderTruncated;
     const total_size = readLittle32(bytes, 0);
@@ -305,6 +332,21 @@ pub fn validateAmdgpuFirmware(bytes: []const u8) !void {
     if (header_size < common_header_bytes or header_size > bytes.len) return error.InvalidAmdgpuFirmwareHeaderSize;
     if (ucode_offset < header_size or ucode_offset > bytes.len or ucode_size > bytes.len - ucode_offset)
         return error.InvalidAmdgpuFirmwarePayload;
+    return .{
+        .header_version_major = readLittle16(bytes, 8),
+        .header_version_minor = readLittle16(bytes, 10),
+        .ip_version_major = readLittle16(bytes, 12),
+        .ip_version_minor = readLittle16(bytes, 14),
+        .ucode_version = @intCast(readLittle32(bytes, 16)),
+        .crc32 = @intCast(readLittle32(bytes, 28)),
+        .payload = bytes[ucode_offset .. ucode_offset + ucode_size],
+    };
+}
+
+pub fn validateAmdgpuFirmware(bytes: []const u8) !void { _ = try parseAmdgpuFirmware(bytes); }
+
+fn readLittle16(bytes: []const u8, offset: usize) u16 {
+    return @as(u16, bytes[offset]) | (@as(u16, bytes[offset + 1]) << 8);
 }
 
 fn readLittle32(bytes: []const u8, offset: usize) usize {
@@ -312,6 +354,20 @@ fn readLittle32(bytes: []const u8, offset: usize) usize {
         (@as(usize, bytes[offset + 1]) << 8) |
         (@as(usize, bytes[offset + 2]) << 16) |
         (@as(usize, bytes[offset + 3]) << 24);
+}
+
+comptime {
+    var sample = [_]u8{0} ** 36;
+    sample[0] = 36;
+    sample[4] = 32;
+    sample[8] = 1;
+    sample[12] = 11;
+    sample[16] = 7;
+    sample[20] = 4;
+    sample[24] = 32;
+    const parsed = parseAmdgpuFirmware(&sample) catch @compileError("AMDGPU common firmware header was rejected");
+    if (parsed.header_version_major != 1 or parsed.ip_version_major != 11 or parsed.ucode_version != 7 or parsed.payload.len != 4)
+        @compileError("AMDGPU common firmware header decoded incorrectly");
 }
 
 pub fn loadFirmware(volume: *fat16.Volume, pages: *physical.Allocator) !?Firmware {
