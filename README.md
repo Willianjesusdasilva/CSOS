@@ -809,6 +809,12 @@ discovery e uma ausência é terminal. A tabela inicial cobre uma janela mínima
 de 2 MiB (512 páginas); `gart-active` permanece zero até os contextos VMID 0,
 invalidação de TLB e leitura de confirmação específicos da família existirem.
 
+Para GMC 11, o mapa MMHUB v3.0 agora resolve os registradores oficiais de
+`CONTEXT0_CNTL`, base/início/fim da page table, controles L1/L2 e invalidate
+engine 17 request/ack. Os índices em dwords são somados à base MMHUB descoberta,
+convertidos para offsets em bytes e rejeitados se excederem o BAR. A existência
+de `gart-registers` comprova somente o mapa; não ativa o contexto.
+
 As capacidades PSP são tratadas separadamente: `autoload_supported`, TMR de
 boot e presença de callbacks host para carregar SYS/SOS não são sinônimos. O
 handoff host só é construído para as famílias em que o `psp_funcs` upstream

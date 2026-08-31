@@ -671,6 +671,19 @@ pub const AmdGartPlan = struct {
     window_bytes: u64,
     active: bool = false,
 };
+pub const AmdGmc11GartRegisters = struct {
+    context_control: u32,
+    page_table_base_low: u32,
+    page_table_base_high: u32,
+    page_table_start_low: u32,
+    page_table_start_high: u32,
+    page_table_end_low: u32,
+    page_table_end_high: u32,
+    l1_tlb_control: u32,
+    l2_control: u32,
+    invalidate_request: u32,
+    invalidate_ack: u32,
+};
 pub const AmdPspGttStaging = struct {
     page_table_address: u64 = 0,
     page_table_pages: u64 = 0,
@@ -704,6 +717,31 @@ pub fn planAmdGart(discovery: *const AmdIpDiscovery, memory: AmdMemoryPlan, stag
         .entries = 512,
         .window_bytes = 512 * 4096,
     };
+}
+
+pub fn resolveAmdGmc11GartRegisters(plan: AmdGartPlan, register_bar_bytes: u64) !AmdGmc11GartRegisters {
+    if (plan.family != .v11_0 or plan.mmhub_base == 0) return error.UnsupportedAmdGartRegisterMap;
+    return .{
+        .context_control = try resolveAmdRegister(plan.mmhub_base, 0x0740, register_bar_bytes),
+        .page_table_base_low = try resolveAmdRegister(plan.mmhub_base, 0x07ab, register_bar_bytes),
+        .page_table_base_high = try resolveAmdRegister(plan.mmhub_base, 0x07ac, register_bar_bytes),
+        .page_table_start_low = try resolveAmdRegister(plan.mmhub_base, 0x07cb, register_bar_bytes),
+        .page_table_start_high = try resolveAmdRegister(plan.mmhub_base, 0x07cc, register_bar_bytes),
+        .page_table_end_low = try resolveAmdRegister(plan.mmhub_base, 0x07eb, register_bar_bytes),
+        .page_table_end_high = try resolveAmdRegister(plan.mmhub_base, 0x07ec, register_bar_bytes),
+        .l1_tlb_control = try resolveAmdRegister(plan.mmhub_base, 0x08f3, register_bar_bytes),
+        .l2_control = try resolveAmdRegister(plan.mmhub_base, 0x0700, register_bar_bytes),
+        .invalidate_request = try resolveAmdRegister(plan.mmhub_base, 0x0774, register_bar_bytes),
+        .invalidate_ack = try resolveAmdRegister(plan.mmhub_base, 0x0786, register_bar_bytes),
+    };
+}
+
+fn resolveAmdRegister(base: u64, register_dword: u64, bar_bytes: u64) !u32 {
+    const dword = std.math.add(u64, base, register_dword) catch return error.AmdRegisterOffsetOverflow;
+    const offset = std.math.mul(u64, dword, 4) catch return error.AmdRegisterOffsetOverflow;
+    if (offset > ~@as(u32, 0)) return error.AmdRegisterOffsetOverflow;
+    if (bar_bytes < 4 or offset > bar_bytes - 4) return error.AmdRegistersOutsideBar;
+    return @intCast(offset);
 }
 
 const amd_pte_valid: u64 = 1 << 0;
@@ -797,6 +835,16 @@ comptime {
         .buffer_pages = 3,
     }) catch @compileError("valid GMC 11 GART plan was rejected");
     if (mmhub_only.gfxhub_base != null) @compileError("GMC 11 incorrectly requires GFXHUB GART");
+    const gmc11_registers = resolveAmdGmc11GartRegisters(mmhub_only, 0x4000) catch
+        @compileError("valid GMC 11 GART registers were rejected");
+    if (gmc11_registers.context_control != 0x2900 or gmc11_registers.page_table_base_low != 0x2aac or
+        gmc11_registers.invalidate_request != 0x29d0 or gmc11_registers.invalidate_ack != 0x2a18 or
+        gmc11_registers.l1_tlb_control != 0x2fcc)
+        @compileError("GMC 11 GART registers resolved incorrectly");
+    if (resolveAmdGmc11GartRegisters(mmhub_only, 0x2fcc)) |_|
+        @compileError("out-of-BAR GMC 11 GART registers were accepted")
+    else |err| if (err != error.AmdRegistersOutsideBar)
+        @compileError("out-of-BAR GMC 11 GART registers returned the wrong error");
 }
 
 pub const AmdPspPlan = struct {
