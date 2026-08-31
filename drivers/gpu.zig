@@ -862,6 +862,73 @@ pub const AmdGpuVmPagePath = struct {
     ptb: u9,
     page_offset: u12,
 };
+const AmdGpuVmPdb1Node = struct { active: bool = false, pdb2: u9 = 0, child_count: u16 = 0 };
+const AmdGpuVmPdb0Node = struct { active: bool = false, pdb2: u9 = 0, pdb1: u9 = 0, child_count: u16 = 0 };
+const AmdGpuVmPtbNode = struct { active: bool = false, pdb2: u9 = 0, pdb1: u9 = 0, pdb0: u9 = 0, page_count: u16 = 0 };
+pub const AmdGpuVmBranchCounts = struct { pdb1: u16, pdb0: u16, ptb: u16, mapped_pages: u32 };
+pub const AmdGpuVmBranchPlanner = struct {
+    pdb1_nodes: [32]AmdGpuVmPdb1Node = .{AmdGpuVmPdb1Node{}} ** 32,
+    pdb0_nodes: [64]AmdGpuVmPdb0Node = .{AmdGpuVmPdb0Node{}} ** 64,
+    ptb_nodes: [128]AmdGpuVmPtbNode = .{AmdGpuVmPtbNode{}} ** 128,
+
+    pub fn acquire(self: *AmdGpuVmBranchPlanner, path: AmdGpuVmPagePath) !void {
+        if (self.findPtb(path)) |index| {
+            if (self.ptb_nodes[index].page_count == ~@as(u16, 0)) return error.AmdGpuVmBranchReferenceOverflow;
+            self.ptb_nodes[index].page_count += 1;
+            return;
+        }
+        const pdb0_index = self.findPdb0(path);
+        const pdb1_index = self.findPdb1(path);
+        if (pdb0_index != null and pdb1_index == null) return error.CorruptAmdGpuVmBranchPlan;
+        const free_ptb = self.freePtb() orelse return error.AmdGpuVmPtbNodesExhausted;
+        const new_pdb0 = if (pdb0_index == null) self.freePdb0() orelse return error.AmdGpuVmPdb0NodesExhausted else null;
+        const new_pdb1 = if (pdb1_index == null) self.freePdb1() orelse return error.AmdGpuVmPdb1NodesExhausted else null;
+        const p1 = pdb1_index orelse new_pdb1.?;
+        const p0 = pdb0_index orelse new_pdb0.?;
+        if (new_pdb1 != null) self.pdb1_nodes[p1] = .{ .active = true, .pdb2 = path.pdb2 };
+        if (new_pdb0 != null) {
+            self.pdb0_nodes[p0] = .{ .active = true, .pdb2 = path.pdb2, .pdb1 = path.pdb1 };
+            self.pdb1_nodes[p1].child_count += 1;
+        }
+        self.ptb_nodes[free_ptb] = .{ .active = true, .pdb2 = path.pdb2, .pdb1 = path.pdb1, .pdb0 = path.pdb0, .page_count = 1 };
+        self.pdb0_nodes[p0].child_count += 1;
+    }
+
+    pub fn release(self: *AmdGpuVmBranchPlanner, path: AmdGpuVmPagePath) !void {
+        const ptb_index = self.findPtb(path) orelse return error.AmdGpuVmBranchNotFound;
+        const ptb = &self.ptb_nodes[ptb_index];
+        if (ptb.page_count == 0) return error.CorruptAmdGpuVmBranchPlan;
+        ptb.page_count -= 1;
+        if (ptb.page_count != 0) return;
+        ptb.* = .{};
+        const pdb0_index = self.findPdb0(path) orelse return error.CorruptAmdGpuVmBranchPlan;
+        const pdb0 = &self.pdb0_nodes[pdb0_index];
+        if (pdb0.child_count == 0) return error.CorruptAmdGpuVmBranchPlan;
+        pdb0.child_count -= 1;
+        if (pdb0.child_count != 0) return;
+        pdb0.* = .{};
+        const pdb1_index = self.findPdb1(path) orelse return error.CorruptAmdGpuVmBranchPlan;
+        const pdb1 = &self.pdb1_nodes[pdb1_index];
+        if (pdb1.child_count == 0) return error.CorruptAmdGpuVmBranchPlan;
+        pdb1.child_count -= 1;
+        if (pdb1.child_count == 0) pdb1.* = .{};
+    }
+
+    pub fn counts(self: *const AmdGpuVmBranchPlanner) AmdGpuVmBranchCounts {
+        var result = AmdGpuVmBranchCounts{ .pdb1 = 0, .pdb0 = 0, .ptb = 0, .mapped_pages = 0 };
+        for (self.pdb1_nodes) |node| if (node.active) { result.pdb1 += 1; };
+        for (self.pdb0_nodes) |node| if (node.active) { result.pdb0 += 1; };
+        for (self.ptb_nodes) |node| if (node.active) { result.ptb += 1; result.mapped_pages += node.page_count; };
+        return result;
+    }
+
+    fn findPdb1(self: *const AmdGpuVmBranchPlanner, path: AmdGpuVmPagePath) ?usize { for (self.pdb1_nodes, 0..) |node, index| if (node.active and node.pdb2 == path.pdb2) return index; return null; }
+    fn findPdb0(self: *const AmdGpuVmBranchPlanner, path: AmdGpuVmPagePath) ?usize { for (self.pdb0_nodes, 0..) |node, index| if (node.active and node.pdb2 == path.pdb2 and node.pdb1 == path.pdb1) return index; return null; }
+    fn findPtb(self: *const AmdGpuVmBranchPlanner, path: AmdGpuVmPagePath) ?usize { for (self.ptb_nodes, 0..) |node, index| if (node.active and node.pdb2 == path.pdb2 and node.pdb1 == path.pdb1 and node.pdb0 == path.pdb0) return index; return null; }
+    fn freePdb1(self: *const AmdGpuVmBranchPlanner) ?usize { for (self.pdb1_nodes, 0..) |node, index| if (!node.active) return index; return null; }
+    fn freePdb0(self: *const AmdGpuVmBranchPlanner) ?usize { for (self.pdb0_nodes, 0..) |node, index| if (!node.active) return index; return null; }
+    fn freePtb(self: *const AmdGpuVmBranchPlanner) ?usize { for (self.ptb_nodes, 0..) |node, index| if (!node.active) return index; return null; }
+};
 pub const AmdGpuVmPageAllocator = struct {
     context: *anyopaque,
     allocate: *const fn (*anyopaque) anyerror!u64,
@@ -1933,6 +2000,40 @@ pub fn validateAmdGpuVmManagerSelfTest() !void {
         return error.AmdGpuVmTableSizeMismatch;
     if (amdGpuVmPagePath(0x0000800000000000)) |_| return error.AmdGpuVmNonCanonicalVaAccepted else |err|
         if (err != error.InvalidAmdGpuVa) return err;
+}
+
+pub fn validateAmdGpuVmBranchPlannerSelfTest() !void {
+    var planner = AmdGpuVmBranchPlanner{};
+    const first = AmdGpuVmPagePath{ .pdb2 = 1, .pdb1 = 2, .pdb0 = 3, .ptb = 4, .page_offset = 0 };
+    const same_ptb = AmdGpuVmPagePath{ .pdb2 = 1, .pdb1 = 2, .pdb0 = 3, .ptb = 5, .page_offset = 0 };
+    const next_ptb = AmdGpuVmPagePath{ .pdb2 = 1, .pdb1 = 2, .pdb0 = 4, .ptb = 0, .page_offset = 0 };
+    const next_pdb0 = AmdGpuVmPagePath{ .pdb2 = 1, .pdb1 = 3, .pdb0 = 0, .ptb = 0, .page_offset = 0 };
+    const next_pdb1 = AmdGpuVmPagePath{ .pdb2 = 2, .pdb1 = 0, .pdb0 = 0, .ptb = 0, .page_offset = 0 };
+
+    try planner.acquire(first);
+    try planner.acquire(same_ptb);
+    var counts = planner.counts();
+    if (counts.pdb1 != 1 or counts.pdb0 != 1 or counts.ptb != 1 or counts.mapped_pages != 2)
+        return error.AmdGpuVmSharedBranchCountMismatch;
+    try planner.acquire(next_ptb);
+    try planner.acquire(next_pdb0);
+    try planner.acquire(next_pdb1);
+    counts = planner.counts();
+    if (counts.pdb1 != 2 or counts.pdb0 != 3 or counts.ptb != 4 or counts.mapped_pages != 5)
+        return error.AmdGpuVmExpandedBranchCountMismatch;
+
+    try planner.release(first);
+    counts = planner.counts();
+    if (counts.ptb != 4 or counts.mapped_pages != 4) return error.AmdGpuVmSharedBranchPrunedEarly;
+    try planner.release(same_ptb);
+    try planner.release(next_ptb);
+    try planner.release(next_pdb0);
+    try planner.release(next_pdb1);
+    counts = planner.counts();
+    if (counts.pdb1 != 0 or counts.pdb0 != 0 or counts.ptb != 0 or counts.mapped_pages != 0)
+        return error.AmdGpuVmBranchPruneMismatch;
+    if (planner.release(first)) return error.AmdGpuVmMissingBranchReleaseAccepted else |err|
+        if (err != error.AmdGpuVmBranchNotFound) return err;
 }
 
 const AmdGpuVmPageTestPool = struct {

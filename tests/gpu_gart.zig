@@ -15,3 +15,7 @@ test "AMDGPU VMIDs isolate mappings and reject overlap" {
 test "AMDGPU GPUVM page paths allocate and roll back atomically" {
     try gpu.validateAmdGpuVmPageTablesSelfTest();
 }
+
+test "AMDGPU GPUVM branches share directories and prune by reference" {
+    try gpu.validateAmdGpuVmBranchPlannerSelfTest();
+}

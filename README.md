@@ -743,10 +743,13 @@ colisão com entrada diferente são rejeitados antes de alterar a hierarquia.
 se path/PTE falhar, remove o mapping recém-criado. `unmapSystemPage` confirma
 flags e PTE esperada, zera a folha e só então remove o intervalo; uma PTE de
 outro BO nunca é apagada por engano.
-Enquanto o allocator dinâmico de branches ainda não existe, o conjunto de
-quatro páginas fica vinculado aos índices PDB2/PDB1/PDB0 do primeiro mapping;
-outro PTB dentro desse branch pode ser usado, mas um VA fora dele é rejeitado e
-revertido, evitando aliasar a mesma tabela filha em diretórios diferentes.
+O planejamento dinâmico de branches agora compartilha PDB1/PDB0/PTB quando os
+índices superiores coincidem, mantém referências por página mapeada e poda
+PTB, PDB0 e PDB1 vazios durante unmap. A capacidade atual é explicitamente
+limitada a 32 PDB1, 64 PDB0 e 128 PTB por planejador, com erro em vez de
+sobrescrita ao esgotar. O materializador físico ainda usa o conjunto inicial de
+quatro páginas vinculado ao primeiro branch; o próximo passo é conectar o
+planejador ao allocator para criar e liberar páginas de tabela sob demanda.
 
 O handoff PSP é mantido declarativo: KDB, SPL, SYS_DRV e SOS são ordenados como
 no fluxo upstream e apontam para suas fontes físicas validadas. Uma única área

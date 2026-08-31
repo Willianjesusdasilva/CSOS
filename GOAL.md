@@ -1818,6 +1818,22 @@ M30 final integration
 Steam and CS2 are intentionally last. They must not be used as acceptance
 criteria for earlier milestones.
 
+Current M14 checkpoint:
+
+```text
+AMDGPU VMID isolation and logical GPUVA mapping: implemented and host-tested
+GFX11 48-bit page-path and PDE/PTE encoding: implemented and host-tested
+dynamic branch sharing/reference/prune plan: implemented and host-tested
+dynamic physical page-table allocation: pending
+GEM_VA, rings and command submission: pending
+AMD RADV triangle on real hardware: pending
+NVIDIA NVK/compatible-stack triangle on real hardware: pending
+```
+
+The branch planner is bookkeeping only until its nodes own physical table
+pages and are connected to map/unmap. M14 remains incomplete, and neither AMD
+nor NVIDIA acceleration may be advertised from this checkpoint.
+
 CSOS completo quando:
 
 ```text
