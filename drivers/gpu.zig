@@ -138,6 +138,25 @@ pub const Firmware = struct {
         return .{ .iterator = .{ .archive = self.bytes() }, .prefix = selection.prefix };
     }
 
+    pub fn inventory(self: Firmware, selection: Selection, driver: Driver) !FirmwareInventory {
+        var result = FirmwareInventory{};
+        var names: [128][]const u8 = undefined;
+        var iterator = self.selected(selection);
+        while (try iterator.next()) |entry| {
+            if (result.entries == names.len) return error.TooManySelectedFirmwareEntries;
+            for (names[0..result.entries]) |name| if (equal(name, entry.name)) return error.DuplicateSelectedFirmwareEntry;
+            names[result.entries] = entry.name;
+            result.entries += 1;
+            const block = classifyFirmware(driver, entry.name);
+            result.blocks[@intFromEnum(block)].entries += 1;
+            const payload_bytes = if (driver == .amdgpu) (try parseAmdgpuFirmware(entry.data)).payload.len else entry.data.len;
+            result.blocks[@intFromEnum(block)].bytes += payload_bytes;
+            result.payload_bytes += payload_bytes;
+        }
+        if (result.entries != selection.entries) return error.FirmwareSelectionIncomplete;
+        return result;
+    }
+
     pub fn countPrefix(self: Firmware, prefix: []const u8) !usize {
         var iterator = CpioIterator{ .archive = self.bytes() };
         var count: usize = 0;
@@ -195,6 +214,15 @@ pub const Firmware = struct {
 };
 
 pub const Selection = struct { prefix: []const u8, entries: usize };
+pub const FirmwareBlock = enum { security, management, memory, graphics, dma, display, media, discovery, other };
+pub const FirmwareBlockSummary = struct { entries: usize = 0, bytes: usize = 0 };
+pub const FirmwareInventory = struct {
+    entries: usize = 0,
+    payload_bytes: usize = 0,
+    blocks: [9]FirmwareBlockSummary = .{FirmwareBlockSummary{}} ** 9,
+
+    pub fn block(self: *const FirmwareInventory, kind: FirmwareBlock) FirmwareBlockSummary { return self.blocks[@intFromEnum(kind)]; }
+};
 pub const SelectedEntry = struct { name: []const u8, data: []const u8 };
 pub const SelectedIterator = struct {
     iterator: CpioIterator,
@@ -309,6 +337,44 @@ fn equal(left: []const u8, right: []const u8) bool {
 }
 fn startsWith(value: []const u8, prefix: []const u8) bool {
     return value.len >= prefix.len and equal(value[0..prefix.len], prefix);
+}
+fn contains(value: []const u8, needle: []const u8) bool {
+    if (needle.len == 0) return true;
+    if (needle.len > value.len) return false;
+    var index: usize = 0;
+    while (index <= value.len - needle.len) : (index += 1) if (equal(value[index .. index + needle.len], needle)) return true;
+    return false;
+}
+
+pub fn classifyFirmware(driver: Driver, name: []const u8) FirmwareBlock {
+    if (driver == .amdgpu) {
+        if (contains(name, "_sos.") or contains(name, "_asd.") or contains(name, "_ta.") or contains(name, "_toc.")) return .security;
+        if (contains(name, "_smc.") or contains(name, "_psp.")) return .management;
+        if (contains(name, "_mc.")) return .memory;
+        if (contains(name, "_sdma")) return .dma;
+        if (contains(name, "_dmcub.") or contains(name, "_dmcu.")) return .display;
+        if (contains(name, "_vcn.") or contains(name, "_uvd.") or contains(name, "_vce.")) return .media;
+        if (contains(name, "_gpu_info.") or contains(name, "_discovery.")) return .discovery;
+        if (contains(name, "_pfp.") or contains(name, "_me.") or contains(name, "_mec") or contains(name, "_rlc") or contains(name, "_mes") or contains(name, "_imu.") or contains(name, "_gc_")) return .graphics;
+    } else if (driver == .nouveau) {
+        if (contains(name, "acr") or contains(name, "sec2") or contains(name, "gsp")) return .security;
+        if (contains(name, "pmu")) return .management;
+        if (contains(name, "gr/")) return .graphics;
+        if (contains(name, "ce/")) return .dma;
+        if (contains(name, "disp")) return .display;
+        if (contains(name, "nvdec") or contains(name, "nvenc")) return .media;
+    }
+    return .other;
+}
+
+comptime {
+    @setEvalBranchQuota(5000);
+    if (classifyFirmware(.amdgpu, "navi31_sos.bin") != .security or
+        classifyFirmware(.amdgpu, "navi31_sdma.bin") != .dma or
+        classifyFirmware(.amdgpu, "navi31_pfp.bin") != .graphics or
+        classifyFirmware(.nouveau, "nvidia/ad102/gr/sw_nonctx.bin") != .graphics or
+        classifyFirmware(.nouveau, "nvidia/ad102/nvdec/scrubber.bin") != .media)
+        @compileError("GPU firmware block classification failed");
 }
 
 pub const AmdgpuFirmware = struct {

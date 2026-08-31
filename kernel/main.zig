@@ -488,18 +488,9 @@ pub fn start(info: BootInfo) noreturn {
     const gpu_validated_entries = if (gpu_firmware) |firmware|
         if (gpu_selection) |selection| firmware.validateSelection(selection, gpu_adapter.driver) catch panic("GPU firmware validation failed") else 0
     else 0;
-    var gpu_payload_bytes: usize = 0;
-    var gpu_payload_entries: usize = 0;
+    var gpu_inventory = gpu.FirmwareInventory{};
     if (gpu_firmware) |firmware| if (gpu_selection) |selection| {
-        var selected = firmware.selected(selection);
-        while (selected.next() catch panic("GPU firmware selection iteration failed")) |entry| {
-            gpu_payload_entries += 1;
-            gpu_payload_bytes += if (gpu_adapter.driver == .amdgpu)
-                (gpu.parseAmdgpuFirmware(entry.data) catch panic("AMDGPU firmware payload invalid")).payload.len
-            else
-                entry.data.len;
-        }
-        if (gpu_payload_entries != selection.entries) panic("GPU firmware payload set incomplete");
+        gpu_inventory = firmware.inventory(selection, gpu_adapter.driver) catch panic("GPU firmware inventory invalid");
     };
     const gpu_registers = gpu_adapter.register_bar orelse panic("GPU register BAR missing");
     if (gpu_registers.size > 16 * 1024 * 1024) panic("GPU register BAR unexpectedly large");
@@ -526,8 +517,11 @@ pub fn start(info: BootInfo) noreturn {
     serial.write(" mappings: "); serial.writeDecimal(gpu_firmware_mappings);
     serial.write(" selected: "); serial.writeDecimal(gpu_backend_entries);
     serial.write(" validated: "); serial.writeDecimal(gpu_validated_entries);
-    serial.write(" payloads: "); serial.writeDecimal(gpu_payload_entries);
-    serial.write(" payload-bytes: "); serial.writeDecimal(gpu_payload_bytes);
+    serial.write(" payloads: "); serial.writeDecimal(gpu_inventory.entries);
+    serial.write(" payload-bytes: "); serial.writeDecimal(gpu_inventory.payload_bytes);
+    serial.write(" security: "); serial.writeDecimal(gpu_inventory.block(.security).entries);
+    serial.write(" graphics: "); serial.writeDecimal(gpu_inventory.block(.graphics).entries);
+    serial.write(" dma: "); serial.writeDecimal(gpu_inventory.block(.dma).entries);
     serial.write(" driver: ");
     serial.write(switch (gpu_adapter.driver) {
         .amdgpu => "amdgpu",
