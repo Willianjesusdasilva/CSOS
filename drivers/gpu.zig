@@ -705,6 +705,88 @@ pub const AmdGmc11VisibleVram = struct {
     framebuffer_mc_start: u64,
     framebuffer_mc_end: u64,
 };
+pub const AmdVramRange = struct { start: u64, end: u64 };
+pub const AmdVramAllocation = struct { cpu_address: u64, mc_address: u64, bytes: u64 };
+pub const AmdVramAllocator = struct {
+    visible: AmdGmc11VisibleVram,
+    reservations: [16]AmdVramRange = .{AmdVramRange{ .start = 0, .end = 0 }} ** 16,
+    reservation_count: usize = 0,
+    firmware_map_sealed: bool = false,
+
+    pub fn init(visible: AmdGmc11VisibleVram) !AmdVramAllocator {
+        var result = AmdVramAllocator{ .visible = visible };
+        try result.reserve(visible.framebuffer_mc_start, visible.framebuffer_mc_end - visible.framebuffer_mc_start + 1);
+        return result;
+    }
+
+    pub fn reserve(self: *AmdVramAllocator, start: u64, bytes: u64) !void {
+        if (self.firmware_map_sealed) return error.AmdVramMapAlreadySealed;
+        if (bytes == 0 or start < self.visible.mc_start) return error.InvalidAmdVramReservation;
+        const end = std.math.add(u64, start, bytes - 1) catch return error.InvalidAmdVramReservation;
+        if (end > self.visible.mc_end) return error.InvalidAmdVramReservation;
+        var combined = AmdVramRange{ .start = start, .end = end };
+        var index: usize = 0;
+        while (index < self.reservation_count) {
+            const used = self.reservations[index];
+            if (!rangesTouch(combined, used)) {
+                index += 1;
+                continue;
+            }
+            combined.start = @min(combined.start, used.start);
+            combined.end = @max(combined.end, used.end);
+            self.reservation_count -= 1;
+            self.reservations[index] = self.reservations[self.reservation_count];
+        }
+        if (self.reservation_count == self.reservations.len) return error.TooManyAmdVramReservations;
+        self.reservations[self.reservation_count] = combined;
+        self.reservation_count += 1;
+    }
+
+    pub fn sealFirmwareMap(self: *AmdVramAllocator) void {
+        self.firmware_map_sealed = true;
+    }
+
+    pub fn allocatePinned(self: *AmdVramAllocator, bytes: u64, alignment: u64) !AmdVramAllocation {
+        if (!self.firmware_map_sealed) return error.AmdVramFirmwareMapIncomplete;
+        if (bytes == 0 or alignment < 4096 or !std.math.isPowerOfTwo(alignment)) return error.InvalidAmdVramAllocation;
+        var upper_end = self.visible.mc_end;
+        var attempt: usize = 0;
+        while (attempt <= self.reservation_count) : (attempt += 1) {
+            if (upper_end < self.visible.mc_start or bytes - 1 > upper_end - self.visible.mc_start)
+                return error.AmdVisibleVramExhausted;
+            const candidate = (upper_end - bytes + 1) & ~(alignment - 1);
+            const candidate_end = std.math.add(u64, candidate, bytes - 1) catch return error.InvalidAmdVramAllocation;
+            if (candidate < self.visible.mc_start or candidate_end > self.visible.mc_end) return error.AmdVisibleVramExhausted;
+            var collision_start: ?u64 = null;
+            for (self.reservations[0..self.reservation_count]) |used| if (rangesOverlap(.{ .start = candidate, .end = candidate_end }, used)) {
+                collision_start = if (collision_start) |current| @min(current, used.start) else used.start;
+            };
+            if (collision_start) |start| {
+                if (start == 0) return error.AmdVisibleVramExhausted;
+                upper_end = start - 1;
+                continue;
+            }
+            if (self.reservation_count == self.reservations.len) return error.TooManyAmdVramReservations;
+            self.reservations[self.reservation_count] = .{ .start = candidate, .end = candidate_end };
+            self.reservation_count += 1;
+            return .{
+                .cpu_address = self.visible.cpu_start + (candidate - self.visible.mc_start),
+                .mc_address = candidate,
+                .bytes = bytes,
+            };
+        }
+        return error.AmdVisibleVramExhausted;
+    }
+};
+
+fn rangesOverlap(left: AmdVramRange, right: AmdVramRange) bool {
+    return left.start <= right.end and right.start <= left.end;
+}
+
+fn rangesTouch(left: AmdVramRange, right: AmdVramRange) bool {
+    return rangesOverlap(left, right) or (left.end != ~@as(u64, 0) and left.end + 1 == right.start) or
+        (right.end != ~@as(u64, 0) and right.end + 1 == left.start);
+}
 pub const AmdPspGttStaging = struct {
     page_table_address: u64 = 0,
     page_table_pages: u64 = 0,
@@ -970,6 +1052,24 @@ comptime {
         visible_vram.framebuffer_mc_start != memory_snapshot.vram_mc_base + 16 * 1024 * 1024 or
         visible_vram.framebuffer_mc_end != memory_snapshot.vram_mc_base + 24 * 1024 * 1024 - 1)
         @compileError("GMC 11 visible VRAM mapping was translated incorrectly");
+    var vram_allocator = AmdVramAllocator.init(visible_vram) catch @compileError("valid GMC 11 VRAM allocator was rejected");
+    if (vram_allocator.allocatePinned(4096, 4096)) |_|
+        @compileError("unsealed GMC 11 VRAM allocator accepted an allocation")
+    else |err| if (err != error.AmdVramFirmwareMapIncomplete)
+        @compileError("unsealed GMC 11 VRAM allocator returned the wrong error");
+    vram_allocator.reserve(memory_snapshot.vram_mc_base + 8 * 1024 * 1024, 12 * 1024 * 1024) catch
+        @compileError("overlapping GMC 11 firmware reservations were not normalized");
+    if (vram_allocator.reservation_count != 1 or vram_allocator.reservations[0].start != memory_snapshot.vram_mc_base + 8 * 1024 * 1024 or
+        vram_allocator.reservations[0].end != visible_vram.framebuffer_mc_end)
+        @compileError("GMC 11 firmware reservations were normalized incorrectly");
+    vram_allocator.reserve(memory_snapshot.vram_mc_base + 248 * 1024 * 1024, 8 * 1024 * 1024) catch
+        @compileError("valid GMC 11 firmware VRAM reservation was rejected");
+    vram_allocator.sealFirmwareMap();
+    const table_allocation = vram_allocator.allocatePinned(4096, 4096) catch
+        @compileError("valid GMC 11 pinned VRAM allocation was rejected");
+    if (table_allocation.mc_address != memory_snapshot.vram_mc_base + 248 * 1024 * 1024 - 4096 or
+        table_allocation.cpu_address != visible_vram.cpu_start + 248 * 1024 * 1024 - 4096 or table_allocation.bytes != 4096)
+        @compileError("GMC 11 pinned VRAM allocation was placed incorrectly");
     if (decodeAmdGmc11MemorySnapshot(0xffffffff, 0, 1)) |_|
         @compileError("unavailable GMC 11 memory MMIO was accepted")
     else |err| if (err != error.AmdGmc11MemoryMmioUnavailable)

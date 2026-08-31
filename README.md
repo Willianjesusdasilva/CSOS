@@ -840,6 +840,14 @@ se couber, sua faixa CPU é convertida e registrada como `framebuffer-mc`, nunca
 tratada como espaço livre. Isso ainda não escolhe uma página para a tabela: o
 AMDGPU original faz essa reserva por BO/TTM antes de copiar e piná-la.
 
+O allocator bootstrap de VRAM agora modela essa disciplina: inicia com o
+framebuffer reservado, normaliza intervalos de firmware sobrepostos/adjacentes e
+recusa qualquer alocação enquanto o mapa não estiver explicitamente selado.
+Depois do selo, aloca de cima para baixo com alinhamento power-of-two, registra
+cada faixa como pinned e devolve os endereços CPU e MC correspondentes. O boot
+ainda não sela o mapa, pois as demais reservas PSP/VBIOS não foram enumeradas;
+portanto nenhuma page table é copiada para VRAM nesta etapa.
+
 Com a faixa real conhecida, o candidato `gart-window-start/end` segue a política
 `AMDGPU_GART_PLACEMENT_HIGH`: limita o espaço MC antes do VA hole de 48 bits,
 posiciona a janela no topo e alinha sua base a 4 GiB. Overflow, faixa VRAM

@@ -564,6 +564,8 @@ pub fn start(info: BootInfo) noreturn {
     const gpu_gmc11_visible_vram = if (gpu_gmc11_memory) |memory| if (gpu_memory_plan.?.vram_bar) |bar|
         gpu.mapAmdGmc11VisibleVram(memory, bar, info.framebuffer.base, info.framebuffer.size) catch panic("AMDGPU visible VRAM mapping invalid")
     else null else null;
+    const gpu_vram_allocator = if (gpu_gmc11_visible_vram) |visible| gpu.AmdVramAllocator.init(visible) catch
+        panic("AMDGPU VRAM allocator invalid") else null;
     var gpu_psp_mailbox_snapshot: ?gpu.AmdPspMailboxSnapshot = null;
     var gpu_psp_mmio_transport: ?gpu.AmdPspMmioTransport = null;
     var gpu_psp_preflight: ?gpu.AmdPspPreflight = null;
@@ -645,6 +647,8 @@ pub fn start(info: BootInfo) noreturn {
     serial.write(" vram-bytes: "); serial.writeDecimal(if (gpu_gmc11_memory) |snapshot| snapshot.vram_bytes else 0);
     serial.write(" vram-visible: "); serial.writeDecimal(if (gpu_gmc11_visible_vram) |visible| visible.bytes else 0);
     serial.write(" framebuffer-mc: "); serial.writeDecimal(if (gpu_gmc11_visible_vram) |visible| visible.framebuffer_mc_start else 0);
+    serial.write(" vram-reservations: "); serial.writeDecimal(if (gpu_vram_allocator) |allocator| allocator.reservation_count else 0);
+    serial.write(" vram-map-sealed: "); serial.writeDecimal(if (gpu_vram_allocator) |allocator| @intFromBool(allocator.firmware_map_sealed) else 0);
     serial.write(" vram-aperture: "); serial.writeDecimal(if (gpu_memory_plan) |plan| if (plan.vram_bar) |bar| bar.size else 0 else 0);
     serial.write(" doorbell-aperture: "); serial.writeDecimal(if (gpu_memory_plan) |plan| plan.doorbell_bar.size else 0);
     serial.write(" gtt-table: "); serial.writeDecimal(gpu_psp_gtt.page_table_address);
