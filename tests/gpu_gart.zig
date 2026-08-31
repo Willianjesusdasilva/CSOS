@@ -16,6 +16,10 @@ test "AMDGPU VMIDs isolate mappings and reject overlap" {
     try gpu.validateAmdGpuVmManagerSelfTest();
 }
 
+test "AMDGPU hardware VM session preserves bind state across failures" {
+    try gpu.validateAmdGpuVmHardwareSessionSelfTest();
+}
+
 test "AMDGPU GPUVM page paths allocate and roll back atomically" {
     try gpu.validateAmdGpuVmPageTablesSelfTest();
 }

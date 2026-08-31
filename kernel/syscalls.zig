@@ -64,6 +64,7 @@ var drm_scanout_framebuffer: u32 = 0;
 var drm_driver: DrmDriver = .csos;
 var drm_vm_manager = gpu.AmdGpuVmManager{};
 var drm_vm_vmid: u4 = 0;
+var drm_vm_hardware: ?gpu.AmdGpuVmHardwareSession = null;
 const max_drm_syncobjs = 16;
 const DrmSyncobj = struct { allocated: bool = false, point: u64 = 0 };
 var drm_syncobjs: [max_drm_syncobjs]DrmSyncobj = .{DrmSyncobj{}} ** max_drm_syncobjs;
@@ -150,6 +151,10 @@ pub fn configureFramebuffer(info: Framebuffer) void {
 
 pub fn configureDrm(driver: DrmDriver) void { drm_driver = driver; }
 pub fn configureDrmMemory(pages: *physical.Allocator) void { drm_pages = pages; }
+pub fn configureDrmGpuVmHardware(hardware: ?gpu.AmdGpuVmHardware) void {
+    if (drm_vm_hardware != null and drm_vm_hardware.?.bound_vmid != 0) return;
+    drm_vm_hardware = if (hardware) |value| .{ .hardware = value } else null;
+}
 
 pub fn configureMmap(protect_hook: ?*const fn (u64, u64, bool, bool) callconv(.c) bool, unmap_hook: ?*const fn (u64, u64) callconv(.c) bool, device_hook: ?*const fn (u64, u64, u64, bool) callconv(.c) bool) void {
     mmap_protect_hook = protect_hook;
@@ -560,6 +565,10 @@ fn drmCreateDumb(address: u64) u64 {
     const page_count = (size + 4095) / 4096;
     const pages = drm_pages orelse return errno(19);
     const allocation = pages.allocate(page_count) orelse return errno(12);
+    if (allocation >= (@as(u64, 1) << 44) or page_count > ((@as(u64, 1) << 44) - allocation) / 4096) {
+        pages.release(allocation, page_count) catch {};
+        return errno(12);
+    }
     const memory: [*]u8 = @ptrFromInt(allocation);
     @memset(memory[0..@intCast(page_count * 4096)], 0);
     const handle: u32 = @intCast(object_index + 1);
@@ -588,6 +597,10 @@ fn amdgpuGemCreate(address: u64) u64 {
     const page_count = (size + 4095) / 4096;
     const pages = drm_pages orelse return errno(19);
     const allocation = pages.allocate(page_count) orelse return errno(12);
+    if (allocation >= (@as(u64, 1) << 44) or page_count > ((@as(u64, 1) << 44) - allocation) / 4096) {
+        pages.release(allocation, page_count) catch {};
+        return errno(12);
+    }
     const memory: [*]u8 = @ptrFromInt(allocation);
     @memset(memory[0..@intCast(page_count * 4096)], 0);
     const handle: u32 = @intCast(object_index + 1);
@@ -655,6 +668,24 @@ fn ensureAmdGpuVm() !*gpu.AmdGpuVm {
     return vm;
 }
 
+fn syncAmdGpuVmAfterMap() !void {
+    const session = if (drm_vm_hardware) |*value| value else return;
+    if (drm_vm_vmid == 0) return error.AmdGpuVmidNotAllocated;
+    const root = drm_vm_manager.vms[drm_vm_vmid - 1].page_tree.root() orelse return error.AmdGpuVmPageTablesNotAllocated;
+    try session.syncAfterMap(drm_vm_vmid, root);
+}
+
+fn syncAmdGpuVmAfterUnmap() !void {
+    const session = if (drm_vm_hardware) |*value| value else return;
+    if (drm_vm_vmid == 0) return;
+    var mappings_remain = false;
+    for (drm_vm_manager.vms[drm_vm_vmid - 1].mappings) |mapping| if (mapping.active) {
+        mappings_remain = true;
+        break;
+    };
+    try session.syncAfterUnmap(drm_vm_vmid, mappings_remain);
+}
+
 fn amdgpuGemVa(address: u64, extended: bool) u64 {
     const input_size: u64 = if (extended) 64 else 40;
     if (!validUserSlice(address, input_size)) return errno(14);
@@ -687,33 +718,59 @@ fn amdgpuGemVa(address: u64, extended: bool) u64 {
                 return amdGpuVmErrno(err);
             };
         }
+        syncAmdGpuVmAfterMap() catch |err| {
+            var rollback = mapped;
+            while (rollback != 0) {
+                rollback -= 4096;
+                drm_vm_manager.unmapSystemPage(drm_vm_vmid, va_address + rollback, object.physical_address + bo_offset + rollback, flags) catch {};
+            }
+            if (drm_vm_hardware) |*session| if (session.bound_vmid != 0)
+                session.hardware.invalidate(session.hardware.context, drm_vm_vmid) catch {};
+            return amdGpuVmErrno(err);
+        };
         return 0;
     }
     if (operation != 2 or flags != 0) return errno(95);
     if (drm_vm_vmid == 0) return errno(2);
+    var mapping_flags: [32]u32 = .{0} ** 32;
+    const page_count = map_size / 4096;
+    if (page_count > mapping_flags.len) return errno(28);
     var checked: u64 = 0;
     while (checked < map_size) : (checked += 4096) {
-        _ = drm_vm_manager.validateSystemPageMapping(drm_vm_vmid, handle, va_address + checked, bo_offset + checked,
+        mapping_flags[@intCast(checked / 4096)] = drm_vm_manager.validateSystemPageMapping(drm_vm_vmid, handle, va_address + checked, bo_offset + checked,
             object.physical_address + bo_offset + checked) catch |err| return amdGpuVmErrno(err);
     }
     var unmapped: u64 = 0;
     while (unmapped < map_size) : (unmapped += 4096) {
-        const mapping_flags = drm_vm_manager.validateSystemPageMapping(drm_vm_vmid, handle, va_address + unmapped, bo_offset + unmapped,
-            object.physical_address + bo_offset + unmapped) catch |err| return amdGpuVmErrno(err);
-        drm_vm_manager.unmapSystemPage(drm_vm_vmid, va_address + unmapped, object.physical_address + bo_offset + unmapped, mapping_flags) catch |err|
+        const page_flags = mapping_flags[@intCast(unmapped / 4096)];
+        drm_vm_manager.unmapSystemPage(drm_vm_vmid, va_address + unmapped, object.physical_address + bo_offset + unmapped, page_flags) catch |err|
             return amdGpuVmErrno(err);
     }
+    syncAmdGpuVmAfterUnmap() catch |err| {
+        var restore: u64 = 0;
+        while (restore < unmapped) : (restore += 4096) drm_vm_manager.mapSystemPage(
+            drm_vm_vmid, handle, va_address + restore, bo_offset + restore, object.size,
+            object.physical_address + bo_offset + restore, mapping_flags[@intCast(restore / 4096)],
+        ) catch {};
+        if (drm_vm_hardware) |*session| if (session.bound_vmid != 0)
+            session.hardware.invalidate(session.hardware.context, drm_vm_vmid) catch {};
+        return amdGpuVmErrno(err);
+    };
     return 0;
 }
 
 fn amdGpuVmErrno(err: anyerror) u64 {
     return switch (err) {
         error.OutOfMemory, error.AmdGpuVmidsExhausted, error.AmdGpuVmPdb1NodesExhausted,
-        error.AmdGpuVmPdb0NodesExhausted, error.AmdGpuVmPtbNodesExhausted => errno(12),
+        error.AmdGpuVmPdb0NodesExhausted, error.AmdGpuVmPtbNodesExhausted,
+        error.AmdGpuVmPageOutsideDmaMask => errno(12),
         error.AmdGpuVaMappingsExhausted => errno(28),
         error.AmdGpuVaMappingNotFound, error.AmdGpuVmBranchNotFound, error.AmdGpuVmPteNotMapped => errno(2),
         error.AmdGpuVaOverlap, error.AmdGpuVmPagePathCollision => errno(17),
-        error.AmdGpuVmMemoryUnavailable => errno(19),
+        error.AmdGpuVmMemoryUnavailable, error.AmdGpuVmHardwareUnavailable => errno(19),
+        error.AmdGartInvalidateTimeout, error.AmdGartRegisterWriteFailed,
+        error.AmdGartRegisterReadbackFailed, error.AmdGartRegisterReadbackMismatch,
+        error.AmdGartRollbackFailed => errno(5),
         else => errno(22),
     };
 }
@@ -820,6 +877,7 @@ fn releaseAllDrmObjects() void { for (&drm_objects) |*object| releaseDrmObject(o
 
 fn resetDrmVm() void {
     if (drm_vm_vmid == 0) return;
+    if (drm_vm_hardware) |*session| session.reset() catch return;
     const vm = &drm_vm_manager.vms[drm_vm_vmid - 1];
     while (true) {
         var active: ?gpu.AmdGpuVaMapping = null;

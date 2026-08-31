@@ -1827,16 +1827,18 @@ dynamic branch sharing/reference/prune plan: implemented and host-tested
 dynamic physical page-table allocation/link/prune: implemented and host-tested
 GEM_VA immediate GTT MAP/UNMAP software path: implemented; Radeon validation pending
 MMHUB 3.0 VMID bind/unbind register transaction: implemented and host-tested
-real-MMIO lifecycle integration and Radeon validation: pending
+gate-controlled GEM_VA bind/invalidate/unbind lifecycle: implemented and host-tested
+real Radeon MMIO lifecycle validation: pending
 rings and command submission: pending
 AMD RADV triangle on real hardware: pending
 NVIDIA NVK/compatible-stack triangle on real hardware: pending
 ```
 
-The branch nodes now own physical table pages and map/unmap creates, links,
-prunes and releases them transactionally. Hardware context programming,
-GEM_VA and command submission are still absent. M14 remains incomplete, and
-neither AMD nor NVIDIA acceleration may be advertised from this checkpoint.
+The branch nodes own physical table pages and map/unmap creates, links, prunes
+and releases them transactionally. GEM_VA and the gate-controlled hardware
+context lifecycle now exist, but require real Radeon validation. Command
+submission is still absent. M14 remains incomplete, and neither AMD nor NVIDIA
+acceleration may be advertised from this checkpoint.
 
 CSOS completo quando:
 

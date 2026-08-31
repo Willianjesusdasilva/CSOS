@@ -43,6 +43,43 @@ var console_last_key: u8 = 0;
 var console_input_irq_apic: u32 = 0;
 var audio_reported = false;
 var gpu_gmc11_activation_workspace = gpu.AmdGmc11ActivationWorkspace{};
+const GpuVmRuntime = struct {
+    transport: ?gpu.AmdGmc11MmioTransport = null,
+    registers: ?gpu.AmdGmc11GartRegisters = null,
+    context: gpu.AmdGmc11VmContextWorkspace = .{},
+    active: bool = false,
+};
+var gpu_vm_runtime = GpuVmRuntime{};
+
+fn bindDrmGpuVm(raw: *anyopaque, vmid: u4, root: u64) !void {
+    const runtime: *GpuVmRuntime = @ptrCast(@alignCast(raw));
+    if (!runtime.active or !gpu_gmc11_activation_workspace.active) return error.AmdGpuVmHardwareUnavailable;
+    const transport = if (runtime.transport) |*value| value else return error.AmdGpuVmHardwareUnavailable;
+    try transport.arm();
+    defer transport.disarm();
+    asm volatile ("mfence" ::: .{ .memory = true });
+    _ = try gpu.bindAmdGmc11VmContext(&runtime.context, runtime.registers.?, vmid, root, 1, 100_000, transport.io());
+}
+
+fn invalidateDrmGpuVm(raw: *anyopaque, vmid: u4) !void {
+    const runtime: *GpuVmRuntime = @ptrCast(@alignCast(raw));
+    if (!runtime.active or !runtime.context.bound or runtime.context.vmid != vmid) return error.AmdGpuVmContextNotBound;
+    const transport = if (runtime.transport) |*value| value else return error.AmdGpuVmHardwareUnavailable;
+    try transport.arm();
+    defer transport.disarm();
+    asm volatile ("mfence" ::: .{ .memory = true });
+    _ = try gpu.invalidateAmdGmc11Gart(runtime.registers.?, runtime.context.engine, vmid, 100_000, transport.io());
+}
+
+fn unbindDrmGpuVm(raw: *anyopaque, vmid: u4) !void {
+    const runtime: *GpuVmRuntime = @ptrCast(@alignCast(raw));
+    if (!runtime.active or !runtime.context.bound or runtime.context.vmid != vmid) return error.AmdGpuVmContextNotBound;
+    const transport = if (runtime.transport) |*value| value else return error.AmdGpuVmHardwareUnavailable;
+    try transport.arm();
+    defer transport.disarm();
+    asm volatile ("mfence" ::: .{ .memory = true });
+    _ = try gpu.unbindAmdGmc11VmContext(&runtime.context, runtime.registers.?, 100_000, transport.io());
+}
 
 pub const BootInfo = struct {
     framebuffer: Framebuffer,
@@ -711,6 +748,13 @@ pub fn start(info: BootInfo) noreturn {
             };
             gpu_gart_plan.?.active = true;
             transport.disarm();
+            gpu_vm_runtime = .{ .transport = transport.*, .registers = gpu_gart_registers.?, .active = true };
+            syscalls.configureDrmGpuVmHardware(.{
+                .context = &gpu_vm_runtime,
+                .bind = &bindDrmGpuVm,
+                .invalidate = &invalidateDrmGpuVm,
+                .unbind = &unbindDrmGpuVm,
+            });
         }
     }
     const gpu_identity = gpu_adapter.identifyChip() catch panic("GPU chipset identification failed");

@@ -873,6 +873,44 @@ pub const AmdGpuVmPagePath = struct {
     ptb: u9,
     page_offset: u12,
 };
+pub const AmdGpuVmHardware = struct {
+    context: *anyopaque,
+    bind: *const fn (*anyopaque, u4, u64) anyerror!void,
+    invalidate: *const fn (*anyopaque, u4) anyerror!void,
+    unbind: *const fn (*anyopaque, u4) anyerror!void,
+};
+pub const AmdGpuVmHardwareSession = struct {
+    hardware: AmdGpuVmHardware,
+    bound_vmid: u4 = 0,
+
+    pub fn syncAfterMap(self: *AmdGpuVmHardwareSession, vmid: u4, root_page: u64) !void {
+        if (vmid == 0 or root_page == 0) return error.InvalidAmdGpuVmHardwareSync;
+        if (self.bound_vmid == 0) {
+            try self.hardware.bind(self.hardware.context, vmid, root_page);
+            self.bound_vmid = vmid;
+        } else {
+            if (self.bound_vmid != vmid) return error.AmdGpuVmHardwareVmidMismatch;
+            try self.hardware.invalidate(self.hardware.context, vmid);
+        }
+    }
+
+    pub fn syncAfterUnmap(self: *AmdGpuVmHardwareSession, vmid: u4, mappings_remain: bool) !void {
+        if (self.bound_vmid == 0) return;
+        if (self.bound_vmid != vmid) return error.AmdGpuVmHardwareVmidMismatch;
+        if (mappings_remain) {
+            try self.hardware.invalidate(self.hardware.context, vmid);
+        } else {
+            try self.hardware.unbind(self.hardware.context, vmid);
+            self.bound_vmid = 0;
+        }
+    }
+
+    pub fn reset(self: *AmdGpuVmHardwareSession) !void {
+        if (self.bound_vmid == 0) return;
+        try self.hardware.unbind(self.hardware.context, self.bound_vmid);
+        self.bound_vmid = 0;
+    }
+};
 const AmdGpuVmPdb1Node = struct { active: bool = false, pdb2: u9 = 0, child_count: u16 = 0, page: u64 = 0 };
 const AmdGpuVmPdb0Node = struct { active: bool = false, pdb2: u9 = 0, pdb1: u9 = 0, child_count: u16 = 0, page: u64 = 0 };
 const AmdGpuVmPtbNode = struct { active: bool = false, pdb2: u9 = 0, pdb1: u9 = 0, pdb0: u9 = 0, page_count: u16 = 0, page: u64 = 0 };
@@ -1030,7 +1068,12 @@ pub fn physicalAmdGpuVmPageAllocator(pages: *physical.Allocator) AmdGpuVmPageAll
 
 fn allocatePhysicalAmdGpuVmPage(context: *anyopaque) !u64 {
     const pages: *physical.Allocator = @ptrCast(@alignCast(context));
-    return pages.allocate(1) orelse error.OutOfMemory;
+    const address = pages.allocate(1) orelse return error.OutOfMemory;
+    if (address >= (@as(u64, 1) << 44)) {
+        pages.release(address, 1) catch {};
+        return error.AmdGpuVmPageOutsideDmaMask;
+    }
+    return address;
 }
 
 fn releasePhysicalAmdGpuVmPage(context: *anyopaque, address: u64) !void {
@@ -2333,6 +2376,64 @@ pub fn validateAmdGpuVmManagerSelfTest() !void {
         return error.AmdGpuVmTableSizeMismatch;
     if (amdGpuVmPagePath(0x0000800000000000)) |_| return error.AmdGpuVmNonCanonicalVaAccepted else |err|
         if (err != error.InvalidAmdGpuVa) return err;
+}
+
+const AmdGpuVmHardwareTest = struct {
+    binds: u8 = 0,
+    invalidates: u8 = 0,
+    unbinds: u8 = 0,
+    fail: enum { none, bind, invalidate, unbind } = .none,
+
+    fn hardware(self: *AmdGpuVmHardwareTest) AmdGpuVmHardware {
+        return .{ .context = self, .bind = &bind, .invalidate = &invalidate, .unbind = &unbind };
+    }
+    fn bind(raw: *anyopaque, vmid: u4, root: u64) !void {
+        const self: *AmdGpuVmHardwareTest = @ptrCast(@alignCast(raw));
+        if (vmid == 0 or root == 0) return error.InvalidAmdGpuVmHardwareTest;
+        if (self.fail == .bind) return error.InjectedAmdGpuVmHardwareFailure;
+        self.binds += 1;
+    }
+    fn invalidate(raw: *anyopaque, vmid: u4) !void {
+        const self: *AmdGpuVmHardwareTest = @ptrCast(@alignCast(raw));
+        if (vmid == 0) return error.InvalidAmdGpuVmHardwareTest;
+        if (self.fail == .invalidate) return error.InjectedAmdGpuVmHardwareFailure;
+        self.invalidates += 1;
+    }
+    fn unbind(raw: *anyopaque, vmid: u4) !void {
+        const self: *AmdGpuVmHardwareTest = @ptrCast(@alignCast(raw));
+        if (vmid == 0) return error.InvalidAmdGpuVmHardwareTest;
+        if (self.fail == .unbind) return error.InjectedAmdGpuVmHardwareFailure;
+        self.unbinds += 1;
+    }
+};
+
+pub fn validateAmdGpuVmHardwareSessionSelfTest() !void {
+    var backend = AmdGpuVmHardwareTest{};
+    var session = AmdGpuVmHardwareSession{ .hardware = backend.hardware() };
+    try session.syncAfterMap(1, 0x1000);
+    try session.syncAfterMap(1, 0x1000);
+    try session.syncAfterUnmap(1, true);
+    if (session.bound_vmid != 1 or backend.binds != 1 or backend.invalidates != 2 or backend.unbinds != 0)
+        return error.AmdGpuVmHardwareSyncCountMismatch;
+    if (session.syncAfterMap(2, 0x2000)) return error.AmdGpuVmHardwareWrongVmidAccepted else |err|
+        if (err != error.AmdGpuVmHardwareVmidMismatch) return err;
+
+    backend.fail = .invalidate;
+    if (session.syncAfterMap(1, 0x1000)) return error.AmdGpuVmHardwareInvalidateFailureMissed else |err|
+        if (err != error.InjectedAmdGpuVmHardwareFailure) return err;
+    if (session.bound_vmid != 1) return error.AmdGpuVmHardwareBindingLostAfterInvalidateFailure;
+    backend.fail = .unbind;
+    if (session.syncAfterUnmap(1, false)) return error.AmdGpuVmHardwareUnbindFailureMissed else |err|
+        if (err != error.InjectedAmdGpuVmHardwareFailure) return err;
+    if (session.bound_vmid != 1) return error.AmdGpuVmHardwareBindingLostAfterUnbindFailure;
+    backend.fail = .none;
+    try session.syncAfterUnmap(1, false);
+    if (session.bound_vmid != 0 or backend.unbinds != 1) return error.AmdGpuVmHardwareUnbindMismatch;
+
+    backend.fail = .bind;
+    if (session.syncAfterMap(2, 0x2000)) return error.AmdGpuVmHardwareBindFailureMissed else |err|
+        if (err != error.InjectedAmdGpuVmHardwareFailure) return err;
+    if (session.bound_vmid != 0) return error.AmdGpuVmHardwareBoundAfterBindFailure;
 }
 
 pub fn validateAmdGpuVmBranchPlannerSelfTest() !void {
