@@ -117,7 +117,7 @@ Zig
 
 Componentes maduros existentes em C/C++ podem ser reutilizados quando reescrevê-los não trouxer benefício relevante.
 
-Componentes como Mesa, RADV, firmware e drivers complexos de GPU não precisam ser reescritos apenas para tornar o projeto inteiramente Zig.
+Componentes como Mesa, RADV, NVK, firmware e drivers complexos de GPU AMD/NVIDIA não precisam ser reescritos apenas para tornar o projeto inteiramente Zig.
 
 ---
 
@@ -138,11 +138,12 @@ USB HID
 Ethernet
 USB Audio
 AMD Radeon
+NVIDIA GeForce
 ```
 
-AMD Radeon é o alvo inicial de GPU devido ao ecossistema gráfico aberto existente em torno de Mesa e RADV.
+AMD Radeon continua como o primeiro backend de referência devido ao ecossistema aberto de AMDGPU, Mesa e RADV. NVIDIA GeForce também faz parte do escopo suportado, reutilizando a stack madura disponível — driver aberto/Nouveau, NVK ou componentes oficiais redistribuíveis quando tecnicamente necessários e compatíveis com o projeto.
 
-Suporte adicional pode ser incluído conforme surgir necessidade real.
+O trabalho compartilhado de DRM/KMS, memória, sincronização e ABI deve ser reutilizado pelos dois backends. O segundo backend não deve atrasar a construção do primeiro caminho Vulkan funcional, mas M14 só estará completo após validar hardware AMD e NVIDIA suportado.
 
 ---
 
@@ -546,7 +547,7 @@ M10  Filesystem
 M11  USB/xHCI
 M12  Network
 M13  Audio
-M14  GPU/Vulkan
+M14  GPU AMD/NVIDIA + Vulkan
 M15  SDL
 M16  Steam Runtime
 M17  Steam

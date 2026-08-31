@@ -93,7 +93,7 @@ Zig
 
 CÃ³digo externo pode continuar em C/C++ quando reescrevÃª-lo nÃ£o aproximar CS2 de funcionar.
 
-NÃ£o reescrever Mesa, RADV, firmware ou drivers complexos apenas para dizer que o sistema Ã© 100% Zig.
+NÃ£o reescrever Mesa, RADV, NVK, firmware ou drivers complexos AMD/NVIDIA apenas para dizer que o sistema Ã© 100% Zig.
 
 NÃ£o converter Linux linha por linha.
 
@@ -257,6 +257,8 @@ VRAM quando disponÃ­vel
 driver necessÃ¡rio
 Vulkan capabilities relevantes
 ```
+
+Detectar GPUs AMD Radeon e NVIDIA GeForce suportadas. Registrar revisÃ£o, subsystem IDs e capacidades PCI relevantes para selecionar corretamente driver e firmware.
 
 ## NVMe
 
@@ -532,7 +534,7 @@ GPU Ã© a parte mais cara do projeto.
 
 NÃ£o reescrever driver moderno de GPU antes de CS2 funcionar.
 
-Primeira estratÃ©gia:
+Primeira estratÃ©gia AMD:
 
 ```text
 CSOS
@@ -551,6 +553,22 @@ Vulkan
 Priorizar AMD inicialmente.
 
 NÃ£o criar um driver Radeon completo em Zig antes do primeiro frame Vulkan.
+
+EstratÃ©gia NVIDIA:
+
+```text
+CSOS
+â†“
+compatibilidade necessÃ¡ria
+â†“
+driver NVIDIA maduro disponÃ­vel
+â†“
+Nouveau/NVK ou componentes oficiais redistribuÃ­veis
+â†“
+Vulkan
+```
+
+NVIDIA GeForce tambÃ©m faz parte do escopo oficial. Reutilizar implementaÃ§Ãµes maduras e nÃ£o criar um driver NVIDIA completo em Zig. AMD permanece como primeiro backend de referÃªncia para evitar desenvolver duas stacks incompletas em paralelo; apÃ³s o primeiro triÃ¢ngulo Vulkan, validar o mesmo caminho em hardware NVIDIA suportado antes de considerar M14 concluÃ­da.
 
 ---
 
@@ -636,6 +654,7 @@ xHCI
 USB HID
 Ethernet
 AMD Radeon
+NVIDIA GeForce
 USB Audio
 ```
 
@@ -1252,7 +1271,7 @@ Ethernet + IPv4 + UDP/TCP + DNS + DHCP.
 
 Primeiro USB Audio.
 
-## M14 â€” GPU/Vulkan
+## M14 â€” GPU AMD/NVIDIA + Vulkan
 
 Primeiro objetivo:
 
@@ -1261,6 +1280,18 @@ Vulkan triangle
 ```
 
 Reutilizar stack madura necessÃ¡ria em vez de reescrever driver moderno antes de funcionar.
+
+Ordem interna:
+
+```text
+DRM/KMS compartilhado
+â†“
+AMD Radeon + RADV â†’ Vulkan triangle
+â†“
+NVIDIA GeForce + NVK/stack compatÃ­vel â†’ Vulkan triangle
+```
+
+Somente GPUs e geraÃ§Ãµes explicitamente validadas entram como suportadas.
 
 ## M15 â€” SDL
 
@@ -1788,7 +1819,7 @@ filesystem
 USB mouse/keyboard
 Ethernet
 audio
-GPU
+GPU AMD/NVIDIA
 Vulkan
 Steam
 login/download
