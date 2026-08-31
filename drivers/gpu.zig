@@ -717,6 +717,7 @@ pub const AmdPspPreparedCommand = struct {
     index: usize,
 };
 pub const AmdPspTransportStatus = enum { pending, complete, failed };
+pub const AmdPspPreflight = enum { blocked_uncached, blocked_unauthorized, mailbox_busy, ready, already_running };
 pub const AmdPspTransport = struct {
     context: *anyopaque,
     sosAlive: *const fn (*anyopaque) bool,
@@ -857,6 +858,34 @@ pub const AmdPspHandoff = struct {
         self.* = .{};
     }
 };
+
+pub fn preflightAmdPspHandoff(handoff: *const AmdPspHandoff, transport: *const AmdPspMmioTransport, initial: AmdPspMailboxSnapshot) !AmdPspPreflight {
+    if (handoff.state != .ready or handoff.count < 2 or handoff.count > handoff.steps.len or handoff.current != 0 or handoff.deadline != 0 or
+        handoff.transfer_pages == 0 or (handoff.transfer_address & (1024 * 1024 - 1)) != 0 or
+        handoff.reservation_address == 0 or handoff.reservation_pages == 0 or
+        handoff.steps[handoff.count - 2].command != .load_sysdrv or handoff.steps[handoff.count - 1].command != .load_sos or
+        handoff.transfer_address >> 20 > ~@as(u32, 0))
+        return error.InvalidAmdPspHandoffPreflight;
+    const capacity = std.math.mul(u64, handoff.transfer_pages, 4096) catch return error.InvalidAmdPspHandoffPreflight;
+    const reservation_bytes = std.math.mul(u64, handoff.reservation_pages, 4096) catch return error.InvalidAmdPspHandoffPreflight;
+    const transfer_end = std.math.add(u64, handoff.transfer_address, capacity) catch return error.InvalidAmdPspHandoffPreflight;
+    const reservation_end = std.math.add(u64, handoff.reservation_address, reservation_bytes) catch return error.InvalidAmdPspHandoffPreflight;
+    if (handoff.transfer_address < handoff.reservation_address or transfer_end > reservation_end)
+        return error.InvalidAmdPspHandoffPreflight;
+    for (handoff.steps[0..handoff.count]) |step| {
+        if (!transport.profile.supports(step.command) or step.source_address == 0 or step.bytes == 0 or step.bytes > capacity)
+            return error.InvalidAmdPspHandoffPreflight;
+    }
+    if (transport.armed or transport.active != null) return error.InvalidAmdPspTransportPreflight;
+    if (!transport.uncached) return .blocked_uncached;
+    if (!transport.authorized) return .blocked_unauthorized;
+    return switch (initial.state) {
+        .bootloader_ready => .ready,
+        .sos_alive => .already_running,
+        .bootloader_busy => .mailbox_busy,
+        .failed => error.AmdPspMailboxFailed,
+    };
+}
 
 pub fn advanceAmdPspHandoff(handoff: *AmdPspHandoff, transport: AmdPspTransport, now: u64, timeout: u64) !AmdPspHandoffState {
     switch (handoff.state) {
@@ -1010,11 +1039,12 @@ fn appendPspHandoffStep(handoff: *AmdPspHandoff, command: AmdPspBootCommand, ima
     handoff.count += 1;
 }
 
-pub fn prepareAmdPspHandoff(images: AmdPspBootImages, pages: *physical.Allocator) !AmdPspHandoff {
+pub fn prepareAmdPspHandoff(images: AmdPspBootImages, profile: AmdPspMailboxProfile, pages: *physical.Allocator) !AmdPspHandoff {
     var result = AmdPspHandoff{};
     errdefer result.release(pages);
-    try appendPspHandoffStep(&result, .load_kdb, images.kdb);
-    try appendPspHandoffStep(&result, .load_spl, images.spl);
+    if (!profile.supports(.load_sysdrv) or !profile.supports(.load_sos)) return error.AmdPspHostBootUnsupported;
+    if (profile.supports(.load_kdb)) try appendPspHandoffStep(&result, .load_kdb, images.kdb);
+    if (profile.supports(.load_spl)) try appendPspHandoffStep(&result, .load_spl, images.spl);
     try appendPspHandoffStep(&result, .load_sysdrv, images.sys);
     try appendPspHandoffStep(&result, .load_sos, images.sos);
     if (result.count < 2 or result.steps[result.count - 2].command != .load_sysdrv or result.steps[result.count - 1].command != .load_sos)
@@ -1076,7 +1106,7 @@ pub fn validateAmdPspHandoff(pages: *physical.Allocator) !void {
         .rl = null,
         .auxiliary = false,
     };
-    var handoff = try prepareAmdPspHandoff(images, pages);
+    var handoff = try prepareAmdPspHandoff(images, .{ .supported_commands = psp_all_boot_commands }, pages);
     defer handoff.release(pages);
     var mock = MockTransport{};
     const transport = AmdPspTransport{ .context = &mock, .sosAlive = &MockTransport.sosAlive, .submit = &MockTransport.submit, .status = &MockTransport.status };
@@ -1307,6 +1337,29 @@ comptime {
     appendPspHandoffStep(&handoff, .load_sos, normal_images.sos) catch @compileError("valid AMD PSP SOS handoff was rejected");
     if (handoff.count != 3 or handoff.steps[0].command != .load_kdb or handoff.steps[1].command != .load_sysdrv or handoff.steps[2].command != .load_sos)
         @compileError("AMD PSP handoff order is incorrect");
+    handoff.transfer_address = 0x100000;
+    handoff.transfer_pages = 1;
+    handoff.reservation_address = 0x100000;
+    handoff.reservation_pages = 1;
+    handoff.state = .ready;
+    var preflight_transport = AmdPspMmioTransport{
+        .adapter = undefined,
+        .profile = mailbox,
+        .registers = undefined,
+        .uncached = true,
+        .authorized = true,
+    };
+    if ((preflightAmdPspHandoff(&handoff, &preflight_transport, ready_snapshot) catch
+        @compileError("valid AMD PSP preflight was rejected")) != .ready)
+        @compileError("ready AMD PSP preflight was classified incorrectly");
+    preflight_transport.authorized = false;
+    if ((preflightAmdPspHandoff(&handoff, &preflight_transport, ready_snapshot) catch
+        @compileError("unauthorized AMD PSP preflight was rejected")) != .blocked_unauthorized)
+        @compileError("unauthorized AMD PSP preflight was classified incorrectly");
+    preflight_transport.authorized = true;
+    if ((preflightAmdPspHandoff(&handoff, &preflight_transport, alive_snapshot) catch
+        @compileError("live AMD PSP preflight was rejected")) != .already_running)
+        @compileError("live AMD PSP preflight was classified incorrectly");
     handoff.state = .staged;
     handoff.markSubmitted(100, 50) catch @compileError("staged AMD PSP handoff could not be submitted");
     const pending = handoff.observe(false, 149) catch @compileError("pending AMD PSP handoff was rejected");

@@ -772,6 +772,12 @@ Mapeamentos genéricos, NVIDIA ou sem os blocos necessários são rejeitados. A
 autorização apenas abre o segundo gate do transporte; não arma nem executa o
 handoff automaticamente.
 
+Antes do arming, um preflight sem efeitos colaterais valida em conjunto a área
+de transferência alinhada, a ordem SYS/SOS, todos os comandos exigidos pela
+família, o estado inicial do mailbox e os gates de MMIO/autorização. O resultado
+é exposto como `psp-preflight`; estados bloqueados continuam sem copiar payload
+para a área de transferência e sem escrever registradores.
+
 As capacidades PSP são tratadas separadamente: `autoload_supported`, TMR de
 boot e presença de callbacks host para carregar SYS/SOS não são sinônimos. O
 handoff host só é construído para as famílias em que o `psp_funcs` upstream

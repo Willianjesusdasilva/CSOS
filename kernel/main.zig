@@ -513,7 +513,8 @@ pub fn start(info: BootInfo) noreturn {
         if (gpu_backend_plan.?.psp.host_boot_components) {
             gpu_psp_boot_images = gpu.selectAmdPspBootImages(&gpu_firmware_staging, gpu_backend_plan.?.psp, .unknown) catch
                 panic("AMDGPU PSP boot image selection failed");
-            gpu_psp_handoff = gpu.prepareAmdPspHandoff(gpu_psp_boot_images.?, &pages) catch
+            const profile = gpu.amdPspMailboxProfile(gpu_backend_plan.?.psp) catch panic("AMDGPU PSP mailbox unsupported");
+            gpu_psp_handoff = gpu.prepareAmdPspHandoff(gpu_psp_boot_images.?, profile, &pages) catch
                 panic("AMDGPU PSP handoff preparation failed");
         }
     }
@@ -538,13 +539,18 @@ pub fn start(info: BootInfo) noreturn {
     mapper.activate();
     var gpu_psp_mailbox_snapshot: ?gpu.AmdPspMailboxSnapshot = null;
     var gpu_psp_mmio_transport: ?gpu.AmdPspMmioTransport = null;
+    var gpu_psp_preflight: ?gpu.AmdPspPreflight = null;
     if (gpu_psp_mailbox_registers) |registers| {
         const command = gpu_adapter.readRegister(registers.command_offset) catch panic("AMDGPU PSP command read failed");
         const sos = gpu_adapter.readRegister(registers.sos_offset) catch panic("AMDGPU PSP sOS read failed");
         gpu_psp_mailbox_snapshot = gpu.classifyAmdPspMailbox(gpu_psp_mailbox_profile.?, command, sos) catch
             panic("AMDGPU PSP mailbox unavailable");
         gpu_psp_mmio_transport = .{ .adapter = &gpu_adapter, .profile = gpu_psp_mailbox_profile.?, .registers = registers, .uncached = true, .authorized = gpu_selection.?.psp_host_boot };
-        if (gpu_psp_mmio_transport) |*transport| _ = transport.transport();
+        if (gpu_psp_mmio_transport) |*transport| {
+            gpu_psp_preflight = gpu.preflightAmdPspHandoff(&gpu_psp_handoff, transport, gpu_psp_mailbox_snapshot.?) catch
+                panic("AMDGPU PSP handoff preflight failed");
+            _ = transport.transport();
+        }
     }
     const gpu_identity = gpu_adapter.identifyChip() catch panic("GPU chipset identification failed");
     const gpu_register_probe = gpu_identity.boot0 orelse gpu_adapter.readRegister(0) catch panic("GPU register MMIO read failed");
@@ -591,6 +597,7 @@ pub fn start(info: BootInfo) noreturn {
     serial.write(" psp-mmio-transport: "); serial.writeDecimal(if (gpu_psp_mmio_transport) |_| 1 else 0);
     serial.write(" psp-write-armed: "); serial.writeDecimal(if (gpu_psp_mmio_transport) |transport| @intFromBool(transport.armed) else 0);
     serial.write(" psp-write-authorized: "); serial.writeDecimal(if (gpu_psp_mmio_transport) |transport| @intFromBool(transport.authorized) else 0);
+    serial.write(" psp-preflight: "); serial.writeDecimal(if (gpu_psp_preflight) |preflight| @intFromEnum(preflight) + 1 else 0);
     serial.write(" staged: "); serial.writeDecimal(gpu_firmware_staging.count);
     serial.write(" staged-bytes: "); serial.writeDecimal(gpu_firmware_staging.image_bytes);
     serial.write(" staged-payload: "); serial.writeDecimal(gpu_firmware_staging.payload_bytes);
