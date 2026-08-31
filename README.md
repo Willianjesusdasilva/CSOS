@@ -717,6 +717,13 @@ o fluxo terminal. A conclusão é necessária para liberar a próxima imagem. O
 boot executa um autoteste com páginas físicas reais, compara as cópias SYS/SOS
 e valida a progressão completa sem acessar registradores da GPU.
 
+A progressão usa uma interface de transporte PSP separada, limitada a consultar
+se o sOS já está vivo, submeter um descritor preparado e observar seu estado.
+O autoteste fornece um transporte simulado e cobre conclusão, bypass de sOS já
+ativo e recusa de submissão. Adaptadores de mailbox por família ainda não estão
+habilitados; portanto essa interface não é evidência de aceleração ou boot PSP
+em hardware real.
+
 Os próximos incrementos de GPU devem privilegiar adaptação e reutilização do
 AMDGPU/RADV e, depois, Nouveau/NVK compatíveis. O código Zig existente serve de
 ponte de kernel, DRM e plataforma; ele não autoriza reimplementar integralmente

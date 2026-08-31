@@ -663,6 +663,13 @@ pub const AmdPspPreparedCommand = struct {
     bytes: u32,
     index: usize,
 };
+pub const AmdPspTransportStatus = enum { pending, complete, failed };
+pub const AmdPspTransport = struct {
+    context: *anyopaque,
+    sosAlive: *const fn (*anyopaque) bool,
+    submit: *const fn (*anyopaque, AmdPspPreparedCommand) bool,
+    status: *const fn (*anyopaque, AmdPspBootCommand) AmdPspTransportStatus,
+};
 pub const AmdPspHandoff = struct {
     reservation_address: u64 = 0,
     reservation_pages: u64 = 0,
@@ -725,6 +732,41 @@ pub const AmdPspHandoff = struct {
         self.* = .{};
     }
 };
+
+pub fn advanceAmdPspHandoff(handoff: *AmdPspHandoff, transport: AmdPspTransport, now: u64, timeout: u64) !AmdPspHandoffState {
+    switch (handoff.state) {
+        .empty, .finished, .failed => return handoff.state,
+        .ready => {
+            if (handoff.current == 0 and transport.sosAlive(transport.context)) {
+                handoff.current = handoff.count;
+                handoff.state = .finished;
+                return handoff.state;
+            }
+            const prepared = try handoff.stageNext();
+            if (!transport.submit(transport.context, prepared)) {
+                handoff.fail();
+                return error.AmdPspTransportSubmitFailed;
+            }
+            handoff.markSubmitted(now, timeout) catch |err| {
+                handoff.fail();
+                return err;
+            };
+            return handoff.state;
+        },
+        .submitted => switch (transport.status(transport.context, handoff.steps[handoff.current].command)) {
+            .pending => return handoff.observe(false, now),
+            .complete => return handoff.observe(true, now),
+            .failed => {
+                handoff.fail();
+                return error.AmdPspTransportFailed;
+            },
+        },
+        .staged => {
+            handoff.fail();
+            return error.AmdPspTransportNotSubmitted;
+        },
+    }
+}
 pub const PspFamily = enum { v3_1, v10_0, v11_0, v11_0_8, v12_0, v13_0, v13_0_4, v14_0, v15_0, v15_0_8 };
 pub const GmcFamily = enum { v9_0, v10_0, v11_0, v12_0 };
 pub const GfxFamily = enum { v9_0, v9_4_3, v10_0, v11_0, v12_0, v12_1 };
@@ -799,6 +841,30 @@ pub fn prepareAmdPspHandoff(images: AmdPspBootImages, pages: *physical.Allocator
 }
 
 pub fn validateAmdPspHandoff(pages: *physical.Allocator) !void {
+    const MockTransport = struct {
+        alive: bool = false,
+        accepts: bool = true,
+        submissions: usize = 0,
+        completion: AmdPspTransportStatus = .pending,
+        last: ?AmdPspPreparedCommand = null,
+
+        fn sosAlive(context: *anyopaque) bool {
+            const self: *@This() = @ptrCast(@alignCast(context));
+            return self.alive;
+        }
+        fn submit(context: *anyopaque, command: AmdPspPreparedCommand) bool {
+            const self: *@This() = @ptrCast(@alignCast(context));
+            self.submissions += 1;
+            self.last = command;
+            self.completion = .pending;
+            return self.accepts;
+        }
+        fn status(context: *anyopaque, command: AmdPspBootCommand) AmdPspTransportStatus {
+            const self: *@This() = @ptrCast(@alignCast(context));
+            if (self.last == null or self.last.?.command != command) return .failed;
+            return self.completion;
+        }
+    };
     const source_address = pages.allocate(1) orelse return error.OutOfMemory;
     defer pages.release(source_address, 1) catch {};
     const source: [*]u8 = @ptrFromInt(source_address);
@@ -814,18 +880,35 @@ pub fn validateAmdPspHandoff(pages: *physical.Allocator) !void {
     };
     var handoff = try prepareAmdPspHandoff(images, pages);
     defer handoff.release(pages);
-    const sys = try handoff.stageNext();
+    var mock = MockTransport{};
+    const transport = AmdPspTransport{ .context = &mock, .sosAlive = &MockTransport.sosAlive, .submit = &MockTransport.submit, .status = &MockTransport.status };
+    if (try advanceAmdPspHandoff(&handoff, transport, 100, 50) != .submitted) return error.AmdPspHandoffValidationFailed;
+    const sys = mock.last orelse return error.AmdPspHandoffValidationFailed;
     if (sys.command != .load_sysdrv or sys.index != 0 or sys.transfer_address_1m != sys.transfer_address >> 20)
         return error.AmdPspHandoffValidationFailed;
     const transfer: [*]const u8 = @ptrFromInt(sys.transfer_address);
     if (!equal(transfer[0..sys.bytes], source[0..sys.bytes])) return error.AmdPspHandoffCopyFailed;
-    try handoff.markSubmitted(100, 50);
-    if (try handoff.observe(true, 120) != .ready) return error.AmdPspHandoffValidationFailed;
-    const sos = try handoff.stageNext();
+    mock.completion = .complete;
+    if (try advanceAmdPspHandoff(&handoff, transport, 120, 50) != .ready) return error.AmdPspHandoffValidationFailed;
+    if (try advanceAmdPspHandoff(&handoff, transport, 200, 50) != .submitted) return error.AmdPspHandoffValidationFailed;
+    const sos = mock.last orelse return error.AmdPspHandoffValidationFailed;
     if (sos.command != .load_sos or !equal(transfer[0..sos.bytes], source[128 .. 128 + sos.bytes]))
         return error.AmdPspHandoffCopyFailed;
-    try handoff.markSubmitted(200, 50);
-    if (try handoff.observe(true, 220) != .finished or handoff.current != 2) return error.AmdPspHandoffValidationFailed;
+    mock.completion = .complete;
+    if (try advanceAmdPspHandoff(&handoff, transport, 220, 50) != .finished or handoff.current != 2 or mock.submissions != 2)
+        return error.AmdPspHandoffValidationFailed;
+    handoff.current = 0;
+    handoff.state = .ready;
+    mock.alive = true;
+    if (try advanceAmdPspHandoff(&handoff, transport, 300, 50) != .finished or mock.submissions != 2)
+        return error.AmdPspHandoffAliveBypassFailed;
+    handoff.current = 0;
+    handoff.state = .ready;
+    mock.alive = false;
+    mock.accepts = false;
+    if (advanceAmdPspHandoff(&handoff, transport, 400, 50)) |_| return error.AmdPspTransportFailureAccepted else |err| {
+        if (err != error.AmdPspTransportSubmitFailed or handoff.state != .failed) return error.AmdPspTransportFailureStateInvalid;
+    }
 }
 
 pub fn planAmdBackend(discovery: *const AmdIpDiscovery) !AmdBackendPlan {
