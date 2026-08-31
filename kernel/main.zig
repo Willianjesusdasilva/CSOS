@@ -533,11 +533,14 @@ pub fn start(info: BootInfo) noreturn {
     mapper.mapIdentity(gpu_registers.address, @intCast(gpu_registers.size)) catch panic("GPU register MMIO mapping failed");
     mapper.activate();
     var gpu_psp_mailbox_snapshot: ?gpu.AmdPspMailboxSnapshot = null;
+    var gpu_psp_mmio_transport: ?gpu.AmdPspMmioTransport = null;
     if (gpu_psp_mailbox_registers) |registers| {
         const command = gpu_adapter.readRegister(registers.command_offset) catch panic("AMDGPU PSP command read failed");
         const sos = gpu_adapter.readRegister(registers.sos_offset) catch panic("AMDGPU PSP sOS read failed");
         gpu_psp_mailbox_snapshot = gpu.classifyAmdPspMailbox(gpu_psp_mailbox_profile.?, command, sos) catch
             panic("AMDGPU PSP mailbox unavailable");
+        gpu_psp_mmio_transport = .{ .adapter = &gpu_adapter, .profile = gpu_psp_mailbox_profile.?, .registers = registers };
+        if (gpu_psp_mmio_transport) |*transport| _ = transport.transport();
     }
     const gpu_identity = gpu_adapter.identifyChip() catch panic("GPU chipset identification failed");
     const gpu_register_probe = gpu_identity.boot0 orelse gpu_adapter.readRegister(0) catch panic("GPU register MMIO read failed");
@@ -581,6 +584,8 @@ pub fn start(info: BootInfo) noreturn {
     serial.write(" psp-command-reg: "); serial.writeDecimal(if (gpu_psp_mailbox_registers) |registers| registers.command_offset else 0);
     serial.write(" psp-observed: "); serial.writeDecimal(if (gpu_psp_mailbox_snapshot) |_| 1 else 0);
     serial.write(" psp-mailbox-state: "); serial.writeDecimal(if (gpu_psp_mailbox_snapshot) |snapshot| @intFromEnum(snapshot.state) else 0);
+    serial.write(" psp-mmio-transport: "); serial.writeDecimal(if (gpu_psp_mmio_transport) |_| 1 else 0);
+    serial.write(" psp-write-armed: "); serial.writeDecimal(if (gpu_psp_mmio_transport) |transport| @intFromBool(transport.armed) else 0);
     serial.write(" staged: "); serial.writeDecimal(gpu_firmware_staging.count);
     serial.write(" staged-bytes: "); serial.writeDecimal(gpu_firmware_staging.image_bytes);
     serial.write(" staged-payload: "); serial.writeDecimal(gpu_firmware_staging.payload_bytes);

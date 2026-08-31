@@ -741,6 +741,16 @@ o PSP como bootloader ocupado, bootloader pronto, sOS ativo ou falha reportada.
 Uma leitura `0xffffffff` é tratada como dispositivo/MMIO indisponível. Essa
 sondagem é estritamente somente leitura e não inicia o handoff.
 
+Existe agora um backend MMIO para a interface de transporte PSP, mas ele nasce
+desarmado. O arming exige um snapshot `bootloader_ready`; a submissão revalida o
+estado, escreve primeiro o endereço, aplica uma barreira de memória e só então
+escreve o comando. Falha de leitura, status de erro ou comando divergente
+desarma o transporte. O boot normal apenas constrói a interface e mantém
+`psp-write-armed: 0`, portanto nenhuma escrita foi habilitada.
+O arming também exige que o BAR tenha sido explicitamente marcado como
+uncached; o mapeamento atual ainda não fornece essa garantia e mantém esse gate
+fechado.
+
 As capacidades PSP são tratadas separadamente: `autoload_supported`, TMR de
 boot e presença de callbacks host para carregar SYS/SOS não são sinônimos. O
 handoff host só é construído para as famílias em que o `psp_funcs` upstream

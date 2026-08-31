@@ -705,6 +705,77 @@ pub const AmdPspTransport = struct {
     submit: *const fn (*anyopaque, AmdPspPreparedCommand) bool,
     status: *const fn (*anyopaque, AmdPspBootCommand) AmdPspTransportStatus,
 };
+pub const AmdPspMmioTransport = struct {
+    adapter: *const Adapter,
+    profile: AmdPspMailboxProfile,
+    registers: AmdPspMailboxRegisters,
+    uncached: bool = false,
+    armed: bool = false,
+    active: ?AmdPspBootCommand = null,
+    sos_before: u32 = 0,
+
+    pub fn arm(self: *AmdPspMmioTransport, initial: AmdPspMailboxSnapshot) !void {
+        if (!self.uncached or self.armed or self.active != null or initial.state != .bootloader_ready)
+            return error.AmdPspTransportNotReady;
+        self.armed = true;
+        self.sos_before = initial.sos;
+    }
+
+    pub fn disarm(self: *AmdPspMmioTransport) void {
+        self.armed = false;
+        self.active = null;
+    }
+
+    pub fn transport(self: *AmdPspMmioTransport) AmdPspTransport {
+        return .{ .context = self, .sosAlive = &sosAlive, .submit = &submit, .status = &status };
+    }
+
+    fn snapshot(self: *AmdPspMmioTransport) !AmdPspMailboxSnapshot {
+        const command = try self.adapter.readRegister(self.registers.command_offset);
+        const sos = try self.adapter.readRegister(self.registers.sos_offset);
+        return classifyAmdPspMailbox(self.profile, command, sos);
+    }
+
+    fn sosAlive(context: *anyopaque) bool {
+        const self: *AmdPspMmioTransport = @ptrCast(@alignCast(context));
+        const observed = self.snapshot() catch return false;
+        return observed.state == .sos_alive;
+    }
+
+    fn submit(context: *anyopaque, prepared: AmdPspPreparedCommand) bool {
+        const self: *AmdPspMmioTransport = @ptrCast(@alignCast(context));
+        if (!self.armed or self.active != null) return false;
+        const observed = self.snapshot() catch return false;
+        if (observed.state != .bootloader_ready) return false;
+        const submission = encodeAmdPspMailboxSubmission(self.profile, prepared) catch return false;
+        self.adapter.writeRegister(self.registers.address_offset, submission.address_value) catch return false;
+        asm volatile ("" ::: .{ .memory = true });
+        self.adapter.writeRegister(self.registers.command_offset, submission.command_value) catch return false;
+        self.active = prepared.command;
+        self.sos_before = observed.sos;
+        return true;
+    }
+
+    fn status(context: *anyopaque, command: AmdPspBootCommand) AmdPspTransportStatus {
+        const self: *AmdPspMmioTransport = @ptrCast(@alignCast(context));
+        if (!self.armed or self.active == null or self.active.? != command) return .failed;
+        const observed = self.snapshot() catch {
+            self.disarm();
+            return .failed;
+        };
+        if (observed.state == .failed) {
+            self.disarm();
+            return .failed;
+        }
+        const complete = if (command == .load_sos)
+            observed.state == .sos_alive and observed.sos != self.sos_before
+        else
+            observed.state == .bootloader_ready or observed.state == .sos_alive;
+        if (!complete) return .pending;
+        self.active = null;
+        return .complete;
+    }
+};
 pub const AmdPspHandoff = struct {
     reservation_address: u64 = 0,
     reservation_pages: u64 = 0,
