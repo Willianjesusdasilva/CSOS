@@ -1,5 +1,7 @@
 pub export const device_path: [15]u8 = "/dev/dri/card0\x00".*;
+pub export const render_path: [20]u8 = "/dev/dri/renderD128\x00".*;
 pub export var version: [64]u8 = .{0} ** 64;
+pub export var render_version: [64]u8 = .{0} ** 64;
 pub export var name: [16]u8 = .{0} ** 16;
 pub export var capability: [16]u8 = .{0} ** 16;
 pub export var dumb_create: [32]u8 = .{0} ** 32;
@@ -274,6 +276,26 @@ pub export fn _start() callconv(.naked) noreturn {
         \\leaq dumb_destroy(%%rip), %%rdx
         \\syscall
         \\testq %%rax, %%rax
+        \\jne 1f
+        \\movq $3, %%rax
+        \\movq %%r12, %%rdi
+        \\syscall
+        \\movq $257, %%rax
+        \\movq $-100, %%rdi
+        \\leaq render_path(%%rip), %%rsi
+        \\movq $2, %%rdx
+        \\syscall
+        \\testq %%rax, %%rax
+        \\js 1f
+        \\movq %%rax, %%r12
+        \\movq $16, %%rax
+        \\movq %%r12, %%rdi
+        \\movq $0xc0406400, %%rsi
+        \\leaq render_version(%%rip), %%rdx
+        \\syscall
+        \\testq %%rax, %%rax
+        \\jne 1f
+        \\cmpl $1, render_version(%%rip)
         \\jne 1f
         \\movq $3, %%rax
         \\movq %%r12, %%rdi

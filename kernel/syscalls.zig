@@ -296,19 +296,20 @@ fn ioctl(fd: u64, request: u64, address: u64) u64 {
         return result;
     }
     if (vfs.isDrm(@intCast(fd))) {
+        const render = vfs.isDrmRender(@intCast(fd));
         const result = switch (request) {
             0xc0406400 => drmVersion(address),
             0xc010640c => drmGetCap(address),
-            0xc02064b2 => drmCreateDumb(address),
-            0xc01064b3 => drmMapDumb(address),
-            0xc00464b4 => drmDestroyDumb(address),
-            0xc04064a0 => drmGetResources(address),
-            0xc06864a1 => drmGetCrtc(address),
-            0xc06864a2 => drmSetCrtc(address),
-            0xc01464a6 => drmGetEncoder(address),
-            0xc05064a7 => drmGetConnector(address),
-            0xc01c64ae => drmAddFramebuffer(address),
-            0xc00464af => drmRemoveFramebuffer(address),
+            0xc02064b2 => if (render) errno(25) else drmCreateDumb(address),
+            0xc01064b3 => if (render) errno(25) else drmMapDumb(address),
+            0xc00464b4 => if (render) errno(25) else drmDestroyDumb(address),
+            0xc04064a0 => if (render) errno(25) else drmGetResources(address),
+            0xc06864a1 => if (render) errno(25) else drmGetCrtc(address),
+            0xc06864a2 => if (render) errno(25) else drmSetCrtc(address),
+            0xc01464a6 => if (render) errno(25) else drmGetEncoder(address),
+            0xc05064a7 => if (render) errno(25) else drmGetConnector(address),
+            0xc01c64ae => if (render) errno(25) else drmAddFramebuffer(address),
+            0xc00464af => if (render) errno(25) else drmRemoveFramebuffer(address),
             else => errno(25),
         };
         if (result == 0) drm_ioctls += 1;
@@ -760,7 +761,7 @@ fn mmap(requested: u64, length: u64, protection: u64, flags: u64, fd: u64, file_
     if (length == 0 or (file_offset & 4095) != 0 or (protection & 2) != 0 and (protection & 4) != 0) return errno(22);
     const anonymous = (flags & 0x20) != 0;
     const framebuffer_device = !anonymous and vfs.isFramebuffer(@intCast(fd));
-    const drm_device = !anonymous and vfs.isDrm(@intCast(fd));
+    const drm_device = !anonymous and vfs.isDrmPrimary(@intCast(fd));
     if (framebuffer_device or drm_device) {
         const available: u64 = if (drm_device) drm_dumb_size else framebuffer.size;
         if ((flags & 1) == 0 or (protection & 4) != 0 or (drm_device and !drm_dumb_created) or file_offset > available or length > available - file_offset) return errno(22);
