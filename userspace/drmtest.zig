@@ -30,6 +30,15 @@ pub export var timeline_point: u64 = 5;
 pub export var timeline_query_point: u64 = 0;
 pub export var timeline_array: [24]u8 = .{0} ** 24;
 pub export var timeline_wait: [48]u8 = .{0} ** 48;
+pub export var amd_create: [32]u8 = .{0} ** 32;
+pub export var amd_metadata_set: [288]u8 = .{0} ** 288;
+pub export var amd_metadata_get: [288]u8 = .{0} ** 288;
+pub export var amd_create_info: [32]u8 = .{0} ** 32;
+pub export var amd_gem_op: [24]u8 = .{0} ** 24;
+pub export var amd_handle_list: [16]u8 = .{0} ** 16;
+pub export var amd_handle_entry: [40]u8 = .{0} ** 40;
+pub export var amd_wait_idle: [16]u8 = .{0} ** 16;
+pub export var amd_close: [8]u8 = .{0} ** 8;
 pub export const success: [31]u8 = "Linux DRM core userspace ready\n".*;
 
 pub export fn _start() callconv(.naked) noreturn {
@@ -353,6 +362,110 @@ pub export fn _start() callconv(.naked) noreturn {
         \\syscall
         \\testq %%rax, %%rax
         \\jne 1f
+        \\movabsq $0x0000757067646d61, %%rax
+        \\cmpq %%rax, name(%%rip)
+        \\jne 3f
+        \\movq $4096, amd_create(%%rip)
+        \\movq $4096, amd_create+8(%%rip)
+        \\movq $2, amd_create+16(%%rip)
+        \\movq $4, amd_create+24(%%rip)
+        \\movq $16, %%rax
+        \\movq %%r12, %%rdi
+        \\movq $0xc0206440, %%rsi
+        \\leaq amd_create(%%rip), %%rdx
+        \\syscall
+        \\testq %%rax, %%rax
+        \\jne 1f
+        \\movl amd_create(%%rip), %%eax
+        \\movl %%eax, amd_metadata_set(%%rip)
+        \\movl $1, amd_metadata_set+4(%%rip)
+        \\movq $0x12, amd_metadata_set+8(%%rip)
+        \\movq $0x34, amd_metadata_set+16(%%rip)
+        \\movl $4, amd_metadata_set+24(%%rip)
+        \\movl $0xdeadbeef, amd_metadata_set+28(%%rip)
+        \\movq $16, %%rax
+        \\movq %%r12, %%rdi
+        \\movq $0xc1206446, %%rsi
+        \\leaq amd_metadata_set(%%rip), %%rdx
+        \\syscall
+        \\testq %%rax, %%rax
+        \\jne 1f
+        \\movl amd_create(%%rip), %%eax
+        \\movl %%eax, amd_metadata_get(%%rip)
+        \\movl $2, amd_metadata_get+4(%%rip)
+        \\movq $16, %%rax
+        \\movq %%r12, %%rdi
+        \\movq $0xc1206446, %%rsi
+        \\leaq amd_metadata_get(%%rip), %%rdx
+        \\syscall
+        \\testq %%rax, %%rax
+        \\jne 1f
+        \\cmpq $0x12, amd_metadata_get+8(%%rip)
+        \\jne 1f
+        \\cmpq $0x34, amd_metadata_get+16(%%rip)
+        \\jne 1f
+        \\cmpl $4, amd_metadata_get+24(%%rip)
+        \\jne 1f
+        \\cmpl $0xdeadbeef, amd_metadata_get+28(%%rip)
+        \\jne 1f
+        \\movl amd_create(%%rip), %%eax
+        \\movl %%eax, amd_gem_op(%%rip)
+        \\leaq amd_create_info(%%rip), %%rax
+        \\movq %%rax, amd_gem_op+8(%%rip)
+        \\movq $16, %%rax
+        \\movq %%r12, %%rdi
+        \\movq $0xc0186450, %%rsi
+        \\leaq amd_gem_op(%%rip), %%rdx
+        \\syscall
+        \\testq %%rax, %%rax
+        \\jne 1f
+        \\cmpq $4096, amd_create_info(%%rip)
+        \\jne 1f
+        \\cmpq $4096, amd_create_info+8(%%rip)
+        \\jne 1f
+        \\cmpq $2, amd_create_info+16(%%rip)
+        \\jne 1f
+        \\cmpq $4, amd_create_info+24(%%rip)
+        \\jne 1f
+        \\leaq amd_handle_entry(%%rip), %%rax
+        \\movq %%rax, amd_handle_list(%%rip)
+        \\movl $1, amd_handle_list+8(%%rip)
+        \\movq $16, %%rax
+        \\movq %%r12, %%rdi
+        \\movq $0xc0106459, %%rsi
+        \\leaq amd_handle_list(%%rip), %%rdx
+        \\syscall
+        \\testq %%rax, %%rax
+        \\jne 1f
+        \\cmpl $1, amd_handle_list+8(%%rip)
+        \\jne 1f
+        \\movl amd_create(%%rip), %%eax
+        \\cmpl %%eax, amd_handle_entry(%%rip)
+        \\jne 1f
+        \\cmpq $4096, amd_handle_entry+8(%%rip)
+        \\jne 1f
+        \\movl amd_create(%%rip), %%eax
+        \\movl %%eax, amd_wait_idle(%%rip)
+        \\movq $-1, amd_wait_idle+8(%%rip)
+        \\movq $16, %%rax
+        \\movq %%r12, %%rdi
+        \\movq $0xc0106447, %%rsi
+        \\leaq amd_wait_idle(%%rip), %%rdx
+        \\syscall
+        \\testq %%rax, %%rax
+        \\jne 1f
+        \\cmpq $0, amd_wait_idle+8(%%rip)
+        \\jne 1f
+        \\movl amd_create(%%rip), %%eax
+        \\movl %%eax, amd_close(%%rip)
+        \\movq $16, %%rax
+        \\movq %%r12, %%rdi
+        \\movq $0x40086409, %%rsi
+        \\leaq amd_close(%%rip), %%rdx
+        \\syscall
+        \\testq %%rax, %%rax
+        \\jne 1f
+        \\3:
         \\movq $3, %%rax
         \\movq %%r12, %%rdi
         \\syscall

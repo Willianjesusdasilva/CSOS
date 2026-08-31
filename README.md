@@ -709,6 +709,10 @@ flags de criação, implementa `AMDGPU_GEM_METADATA` (set/get de até 256 bytes)
 `AMDGPU_GEM_WAIT_IDLE`. Este último só retorna idle porque command submission
 ainda é recusado; `AMDGPU_INFO_ACCEL_WORKING` continua zero. VM e CS não são
 simulados antes de existir page table por processo e ring verificado.
+`AMDGPU_GEM_OP_GET_GEM_CREATE_INFO` devolve o descritor de criação original por
+ponteiro de usuário validado, e `AMDGPU_GEM_LIST_HANDLES` enumera tamanho,
+domínio, flags e alinhamento dos BOs ainda abertos. Operações de placement e
+mapping continuam recusadas até GPUVM existir.
 
 O handoff PSP é mantido declarativo: KDB, SPL, SYS_DRV e SOS são ordenados como
 no fluxo upstream e apontam para suas fontes físicas validadas. Uma única área

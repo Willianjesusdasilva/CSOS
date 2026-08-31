@@ -360,6 +360,8 @@ fn ioctl(fd: u64, request: u64, address: u64) u64 {
             0x40206445 => if (drm_driver == .amdgpu) amdgpuInfo(address) else errno(25),
             0xc1206446 => if (drm_driver == .amdgpu) amdgpuGemMetadata(address) else errno(25),
             0xc0106447 => if (drm_driver == .amdgpu) amdgpuGemWaitIdle(address) else errno(25),
+            0xc0186450 => if (drm_driver == .amdgpu) amdgpuGemOp(address) else errno(25),
+            0xc0106459 => if (drm_driver == .amdgpu) amdgpuGemListHandles(address) else errno(25),
             else => errno(25),
         };
         drm_last_request = request;
@@ -634,6 +636,48 @@ fn amdgpuGemWaitIdle(address: u64) u64 {
     if (drmObjectForHandle(read32(io)) == null) return errno(2);
     // Command submission is still unavailable, so every accepted BO is idle.
     @memset(io[0..16], 0);
+    return 0;
+}
+
+fn amdgpuGemOp(address: u64) u64 {
+    if (!validUserSlice(address, 24)) return errno(14);
+    const io: [*]u8 = @ptrFromInt(address);
+    const object = drmObjectForHandle(read32(io)) orelse return errno(2);
+    if (read32(io + 4) != 0 or read32(io + 16) != 0 or read32(io + 20) != 0) return errno(22);
+    const output_address = read64(io + 8);
+    if (!validUserSlice(output_address, 32)) return errno(14);
+    const output: [*]u8 = @ptrFromInt(output_address);
+    put64(output, object.size);
+    put64(output + 8, object.alignment);
+    put64(output + 16, object.domains);
+    put64(output + 24, object.allocation_flags);
+    return 0;
+}
+
+fn amdgpuGemListHandles(address: u64) u64 {
+    if (!validUserSlice(address, 16)) return errno(14);
+    const io: [*]u8 = @ptrFromInt(address);
+    if (read32(io + 12) != 0) return errno(22);
+    var count: u32 = 0;
+    for (drm_objects) |object| if (object.allocated and object.handle_open) { count += 1; };
+    const capacity = read32(io + 8);
+    const entries_address = read64(io);
+    put32(io + 8, count);
+    if (capacity < count) return errno(28);
+    if (count == 0) return 0;
+    if (!validUserSlice(entries_address, @as(u64, count) * 40)) return errno(14);
+    const entries: [*]u8 = @ptrFromInt(entries_address);
+    var index: usize = 0;
+    for (drm_objects) |object| if (object.allocated and object.handle_open) {
+        const entry = entries + index * 40;
+        put32(entry, object.handle);
+        put32(entry + 4, 0);
+        put64(entry + 8, object.size);
+        put64(entry + 16, object.domains);
+        put64(entry + 24, object.allocation_flags);
+        put64(entry + 32, object.alignment);
+        index += 1;
+    };
     return 0;
 }
 
