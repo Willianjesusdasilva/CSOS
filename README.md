@@ -731,6 +731,11 @@ sinal de vida do sOS em C2PMSG 81. SYS e SOS usam respectivamente `0x10000` e
 oferecem. Esses números ainda não são offsets MMIO: a tradução pelo mapa MP0
 específico da geração continua obrigatória antes de qualquer escrita.
 
+A base MP0 do IP discovery agora é obrigatória para o plano AMD. O kernel soma
+essa base aos dwords oficiais `0x63`, `0x64` e `0x91`, converte o resultado para
+offsets em bytes e rejeita overflow ou qualquer registrador que ultrapasse o
+BAR de MMIO. A resolução é somente declarativa; nenhuma escrita PSP é feita.
+
 As capacidades PSP são tratadas separadamente: `autoload_supported`, TMR de
 boot e presença de callbacks host para carregar SYS/SOS não são sinônimos. O
 handoff host só é construído para as famílias em que o `psp_funcs` upstream

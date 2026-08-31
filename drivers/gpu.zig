@@ -1,3 +1,4 @@
+const std = @import("std");
 const pci = @import("pci");
 const fat16 = @import("fat16");
 const physical = @import("physical");
@@ -676,6 +677,11 @@ pub const AmdPspMailboxSubmission = struct {
     completion: AmdPspCompletion,
     completion_mask: u32,
 };
+pub const AmdPspMailboxRegisters = struct {
+    command_offset: u64,
+    address_offset: u64,
+    sos_offset: u64,
+};
 pub const AmdPspHandoffStep = struct { command: AmdPspBootCommand = .load_sysdrv, source_address: u64 = 0, bytes: u32 = 0 };
 pub const AmdPspHandoffState = enum { empty, ready, staged, submitted, finished, failed };
 pub const AmdPspPreparedCommand = struct {
@@ -831,6 +837,24 @@ pub fn encodeAmdPspMailboxSubmission(profile: AmdPspMailboxProfile, prepared: Am
     };
 }
 
+pub fn resolveAmdPspMailboxRegisters(ip: *const AmdIp, profile: AmdPspMailboxProfile, register_bar_bytes: u64) !AmdPspMailboxRegisters {
+    if (ip.hw_id != amd_hw_id.psp or ip.instance != 0 or ip.base_count == 0)
+        return error.AmdPspRegisterBaseMissing;
+    const base = ip.bases[0];
+    const command_dword = std.math.add(u64, base, 0x40 + profile.command_message) catch return error.AmdPspRegisterOffsetOverflow;
+    const address_dword = std.math.add(u64, base, 0x40 + profile.address_message) catch return error.AmdPspRegisterOffsetOverflow;
+    const sos_dword = std.math.add(u64, base, 0x40 + profile.sos_message) catch return error.AmdPspRegisterOffsetOverflow;
+    const result = AmdPspMailboxRegisters{
+        .command_offset = std.math.mul(u64, command_dword, 4) catch return error.AmdPspRegisterOffsetOverflow,
+        .address_offset = std.math.mul(u64, address_dword, 4) catch return error.AmdPspRegisterOffsetOverflow,
+        .sos_offset = std.math.mul(u64, sos_dword, 4) catch return error.AmdPspRegisterOffsetOverflow,
+    };
+    if (register_bar_bytes < 4 or result.command_offset > register_bar_bytes - 4 or
+        result.address_offset > register_bar_bytes - 4 or result.sos_offset > register_bar_bytes - 4)
+        return error.AmdPspRegistersOutsideBar;
+    return result;
+}
+
 fn findStagedPspComponent(staging: *const AmdFirmwareStaging, kind: u32) !?AmdStagedPspComponent {
     var result: ?AmdStagedPspComponent = null;
     for (staging.psp_components[0..staging.psp_component_count]) |component| {
@@ -976,6 +1000,7 @@ pub fn planAmdBackend(discovery: *const AmdIpDiscovery) !AmdBackendPlan {
     const mmhub = discovery.find(amd_hw_id.mmhub, 0) orelse return error.AmdMmhubMissing;
     const sdma = discovery.find(amd_hw_id.sdma0, 0) orelse return error.AmdSdmaMissing;
     if (psp.harvest != 0 or gfx.harvest != 0 or mmhub.harvest != 0 or sdma.harvest != 0) return error.RequiredAmdIpHarvested;
+    if (psp.base_count == 0) return error.AmdPspRegisterBaseMissing;
     if (mmhub.base_count == 0) return error.AmdMmhubBaseMissing;
     return .{
         .psp = try selectPsp(psp),
@@ -1066,7 +1091,7 @@ fn selectSdma(ip: *const AmdIp) !SdmaFamily {
 comptime {
     var discovery = AmdIpDiscovery{ .binary_version_major = 1, .binary_version_minor = 0, .table_version = 3, .dies = 1, .ips = 4, .base_addresses = 4, .harvested = 0 };
     discovery.critical_count = 4;
-    discovery.critical[0] = .{ .hw_id = amd_hw_id.psp, .major = 13, .base_count = 1 };
+    discovery.critical[0] = .{ .hw_id = amd_hw_id.psp, .major = 13, .base_count = 1, .bases = .{0x100} ++ .{0} ** 7 };
     discovery.critical[1] = .{ .hw_id = amd_hw_id.gfx, .major = 11, .base_count = 1 };
     discovery.critical[2] = .{ .hw_id = amd_hw_id.mmhub, .major = 3, .base_count = 1, .bases = .{1} ++ .{0} ** 7 };
     discovery.critical[3] = .{ .hw_id = amd_hw_id.sdma0, .major = 6, .base_count = 1 };
@@ -1091,6 +1116,20 @@ comptime {
     if (platform_booted.family != .v10_0 or platform_booted.host_boot_components)
         @compileError("platform-booted AMD PSP policy selected incorrectly");
     const mailbox = amdPspMailboxProfile(plan.psp) catch @compileError("valid AMD PSP mailbox profile was rejected");
+    const mailbox_registers = resolveAmdPspMailboxRegisters(&discovery.critical[0], mailbox, 0x1000) catch
+        @compileError("valid AMD PSP mailbox registers were rejected");
+    if (mailbox_registers.command_offset != 0x58c or mailbox_registers.address_offset != 0x590 or mailbox_registers.sos_offset != 0x644)
+        @compileError("AMD PSP mailbox register offsets resolved incorrectly");
+    if (resolveAmdPspMailboxRegisters(&discovery.critical[0], mailbox, 0x600)) |_|
+        @compileError("out-of-BAR AMD PSP mailbox registers were accepted")
+    else |err| if (err != error.AmdPspRegistersOutsideBar)
+        @compileError("out-of-BAR AMD PSP mailbox returned the wrong error");
+    var missing_psp_base = discovery.critical[0];
+    missing_psp_base.base_count = 0;
+    if (resolveAmdPspMailboxRegisters(&missing_psp_base, mailbox, 0x1000)) |_|
+        @compileError("missing AMD PSP register base was accepted")
+    else |err| if (err != error.AmdPspRegisterBaseMissing)
+        @compileError("missing AMD PSP register base returned the wrong error");
     const sys_submission = encodeAmdPspMailboxSubmission(mailbox, .{
         .command = .load_sysdrv,
         .transfer_address = 0x400000,

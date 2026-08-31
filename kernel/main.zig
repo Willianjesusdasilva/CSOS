@@ -520,6 +520,14 @@ pub fn start(info: BootInfo) noreturn {
     const gpu_sdma_major = if (gpu_ip_discovery) |discovery| if (discovery.find(gpu.amd_hw_id.sdma0, 0)) |ip| ip.major else 0 else 0;
     const gpu_registers = gpu_adapter.register_bar orelse panic("GPU register BAR missing");
     if (gpu_registers.size > 16 * 1024 * 1024) panic("GPU register BAR unexpectedly large");
+    var gpu_psp_mailbox_registers: ?gpu.AmdPspMailboxRegisters = null;
+    if (gpu_backend_plan) |plan| if (plan.psp.host_boot_components) {
+        const psp_ip = if (gpu_ip_discovery) |*discovery| discovery.find(gpu.amd_hw_id.psp, 0) orelse
+            panic("AMDGPU PSP IP missing") else panic("AMDGPU IP discovery missing");
+        const profile = gpu.amdPspMailboxProfile(plan.psp) catch panic("AMDGPU PSP mailbox unsupported");
+        gpu_psp_mailbox_registers = gpu.resolveAmdPspMailboxRegisters(psp_ip, profile, gpu_registers.size) catch
+            panic("AMDGPU PSP mailbox registers invalid");
+    };
     mapper.mapIdentity(gpu_registers.address, @intCast(gpu_registers.size)) catch panic("GPU register MMIO mapping failed");
     mapper.activate();
     const gpu_identity = gpu_adapter.identifyChip() catch panic("GPU chipset identification failed");
@@ -560,6 +568,8 @@ pub fn start(info: BootInfo) noreturn {
     serial.write(" psp-autoload: "); serial.writeDecimal(if (gpu_backend_plan) |plan| @intFromBool(plan.psp.autoload_supported) else 0);
     serial.write(" psp-boot-tmr: "); serial.writeDecimal(if (gpu_backend_plan) |plan| @intFromBool(plan.psp.boot_time_tmr) else 0);
     serial.write(" psp-host-boot: "); serial.writeDecimal(if (gpu_backend_plan) |plan| @intFromBool(plan.psp.host_boot_components) else 0);
+    serial.write(" psp-mailbox: "); serial.writeDecimal(if (gpu_psp_mailbox_registers) |_| 1 else 0);
+    serial.write(" psp-command-reg: "); serial.writeDecimal(if (gpu_psp_mailbox_registers) |registers| registers.command_offset else 0);
     serial.write(" staged: "); serial.writeDecimal(gpu_firmware_staging.count);
     serial.write(" staged-bytes: "); serial.writeDecimal(gpu_firmware_staging.image_bytes);
     serial.write(" staged-payload: "); serial.writeDecimal(gpu_firmware_staging.payload_bytes);
