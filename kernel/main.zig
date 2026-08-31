@@ -546,6 +546,9 @@ pub fn start(info: BootInfo) noreturn {
     serial.write(" mmhub: "); serial.writeDecimal(gpu_mmhub_major);
     serial.write(" sdma: "); serial.writeDecimal(gpu_sdma_major);
     serial.write(" plan: "); serial.writeDecimal(if (gpu_backend_plan) |_| 1 else 0);
+    serial.write(" psp-version: "); serial.writeDecimal(if (gpu_backend_plan) |plan| plan.psp.ip_version else 0);
+    serial.write(" psp-autoload: "); serial.writeDecimal(if (gpu_backend_plan) |plan| @intFromBool(plan.psp.autoload_supported) else 0);
+    serial.write(" psp-boot-tmr: "); serial.writeDecimal(if (gpu_backend_plan) |plan| @intFromBool(plan.psp.boot_time_tmr) else 0);
     serial.write(" staged: "); serial.writeDecimal(gpu_firmware_staging.count);
     serial.write(" staged-bytes: "); serial.writeDecimal(gpu_firmware_staging.image_bytes);
     serial.write(" staged-payload: "); serial.writeDecimal(gpu_firmware_staging.payload_bytes);

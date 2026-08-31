@@ -690,8 +690,18 @@ hardware profiling
 
 O trabalho atual está em M14. A base DRM/KMS compartilhada já possui nós
 primary/render, buffers GEM page-backed, mmap, framebuffer, sincronização
-binária/timeline e início da ABI de alocação AMDGPU. Isso ainda não representa
-aceleração 3D nem suporte Vulkan concluído.
+binária/timeline e início da ABI de alocação AMDGPU. A preparação AMD também já
+valida o catálogo de firmware, interpreta `ip_discovery.bin`, preserva as
+versões exatas dos blocos IP, escolhe a família de backend e prepara firmware
+de segurança em páginas físicas. A política PSP mantém a revisão MP0 exata e
+distingue host boot, autoload e TMR de boot conforme o dispatcher upstream do
+AMDGPU. Nenhuma dessas etapas, isoladamente, representa aceleração 3D nem
+suporte Vulkan concluído.
+
+Os próximos incrementos de GPU devem privilegiar adaptação e reutilização do
+AMDGPU/RADV e, depois, Nouveau/NVK compatíveis. O código Zig existente serve de
+ponte de kernel, DRM e plataforma; ele não autoriza reimplementar integralmente
+um driver Radeon ou NVIDIA moderno antes do primeiro frame Vulkan.
 
 AMD Radeon e NVIDIA GeForce são requisitos oficiais. AMD é o primeiro backend
 de referência; depois do primeiro triângulo RADV, o caminho NVIDIA deve ser

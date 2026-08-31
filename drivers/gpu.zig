@@ -540,7 +540,13 @@ pub const AmdIp = struct {
 
 pub const amd_hw_id = struct { pub const smu: u16 = 1; pub const gfx: u16 = 11; pub const mmhub: u16 = 34; pub const sdma0: u16 = 42; pub const sdma1: u16 = 43; pub const sdma2: u16 = 44; pub const sdma3: u16 = 45; pub const nbif: u16 = 108; pub const psp: u16 = 255; };
 
-pub const AmdBackendPlan = struct { psp: PspFamily, gmc: GmcFamily, gfx: GfxFamily, sdma: SdmaFamily };
+pub const AmdBackendPlan = struct { psp: AmdPspPlan, gmc: GmcFamily, gfx: GfxFamily, sdma: SdmaFamily };
+pub const AmdPspPlan = struct {
+    family: PspFamily,
+    ip_version: u32,
+    autoload_supported: bool,
+    boot_time_tmr: bool,
+};
 pub const PspFamily = enum { v3_1, v10_0, v11_0, v11_0_8, v12_0, v13_0, v13_0_4, v14_0, v15_0, v15_0_8 };
 pub const GmcFamily = enum { v9_0, v10_0, v11_0, v12_0 };
 pub const GfxFamily = enum { v9_0, v9_4_3, v10_0, v11_0, v12_0, v12_1 };
@@ -562,8 +568,9 @@ pub fn planAmdBackend(discovery: *const AmdIpDiscovery) !AmdBackendPlan {
 }
 
 fn version(ip: *const AmdIp) u32 { return (@as(u32, ip.major) << 16) | (@as(u32, ip.minor) << 8) | ip.revision; }
-fn selectPsp(ip: *const AmdIp) !PspFamily {
-    return switch (version(ip)) {
+fn selectPsp(ip: *const AmdIp) !AmdPspPlan {
+    const ip_version = version(ip);
+    const family: PspFamily = switch (ip_version) {
         0x090000 => .v3_1,
         0x0a0000, 0x0a0001 => .v10_0,
         0x0b0000, 0x0b0002, 0x0b0004, 0x0b0005, 0x0b0007, 0x0b0009, 0x0b000b, 0x0b000c, 0x0b000d, 0x0b0500, 0x0b0502 => .v11_0,
@@ -574,7 +581,29 @@ fn selectPsp(ip: *const AmdIp) !PspFamily {
         0x0e0002, 0x0e0003, 0x0e0005 => .v14_0,
         0x0f0000, 0x0f0005, 0x0f0009 => .v15_0,
         0x0f0008 => .v15_0_8,
-        else => error.UnsupportedAmdPspVersion,
+        else => return error.UnsupportedAmdPspVersion,
+    };
+    // Keep these policy bits aligned with amdgpu_psp.c::psp_early_init.
+    // Family alone is insufficient: MP0 revisions within v11/v13 select
+    // different host-boot/autoload paths in the upstream driver.
+    const autoload_supported = switch (ip_version) {
+        0x090000,
+        0x0a0000, 0x0a0001,
+        0x0b0002, 0x0b0004, 0x0b0008,
+        0x0b0003, 0x0c0001,
+        0x0d0002, 0x0d0006, 0x0d000c, 0x0d000e, 0x0d000f,
+        => false,
+        else => true,
+    };
+    const boot_time_tmr = switch (ip_version) {
+        0x0e0002, 0x0e0003, 0x0f0008 => true,
+        else => false,
+    };
+    return .{
+        .family = family,
+        .ip_version = ip_version,
+        .autoload_supported = autoload_supported,
+        .boot_time_tmr = boot_time_tmr,
     };
 }
 fn selectGmc(ip: *const AmdIp) !GmcFamily {
@@ -619,8 +648,21 @@ comptime {
     discovery.critical[2] = .{ .hw_id = amd_hw_id.mmhub, .major = 3, .base_count = 1, .bases = .{1} ++ .{0} ** 7 };
     discovery.critical[3] = .{ .hw_id = amd_hw_id.sdma0, .major = 6, .base_count = 1 };
     const plan = planAmdBackend(&discovery) catch @compileError("valid AMD backend combination was rejected");
-    if (plan.psp != .v13_0 or plan.gmc != .v11_0 or plan.gfx != .v11_0 or plan.sdma != .v6_0)
+    if (plan.psp.family != .v13_0 or plan.psp.ip_version != 0x0d0000 or !plan.psp.autoload_supported or plan.psp.boot_time_tmr or
+        plan.gmc != .v11_0 or plan.gfx != .v11_0 or plan.sdma != .v6_0)
         @compileError("AMD backend combination selected incorrectly");
+    const host_boot = selectPsp(&AmdIp{ .hw_id = amd_hw_id.psp, .major = 13, .revision = 2 }) catch
+        @compileError("valid host-boot PSP version was rejected");
+    if (host_boot.family != .v13_0 or host_boot.autoload_supported or host_boot.boot_time_tmr)
+        @compileError("AMD PSP host-boot policy selected incorrectly");
+    const boot_tmr = selectPsp(&AmdIp{ .hw_id = amd_hw_id.psp, .major = 14, .revision = 2 }) catch
+        @compileError("valid boot-time TMR PSP version was rejected");
+    if (!boot_tmr.autoload_supported or !boot_tmr.boot_time_tmr)
+        @compileError("AMD PSP boot-time TMR policy selected incorrectly");
+    const psp15_tmr = selectPsp(&AmdIp{ .hw_id = amd_hw_id.psp, .major = 15, .revision = 8 }) catch
+        @compileError("valid PSP 15 boot-time TMR version was rejected");
+    if (psp15_tmr.family != .v15_0_8 or !psp15_tmr.autoload_supported or !psp15_tmr.boot_time_tmr)
+        @compileError("AMD PSP 15 boot-time TMR policy selected incorrectly");
 }
 
 pub fn parseAmdIpDiscovery(bytes: []const u8) !AmdIpDiscovery {
