@@ -546,6 +546,12 @@ pub fn start(info: BootInfo) noreturn {
             gpu_ip_discovery = firmware.amdDiscovery(selection) catch panic("AMDGPU IP discovery invalid");
     };
     if (gpu_ip_discovery) |*discovery| gpu_backend_plan = gpu.planAmdBackend(discovery) catch panic("AMDGPU IP combination unsupported");
+    const gpu_gfx_firmware = if (gpu_backend_plan) |plan| if (plan.gfx == .v11_0)
+        (gpu_firmware orelse panic("AMDGPU firmware archive missing")).amdGfxFirmwareManifest(
+            gpu_selection orelse panic("AMDGPU firmware selection missing"),
+            plan.gfx,
+        ) catch panic("AMDGPU GFX11 firmware set incomplete")
+    else null else null;
     const gpu_memory_plan = if (gpu_backend_plan) |plan| gpu.planAmdMemory(gpu_adapter.bars, gpu_adapter.register_bar, plan.gmc) catch
         panic("AMDGPU memory apertures invalid") else null;
     const gpu_psp_gtt = if (gpu_memory_plan != null) gpu.prepareAmdPspGtt(&pages) catch panic("AMDGPU PSP GTT staging failed") else gpu.AmdPspGttStaging{};
@@ -864,6 +870,13 @@ pub fn start(info: BootInfo) noreturn {
     serial.write(" psp-steps: "); serial.writeDecimal(gpu_psp_handoff.count);
     serial.write(" psp-transfer: "); serial.writeDecimal(gpu_psp_handoff.transfer_address);
     serial.write(" psp-state: "); serial.writeDecimal(@intFromEnum(gpu_psp_handoff.state));
+    serial.write(" gfx-fw-typed: "); serial.writeDecimal(if (gpu_gfx_firmware) |manifest| manifest.entries else 0);
+    serial.write(" gfx-ring-preflight: "); serial.writeDecimal(@intFromEnum(gpu.preflightAmdGfx11Ring(.{
+        .firmware = gpu_gfx_firmware != null,
+        .psp = gpu_psp_handoff.state == .finished,
+        .gart = gpu_gmc11_activation_workspace.active,
+        .gpuvm = gpu_vm_runtime.active,
+    })));
     serial.write(" driver: ");
     serial.write(switch (gpu_adapter.driver) {
         .amdgpu => "amdgpu",

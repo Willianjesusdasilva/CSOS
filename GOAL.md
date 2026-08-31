@@ -1828,8 +1828,10 @@ dynamic physical page-table allocation/link/prune: implemented and host-tested
 GEM_VA immediate GTT MAP/UNMAP software path: implemented; Radeon validation pending
 MMHUB 3.0 VMID bind/unbind register transaction: implemented and host-tested
 gate-controlled GEM_VA bind/invalidate/unbind lifecycle: implemented and host-tested
+typed GFX11 firmware roles and MES payload validation: implemented and host-tested
+GFX11 ring resource contract and fail-closed preflight: implemented and host-tested
 real Radeon MMIO lifecycle validation: pending
-rings and command submission: pending
+ring/MQD/EOP/pointer allocation and command submission: pending
 AMD RADV triangle on real hardware: pending
 NVIDIA NVK/compatible-stack triangle on real hardware: pending
 ```

@@ -27,3 +27,7 @@ test "AMDGPU GPUVM page paths allocate and roll back atomically" {
 test "AMDGPU GPUVM branches share directories and prune by reference" {
     try gpu.validateAmdGpuVmBranchPlannerSelfTest();
 }
+
+test "GFX11 firmware roles and ring resources remain fail-closed" {
+    try gpu.validateAmdGfx11FirmwarePreflightSelfTest();
+}

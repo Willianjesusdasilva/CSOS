@@ -183,6 +183,17 @@ pub const Firmware = struct {
         return result;
     }
 
+    pub fn amdGfxFirmwareManifest(self: Firmware, selection: Selection, family: GfxFamily) !AmdGfxFirmwareManifest {
+        var result = AmdGfxFirmwareManifest{ .family = family };
+        var iterator = self.selected(selection);
+        while (try iterator.next()) |entry| {
+            const role = classifyAmdGfxFirmware(entry.name) orelse continue;
+            try result.add(role, entry.data);
+        }
+        try result.validate();
+        return result;
+    }
+
     pub fn stageAmdSecurity(self: Firmware, selection: Selection, pages: *physical.Allocator) !AmdFirmwareStaging {
         var result = AmdFirmwareStaging{};
         errdefer result.release(pages);
@@ -305,6 +316,68 @@ pub const FirmwareInventory = struct {
 
     pub fn block(self: *const FirmwareInventory, kind: FirmwareBlock) FirmwareBlockSummary { return self.blocks[@intFromEnum(kind)]; }
 };
+pub const AmdGfxFirmwareRole = enum { pfp, me, mec, rlc, mes_scheduler, mes_kiq };
+pub const AmdGfxFirmwareSummary = struct {
+    entries: usize = 0,
+    image_bytes: usize = 0,
+    payload_bytes: usize = 0,
+    newest_ucode_version: u32 = 0,
+};
+pub const AmdGfxFirmwareManifest = struct {
+    family: GfxFamily,
+    entries: usize = 0,
+    roles: [6]AmdGfxFirmwareSummary = .{AmdGfxFirmwareSummary{}} ** 6,
+
+    pub fn role(self: *const AmdGfxFirmwareManifest, kind: AmdGfxFirmwareRole) AmdGfxFirmwareSummary {
+        return self.roles[@intFromEnum(kind)];
+    }
+
+    pub fn add(self: *AmdGfxFirmwareManifest, kind: AmdGfxFirmwareRole, image: []const u8) !void {
+        const parsed = try parseAmdgpuFirmware(image);
+        if (parsed.ucode_version == 0) return error.InvalidAmdGfxFirmwareVersion;
+        if (kind == .mes_scheduler or kind == .mes_kiq) try validateAmdMesFirmware(image);
+        var summary = &self.roles[@intFromEnum(kind)];
+        summary.entries += 1;
+        summary.image_bytes += image.len;
+        summary.payload_bytes += parsed.payload.len;
+        summary.newest_ucode_version = @max(summary.newest_ucode_version, parsed.ucode_version);
+        self.entries += 1;
+    }
+
+    pub fn validate(self: *const AmdGfxFirmwareManifest) !void {
+        if (self.family != .v11_0) return error.UnsupportedAmdGfxFirmwareManifest;
+        inline for (.{ AmdGfxFirmwareRole.pfp, .me, .mec, .rlc, .mes_scheduler, .mes_kiq }) |kind|
+            if (self.role(kind).entries == 0) return error.RequiredAmdGfxFirmwareMissing;
+    }
+};
+
+pub const AmdGfx11RingContract = struct {
+    ring_dwords: u32 = 1024,
+    ring_bytes: u32 = 4096,
+    mqd_bytes: u32 = 4096,
+    eop_bytes: u32 = 2048,
+    pointer_bytes: u32 = 16,
+    uses_64bit_pointers: bool = true,
+    requires_doorbell: bool = true,
+};
+
+pub const AmdGfx11PreflightEvidence = struct {
+    firmware: bool = false,
+    psp: bool = false,
+    gart: bool = false,
+    gpuvm: bool = false,
+    ring: bool = false,
+    mqd: bool = false,
+    eop: bool = false,
+    pointers: bool = false,
+    doorbell: bool = false,
+};
+pub const AmdGfx11Preflight = enum { blocked, resources_ready };
+
+pub fn preflightAmdGfx11Ring(evidence: AmdGfx11PreflightEvidence) AmdGfx11Preflight {
+    return if (evidence.firmware and evidence.psp and evidence.gart and evidence.gpuvm and evidence.ring and
+        evidence.mqd and evidence.eop and evidence.pointers and evidence.doorbell) .resources_ready else .blocked;
+}
 pub const AmdFirmwareArea = struct {
     address: u64 = 0,
     pages: u64 = 0,
@@ -500,6 +573,31 @@ fn contains(value: []const u8, needle: []const u8) bool {
     while (index <= value.len - needle.len) : (index += 1) if (equal(value[index .. index + needle.len], needle)) return true;
     return false;
 }
+fn endsWith(value: []const u8, suffix: []const u8) bool {
+    return value.len >= suffix.len and equal(value[value.len - suffix.len ..], suffix);
+}
+
+pub fn classifyAmdGfxFirmware(name: []const u8) ?AmdGfxFirmwareRole {
+    if (endsWith(name, "_pfp.bin")) return .pfp;
+    if (endsWith(name, "_me.bin")) return .me;
+    if (endsWith(name, "_mec.bin")) return .mec;
+    if (endsWith(name, "_rlc.bin") or endsWith(name, "_rlc_1.bin") or endsWith(name, "_rlc_kicker.bin")) return .rlc;
+    if (endsWith(name, "_mes1.bin")) return .mes_kiq;
+    if (endsWith(name, "_mes.bin") or endsWith(name, "_mes_2.bin")) return .mes_scheduler;
+    return null;
+}
+
+fn validateAmdMesFirmware(image: []const u8) !void {
+    // common_firmware_header (32 bytes) followed by mes_firmware_header_v1_0.
+    if (image.len < 72 or readLittle16(image, 8) != 1) return error.UnsupportedAmdMesFirmwareHeader;
+    const ucode_bytes: usize = readLittle32(image, 36);
+    const ucode_offset: usize = readLittle32(image, 40);
+    const data_bytes: usize = readLittle32(image, 48);
+    const data_offset: usize = readLittle32(image, 52);
+    if (ucode_bytes == 0 or data_bytes == 0 or ucode_offset > image.len or ucode_bytes > image.len - ucode_offset or
+        data_offset > image.len or data_bytes > image.len - data_offset)
+        return error.InvalidAmdMesFirmwarePayload;
+}
 
 pub fn classifyFirmware(driver: Driver, name: []const u8) FirmwareBlock {
     if (driver == .amdgpu) {
@@ -542,6 +640,10 @@ comptime {
         @compileError("GPU firmware block classification failed");
     if (!isAmdPspPackage("navi31_sos.bin") or isAmdPspPackage("psp_13_0_5_toc.bin"))
         @compileError("AMDGPU PSP package identification failed");
+    if (classifyAmdGfxFirmware("gc_11_0_0_mes_2.bin") != .mes_scheduler or
+        classifyAmdGfxFirmware("gc_11_0_0_mes1.bin") != .mes_kiq or
+        classifyAmdGfxFirmware("gc_11_0_0_mec.bin") != .mec)
+        @compileError("AMDGPU GFX firmware role classification failed");
 }
 
 pub const AmdgpuFirmware = struct {
@@ -3924,6 +4026,41 @@ pub fn parseAmdgpuFirmware(bytes: []const u8) !AmdgpuFirmware {
 }
 
 pub fn validateAmdgpuFirmware(bytes: []const u8) !void { _ = try parseAmdgpuFirmware(bytes); }
+
+pub fn validateAmdGfx11FirmwarePreflightSelfTest() !void {
+    var image = [_]u8{0} ** 80;
+    writeLittle32(&image, 0, image.len);
+    writeLittle32(&image, 4, 72);
+    writeLittle16(&image, 8, 1);
+    writeLittle16(&image, 12, 11);
+    writeLittle32(&image, 16, 7);
+    writeLittle32(&image, 20, 8);
+    writeLittle32(&image, 24, 72);
+    writeLittle32(&image, 36, 4);
+    writeLittle32(&image, 40, 72);
+    writeLittle32(&image, 48, 4);
+    writeLittle32(&image, 52, 76);
+
+    var manifest = AmdGfxFirmwareManifest{ .family = .v11_0 };
+    inline for (.{ AmdGfxFirmwareRole.pfp, .me, .mec, .rlc, .mes_scheduler, .mes_kiq }) |kind| try manifest.add(kind, &image);
+    try manifest.validate();
+    if (manifest.entries != 6 or manifest.role(.mes_scheduler).payload_bytes != 8)
+        return error.AmdGfxFirmwareManifestSelfTestFailed;
+
+    var incomplete = AmdGfxFirmwareManifest{ .family = .v11_0 };
+    try incomplete.add(.mes_scheduler, &image);
+    if (incomplete.validate()) |_| return error.AmdGfxFirmwareMissingRoleAccepted else |err|
+        if (err != error.RequiredAmdGfxFirmwareMissing) return err;
+
+    var evidence = AmdGfx11PreflightEvidence{};
+    if (preflightAmdGfx11Ring(evidence) != .blocked) return error.AmdGfxRingPreflightOpenedEarly;
+    evidence = .{ .firmware = true, .psp = true, .gart = true, .gpuvm = true, .ring = true, .mqd = true, .eop = true, .pointers = true, .doorbell = true };
+    if (preflightAmdGfx11Ring(evidence) != .resources_ready) return error.AmdGfxRingPreflightStayedClosed;
+    const contract = AmdGfx11RingContract{};
+    if (contract.ring_dwords != 1024 or contract.ring_bytes != 4096 or contract.eop_bytes != 2048 or
+        !contract.uses_64bit_pointers or !contract.requires_doorbell)
+        return error.AmdGfxRingContractSelfTestFailed;
+}
 
 pub const AmdAtomVramUsage = struct {
     format_revision: u8,

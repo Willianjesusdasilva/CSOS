@@ -740,6 +740,14 @@ tentativa. Sem esse gate, `GEM_VA` continua somente como preparação lógica e
 não toca MMIO. As páginas GPUVM e BOs page-backed também ficam abaixo da
 máscara DMA coerente de 44 bits usada pelo GMC11. A execução desse lifecycle em
 Radeon real ainda precisa ser validada.
+O firmware gráfico GFX11 deixou de ser tratado apenas como uma contagem de
+arquivos: a seleção agora distingue e exige PFP, ME, MEC, RLC, scheduler MES e
+MES KIQ. As imagens MES têm seus offsets e tamanhos de código/dados validados
+antes de qualquer preparação de execução. O primeiro contrato de ring segue o
+upstream com 1024 dwords, MQD alinhado a página, EOP de 2048 bytes, ponteiros de
+64 bits e doorbell obrigatório. O preflight permanece fechado enquanto
+qualquer um desses recursos, PSP, GART ou GPUVM não estiver pronto; ele ainda
+não programa o ring nem autoriza command submission.
 Para VA de 48 bits, o walker segue `PDB2[47:39] → PDB1[38:30] →
 PDB0[29:21] → PTB[20:12]`, com offset `[11:0]`. Cada nível possui até 512
 entradas de 64 bits e ocupa uma página de 4 KiB, conforme a geometria do
