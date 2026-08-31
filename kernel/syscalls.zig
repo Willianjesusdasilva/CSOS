@@ -35,7 +35,7 @@ var drm_dumb_created = false;
 var drm_dumb_size: u64 = 0;
 var drm_framebuffer_created = false;
 var drm_scanout_framebuffer: u32 = 0;
-var drm_amdgpu = false;
+var drm_driver: DrmDriver = .csos;
 var sockets: [4]Socket = .{Socket{}} ** 4;
 var unknown_seen: [512]bool = .{false} ** 512;
 pub export var syscall_kernel_rsp: u64 = 0;
@@ -43,6 +43,7 @@ pub export var syscall_user_rsp: u64 = 0;
 
 pub const Pause = struct { instruction: u64, stack: u64 };
 pub const Framebuffer = struct { base: u64 = 0, size: u32 = 0, width: u32 = 0, height: u32 = 0, stride: u32 = 0, pixel_format: u32 = 0 };
+pub const DrmDriver = enum { csos, amdgpu, nouveau };
 
 extern fn syscall_entry() callconv(.naked) void;
 
@@ -112,7 +113,7 @@ pub fn configureFramebuffer(info: Framebuffer) void {
     framebuffer = info;
 }
 
-pub fn configureDrm(amdgpu: bool) void { drm_amdgpu = amdgpu; }
+pub fn configureDrm(driver: DrmDriver) void { drm_driver = driver; }
 
 pub fn configureMmap(protect_hook: ?*const fn (u64, u64, bool, bool) callconv(.c) bool, unmap_hook: ?*const fn (u64, u64) callconv(.c) bool, device_hook: ?*const fn (u64, u64, u64, bool) callconv(.c) bool) void {
     mmap_protect_hook = protect_hook;
@@ -331,8 +332,8 @@ fn drmVersion(address: u64) u64 {
     const description_length = read64(output + 48);
     const description_address = read64(output + 56);
     put32(output + 0, 1); put32(output + 4, 0); put32(output + 8, 0);
-    const driver_name = if (drm_amdgpu) "amdgpu" else "csosdrm";
-    const driver_description = if (drm_amdgpu) "AMD GPU" else "CSOS display DRM";
+    const driver_name = switch (drm_driver) { .csos => "csosdrm", .amdgpu => "amdgpu", .nouveau => "nouveau" };
+    const driver_description = switch (drm_driver) { .csos => "CSOS display DRM", .amdgpu => "AMD GPU", .nouveau => "NVIDIA GPU" };
     if (!copyDrmString(name_address, name_length, driver_name)) return errno(14);
     if (!copyDrmString(date_address, date_length, "20260830")) return errno(14);
     if (!copyDrmString(description_address, description_length, driver_description)) return errno(14);

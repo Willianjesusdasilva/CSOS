@@ -98,7 +98,7 @@ pub fn start(info: BootInfo) noreturn {
     if (inventory.findClass(0x06, 0x01) == null) panic("PCI ISA bridge missing");
     const display_device = inventory.findClass(0x03, 0x00) orelse
         inventory.findClass(0x03, 0x80) orelse panic("display adapter missing");
-    syscalls.configureDrm(display_device.vendor == 0x1002);
+    syscalls.configureDrm(switch (display_device.vendor) { 0x1002 => .amdgpu, 0x10de => .nouveau, else => .csos });
 
     smp.prepare(mapper.root) catch panic("SMP trampoline failed");
     const bsp_id = apic.id();
@@ -479,6 +479,7 @@ pub fn start(info: BootInfo) noreturn {
     serial.write(" driver: ");
     serial.write(switch (gpu_adapter.driver) {
         .amdgpu => "amdgpu",
+        .nouveau => "nouveau",
         .qemu_vga => "qemu-vga",
         .unsupported => "unsupported",
     });

@@ -4,6 +4,7 @@ pub const Driver = enum {
     unsupported,
     qemu_vga,
     amdgpu,
+    nouveau,
 };
 
 pub const Adapter = struct {
@@ -48,6 +49,7 @@ pub fn driverFor(vendor: u16, device: u16) Driver {
     _ = device;
     return switch (vendor) {
         0x1002 => .amdgpu,
+        0x10de => .nouveau,
         0x1234, 0x1b36 => .qemu_vga,
         else => .unsupported,
     };
