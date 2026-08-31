@@ -28,8 +28,11 @@ pub var sendfile_calls: u64 = 0;
 pub var framebuffer_ioctls: u64 = 0;
 pub var framebuffer_mmaps: u64 = 0;
 pub var drm_ioctls: u64 = 0;
+pub var drm_mmaps: u64 = 0;
 var network_stack: ?*net.Stack = null;
 var framebuffer = Framebuffer{};
+var drm_dumb_created = false;
+var drm_dumb_size: u64 = 0;
 var sockets: [4]Socket = .{Socket{}} ** 4;
 var unknown_seen: [512]bool = .{false} ** 512;
 pub export var syscall_kernel_rsp: u64 = 0;
@@ -85,6 +88,9 @@ pub fn configure(base: u64, size: u64, stack: u64, stack_length: u64, initial_br
     framebuffer_ioctls = 0;
     framebuffer_mmaps = 0;
     drm_ioctls = 0;
+    drm_mmaps = 0;
+    drm_dumb_created = false;
+    drm_dumb_size = 0;
     sockets = .{Socket{}} ** sockets.len;
     vfs.reset();
 }
@@ -289,6 +295,9 @@ fn ioctl(fd: u64, request: u64, address: u64) u64 {
         const result = switch (request) {
             0xc0406400 => drmVersion(address),
             0xc010640c => drmGetCap(address),
+            0xc02064b2 => drmCreateDumb(address),
+            0xc01064b3 => drmMapDumb(address),
+            0xc00464b4 => drmDestroyDumb(address),
             else => errno(25),
         };
         if (result == 0) drm_ioctls += 1;
@@ -328,10 +337,47 @@ fn drmGetCap(address: u64) u64 {
     const output: [*]u8 = @ptrFromInt(address);
     const capability = read64(output);
     const value: u64 = switch (capability) {
-        0x6 => 1,
+        0x1, 0x6 => 1,
         else => 0,
     };
     put64(output + 8, value);
+    return 0;
+}
+
+fn drmCreateDumb(address: u64) u64 {
+    if (!validUserSlice(address, 32)) return errno(14);
+    if (drm_dumb_created) return errno(12);
+    const output: [*]u8 = @ptrFromInt(address);
+    const height = read32(output + 0);
+    const width = read32(output + 4);
+    const bpp = read32(output + 8);
+    const flags = read32(output + 12);
+    if (height == 0 or width == 0 or height > framebuffer.height or width > framebuffer.width or bpp != 32 or flags != 0) return errno(22);
+    const pitch = @as(u64, width) * 4;
+    const size = pitch * height;
+    if (size > framebuffer.size) return errno(12);
+    put32(output + 16, 1);
+    put32(output + 20, @intCast(pitch));
+    put64(output + 24, size);
+    drm_dumb_created = true;
+    drm_dumb_size = size;
+    return 0;
+}
+
+fn drmMapDumb(address: u64) u64 {
+    if (!validUserSlice(address, 16)) return errno(14);
+    const output: [*]u8 = @ptrFromInt(address);
+    if (!drm_dumb_created or read32(output) != 1) return errno(2);
+    put64(output + 8, 0);
+    return 0;
+}
+
+fn drmDestroyDumb(address: u64) u64 {
+    if (!validUserSlice(address, 4)) return errno(14);
+    const input: [*]const u8 = @ptrFromInt(address);
+    if (!drm_dumb_created or read32(input) != 1) return errno(2);
+    drm_dumb_created = false;
+    drm_dumb_size = 0;
     return 0;
 }
 
@@ -461,6 +507,7 @@ fn vfsError(err: anyerror) u64 {
 
 fn put32(target: [*]u8, value: u32) void { var i: usize = 0; while (i < 4) : (i += 1) target[i] = @truncate(value >> @intCast(i * 8)); }
 fn put64(target: [*]u8, value: u64) void { var i: usize = 0; while (i < 8) : (i += 1) target[i] = @truncate(value >> @intCast(i * 8)); }
+fn read32(source: [*]const u8) u32 { var value: u32 = 0; var i: usize = 0; while (i < 4) : (i += 1) value |= @as(u32, source[i]) << @intCast(i * 8); return value; }
 fn read64(source: [*]const u8) u64 { var value: u64 = 0; var i: usize = 0; while (i < 8) : (i += 1) value |= @as(u64, source[i]) << @intCast(i * 8); return value; }
 fn copyZ(target: [*]u8, text: []const u8) void { @memcpy(target[0..text.len], text); target[text.len] = 0; }
 
@@ -559,15 +606,18 @@ fn brk(requested: u64) u64 {
 fn mmap(requested: u64, length: u64, protection: u64, flags: u64, fd: u64, file_offset: u64) u64 {
     if (length == 0 or (file_offset & 4095) != 0 or (protection & 2) != 0 and (protection & 4) != 0) return errno(22);
     const anonymous = (flags & 0x20) != 0;
-    if (!anonymous and vfs.isFramebuffer(@intCast(fd))) {
-        if ((flags & 1) == 0 or (protection & 4) != 0 or file_offset > framebuffer.size or length > framebuffer.size - file_offset) return errno(22);
+    const framebuffer_device = !anonymous and vfs.isFramebuffer(@intCast(fd));
+    const drm_device = !anonymous and vfs.isDrm(@intCast(fd));
+    if (framebuffer_device or drm_device) {
+        const available: u64 = if (drm_device) drm_dumb_size else framebuffer.size;
+        if ((flags & 1) == 0 or (protection & 4) != 0 or (drm_device and !drm_dumb_created) or file_offset > available or length > available - file_offset) return errno(22);
         const aligned_length = (length + 4095) & ~@as(u64, 4095);
         const address = if (requested != 0) requested else (device_mmap_next + 4095) & ~@as(u64, 4095);
         if (address < mmap_limit or address > device_mmap_limit or aligned_length > device_mmap_limit - address) return errno(12);
         const hook = device_mmap_hook orelse return errno(19);
         if (!hook(address, framebuffer.base + file_offset, aligned_length, (protection & 2) != 0)) return errno(12);
         device_mmap_next = address + aligned_length;
-        framebuffer_mmaps += 1;
+        if (drm_device) drm_mmaps += 1 else framebuffer_mmaps += 1;
         return address;
     }
     if (!anonymous and (flags & 2) == 0) return errno(22);
