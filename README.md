@@ -724,6 +724,13 @@ ativo e recusa de submissão. Adaptadores de mailbox por família ainda não est
 habilitados; portanto essa interface não é evidência de aceleração ou boot PSP
 em hardware real.
 
+Os perfis declarativos de mailbox registram o protocolo lógico comprovado para
+as famílias com boot pelo host: endereço em C2PMSG 36, comando em C2PMSG 35 e
+sinal de vida do sOS em C2PMSG 81. SYS e SOS usam respectivamente `0x10000` e
+`0x20000`; KDB e SPL só são aceitos nas famílias cujos callbacks upstream os
+oferecem. Esses números ainda não são offsets MMIO: a tradução pelo mapa MP0
+específico da geração continua obrigatória antes de qualquer escrita.
+
 As capacidades PSP são tratadas separadamente: `autoload_supported`, TMR de
 boot e presença de callbacks host para carregar SYS/SOS não são sinônimos. O
 handoff host só é construído para as famílias em que o `psp_funcs` upstream

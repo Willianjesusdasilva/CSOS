@@ -655,6 +655,27 @@ pub const AmdPspBootImages = struct {
     auxiliary: bool,
 };
 pub const AmdPspBootCommand = enum { load_kdb, load_spl, load_sysdrv, load_sos };
+pub const AmdPspCompletion = enum { command_ready, sos_changed };
+pub const AmdPspMailboxProfile = struct {
+    command_message: u8 = 35,
+    address_message: u8 = 36,
+    sos_message: u8 = 81,
+    ready_mask: u32 = 0x80000000,
+    supported_commands: u8,
+
+    pub fn supports(self: AmdPspMailboxProfile, command: AmdPspBootCommand) bool {
+        return self.supported_commands & (@as(u8, 1) << @intFromEnum(command)) != 0;
+    }
+};
+pub const AmdPspMailboxSubmission = struct {
+    address_message: u8,
+    address_value: u32,
+    command_message: u8,
+    command_value: u32,
+    completion_message: u8,
+    completion: AmdPspCompletion,
+    completion_mask: u32,
+};
 pub const AmdPspHandoffStep = struct { command: AmdPspBootCommand = .load_sysdrv, source_address: u64 = 0, bytes: u32 = 0 };
 pub const AmdPspHandoffState = enum { empty, ready, staged, submitted, finished, failed };
 pub const AmdPspPreparedCommand = struct {
@@ -772,6 +793,43 @@ pub const PspFamily = enum { v3_1, v10_0, v11_0, v11_0_8, v12_0, v13_0, v13_0_4,
 pub const GmcFamily = enum { v9_0, v10_0, v11_0, v12_0 };
 pub const GfxFamily = enum { v9_0, v9_4_3, v10_0, v11_0, v12_0, v12_1 };
 pub const SdmaFamily = enum { v4_0, v4_4_2, v5_0, v5_2, v6_0, v7_0, v7_1 };
+
+const psp_sys_sos_commands: u8 = (@as(u8, 1) << @intFromEnum(AmdPspBootCommand.load_sysdrv)) |
+    (@as(u8, 1) << @intFromEnum(AmdPspBootCommand.load_sos));
+const psp_all_boot_commands: u8 = (@as(u8, 1) << @typeInfo(AmdPspBootCommand).@"enum".fields.len) - 1;
+
+pub fn amdPspMailboxProfile(plan: AmdPspPlan) !AmdPspMailboxProfile {
+    if (!plan.host_boot_components) return error.AmdPspHostBootUnsupported;
+    // All currently supported host-boot families use the logical MP0
+    // C2PMSG 35/36/81 protocol. Actual MMIO offsets still come from the
+    // selected MP register map and must not be inferred from these indices.
+    return .{ .supported_commands = switch (plan.family) {
+        .v3_1, .v12_0 => psp_sys_sos_commands,
+        .v11_0, .v13_0, .v13_0_4, .v14_0 => psp_all_boot_commands,
+        else => return error.AmdPspHostBootUnsupported,
+    } };
+}
+
+pub fn encodeAmdPspMailboxSubmission(profile: AmdPspMailboxProfile, prepared: AmdPspPreparedCommand) !AmdPspMailboxSubmission {
+    if (!profile.supports(prepared.command) or prepared.transfer_address_1m > ~@as(u32, 0))
+        return error.UnsupportedAmdPspBootCommand;
+    const command_value: u32 = switch (prepared.command) {
+        .load_sysdrv => 0x00010000,
+        .load_sos => 0x00020000,
+        .load_kdb => 0x00080000,
+        .load_spl => 0x10000000,
+    };
+    const sos = prepared.command == .load_sos;
+    return .{
+        .address_message = profile.address_message,
+        .address_value = @intCast(prepared.transfer_address_1m),
+        .command_message = profile.command_message,
+        .command_value = command_value,
+        .completion_message = if (sos) profile.sos_message else profile.command_message,
+        .completion = if (sos) .sos_changed else .command_ready,
+        .completion_mask = if (sos) 0 else profile.ready_mask,
+    };
+}
 
 fn findStagedPspComponent(staging: *const AmdFirmwareStaging, kind: u32) !?AmdStagedPspComponent {
     var result: ?AmdStagedPspComponent = null;
@@ -1032,6 +1090,32 @@ comptime {
         @compileError("valid platform-booted PSP version was rejected");
     if (platform_booted.family != .v10_0 or platform_booted.host_boot_components)
         @compileError("platform-booted AMD PSP policy selected incorrectly");
+    const mailbox = amdPspMailboxProfile(plan.psp) catch @compileError("valid AMD PSP mailbox profile was rejected");
+    const sys_submission = encodeAmdPspMailboxSubmission(mailbox, .{
+        .command = .load_sysdrv,
+        .transfer_address = 0x400000,
+        .transfer_address_1m = 4,
+        .bytes = 0x1000,
+        .index = 0,
+    }) catch @compileError("valid AMD PSP mailbox submission was rejected");
+    if (sys_submission.address_message != 36 or sys_submission.address_value != 4 or
+        sys_submission.command_message != 35 or sys_submission.command_value != 0x10000 or
+        sys_submission.completion != .command_ready or sys_submission.completion_mask != 0x80000000)
+        @compileError("AMD PSP SYS mailbox submission encoded incorrectly");
+    const sos_submission = encodeAmdPspMailboxSubmission(mailbox, .{
+        .command = .load_sos,
+        .transfer_address = 0x400000,
+        .transfer_address_1m = 4,
+        .bytes = 0x1000,
+        .index = 1,
+    }) catch @compileError("valid AMD PSP SOS mailbox submission was rejected");
+    if (sos_submission.command_value != 0x20000 or sos_submission.completion_message != 81 or
+        sos_submission.completion != .sos_changed or sos_submission.completion_mask != 0)
+        @compileError("AMD PSP SOS mailbox submission encoded incorrectly");
+    const limited_mailbox = amdPspMailboxProfile(selectPsp(&AmdIp{ .hw_id = amd_hw_id.psp, .major = 12, .revision = 1 }) catch
+        @compileError("valid PSP 12 profile was rejected")) catch @compileError("valid PSP 12 mailbox was rejected");
+    if (limited_mailbox.supports(.load_kdb) or !limited_mailbox.supports(.load_sysdrv))
+        @compileError("AMD PSP mailbox capabilities encoded incorrectly");
 
     var staging = AmdFirmwareStaging{};
     staging.psp_component_count = 4;
