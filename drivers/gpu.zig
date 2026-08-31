@@ -506,7 +506,9 @@ fn isAmdIpDiscovery(name: []const u8) bool {
 }
 
 fn isAmdPspPackage(name: []const u8) bool {
-    return contains(name, "_sos.") or contains(name, "_toc.");
+    // A *_sos.bin file is the combined PSP package. Separate *_toc.bin
+    // files use a common firmware header but are not PSP component tables.
+    return contains(name, "_sos.");
 }
 
 comptime {
@@ -517,6 +519,8 @@ comptime {
         classifyFirmware(.nouveau, "nvidia/ad102/gr/sw_nonctx.bin") != .graphics or
         classifyFirmware(.nouveau, "nvidia/ad102/nvdec/scrubber.bin") != .media)
         @compileError("GPU firmware block classification failed");
+    if (!isAmdPspPackage("navi31_sos.bin") or isAmdPspPackage("psp_13_0_5_toc.bin"))
+        @compileError("AMDGPU PSP package identification failed");
 }
 
 pub const AmdgpuFirmware = struct {
@@ -639,10 +643,52 @@ pub const AmdPspPlan = struct {
     autoload_supported: bool,
     boot_time_tmr: bool,
 };
+pub const AmdPspTopology = enum { unknown, no_cpu_xgmi, cpu_xgmi };
+pub const AmdPspBootImages = struct {
+    sys: AmdStagedPspComponent,
+    sos: AmdStagedPspComponent,
+    toc: ?AmdStagedPspComponent,
+    kdb: ?AmdStagedPspComponent,
+    spl: ?AmdStagedPspComponent,
+    rl: ?AmdStagedPspComponent,
+    auxiliary: bool,
+};
 pub const PspFamily = enum { v3_1, v10_0, v11_0, v11_0_8, v12_0, v13_0, v13_0_4, v14_0, v15_0, v15_0_8 };
 pub const GmcFamily = enum { v9_0, v10_0, v11_0, v12_0 };
 pub const GfxFamily = enum { v9_0, v9_4_3, v10_0, v11_0, v12_0, v12_1 };
 pub const SdmaFamily = enum { v4_0, v4_4_2, v5_0, v5_2, v6_0, v7_0, v7_1 };
+
+fn findStagedPspComponent(staging: *const AmdFirmwareStaging, kind: u32) !?AmdStagedPspComponent {
+    var result: ?AmdStagedPspComponent = null;
+    for (staging.psp_components[0..staging.psp_component_count]) |component| {
+        if (component.kind != kind) continue;
+        if (result != null) return error.DuplicateStagedAmdPspComponent;
+        result = component;
+    }
+    return result;
+}
+
+pub fn selectAmdPspBootImages(staging: *const AmdFirmwareStaging, plan: AmdPspPlan, topology: AmdPspTopology) !AmdPspBootImages {
+    const use_auxiliary = if (plan.ip_version == 0x0d0002) switch (topology) {
+        .unknown => return error.AmdPspTopologyRequired,
+        .no_cpu_xgmi => true,
+        .cpu_xgmi => false,
+    } else false;
+    const sys_kind: u32 = if (use_auxiliary) 13 else 2;
+    const sos_kind: u32 = if (use_auxiliary) 14 else 1;
+    const sys = try findStagedPspComponent(staging, sys_kind) orelse return error.AmdPspSystemDriverMissing;
+    const sos = try findStagedPspComponent(staging, sos_kind) orelse return error.AmdPspSosMissing;
+    if (sys.address == 0 or sys.bytes == 0 or sos.address == 0 or sos.bytes == 0) return error.InvalidAmdPspBootImage;
+    return .{
+        .sys = sys,
+        .sos = sos,
+        .toc = try findStagedPspComponent(staging, 4),
+        .kdb = try findStagedPspComponent(staging, 3),
+        .spl = try findStagedPspComponent(staging, 5),
+        .rl = try findStagedPspComponent(staging, 6),
+        .auxiliary = use_auxiliary,
+    };
+}
 
 pub fn planAmdBackend(discovery: *const AmdIpDiscovery) !AmdBackendPlan {
     const psp = discovery.find(amd_hw_id.psp, 0) orelse return error.AmdPspMissing;
@@ -755,6 +801,23 @@ comptime {
         @compileError("valid PSP 15 boot-time TMR version was rejected");
     if (psp15_tmr.family != .v15_0_8 or !psp15_tmr.autoload_supported or !psp15_tmr.boot_time_tmr)
         @compileError("AMD PSP 15 boot-time TMR policy selected incorrectly");
+
+    var staging = AmdFirmwareStaging{};
+    staging.psp_component_count = 4;
+    staging.psp_components[0] = .{ .kind = 2, .address = 0x1000, .bytes = 0x100 };
+    staging.psp_components[1] = .{ .kind = 1, .address = 0x2000, .bytes = 0x200 };
+    staging.psp_components[2] = .{ .kind = 13, .address = 0x3000, .bytes = 0x300 };
+    staging.psp_components[3] = .{ .kind = 14, .address = 0x4000, .bytes = 0x400 };
+    const normal_images = selectAmdPspBootImages(&staging, plan.psp, .unknown) catch
+        @compileError("normal AMD PSP boot images were rejected");
+    if (normal_images.auxiliary or normal_images.sys.address != 0x1000 or normal_images.sos.address != 0x2000)
+        @compileError("normal AMD PSP boot images selected incorrectly");
+    const auxiliary_plan = selectPsp(&AmdIp{ .hw_id = amd_hw_id.psp, .major = 13, .revision = 2 }) catch
+        @compileError("valid auxiliary PSP version was rejected");
+    const auxiliary_images = selectAmdPspBootImages(&staging, auxiliary_plan, .no_cpu_xgmi) catch
+        @compileError("auxiliary AMD PSP boot images were rejected");
+    if (!auxiliary_images.auxiliary or auxiliary_images.sys.address != 0x3000 or auxiliary_images.sos.address != 0x4000)
+        @compileError("auxiliary AMD PSP boot images selected incorrectly");
 }
 
 pub fn parseAmdIpDiscovery(bytes: []const u8) !AmdIpDiscovery {

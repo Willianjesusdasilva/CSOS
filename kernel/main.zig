@@ -499,10 +499,13 @@ pub fn start(info: BootInfo) noreturn {
     };
     if (gpu_ip_discovery) |*discovery| gpu_backend_plan = gpu.planAmdBackend(discovery) catch panic("AMDGPU IP combination unsupported");
     var gpu_firmware_staging = gpu.AmdFirmwareStaging{};
+    var gpu_psp_boot_images: ?gpu.AmdPspBootImages = null;
     if (gpu_backend_plan != null) {
         const firmware = gpu_firmware orelse panic("AMDGPU firmware archive missing");
         const selection = gpu_selection orelse panic("AMDGPU firmware selection missing");
         gpu_firmware_staging = firmware.stageAmdSecurity(selection, &pages) catch panic("AMDGPU security firmware staging failed");
+        gpu_psp_boot_images = gpu.selectAmdPspBootImages(&gpu_firmware_staging, gpu_backend_plan.?.psp, .unknown) catch
+            panic("AMDGPU PSP boot image selection failed");
     }
     const gpu_psp_major = if (gpu_ip_discovery) |discovery| if (discovery.find(gpu.amd_hw_id.psp, 0)) |ip| ip.major else 0 else 0;
     const gpu_gfx_major = if (gpu_ip_discovery) |discovery| if (discovery.find(gpu.amd_hw_id.gfx, 0)) |ip| ip.major else 0 else 0;
@@ -553,6 +556,8 @@ pub fn start(info: BootInfo) noreturn {
     serial.write(" staged-bytes: "); serial.writeDecimal(gpu_firmware_staging.image_bytes);
     serial.write(" staged-payload: "); serial.writeDecimal(gpu_firmware_staging.payload_bytes);
     serial.write(" psp-components: "); serial.writeDecimal(gpu_firmware_staging.psp_component_count);
+    serial.write(" psp-boot: "); serial.writeDecimal(if (gpu_psp_boot_images) |_| 1 else 0);
+    serial.write(" psp-aux: "); serial.writeDecimal(if (gpu_psp_boot_images) |images| @intFromBool(images.auxiliary) else 0);
     serial.write(" driver: ");
     serial.write(switch (gpu_adapter.driver) {
         .amdgpu => "amdgpu",

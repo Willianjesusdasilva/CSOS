@@ -698,7 +698,10 @@ componentes tipados e validados — como SYS_DRV, SOS, KDB, TOC, SPL e RL — se
 confundir o payload comum com a imagem que cada comando de boot consumirá. A
 política PSP mantém a revisão MP0 exata e
 distingue host boot, autoload e TMR de boot conforme o dispatcher upstream do
-AMDGPU. Nenhuma dessas etapas, isoladamente, representa aceleração 3D nem
+AMDGPU. A seleção física de SYS/SOS também preserva o caminho auxiliar exigido
+pelo MP0 13.0.2 sem XGMI ligado à CPU; nessa revisão, topologia desconhecida é
+rejeitada em vez de escolher firmware por suposição. Nenhuma dessas etapas,
+isoladamente, representa aceleração 3D nem
 suporte Vulkan concluído.
 
 Os próximos incrementos de GPU devem privilegiar adaptação e reutilização do
