@@ -456,7 +456,29 @@ pub const AmdIpDiscovery = struct {
     ips: u32,
     base_addresses: u32,
     harvested: u32,
+    critical_count: usize = 0,
+    critical: [16]AmdIp = .{AmdIp{}} ** 16,
+
+    pub fn find(self: *const AmdIpDiscovery, hw_id: u16, instance: u8) ?*const AmdIp {
+        for (self.critical[0..self.critical_count]) |*ip| if (ip.hw_id == hw_id and ip.instance == instance) return ip;
+        return null;
+    }
 };
+
+pub const AmdIp = struct {
+    hw_id: u16 = 0,
+    instance: u8 = 0,
+    major: u8 = 0,
+    minor: u8 = 0,
+    revision: u8 = 0,
+    sub_revision: u8 = 0,
+    variant: u8 = 0,
+    harvest: u8 = 0,
+    base_count: u8 = 0,
+    bases: [8]u64 = .{0} ** 8,
+};
+
+pub const amd_hw_id = struct { pub const smu: u16 = 1; pub const gfx: u16 = 11; pub const mmhub: u16 = 34; pub const sdma0: u16 = 42; pub const sdma1: u16 = 43; pub const sdma2: u16 = 44; pub const sdma3: u16 = 45; pub const nbif: u16 = 108; pub const psp: u16 = 255; };
 
 pub fn parseAmdIpDiscovery(bytes: []const u8) !AmdIpDiscovery {
     const binary_signature: u32 = 0x28211407;
@@ -504,10 +526,40 @@ pub fn parseAmdIpDiscovery(bytes: []const u8) !AmdIpDiscovery {
             result.ips += 1;
             result.base_addresses += bases;
             if (table_version <= 2 and (bytes[ip_offset + 7] & 0xf) != 0) result.harvested += 1;
+            const hw_id = readLittle16(bytes, ip_offset);
+            if (isCriticalAmdIp(hw_id)) {
+                if (result.critical_count == result.critical.len) return error.TooManyCriticalAmdIps;
+                if (bases > 8) return error.TooManyCriticalAmdIpBaseAddresses;
+                const instance = bytes[ip_offset + 2];
+                for (result.critical[0..result.critical_count]) |ip| if (ip.hw_id == hw_id and ip.instance == instance) return error.DuplicateCriticalAmdIp;
+                var ip = AmdIp{
+                    .hw_id = hw_id,
+                    .instance = instance,
+                    .major = bytes[ip_offset + 4],
+                    .minor = bytes[ip_offset + 5],
+                    .revision = bytes[ip_offset + 6],
+                    .sub_revision = if (table_version >= 3) bytes[ip_offset + 7] & 0xf else 0,
+                    .variant = if (table_version >= 3) bytes[ip_offset + 7] >> 4 else 0,
+                    .harvest = if (table_version <= 2) bytes[ip_offset + 7] & 0xf else 0,
+                    .base_count = bases,
+                };
+                var base_index: u8 = 0;
+                while (base_index < bases) : (base_index += 1) {
+                    const base_offset = ip_offset + 8 + @as(usize, base_index) * address_bytes;
+                    ip.bases[base_index] = if (address_bytes == 8) readLittle64(bytes, base_offset) else readLittle32(bytes, base_offset);
+                }
+                result.critical[result.critical_count] = ip;
+                result.critical_count += 1;
+            }
             ip_offset += entry_size;
         }
     }
     return result;
+}
+
+fn isCriticalAmdIp(hw_id: u16) bool {
+    return hw_id == amd_hw_id.smu or hw_id == amd_hw_id.gfx or hw_id == amd_hw_id.mmhub or
+        (hw_id >= amd_hw_id.sdma0 and hw_id <= amd_hw_id.sdma3) or hw_id == amd_hw_id.nbif or hw_id == amd_hw_id.psp;
 }
 
 fn byteSum(bytes: []const u8) u16 {
@@ -525,6 +577,10 @@ fn writeLittle32(bytes: []u8, offset: usize, value: u32) void {
     writeLittle16(bytes, offset + 2, @truncate(value >> 16));
 }
 
+fn readLittle64(bytes: []const u8, offset: usize) u64 {
+    return @as(u64, readLittle32(bytes, offset)) | (@as(u64, readLittle32(bytes, offset + 4)) << 32);
+}
+
 comptime {
     var sample = [_]u8{0} ** 156;
     writeLittle32(&sample, 0, 0x28211407);
@@ -538,14 +594,15 @@ comptime {
     writeLittle16(&sample, 72, 1);
     writeLittle16(&sample, 76, 140);
     writeLittle16(&sample, 142, 1);
-    writeLittle16(&sample, 144, 42);
+    writeLittle16(&sample, 144, amd_hw_id.sdma0);
     sample[147] = 1;
     sample[148] = 11;
     writeLittle32(&sample, 152, 0x1234);
     writeLittle16(&sample, 14, byteSum(sample[60..156]));
     writeLittle16(&sample, 8, byteSum(sample[10..156]));
     const discovery = parseAmdIpDiscovery(&sample) catch @compileError("AMDGPU IP discovery sample was rejected");
-    if (discovery.table_version != 3 or discovery.dies != 1 or discovery.ips != 1 or discovery.base_addresses != 1)
+    const sdma = discovery.find(amd_hw_id.sdma0, 0);
+    if (discovery.table_version != 3 or discovery.dies != 1 or discovery.ips != 1 or discovery.base_addresses != 1 or sdma == null or sdma.?.major != 11 or sdma.?.bases[0] != 0x1234)
         @compileError("AMDGPU IP discovery sample decoded incorrectly");
 }
 

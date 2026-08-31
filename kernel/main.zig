@@ -496,6 +496,10 @@ pub fn start(info: BootInfo) noreturn {
         if (gpu_adapter.driver == .amdgpu)
             gpu_ip_discovery = firmware.amdDiscovery(selection) catch panic("AMDGPU IP discovery invalid");
     };
+    const gpu_psp_major = if (gpu_ip_discovery) |discovery| if (discovery.find(gpu.amd_hw_id.psp, 0)) |ip| ip.major else 0 else 0;
+    const gpu_gfx_major = if (gpu_ip_discovery) |discovery| if (discovery.find(gpu.amd_hw_id.gfx, 0)) |ip| ip.major else 0 else 0;
+    const gpu_mmhub_major = if (gpu_ip_discovery) |discovery| if (discovery.find(gpu.amd_hw_id.mmhub, 0)) |ip| ip.major else 0 else 0;
+    const gpu_sdma_major = if (gpu_ip_discovery) |discovery| if (discovery.find(gpu.amd_hw_id.sdma0, 0)) |ip| ip.major else 0 else 0;
     const gpu_registers = gpu_adapter.register_bar orelse panic("GPU register BAR missing");
     if (gpu_registers.size > 16 * 1024 * 1024) panic("GPU register BAR unexpectedly large");
     mapper.mapIdentity(gpu_registers.address, @intCast(gpu_registers.size)) catch panic("GPU register MMIO mapping failed");
@@ -529,6 +533,10 @@ pub fn start(info: BootInfo) noreturn {
     serial.write(" dma: "); serial.writeDecimal(gpu_inventory.block(.dma).entries);
     serial.write(" ip-dies: "); serial.writeDecimal(if (gpu_ip_discovery) |discovery| discovery.dies else 0);
     serial.write(" ips: "); serial.writeDecimal(if (gpu_ip_discovery) |discovery| discovery.ips else 0);
+    serial.write(" psp: "); serial.writeDecimal(gpu_psp_major);
+    serial.write(" gfx: "); serial.writeDecimal(gpu_gfx_major);
+    serial.write(" mmhub: "); serial.writeDecimal(gpu_mmhub_major);
+    serial.write(" sdma: "); serial.writeDecimal(gpu_sdma_major);
     serial.write(" driver: ");
     serial.write(switch (gpu_adapter.driver) {
         .amdgpu => "amdgpu",
