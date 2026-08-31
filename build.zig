@@ -3,6 +3,9 @@ const std = @import("std");
 pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
     const gpu_firmware = b.option([]const u8, "gpu-firmware", "Firmware archive copied to GPUFW.BIN on the CSOS disk");
+    const amd_gart_mmio = b.option(bool, "amd-gart-mmio", "Explicitly arm and commit the validated GMC 11 GART transaction") orelse false;
+    const build_options = b.addOptions();
+    build_options.addOption(bool, "amd_gart_mmio", amd_gart_mmio);
     const target = b.resolveTargetQuery(.{
         .cpu_arch = .x86_64,
         .os_tag = .uefi,
@@ -220,6 +223,7 @@ pub fn build(b: *std.Build) void {
     kernel_module.addImport("process", process_module);
     kernel_module.addImport("syscalls", syscalls_module);
     kernel_module.addImport("vfs", vfs_module);
+    kernel_module.addOptions("build_options", build_options);
     const boot_module = b.createModule(.{
         .root_source_file = b.path("boot/main.zig"),
         .target = target,

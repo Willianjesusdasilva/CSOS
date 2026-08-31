@@ -23,6 +23,7 @@ const scheduler = @import("scheduler");
 const process = @import("process");
 const syscalls = @import("syscalls");
 const vfs = @import("vfs");
+const build_options = @import("build_options");
 
 var thread_a_runs: usize = 0;
 var thread_b_runs: usize = 0;
@@ -683,6 +684,30 @@ pub fn start(info: BootInfo) noreturn {
             .gart_window_bound = gpu_gart_plan.?.window_start != null and gpu_gart_plan.?.window_end != null,
             .rollback_registers = gpu_gart_rollback_registers,
         }) catch panic("AMDGPU GART MMIO authorization rejected");
+        if (build_options.amd_gart_mmio) {
+            transport.arm() catch panic("AMDGPU GART MMIO arming failed");
+            gpu.prepareAmdGmc11Activation(
+                &gpu_gmc11_activation_workspace,
+                gpu_gart_registers.?,
+                gpu_gart_aperture.?,
+                gpu_gmc11_system_aperture.?,
+                transport.io(),
+            ) catch {
+                transport.disarm();
+                panic("AMDGPU GART activation preparation failed");
+            };
+            _ = gpu.commitAmdGmc11Activation(
+                &gpu_gmc11_activation_workspace,
+                gpu_gart_registers.?,
+                100_000,
+                transport.io(),
+            ) catch {
+                transport.disarm();
+                panic("AMDGPU GART activation failed and rolled back");
+            };
+            gpu_gart_plan.?.active = true;
+            transport.disarm();
+        }
     }
     const gpu_identity = gpu_adapter.identifyChip() catch panic("GPU chipset identification failed");
     const gpu_register_probe = gpu_identity.boot0 orelse gpu_adapter.readRegister(0) catch panic("GPU register MMIO read failed");

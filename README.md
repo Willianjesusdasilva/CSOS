@@ -943,6 +943,12 @@ O workspace real nasce com `gart-activation-prepared=0` e
 `gart-activation-committed=0` até o gate de hardware real ser explicitamente
 armado.
 
+A execução real permanece opt-in. `-Damd-gart-mmio=true` só chega ao MMIO após
+todos os gates acima e então faz `arm → prepare → commit → disarm`; o plano só
+recebe `gart-active=1` depois do ACK. Falha de preparação desarma sem escrever;
+falha/timeout no commit restaura o snapshot antes do panic. Sem a opção (padrão),
+o caminho é compilado e testado, mas nenhuma escrita GMC é realizada.
+
 Com a faixa real conhecida, o candidato `gart-window-start/end` segue a política
 `AMDGPU_GART_PLACEMENT_HIGH`: limita o espaço MC antes do VA hole de 48 bits,
 posiciona a janela no topo e alinha sua base a 4 GiB. Overflow, faixa VRAM
