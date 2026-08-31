@@ -507,7 +507,7 @@ pub fn start(info: BootInfo) noreturn {
     const gpu_memory_plan = if (gpu_backend_plan) |plan| gpu.planAmdMemory(gpu_adapter.bars, gpu_adapter.register_bar, plan.gmc) catch
         panic("AMDGPU memory apertures invalid") else null;
     const gpu_psp_gtt = if (gpu_memory_plan != null) gpu.prepareAmdPspGtt(&pages) catch panic("AMDGPU PSP GTT staging failed") else gpu.AmdPspGttStaging{};
-    const gpu_gart_plan = if (gpu_memory_plan) |memory| gpu.planAmdGart(&gpu_ip_discovery.?, memory, gpu_psp_gtt) catch
+    var gpu_gart_plan = if (gpu_memory_plan) |memory| gpu.planAmdGart(&gpu_ip_discovery.?, memory, gpu_psp_gtt) catch
         panic("AMDGPU GART plan invalid") else null;
     const gpu_gart_registers = if (gpu_gart_plan) |plan| if (plan.family == .v11_0)
         gpu.resolveAmdGmc11GartRegisters(plan, gpu_adapter.register_bar.?.size) catch panic("AMDGPU GART registers invalid")
@@ -560,6 +560,7 @@ pub fn start(info: BootInfo) noreturn {
     }
     mapper.activate();
     var gpu_atom_vram_usage: ?gpu.AmdAtomVramUsage = null;
+    var gpu_atom_firmware_info: ?gpu.AmdAtomFirmwareInfo = null;
     var gpu_rom_read = false;
     var gpu_rom_restored = false;
     if (gpu_adapter.rom_bar) |rom| {
@@ -568,7 +569,10 @@ pub fn start(info: BootInfo) noreturn {
         const bytes: [*]u8 = @ptrFromInt(rom_copy);
         pci.copyExpansionRom(gpu_adapter.device, rom, bytes[0..rom.size]) catch panic("GPU expansion ROM read failed");
         gpu_rom_read = true;
-        if (gpu_adapter.isAmd()) gpu_atom_vram_usage = gpu.parseAmdAtomVramUsage(bytes[0..rom.size]) catch null;
+        if (gpu_adapter.isAmd()) {
+            gpu_atom_vram_usage = gpu.parseAmdAtomVramUsage(bytes[0..rom.size]) catch null;
+            gpu_atom_firmware_info = gpu.parseAmdAtomFirmwareInfo(bytes[0..rom.size]) catch null;
+        }
         pages.release(rom_copy, rom_pages) catch panic("GPU expansion ROM buffer release failed");
         const restored = pci.romInfo(gpu_adapter.device, false) orelse panic("GPU expansion ROM restore missing");
         gpu_rom_restored = restored.address == rom.address and restored.enabled == rom.enabled;
@@ -586,8 +590,22 @@ pub fn start(info: BootInfo) noreturn {
     else null else null;
     var gpu_vram_allocator = if (gpu_gmc11_visible_vram) |visible| gpu.AmdVramAllocator.init(visible) catch
         panic("AMDGPU VRAM allocator invalid") else null;
-    if (gpu_vram_allocator) |*allocator| gpu.reserveAmdGmc11BootVram(allocator, gpu_gmc11_memory.?, true) catch
-        panic("AMDGPU boot VRAM reservations invalid");
+    const gpu_firmware_tail_bytes: u64 = if (gpu_atom_firmware_info) |atom| if (atom.reserved_kib != 0)
+        @as(u64, atom.reserved_kib) * 1024 else 64 * 1024 else 64 * 1024;
+    const gpu_memory_training_reserved = if (gpu_atom_firmware_info) |atom| (atom.capability & 0x400) != 0 else false;
+    var gpu_gart_table_vram: ?gpu.AmdVramAllocation = null;
+    if (gpu_vram_allocator) |*allocator| {
+        gpu.reserveAmdGmc11BootVram(allocator, gpu_gmc11_memory.?, gpu_firmware_tail_bytes, gpu_memory_training_reserved) catch
+            panic("AMDGPU boot VRAM reservations invalid");
+        allocator.sealFirmwareMap();
+        const allocation = allocator.allocatePinned(4096, 4096) catch panic("AMDGPU GART table VRAM allocation failed");
+        mapper.mapIdentityUncached(allocation.cpu_address, allocation.bytes) catch panic("AMDGPU GART table VRAM mapping failed");
+        mapper.activate();
+        gpu.copyAmdGmc11GartTable(gpu_gart_plan.?, allocation) catch panic("AMDGPU GART table VRAM copy failed");
+        gpu_gart_plan = gpu.bindAmdGmc11GartAddressSpace(gpu_gart_plan.?, allocation.mc_address, gpu_gmc11_gart_window.?.start) catch
+            panic("AMDGPU GART address space binding failed");
+        gpu_gart_table_vram = allocation;
+    }
     var gpu_psp_mailbox_snapshot: ?gpu.AmdPspMailboxSnapshot = null;
     var gpu_psp_mmio_transport: ?gpu.AmdPspMmioTransport = null;
     var gpu_psp_preflight: ?gpu.AmdPspPreflight = null;
@@ -647,6 +665,10 @@ pub fn start(info: BootInfo) noreturn {
     serial.write(" atom-vram-usage: "); serial.writeDecimal(if (gpu_atom_vram_usage) |_| 1 else 0);
     serial.write(" atom-fw-kib: "); serial.writeDecimal(if (gpu_atom_vram_usage) |usage| usage.firmware_kib else 0);
     serial.write(" atom-driver-kib: "); serial.writeDecimal(if (gpu_atom_vram_usage) |usage| usage.driver_kib else 0);
+    serial.write(" atom-firmware-info: "); serial.writeDecimal(if (gpu_atom_firmware_info) |_| 1 else 0);
+    serial.write(" atom-fw-reserved-kib: "); serial.writeDecimal(if (gpu_atom_firmware_info) |atom| atom.reserved_kib else 0);
+    serial.write(" firmware-tail-bytes: "); serial.writeDecimal(if (gpu_gmc11_memory != null) gpu_firmware_tail_bytes else 0);
+    serial.write(" memory-training-reserved: "); serial.writeDecimal(@intFromBool(gpu_memory_training_reserved));
     serial.write(" probe: "); serial.writeDecimal(gpu_register_probe);
     serial.write(" chipset: "); serial.writeDecimal(gpu_identity.chipset orelse 0);
     serial.write(" chiprev: "); serial.writeDecimal(gpu_identity.chip_revision orelse 0);
@@ -686,6 +708,7 @@ pub fn start(info: BootInfo) noreturn {
     serial.write(" gart-plan: "); serial.writeDecimal(if (gpu_gart_plan) |_| 1 else 0);
     serial.write(" gart-bound: "); serial.writeDecimal(if (gpu_gart_plan) |plan| @intFromBool(plan.table_mc_address != null) else 0);
     serial.write(" gart-table-mc: "); serial.writeDecimal(if (gpu_gart_plan) |plan| plan.table_mc_address orelse 0 else 0);
+    serial.write(" gart-table-vram-cpu: "); serial.writeDecimal(if (gpu_gart_table_vram) |allocation| allocation.cpu_address else 0);
     serial.write(" gart-window: "); serial.writeDecimal(if (gpu_gart_plan) |plan| plan.window_bytes else 0);
     serial.write(" gart-window-start: "); serial.writeDecimal(if (gpu_gmc11_gart_window) |window| window.start else 0);
     serial.write(" gart-window-end: "); serial.writeDecimal(if (gpu_gmc11_gart_window) |window| window.end else 0);

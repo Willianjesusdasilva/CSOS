@@ -790,16 +790,31 @@ fn rangesTouch(left: AmdVramRange, right: AmdVramRange) bool {
         (right.end != ~@as(u64, 0) and right.end + 1 == left.start);
 }
 
-pub fn reserveAmdGmc11BootVram(allocator: *AmdVramAllocator, memory: AmdGmc11MemorySnapshot, reserve_discovery_tmr: bool) !void {
+pub fn reserveAmdGmc11BootVram(
+    allocator: *AmdVramAllocator,
+    memory: AmdGmc11MemorySnapshot,
+    firmware_tail_bytes: u64,
+    reserve_memory_training: bool,
+) !void {
     if (allocator.firmware_map_sealed or allocator.visible.mc_start != memory.vram_mc_base)
         return error.InvalidAmdGmc11BootVramMap;
     try allocator.reserve(allocator.visible.mc_start, allocator.visible.framebuffer_mc_end - allocator.visible.mc_start + 1);
-    if (!reserve_discovery_tmr) return;
-    const discovery_bytes: u64 = 64 * 1024;
-    if (memory.vram_bytes < discovery_bytes) return error.InvalidAmdGmc11VramRange;
-    const discovery_start = memory.vram_mc_base + memory.vram_bytes - discovery_bytes;
-    if (discovery_start >= allocator.visible.mc_start and discovery_start <= allocator.visible.mc_end)
-        try allocator.reserve(discovery_start, discovery_bytes);
+    if (firmware_tail_bytes == 0) return;
+    if (memory.vram_bytes < firmware_tail_bytes) return error.InvalidAmdGmc11VramRange;
+    const firmware_start = memory.vram_mc_base + memory.vram_bytes - firmware_tail_bytes;
+    const vram_end = memory.vram_mc_base + memory.vram_bytes - 1;
+    const visible_firmware_start = @max(firmware_start, allocator.visible.mc_start);
+    const visible_firmware_end = @min(vram_end, allocator.visible.mc_end);
+    if (visible_firmware_start <= visible_firmware_end)
+        try allocator.reserve(visible_firmware_start, visible_firmware_end - visible_firmware_start + 1);
+    if (!reserve_memory_training) return;
+    const one_mib: u64 = 1024 * 1024;
+    if (memory.vram_bytes < firmware_tail_bytes + one_mib) return error.InvalidAmdGmc11VramRange;
+    const training_offset = (memory.vram_bytes - firmware_tail_bytes - one_mib + one_mib - 1) & ~(one_mib - 1);
+    const training_start = memory.vram_mc_base + training_offset;
+    const training_end = training_start + 4096 - 1;
+    if (training_start <= allocator.visible.mc_end and training_end >= allocator.visible.mc_start)
+        try allocator.reserve(@max(training_start, allocator.visible.mc_start), @min(training_end, allocator.visible.mc_end) - @max(training_start, allocator.visible.mc_start) + 1);
 }
 pub const AmdPspGttStaging = struct {
     page_table_address: u64 = 0,
@@ -851,6 +866,15 @@ pub fn bindAmdGmc11GartAddressSpace(plan: AmdGartPlan, table_mc_address: u64, wi
     bound.window_start = window_start;
     bound.window_end = window_end;
     return bound;
+}
+
+pub fn copyAmdGmc11GartTable(plan: AmdGartPlan, allocation: AmdVramAllocation) !void {
+    if (plan.family != .v11_0 or plan.active or plan.table_cpu_address == 0 or plan.table_mc_address != null or
+        allocation.bytes != 4096 or (allocation.cpu_address & 4095) != 0 or (allocation.mc_address & 4095) != 0)
+        return error.InvalidAmdGartTableCopy;
+    const source: [*]const u8 = @ptrFromInt(plan.table_cpu_address);
+    const destination: [*]align(1) volatile u8 = @ptrFromInt(allocation.cpu_address);
+    for (0..allocation.bytes) |index| destination[index] = source[index];
 }
 
 pub fn resolveAmdGmc11GartRegisters(plan: AmdGartPlan, register_bar_bytes: u64) !AmdGmc11GartRegisters {
@@ -1071,7 +1095,7 @@ comptime {
         @compileError("unsealed GMC 11 VRAM allocator accepted an allocation")
     else |err| if (err != error.AmdVramFirmwareMapIncomplete)
         @compileError("unsealed GMC 11 VRAM allocator returned the wrong error");
-    reserveAmdGmc11BootVram(&vram_allocator, memory_snapshot, true) catch
+    reserveAmdGmc11BootVram(&vram_allocator, memory_snapshot, 64 * 1024, false) catch
         @compileError("valid GMC 11 boot VRAM reservations were rejected");
     var found_boot_prefix = false;
     for (vram_allocator.reservations[0..vram_allocator.reservation_count]) |reservation| if (
@@ -1089,6 +1113,33 @@ comptime {
     };
     if (vram_allocator.reservation_count != 1 or !found_boot_prefix)
         @compileError("GMC 11 firmware reservations were normalized incorrectly");
+    const full_memory = AmdGmc11MemorySnapshot{
+        .vram_mc_base = 0x100000000,
+        .vram_mc_offset = 0,
+        .vram_bytes = 256 * 1024 * 1024,
+    };
+    const full_visible = AmdGmc11VisibleVram{
+        .cpu_start = 0x200000000,
+        .cpu_end = 0x20fffffff,
+        .mc_start = full_memory.vram_mc_base,
+        .mc_end = full_memory.vram_mc_base + full_memory.vram_bytes - 1,
+        .bytes = full_memory.vram_bytes,
+        .framebuffer_mc_start = full_memory.vram_mc_base + 16 * 1024 * 1024,
+        .framebuffer_mc_end = full_memory.vram_mc_base + 24 * 1024 * 1024 - 1,
+    };
+    var full_allocator = AmdVramAllocator.init(full_visible) catch @compileError("full VRAM allocator was rejected");
+    reserveAmdGmc11BootVram(&full_allocator, full_memory, 3 * 1024 * 1024, true) catch
+        @compileError("firmware and training VRAM reservations were rejected");
+    var found_firmware_tail = false;
+    var found_training = false;
+    for (full_allocator.reservations[0..full_allocator.reservation_count]) |reservation| {
+        if (reservation.start == full_memory.vram_mc_base + 253 * 1024 * 1024 and reservation.end == full_visible.mc_end)
+            found_firmware_tail = true;
+        if (reservation.start == full_memory.vram_mc_base + 252 * 1024 * 1024 and reservation.end == full_memory.vram_mc_base + 252 * 1024 * 1024 + 4095)
+            found_training = true;
+    }
+    if (full_allocator.reservation_count != 3 or !found_firmware_tail or !found_training)
+        @compileError("firmware and training VRAM reservations were placed incorrectly");
     vram_allocator.reserve(memory_snapshot.vram_mc_base + 248 * 1024 * 1024, 8 * 1024 * 1024) catch
         @compileError("valid GMC 11 firmware VRAM reservation was rejected");
     vram_allocator.sealFirmwareMap();
@@ -2094,24 +2145,23 @@ pub const AmdAtomVramUsage = struct {
     driver_kib: u32,
 };
 
+pub const AmdAtomFirmwareInfo = struct {
+    format_revision: u8,
+    content_revision: u8,
+    capability: u32,
+    reserved_kib: u32,
+};
+
+const AmdAtomTables = struct { image: []const u8, master: []const u8 };
+
 // ATOM offsets are relative to the beginning of the PCI ROM image. Keep this
 // parser independent of PCI/MMIO so an untrusted VBIOS can be checked before
 // any reservation is added to the VRAM allocator.
 pub fn parseAmdAtomVramUsage(bytes: []const u8) !AmdAtomVramUsage {
-    if (bytes.len < 0x4a or bytes[0] != 0x55 or bytes[1] != 0xaa) return error.InvalidPciRom;
-    const image_bytes = @as(usize, bytes[2]) * 512;
-    if (image_bytes == 0 or image_bytes > bytes.len) return error.TruncatedPciRom;
-    const image = bytes[0..image_bytes];
-
-    const rom_header = @as(usize, readLittle16(image, 0x48));
-    const rom = try atomTable(image, rom_header, 34);
-    if (!equal(rom[4..8], "ATOM")) return error.NotAtomBios;
-
-    const master_offset = @as(usize, readLittle16(rom, 32));
-    const master = try atomTable(image, master_offset, 28);
-    const usage_offset = @as(usize, readLittle16(master, 26));
+    const tables = try amdAtomTables(bytes);
+    const usage_offset = @as(usize, readLittle16(tables.master, 26));
     if (usage_offset == 0) return error.AtomVramUsageMissing;
-    const usage = try atomTable(image, usage_offset, 12);
+    const usage = try atomTable(tables.image, usage_offset, 12);
     const format = usage[2];
     const content = usage[3];
     if (format == 2 and content == 1) return .{
@@ -2134,6 +2184,38 @@ pub fn parseAmdAtomVramUsage(bytes: []const u8) !AmdAtomVramUsage {
         };
     }
     return error.UnsupportedAtomVramUsage;
+}
+
+pub fn parseAmdAtomFirmwareInfo(bytes: []const u8) !AmdAtomFirmwareInfo {
+    const tables = try amdAtomTables(bytes);
+    const firmware_offset = @as(usize, readLittle16(tables.master, 12));
+    if (firmware_offset == 0) return error.AtomFirmwareInfoMissing;
+    const firmware = try atomTable(tables.image, firmware_offset, 20);
+    const format = firmware[2];
+    const content = firmware[3];
+    if (format != 3 or (content != 4 and content != 5)) return error.UnsupportedAtomFirmwareInfo;
+    if (firmware.len < 88) return error.TruncatedAtomTable;
+    return .{
+        .format_revision = format,
+        .content_revision = content,
+        .capability = @intCast(readLittle32(firmware, 16)),
+        .reserved_kib = @intCast(readLittle32(firmware, 84)),
+    };
+}
+
+fn amdAtomTables(bytes: []const u8) !AmdAtomTables {
+    if (bytes.len < 0x4a or bytes[0] != 0x55 or bytes[1] != 0xaa) return error.InvalidPciRom;
+    const image_bytes = @as(usize, bytes[2]) * 512;
+    if (image_bytes == 0 or image_bytes > bytes.len) return error.TruncatedPciRom;
+    const image = bytes[0..image_bytes];
+
+    const rom_header = @as(usize, readLittle16(image, 0x48));
+    const rom = try atomTable(image, rom_header, 34);
+    if (!equal(rom[4..8], "ATOM")) return error.NotAtomBios;
+
+    const master_offset = @as(usize, readLittle16(rom, 32));
+    const master = try atomTable(image, master_offset, 28);
+    return .{ .image = image, .master = master };
 }
 
 fn atomTable(image: []const u8, offset: usize, minimum_bytes: usize) ![]const u8 {
@@ -2169,16 +2251,25 @@ comptime {
     atom[0xc2] = 2;
     atom[0xc3] = 1;
     writeLittle16(&atom, 0xda, 0x120);
+    writeLittle16(&atom, 0xcc, 0x160);
     writeLittle16(&atom, 0x120, 12);
     atom[0x122] = 2;
     atom[0x123] = 1;
     writeLittle32(&atom, 0x124, 0x12340);
     writeLittle16(&atom, 0x128, 64);
     writeLittle16(&atom, 0x12a, 20);
+    writeLittle16(&atom, 0x160, 88);
+    atom[0x162] = 3;
+    atom[0x163] = 4;
+    writeLittle32(&atom, 0x170, 0x401);
+    writeLittle32(&atom, 0x1b4, 3072);
     const usage = parseAmdAtomVramUsage(&atom) catch @compileError("ATOM VRAM usage sample was rejected");
     if (usage.format_revision != 2 or usage.content_revision != 1 or usage.firmware_start_kib != 0x12340 or
         usage.firmware_kib != 64 or usage.driver_start_kib != null or usage.driver_kib != 20)
         @compileError("ATOM VRAM usage sample decoded incorrectly");
+    const firmware = parseAmdAtomFirmwareInfo(&atom) catch @compileError("ATOM firmware info sample was rejected");
+    if (firmware.format_revision != 3 or firmware.content_revision != 4 or firmware.capability != 0x401 or firmware.reserved_kib != 3072)
+        @compileError("ATOM firmware info sample decoded incorrectly");
 }
 
 comptime {

@@ -868,6 +868,16 @@ diagnóstico (`atom-fw-kib`/`atom-driver-kib`): a semântica upstream reserva as
 faixas estáticas sobretudo para SR-IOV, então o allocator bare-metal não deve
 tratar esses números indiscriminadamente como VRAM ocupada.
 
+O mesmo parser extrai `firmwareinfo` 3.4/3.5 e usa
+`fw_reserved_size_in_kb` para a cauda bare-metal do TMR; se o campo não existir
+ou for zero, aplica o fallback upstream de 64 KiB. Quando a capability de
+treinamento em dois estágios está presente, também reserva o bloco GDDR6 de
+4 KiB na posição alinhada usada pelo AMDGPU. Com scanout, TMR e treinamento
+enumerados, o mapa firmware é selado. A page table GART de 4 KiB então recebe
+uma alocação pinned na VRAM visível, é copiada pela janela CPU sem cache e o
+plano passa a carregar endereços CPU/MC distintos e a janela virtual alta. Isso
+ainda não ativa o GART nem escreve os registradores MMHUB.
+
 Com a faixa real conhecida, o candidato `gart-window-start/end` segue a política
 `AMDGPU_GART_PLACEMENT_HIGH`: limita o espaço MC antes do VA hole de 48 bits,
 posiciona a janela no topo e alinha sua base a 4 GiB. Overflow, faixa VRAM
