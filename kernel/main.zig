@@ -594,6 +594,8 @@ pub fn start(info: BootInfo) noreturn {
         @as(u64, atom.reserved_kib) * 1024 else 64 * 1024 else 64 * 1024;
     const gpu_memory_training_reserved = if (gpu_atom_firmware_info) |atom| (atom.capability & 0x400) != 0 else false;
     var gpu_gart_table_vram: ?gpu.AmdVramAllocation = null;
+    var gpu_gmc11_system_pages: ?gpu.AmdGmc11SystemPages = null;
+    var gpu_gmc11_system_aperture: ?gpu.AmdGmc11SystemApertureValues = null;
     var gpu_gart_aperture: ?gpu.AmdGmc11GartApertureValues = null;
     var gpu_gart_rollback_registers: usize = 0;
     if (gpu_vram_allocator) |*allocator| {
@@ -610,6 +612,15 @@ pub fn start(info: BootInfo) noreturn {
         gpu_gart_rollback_registers = (gpu.amdGmc11GartMutableRegisters(gpu_gart_registers.?) catch
             panic("AMDGPU GART rollback register set invalid")).count;
         gpu_gart_table_vram = allocation;
+        const system_pages = gpu.prepareAmdGmc11SystemPages(allocator, gpu_gmc11_memory.?, &pages) catch
+            panic("AMDGPU system aperture pages failed");
+        mapper.mapIdentityUncached(system_pages.scratch.cpu_address, system_pages.scratch.bytes) catch
+            panic("AMDGPU scratch VRAM mapping failed");
+        mapper.activate();
+        gpu.clearAmdGmc11Scratch(system_pages);
+        gpu_gmc11_system_pages = system_pages;
+        gpu_gmc11_system_aperture = gpu.prepareAmdGmc11SystemAperture(gpu_gmc11_memory.?, system_pages) catch
+            panic("AMDGPU system aperture values invalid");
     }
     var gpu_psp_mailbox_snapshot: ?gpu.AmdPspMailboxSnapshot = null;
     var gpu_psp_mmio_transport: ?gpu.AmdPspMmioTransport = null;
@@ -716,6 +727,10 @@ pub fn start(info: BootInfo) noreturn {
     serial.write(" gart-table-vram-cpu: "); serial.writeDecimal(if (gpu_gart_table_vram) |allocation| allocation.cpu_address else 0);
     serial.write(" gart-aperture-ready: "); serial.writeDecimal(if (gpu_gart_aperture) |_| 1 else 0);
     serial.write(" gart-rollback-registers: "); serial.writeDecimal(gpu_gart_rollback_registers);
+    serial.write(" gart-scratch-mc: "); serial.writeDecimal(if (gpu_gmc11_system_pages) |system| system.scratch.mc_address else 0);
+    serial.write(" gart-scratch-pa: "); serial.writeDecimal(if (gpu_gmc11_system_pages) |system| system.scratch_physical else 0);
+    serial.write(" gart-dummy-pa: "); serial.writeDecimal(if (gpu_gmc11_system_pages) |system| system.dummy_physical else 0);
+    serial.write(" gart-system-aperture-ready: "); serial.writeDecimal(if (gpu_gmc11_system_aperture) |_| 1 else 0);
     serial.write(" gart-window: "); serial.writeDecimal(if (gpu_gart_plan) |plan| plan.window_bytes else 0);
     serial.write(" gart-window-start: "); serial.writeDecimal(if (gpu_gmc11_gart_window) |window| window.start else 0);
     serial.write(" gart-window-end: "); serial.writeDecimal(if (gpu_gmc11_gart_window) |window| window.end else 0);

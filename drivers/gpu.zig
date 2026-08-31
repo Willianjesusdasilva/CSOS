@@ -737,6 +737,17 @@ pub const AmdGmc11GartApertureValues = struct {
     page_table_end_low: u32,
     page_table_end_high: u32,
 };
+pub const AmdGmc11SystemApertureValues = struct {
+    agp_base: u32,
+    agp_bottom: u32,
+    agp_top: u32,
+    aperture_low: u32,
+    aperture_high: u32,
+    default_low: u32,
+    default_high: u32,
+    fault_default_low: u32,
+    fault_default_high: u32,
+};
 pub const AmdGmc11GartRegisterSet = struct {
     offsets: [144]u32 = .{0} ** 144,
     count: usize = 0,
@@ -759,6 +770,11 @@ pub const AmdGmc11VisibleVram = struct {
 };
 pub const AmdVramRange = struct { start: u64, end: u64 };
 pub const AmdVramAllocation = struct { cpu_address: u64, mc_address: u64, bytes: u64 };
+pub const AmdGmc11SystemPages = struct {
+    scratch: AmdVramAllocation,
+    scratch_physical: u64,
+    dummy_physical: u64,
+};
 pub const AmdVramAllocator = struct {
     visible: AmdGmc11VisibleVram,
     reservations: [16]AmdVramRange = .{AmdVramRange{ .start = 0, .end = 0 }} ** 16,
@@ -828,6 +844,20 @@ pub const AmdVramAllocator = struct {
             };
         }
         return error.AmdVisibleVramExhausted;
+    }
+
+    pub fn releasePinned(self: *AmdVramAllocator, allocation: AmdVramAllocation) !void {
+        if (!self.firmware_map_sealed or allocation.bytes == 0 or allocation.mc_address < self.visible.mc_start or
+            allocation.cpu_address != self.visible.cpu_start + (allocation.mc_address - self.visible.mc_start))
+            return error.InvalidAmdVramAllocation;
+        const end = std.math.add(u64, allocation.mc_address, allocation.bytes - 1) catch return error.InvalidAmdVramAllocation;
+        for (self.reservations[0..self.reservation_count], 0..) |reservation, index| {
+            if (reservation.start != allocation.mc_address or reservation.end != end) continue;
+            self.reservation_count -= 1;
+            self.reservations[index] = self.reservations[self.reservation_count];
+            return;
+        }
+        return error.AmdVramAllocationNotFound;
     }
 };
 
@@ -938,6 +968,58 @@ pub fn prepareAmdGmc11GartAperture(plan: AmdGartPlan) !AmdGmc11GartApertureValue
         .page_table_start_high = @truncate(plan.window_start.? >> 44),
         .page_table_end_low = @truncate(plan.window_end.? >> 12),
         .page_table_end_high = @truncate(plan.window_end.? >> 44),
+    };
+}
+
+pub fn amdGmc11VramMcToPhysical(memory: AmdGmc11MemorySnapshot, mc_address: u64) !u64 {
+    if (mc_address < memory.vram_mc_base or mc_address - memory.vram_mc_base >= memory.vram_bytes)
+        return error.AmdVramAddressOutsideRange;
+    return std.math.add(u64, memory.vram_mc_offset, mc_address - memory.vram_mc_base) catch
+        error.AmdVramPhysicalAddressOverflow;
+}
+
+pub fn prepareAmdGmc11SystemPages(
+    allocator: *AmdVramAllocator,
+    memory: AmdGmc11MemorySnapshot,
+    pages: *physical.Allocator,
+) !AmdGmc11SystemPages {
+    if (!allocator.firmware_map_sealed) return error.AmdVramFirmwareMapIncomplete;
+    const dummy = pages.allocate(1) orelse return error.OutOfMemory;
+    errdefer pages.release(dummy, 1) catch {};
+    @memset(@as([*]u8, @ptrFromInt(dummy))[0..4096], 0);
+    const scratch = try allocator.allocatePinned(4096, 4096);
+    errdefer allocator.releasePinned(scratch) catch {};
+    const scratch_physical = try amdGmc11VramMcToPhysical(memory, scratch.mc_address);
+    if ((scratch_physical & 4095) != 0 or scratch_physical > 0x0000fffffffff000 or dummy > 0x0000fffffffff000)
+        return error.AmdGmc11SystemPageOutsideRange;
+    return .{ .scratch = scratch, .scratch_physical = scratch_physical, .dummy_physical = dummy };
+}
+
+pub fn clearAmdGmc11Scratch(system_pages: AmdGmc11SystemPages) void {
+    const destination: [*]align(1) volatile u8 = @ptrFromInt(system_pages.scratch.cpu_address);
+    for (0..system_pages.scratch.bytes) |index| destination[index] = 0;
+}
+
+pub fn prepareAmdGmc11SystemAperture(
+    memory: AmdGmc11MemorySnapshot,
+    system_pages: AmdGmc11SystemPages,
+) !AmdGmc11SystemApertureValues {
+    if (memory.vram_bytes == 0 or system_pages.scratch.bytes != 4096 or
+        system_pages.scratch_physical != try amdGmc11VramMcToPhysical(memory, system_pages.scratch.mc_address) or
+        (system_pages.scratch_physical & 4095) != 0 or (system_pages.dummy_physical & 4095) != 0)
+        return error.InvalidAmdGmc11SystemPages;
+    const vram_end = std.math.add(u64, memory.vram_mc_base, memory.vram_bytes - 1) catch
+        return error.InvalidAmdGmc11VramRange;
+    return .{
+        .agp_base = 0,
+        .agp_bottom = 0x00ffffff,
+        .agp_top = 0,
+        .aperture_low = @truncate(memory.vram_mc_base >> 18),
+        .aperture_high = @truncate(vram_end >> 18),
+        .default_low = @truncate(system_pages.scratch_physical >> 12),
+        .default_high = @truncate(system_pages.scratch_physical >> 44),
+        .fault_default_low = @truncate(system_pages.dummy_physical >> 12),
+        .fault_default_high = @truncate(system_pages.dummy_physical >> 44),
     };
 }
 
@@ -1227,6 +1309,16 @@ comptime {
     if (memory_snapshot.vram_mc_base != 0x123456000000 or memory_snapshot.vram_mc_offset != 0x42000000 or
         memory_snapshot.vram_bytes != 12 * 1024 * 1024 * 1024)
         @compileError("GMC 11 memory snapshot decoded incorrectly");
+    const system_aperture = prepareAmdGmc11SystemAperture(memory_snapshot, .{
+        .scratch = .{ .cpu_address = 0x800001000, .mc_address = memory_snapshot.vram_mc_base + 4096, .bytes = 4096 },
+        .scratch_physical = memory_snapshot.vram_mc_offset + 4096,
+        .dummy_physical = 0x800000,
+    }) catch @compileError("valid GMC 11 system aperture was rejected");
+    if (system_aperture.agp_base != 0 or system_aperture.agp_bottom != 0x00ffffff or system_aperture.agp_top != 0 or
+        system_aperture.aperture_low != @as(u32, @truncate(memory_snapshot.vram_mc_base >> 18)) or
+        system_aperture.default_low != 0x42001 or system_aperture.default_high != 0 or
+        system_aperture.fault_default_low != 0x800 or system_aperture.fault_default_high != 0)
+        @compileError("GMC 11 system aperture values were encoded incorrectly");
     const high_window = planAmdGmc11HighGartWindow(memory_snapshot, 2 * 1024 * 1024) catch
         @compileError("valid GMC 11 high GART window was rejected");
     if (high_window.start != 0x7fff00000000 or high_window.end != 0x7fff001fffff)
@@ -1295,6 +1387,14 @@ comptime {
     if (table_allocation.mc_address != memory_snapshot.vram_mc_base + 248 * 1024 * 1024 - 4096 or
         table_allocation.cpu_address != visible_vram.cpu_start + 248 * 1024 * 1024 - 4096 or table_allocation.bytes != 4096)
         @compileError("GMC 11 pinned VRAM allocation was placed incorrectly");
+    const table_physical = amdGmc11VramMcToPhysical(memory_snapshot, table_allocation.mc_address) catch
+        @compileError("GMC 11 VRAM MC address was not translated");
+    if (table_physical != memory_snapshot.vram_mc_offset + 248 * 1024 * 1024 - 4096)
+        @compileError("GMC 11 VRAM MC address translated incorrectly");
+    const reservations_before_release = vram_allocator.reservation_count;
+    vram_allocator.releasePinned(table_allocation) catch @compileError("GMC 11 pinned VRAM allocation was not released");
+    if (vram_allocator.reservation_count + 1 != reservations_before_release)
+        @compileError("GMC 11 pinned VRAM allocation release corrupted reservations");
     if (decodeAmdGmc11MemorySnapshot(0xffffffff, 0, 1)) |_|
         @compileError("unavailable GMC 11 memory MMIO was accepted")
     else |err| if (err != error.AmdGmc11MemoryMmioUnavailable)

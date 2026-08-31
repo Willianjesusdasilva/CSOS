@@ -887,6 +887,16 @@ pré-calculados, incluindo o bit `AMDGPU_PTE_VALID` no endereço raiz e as unida
 de página exigidas pelos registradores. O boot expõe
 `gart-aperture-ready`/`gart-rollback-registers`, mas mantém `gart-active: 0`.
 
+O system aperture agora também possui seus recursos reais: uma scratch page
+pinned de 4 KiB na VRAM visível e uma dummy page de 4 KiB na memória física.
+A tradução do endereço MC da scratch segue `mc - vram_start +
+vram_base_offset`; ambas são zeradas antes do uso e rejeitadas fora dos 48 bits
+aceitos pelo hardware. Falhas durante a preparação liberam a página física e a
+alocação VRAM pode ser removida do allocator selado sem afetar reservas de
+firmware. Os valores AGP desabilitado, limites da VRAM e endereços default/fault
+em unidades de página são pré-calculados em `gart-system-aperture-ready`, ainda
+sem qualquer escrita MMIO.
+
 Com a faixa real conhecida, o candidato `gart-window-start/end` segue a política
 `AMDGPU_GART_PLACEMENT_HIGH`: limita o espaço MC antes do VA hole de 48 bits,
 posiciona a janela no topo e alinha sua base a 4 GiB. Overflow, faixa VRAM
