@@ -759,6 +759,29 @@ pub const AmdGmc11GartRegisterSet = struct {
         self.count += 1;
     }
 };
+pub const AmdRegisterIo = struct {
+    context: *anyopaque,
+    read: *const fn (*anyopaque, u32) anyerror!u32,
+    write: *const fn (*anyopaque, u32, u32) anyerror!void,
+};
+pub const AmdGmc11GartSnapshot = struct {
+    offsets: [144]u32 = .{0} ** 144,
+    values: [144]u32 = .{0} ** 144,
+    count: usize = 0,
+};
+pub const AmdRegisterWrite = struct { offset: u32, value: u32, verify_mask: u32 = 0xffffffff };
+pub const AmdRegisterWriteSet = struct {
+    writes: [144]AmdRegisterWrite = .{AmdRegisterWrite{ .offset = 0, .value = 0 }} ** 144,
+    count: usize = 0,
+
+    pub fn add(self: *AmdRegisterWriteSet, write: AmdRegisterWrite) !void {
+        for (self.writes[0..self.count]) |existing| if (existing.offset == write.offset) return error.DuplicateAmdRegisterWrite;
+        if (self.count == self.writes.len or write.verify_mask == 0) return error.InvalidAmdRegisterWrite;
+        self.writes[self.count] = write;
+        self.count += 1;
+    }
+};
+pub const AmdGmc11RegisterTransaction = struct { snapshot: AmdGmc11GartSnapshot, writes_applied: usize };
 pub const AmdGmc11VisibleVram = struct {
     cpu_start: u64,
     cpu_end: u64,
@@ -1057,6 +1080,144 @@ pub fn amdGmc11GartMutableRegisters(registers: AmdGmc11GartRegisters) !AmdGmc11G
         try result.add(registers.invalidate_range_high + delta);
     }
     return result;
+}
+
+pub fn captureAmdGmc11GartSnapshot(registers: AmdGmc11GartRegisterSet, io: AmdRegisterIo) !AmdGmc11GartSnapshot {
+    if (registers.count == 0 or registers.count > registers.offsets.len) return error.InvalidAmdGartRegisterSet;
+    var snapshot = AmdGmc11GartSnapshot{ .count = registers.count };
+    for (registers.offsets[0..registers.count], 0..) |offset, index| {
+        snapshot.offsets[index] = offset;
+        snapshot.values[index] = try io.read(io.context, offset);
+    }
+    return snapshot;
+}
+
+pub fn restoreAmdGmc11GartSnapshot(snapshot: AmdGmc11GartSnapshot, io: AmdRegisterIo) !void {
+    if (snapshot.count == 0 or snapshot.count > snapshot.offsets.len) return error.InvalidAmdGartSnapshot;
+    var failed = false;
+    var index = snapshot.count;
+    while (index != 0) {
+        index -= 1;
+        io.write(io.context, snapshot.offsets[index], snapshot.values[index]) catch { failed = true; };
+    }
+    for (snapshot.offsets[0..snapshot.count], snapshot.values[0..snapshot.count]) |offset, expected| {
+        const observed = io.read(io.context, offset) catch { failed = true; continue; };
+        if (observed != expected) failed = true;
+    }
+    if (failed) return error.AmdGartRollbackFailed;
+}
+
+pub fn applyAmdGmc11RegisterTransaction(
+    registers: AmdGmc11GartRegisterSet,
+    writes: AmdRegisterWriteSet,
+    io: AmdRegisterIo,
+) !AmdGmc11RegisterTransaction {
+    if (writes.count == 0 or writes.count > writes.writes.len) return error.InvalidAmdRegisterWriteSet;
+    for (writes.writes[0..writes.count]) |write| {
+        var known = false;
+        for (registers.offsets[0..registers.count]) |offset| if (offset == write.offset) { known = true; break; };
+        if (!known) return error.AmdRegisterWriteOutsideSnapshot;
+    }
+    const snapshot = try captureAmdGmc11GartSnapshot(registers, io);
+    var applied: usize = 0;
+    for (writes.writes[0..writes.count]) |write| {
+        io.write(io.context, write.offset, write.value) catch {
+            restoreAmdGmc11GartSnapshot(snapshot, io) catch return error.AmdGartRollbackFailed;
+            return error.AmdGartRegisterWriteFailed;
+        };
+        applied += 1;
+        const observed = io.read(io.context, write.offset) catch {
+            restoreAmdGmc11GartSnapshot(snapshot, io) catch return error.AmdGartRollbackFailed;
+            return error.AmdGartRegisterReadbackFailed;
+        };
+        if ((observed & write.verify_mask) != (write.value & write.verify_mask)) {
+            restoreAmdGmc11GartSnapshot(snapshot, io) catch return error.AmdGartRollbackFailed;
+            return error.AmdGartRegisterReadbackMismatch;
+        }
+    }
+    return .{ .snapshot = snapshot, .writes_applied = applied };
+}
+
+const AmdGartRegisterTestBank = struct {
+    offsets: [144]u32 = .{0} ** 144,
+    values: [144]u32 = .{0} ** 144,
+    count: usize = 0,
+    fail_read: ?u32 = null,
+    fail_write: ?u32 = null,
+    fail_write_once: ?u32 = null,
+
+    fn position(self: *const AmdGartRegisterTestBank, offset: u32) ?usize {
+        for (self.offsets[0..self.count], 0..) |candidate, index| if (candidate == offset) return index;
+        return null;
+    }
+    fn read(context: *anyopaque, offset: u32) !u32 {
+        const self: *AmdGartRegisterTestBank = @ptrCast(@alignCast(context));
+        if (self.fail_read != null and self.fail_read.? == offset) return error.InjectedAmdRegisterReadFailure;
+        return self.values[self.position(offset) orelse return error.UnknownAmdRegister];
+    }
+    fn write(context: *anyopaque, offset: u32, value: u32) !void {
+        const self: *AmdGartRegisterTestBank = @ptrCast(@alignCast(context));
+        if (self.fail_write != null and self.fail_write.? == offset) return error.InjectedAmdRegisterWriteFailure;
+        if (self.fail_write_once != null and self.fail_write_once.? == offset) {
+            self.fail_write_once = null;
+            return error.InjectedAmdRegisterWriteFailure;
+        }
+        self.values[self.position(offset) orelse return error.UnknownAmdRegister] = value;
+    }
+    fn io(self: *AmdGartRegisterTestBank) AmdRegisterIo {
+        return .{ .context = self, .read = &read, .write = &write };
+    }
+};
+
+pub fn validateAmdGmc11GartRollback(registers: AmdGmc11GartRegisterSet) !void {
+    if (registers.count != 141) return error.InvalidAmdGartRegisterSet;
+    var bank = AmdGartRegisterTestBank{ .count = registers.count };
+    for (registers.offsets[0..registers.count], 0..) |offset, index| {
+        bank.offsets[index] = offset;
+        bank.values[index] = 0xa5000000 | @as(u32, @intCast(index));
+    }
+    const snapshot = try captureAmdGmc11GartSnapshot(registers, bank.io());
+    var writes = AmdRegisterWriteSet{};
+    try writes.add(.{ .offset = registers.offsets[0], .value = 0x11111111 });
+    try writes.add(.{ .offset = registers.offsets[1], .value = 0x22222222 });
+    try writes.add(.{ .offset = registers.offsets[2], .value = 0x33333333 });
+    const transaction = try applyAmdGmc11RegisterTransaction(registers, writes, bank.io());
+    if (transaction.writes_applied != 3 or bank.values[0] != 0x11111111 or bank.values[1] != 0x22222222 or bank.values[2] != 0x33333333)
+        return error.AmdGartRegisterTransactionMismatch;
+    try restoreAmdGmc11GartSnapshot(transaction.snapshot, bank.io());
+    bank.fail_write_once = registers.offsets[1];
+    if (applyAmdGmc11RegisterTransaction(registers, writes, bank.io())) |_| return error.AmdGartWriteFailureNotDetected else |err|
+        if (err != error.AmdGartRegisterWriteFailed) return err;
+    for (snapshot.values[0..snapshot.count], bank.values[0..bank.count]) |expected, observed|
+        if (observed != expected) return error.AmdGartAutomaticRollbackMismatch;
+
+    for (registers.offsets[0..registers.count], 0..) |offset, index|
+        try bank.io().write(bank.io().context, offset, 0x5a000000 | @as(u32, @intCast(index)));
+    try restoreAmdGmc11GartSnapshot(snapshot, bank.io());
+    for (snapshot.values[0..snapshot.count], bank.values[0..bank.count]) |expected, observed|
+        if (observed != expected) return error.AmdGartRollbackMismatch;
+
+    for (bank.values[0..bank.count]) |*value| value.* = 0xcccccccc;
+    const failed_index = registers.count / 2;
+    bank.fail_write = registers.offsets[failed_index];
+    if (restoreAmdGmc11GartSnapshot(snapshot, bank.io())) |_| return error.AmdGartRollbackFailureNotDetected else |err|
+        if (err != error.AmdGartRollbackFailed) return err;
+    for (bank.values[0..bank.count], snapshot.values[0..snapshot.count], 0..) |observed, expected, index| {
+        if (index == failed_index) {
+            if (observed == expected) return error.AmdGartInjectedFailureMissing;
+        } else if (observed != expected) return error.AmdGartRollbackDidNotContinue;
+    }
+    bank.fail_write = null;
+    try restoreAmdGmc11GartSnapshot(snapshot, bank.io());
+    bank.fail_read = registers.offsets[0];
+    if (captureAmdGmc11GartSnapshot(registers, bank.io())) |_| return error.AmdGartSnapshotFailureNotDetected else |err|
+        if (err != error.InjectedAmdRegisterReadFailure) return err;
+}
+
+pub fn validateAmdGmc11GartRollbackSelfTest() !void {
+    var registers = AmdGmc11GartRegisterSet{ .count = 141 };
+    for (registers.offsets[0..registers.count], 0..) |*offset, index| offset.* = 0x1000 + @as(u32, @intCast(index)) * 4;
+    try validateAmdGmc11GartRollback(registers);
 }
 
 pub fn resolveAmdGmc11GartRegisters(plan: AmdGartPlan, register_bar_bytes: u64) !AmdGmc11GartRegisters {

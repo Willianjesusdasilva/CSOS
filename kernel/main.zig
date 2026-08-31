@@ -91,6 +91,7 @@ pub fn start(info: BootInfo) noreturn {
     syscalls.configureDrmMemory(&pages);
     gpu.validateAmdPspHandoff(&pages) catch panic("AMDGPU PSP handoff self-test failed");
     gpu.validateAmdPspGtt(&pages) catch panic("AMDGPU PSP GTT self-test failed");
+    gpu.validateAmdGmc11GartRollbackSelfTest() catch panic("AMDGPU GART rollback self-test failed");
     serial.write("CSOS M14 PSP handoff state machine ready\n");
     serial.write("physical allocator ready\n");
 
@@ -609,8 +610,10 @@ pub fn start(info: BootInfo) noreturn {
         gpu_gart_plan = gpu.bindAmdGmc11GartAddressSpace(gpu_gart_plan.?, allocation.mc_address, gpu_gmc11_gart_window.?.start) catch
             panic("AMDGPU GART address space binding failed");
         gpu_gart_aperture = gpu.prepareAmdGmc11GartAperture(gpu_gart_plan.?) catch panic("AMDGPU GART aperture preparation failed");
-        gpu_gart_rollback_registers = (gpu.amdGmc11GartMutableRegisters(gpu_gart_registers.?) catch
-            panic("AMDGPU GART rollback register set invalid")).count;
+        const rollback_registers = gpu.amdGmc11GartMutableRegisters(gpu_gart_registers.?) catch
+            panic("AMDGPU GART rollback register set invalid");
+        gpu.validateAmdGmc11GartRollback(rollback_registers) catch panic("AMDGPU GART rollback validation failed");
+        gpu_gart_rollback_registers = rollback_registers.count;
         gpu_gart_table_vram = allocation;
         const system_pages = gpu.prepareAmdGmc11SystemPages(allocator, gpu_gmc11_memory.?, &pages) catch
             panic("AMDGPU system aperture pages failed");

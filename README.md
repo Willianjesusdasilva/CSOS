@@ -897,6 +897,15 @@ firmware. Os valores AGP desabilitado, limites da VRAM e endereços default/faul
 em unidades de página são pré-calculados em `gart-system-aperture-ready`, ainda
 sem qualquer escrita MMIO.
 
+A infraestrutura de transação do MMHUB captura os 141 registradores antes da
+primeira escrita, restringe cada operação a um offset incluído no snapshot e
+confirma o valor por readback com máscara. Em falha de escrita ou leitura, tenta
+restaurar todos os registradores em ordem reversa e depois verifica cada valor;
+uma falha persistente de rollback é reportada separadamente. O self-test de boot
+exercita sucesso, restauração explícita, falha transitória com rollback automático,
+falha persistente no meio do conjunto e falha de captura. O transporte usado no
+teste é inteiramente em memória; o transporte MMIO real permanece desarmado.
+
 Com a faixa real conhecida, o candidato `gart-window-start/end` segue a política
 `AMDGPU_GART_PLACEMENT_HIGH`: limita o espaço MC antes do VA hole de 48 bits,
 posiciona a janela no topo e alinha sua base a 4 GiB. Overflow, faixa VRAM
