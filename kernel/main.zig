@@ -629,15 +629,6 @@ pub fn start(info: BootInfo) noreturn {
         gpu.validateAmdGmc11BootstrapWrites(gpu_gart_registers.?, gpu_gart_aperture.?, gpu_gmc11_system_aperture.?) catch
             panic("AMDGPU GART bootstrap write-set validation failed");
         gpu_gart_mmio_transport = .{ .adapter = &gpu_adapter, .uncached = true };
-        gpu_gart_mmio_transport.?.authorize(.{
-            .selected_firmware_entries = gpu_backend_entries,
-            .validated_firmware_entries = gpu_validated_entries,
-            .security_firmware_entries = gpu_inventory.block(.security).entries,
-            .compatible_ip_discovery = gpu_backend_plan.?.gmc == .v11_0,
-            .gart_table_bound = gpu_gart_plan.?.table_mc_address != null,
-            .gart_window_bound = gpu_gart_plan.?.window_start != null and gpu_gart_plan.?.window_end != null,
-            .rollback_registers = gpu_gart_rollback_registers,
-        }) catch panic("AMDGPU GART MMIO authorization rejected");
     }
     var gpu_psp_mailbox_snapshot: ?gpu.AmdPspMailboxSnapshot = null;
     var gpu_psp_mmio_transport: ?gpu.AmdPspMmioTransport = null;
@@ -678,6 +669,20 @@ pub fn start(info: BootInfo) noreturn {
                 .blocked_uncached, .blocked_unauthorized, .mailbox_busy => {},
             }
         }
+    }
+    if (gpu_gart_mmio_transport) |*transport| {
+        const psp_ready = (gpu_psp_mailbox_snapshot != null and gpu_psp_mailbox_snapshot.?.state == .sos_alive) or
+            gpu_psp_handoff.state == .finished;
+        transport.authorize(.{
+            .selected_firmware_entries = gpu_backend_entries,
+            .validated_firmware_entries = gpu_validated_entries,
+            .security_firmware_entries = gpu_inventory.block(.security).entries,
+            .compatible_ip_discovery = gpu_backend_plan.?.gmc == .v11_0,
+            .psp_ready = psp_ready,
+            .gart_table_bound = gpu_gart_plan.?.table_mc_address != null,
+            .gart_window_bound = gpu_gart_plan.?.window_start != null and gpu_gart_plan.?.window_end != null,
+            .rollback_registers = gpu_gart_rollback_registers,
+        }) catch panic("AMDGPU GART MMIO authorization rejected");
     }
     const gpu_identity = gpu_adapter.identifyChip() catch panic("GPU chipset identification failed");
     const gpu_register_probe = gpu_identity.boot0 orelse gpu_adapter.readRegister(0) catch panic("GPU register MMIO read failed");

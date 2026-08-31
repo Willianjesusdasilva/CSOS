@@ -769,6 +769,7 @@ pub const AmdGmc11AuthorizationEvidence = struct {
     validated_firmware_entries: usize,
     security_firmware_entries: usize,
     compatible_ip_discovery: bool,
+    psp_ready: bool,
     gart_table_bound: bool,
     gart_window_bound: bool,
     rollback_registers: usize,
@@ -782,7 +783,7 @@ pub const AmdGmc11MmioTransport = struct {
     pub fn authorize(self: *AmdGmc11MmioTransport, evidence: AmdGmc11AuthorizationEvidence) !void {
         if (self.armed or self.authorized or !self.uncached or !self.adapter.isAmd() or self.adapter.device.vendor != 0x1002 or
             evidence.selected_firmware_entries == 0 or evidence.validated_firmware_entries != evidence.selected_firmware_entries or
-            evidence.security_firmware_entries == 0 or !evidence.compatible_ip_discovery or !evidence.gart_table_bound or
+            evidence.security_firmware_entries == 0 or !evidence.compatible_ip_discovery or !evidence.psp_ready or !evidence.gart_table_bound or
             !evidence.gart_window_bound or evidence.rollback_registers != 141)
             return error.AmdGmc11MmioAuthorizationRejected;
         self.authorized = true;
@@ -1594,6 +1595,7 @@ pub fn validateAmdGmc11MmioTransportSelfTest() !void {
         .validated_firmware_entries = 12,
         .security_firmware_entries = 3,
         .compatible_ip_discovery = true,
+        .psp_ready = true,
         .gart_table_bound = true,
         .gart_window_bound = true,
         .rollback_registers = 141,
@@ -1601,6 +1603,10 @@ pub fn validateAmdGmc11MmioTransportSelfTest() !void {
     var invalid_evidence = valid_evidence;
     invalid_evidence.validated_firmware_entries = 11;
     if (transport.authorize(invalid_evidence)) return error.AmdGmc11IncompleteFirmwareAuthorized else |err|
+        if (err != error.AmdGmc11MmioAuthorizationRejected) return err;
+    invalid_evidence = valid_evidence;
+    invalid_evidence.psp_ready = false;
+    if (transport.authorize(invalid_evidence)) return error.AmdGmc11UnreadyPspAuthorized else |err|
         if (err != error.AmdGmc11MmioAuthorizationRejected) return err;
     try transport.authorize(valid_evidence);
     try transport.arm();

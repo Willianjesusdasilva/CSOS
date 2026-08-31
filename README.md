@@ -928,7 +928,9 @@ uncached, o dispositivo é AMD `0x1002`, a autorização foi concedida e `arm()`
 foi chamado explicitamente. A autorização exige que todos os firmwares
 selecionados tenham sido validados, que exista firmware de segurança, IP
 discovery GMC 11 compatível, tabela e janela GART vinculadas e os 141
-registradores de rollback enumerados. Em Radeon elegível o boot concede essa
+registradores de rollback enumerados. A autorização ocorre somente depois de
+PSP `sos_alive` ou do handoff host terminar, seguindo a dependência de segurança
+e TMR da sequência AMDGPU. Em Radeon elegível o boot concede essa
 autorização, mas mantém `gart-write-armed=0`; o teste nativo prova que firmware
 parcial, acessos antes de armar e tentativas sem autorização são rejeitados.
 
