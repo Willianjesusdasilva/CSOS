@@ -688,10 +688,20 @@ display
 hardware profiling
 ```
 
-O grande próximo desafio é a stack gráfica:
+O trabalho atual está em M14. A base DRM/KMS compartilhada já possui nós
+primary/render, buffers GEM page-backed, mmap, framebuffer, sincronização
+binária/timeline e início da ABI de alocação AMDGPU. Isso ainda não representa
+aceleração 3D nem suporte Vulkan concluído.
+
+AMD Radeon e NVIDIA GeForce são requisitos oficiais. AMD é o primeiro backend
+de referência; depois do primeiro triângulo RADV, o caminho NVIDIA deve ser
+validado com NVK/stack compatível em hardware explicitamente suportado. M14 não
+será considerada concluída com apenas um dos fabricantes.
+
+O grande próximo desafio continua sendo a stack gráfica:
 
 ```text
-GPU
+AMDGPU/RADV e NVIDIA/NVK
 ↓
 Vulkan
 ↓

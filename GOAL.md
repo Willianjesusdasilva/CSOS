@@ -1293,6 +1293,18 @@ NVIDIA GeForce + NVK/stack compatÃ­vel â†’ Vulkan triangle
 
 Somente GPUs e geraÃ§Ãµes explicitamente validadas entram como suportadas.
 
+Critérios obrigatórios de M14:
+
+```text
+base DRM/KMS compartilhada funcional
+AMD Radeon suportada + RADV + triângulo Vulkan em hardware real
+NVIDIA GeForce suportada + NVK/stack compatível + triângulo Vulkan em hardware real
+```
+
+Detecção PCI, seleção de driver ou ioctls isolados não contam como suporte 3D.
+Não anunciar AMD ou NVIDIA como funcional antes da validação correspondente.
+Steam/CS2 não fazem parte dos critérios de M14 e permanecem para M27-M29.
+
 ## M15 â€” SDL
 
 VÃ­deo + input + Ã¡udio.
