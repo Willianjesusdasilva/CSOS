@@ -675,6 +675,8 @@ pub const AmdGartPlan = struct {
     active: bool = false,
 };
 pub const AmdGmc11GartRegisters = struct {
+    fb_location_base: u32,
+    fb_offset: u32,
     context_control: u32,
     page_table_base_low: u32,
     page_table_base_high: u32,
@@ -686,6 +688,10 @@ pub const AmdGmc11GartRegisters = struct {
     l2_control: u32,
     invalidate_request: u32,
     invalidate_ack: u32,
+};
+pub const AmdGmc11MemorySnapshot = struct {
+    vram_mc_base: u64,
+    vram_mc_offset: u64,
 };
 pub const AmdPspGttStaging = struct {
     page_table_address: u64 = 0,
@@ -742,6 +748,8 @@ pub fn bindAmdGmc11GartAddressSpace(plan: AmdGartPlan, table_mc_address: u64, wi
 pub fn resolveAmdGmc11GartRegisters(plan: AmdGartPlan, register_bar_bytes: u64) !AmdGmc11GartRegisters {
     if (plan.family != .v11_0 or plan.mmhub_base == 0) return error.UnsupportedAmdGartRegisterMap;
     return .{
+        .fb_location_base = try resolveAmdRegister(plan.mmhub_base, 0x08ec, register_bar_bytes),
+        .fb_offset = try resolveAmdRegister(plan.mmhub_base, 0x08d7, register_bar_bytes),
         .context_control = try resolveAmdRegister(plan.mmhub_base, 0x0740, register_bar_bytes),
         .page_table_base_low = try resolveAmdRegister(plan.mmhub_base, 0x07ab, register_bar_bytes),
         .page_table_base_high = try resolveAmdRegister(plan.mmhub_base, 0x07ac, register_bar_bytes),
@@ -753,6 +761,14 @@ pub fn resolveAmdGmc11GartRegisters(plan: AmdGartPlan, register_bar_bytes: u64) 
         .l2_control = try resolveAmdRegister(plan.mmhub_base, 0x0700, register_bar_bytes),
         .invalidate_request = try resolveAmdRegister(plan.mmhub_base, 0x0774, register_bar_bytes),
         .invalidate_ack = try resolveAmdRegister(plan.mmhub_base, 0x0786, register_bar_bytes),
+    };
+}
+
+pub fn decodeAmdGmc11MemorySnapshot(fb_location_base: u32, fb_offset: u32) !AmdGmc11MemorySnapshot {
+    if (fb_location_base == 0xffffffff or fb_offset == 0xffffffff) return error.AmdGmc11MemoryMmioUnavailable;
+    return .{
+        .vram_mc_base = @as(u64, fb_location_base & 0x00ffffff) << 24,
+        .vram_mc_offset = @as(u64, fb_offset) << 24,
     };
 }
 
@@ -859,7 +875,8 @@ comptime {
         @compileError("valid GMC 11 GART registers were rejected");
     if (gmc11_registers.context_control != 0x2900 or gmc11_registers.page_table_base_low != 0x2aac or
         gmc11_registers.invalidate_request != 0x29d0 or gmc11_registers.invalidate_ack != 0x2a18 or
-        gmc11_registers.l1_tlb_control != 0x2fcc)
+        gmc11_registers.l1_tlb_control != 0x2fcc or gmc11_registers.fb_location_base != 0x2fb0 or
+        gmc11_registers.fb_offset != 0x2f5c)
         @compileError("GMC 11 GART registers resolved incorrectly");
     if (resolveAmdGmc11GartRegisters(mmhub_only, 0x2fcc)) |_|
         @compileError("out-of-BAR GMC 11 GART registers were accepted")
@@ -874,6 +891,14 @@ comptime {
         @compileError("unaligned GMC 11 GART table MC address was accepted")
     else |err| if (err != error.InvalidAmdGartTableMcAddress)
         @compileError("unaligned GMC 11 GART table MC address returned the wrong error");
+    const memory_snapshot = decodeAmdGmc11MemorySnapshot(0xab123456, 0x42) catch
+        @compileError("valid GMC 11 memory snapshot was rejected");
+    if (memory_snapshot.vram_mc_base != 0x123456000000 or memory_snapshot.vram_mc_offset != 0x42000000)
+        @compileError("GMC 11 memory snapshot decoded incorrectly");
+    if (decodeAmdGmc11MemorySnapshot(0xffffffff, 0)) |_|
+        @compileError("unavailable GMC 11 memory MMIO was accepted")
+    else |err| if (err != error.AmdGmc11MemoryMmioUnavailable)
+        @compileError("unavailable GMC 11 memory MMIO returned the wrong error");
 }
 
 pub const AmdPspPlan = struct {

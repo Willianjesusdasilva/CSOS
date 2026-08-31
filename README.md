@@ -822,6 +822,13 @@ GMC 11 e rejeita rebinding. Enquanto nenhum mecanismo de VRAM/GTT fornecer um
 endereço MC comprovado, `gart-bound` e `gart-table-mc` permanecem zero; o kernel
 não reutiliza silenciosamente o endereço físico da CPU.
 
+A topologia GMC 11 passa a observar, sem escrita, os registradores MMHUB v3.0
+`MMMC_VM_FB_LOCATION_BASE` e `MMMC_VM_FB_OFFSET`. Os campos são convertidos das
+unidades oficiais de 16 MiB para `vram-mc-base` e `vram-mc-offset`; leituras
+`0xffffffff` são rejeitadas como MMIO indisponível. O tamanho da VRAM continua
+dependendo da descoberta NBIO e não é deduzido do tamanho do BAR 0, que representa
+somente a janela visível pela CPU. Por isso esse snapshot ainda não faz o binding.
+
 As capacidades PSP são tratadas separadamente: `autoload_supported`, TMR de
 boot e presença de callbacks host para carregar SYS/SOS não são sinônimos. O
 handoff host só é construído para as famílias em que o `psp_funcs` upstream

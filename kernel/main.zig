@@ -550,6 +550,10 @@ pub fn start(info: BootInfo) noreturn {
         if (!mapper.identityIsUncached(plan.doorbell_bar.address)) panic("AMDGPU doorbell cache policy failed");
     }
     mapper.activate();
+    const gpu_gmc11_memory = if (gpu_gart_registers) |registers| gpu.decodeAmdGmc11MemorySnapshot(
+        gpu_adapter.readRegister(registers.fb_location_base) catch panic("AMDGPU VRAM MC base read failed"),
+        gpu_adapter.readRegister(registers.fb_offset) catch panic("AMDGPU VRAM MC offset read failed"),
+    ) catch panic("AMDGPU memory topology unavailable") else null;
     var gpu_psp_mailbox_snapshot: ?gpu.AmdPspMailboxSnapshot = null;
     var gpu_psp_mmio_transport: ?gpu.AmdPspMmioTransport = null;
     var gpu_psp_preflight: ?gpu.AmdPspPreflight = null;
@@ -625,6 +629,9 @@ pub fn start(info: BootInfo) noreturn {
     serial.write(" sdma: "); serial.writeDecimal(gpu_sdma_major);
     serial.write(" plan: "); serial.writeDecimal(if (gpu_backend_plan) |_| 1 else 0);
     serial.write(" gmc-plan: "); serial.writeDecimal(if (gpu_memory_plan) |_| 1 else 0);
+    serial.write(" gmc-snapshot: "); serial.writeDecimal(if (gpu_gmc11_memory) |_| 1 else 0);
+    serial.write(" vram-mc-base: "); serial.writeDecimal(if (gpu_gmc11_memory) |snapshot| snapshot.vram_mc_base else 0);
+    serial.write(" vram-mc-offset: "); serial.writeDecimal(if (gpu_gmc11_memory) |snapshot| snapshot.vram_mc_offset else 0);
     serial.write(" vram-aperture: "); serial.writeDecimal(if (gpu_memory_plan) |plan| if (plan.vram_bar) |bar| bar.size else 0 else 0);
     serial.write(" doorbell-aperture: "); serial.writeDecimal(if (gpu_memory_plan) |plan| plan.doorbell_bar.size else 0);
     serial.write(" gtt-table: "); serial.writeDecimal(gpu_psp_gtt.page_table_address);
