@@ -490,8 +490,11 @@ pub fn start(info: BootInfo) noreturn {
         if (gpu_selection) |selection| firmware.validateSelection(selection, gpu_adapter.driver) catch panic("GPU firmware validation failed") else 0
     else 0;
     var gpu_inventory = gpu.FirmwareInventory{};
+    var gpu_ip_discovery: ?gpu.AmdIpDiscovery = null;
     if (gpu_firmware) |firmware| if (gpu_selection) |selection| {
         gpu_inventory = firmware.inventory(selection, gpu_adapter.driver) catch panic("GPU firmware inventory invalid");
+        if (gpu_adapter.driver == .amdgpu)
+            gpu_ip_discovery = firmware.amdDiscovery(selection) catch panic("AMDGPU IP discovery invalid");
     };
     const gpu_registers = gpu_adapter.register_bar orelse panic("GPU register BAR missing");
     if (gpu_registers.size > 16 * 1024 * 1024) panic("GPU register BAR unexpectedly large");
@@ -524,6 +527,8 @@ pub fn start(info: BootInfo) noreturn {
     serial.write(" security: "); serial.writeDecimal(gpu_inventory.block(.security).entries);
     serial.write(" graphics: "); serial.writeDecimal(gpu_inventory.block(.graphics).entries);
     serial.write(" dma: "); serial.writeDecimal(gpu_inventory.block(.dma).entries);
+    serial.write(" ip-dies: "); serial.writeDecimal(if (gpu_ip_discovery) |discovery| discovery.dies else 0);
+    serial.write(" ips: "); serial.writeDecimal(if (gpu_ip_discovery) |discovery| discovery.ips else 0);
     serial.write(" driver: ");
     serial.write(switch (gpu_adapter.driver) {
         .amdgpu => "amdgpu",

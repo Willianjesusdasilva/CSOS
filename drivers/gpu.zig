@@ -141,6 +141,7 @@ pub const Firmware = struct {
     pub fn inventory(self: Firmware, selection: Selection, driver: Driver) !FirmwareInventory {
         var result = FirmwareInventory{};
         var names: [128][]const u8 = undefined;
+        var amd_ip_discovery = false;
         var iterator = self.selected(selection);
         while (try iterator.next()) |entry| {
             if (result.entries == names.len) return error.TooManySelectedFirmwareEntries;
@@ -148,8 +149,12 @@ pub const Firmware = struct {
             names[result.entries] = entry.name;
             result.entries += 1;
             const block = classifyFirmware(driver, entry.name);
+            if (driver == .amdgpu and isAmdIpDiscovery(entry.name)) amd_ip_discovery = true;
             result.blocks[@intFromEnum(block)].entries += 1;
-            const payload_bytes = if (driver == .amdgpu) (try parseAmdgpuFirmware(entry.data)).payload.len else entry.data.len;
+            const payload_bytes = if (driver == .amdgpu and isAmdIpDiscovery(entry.name)) blk: {
+                _ = try parseAmdIpDiscovery(entry.data);
+                break :blk entry.data.len;
+            } else if (driver == .amdgpu) (try parseAmdgpuFirmware(entry.data)).payload.len else entry.data.len;
             result.blocks[@intFromEnum(block)].bytes += payload_bytes;
             result.payload_bytes += payload_bytes;
         }
@@ -159,6 +164,19 @@ pub const Firmware = struct {
             if (summary.entries != 0) present |= @as(u16, 1) << @intCast(index);
         }
         if ((present & selection.required_blocks) != selection.required_blocks) return error.RequiredFirmwareBlockMissing;
+        const discovery_bit = @as(u16, 1) << @intFromEnum(FirmwareBlock.discovery);
+        if (driver == .amdgpu and (selection.required_blocks & discovery_bit) != 0 and !amd_ip_discovery) return error.AmdIpDiscoveryMissing;
+        return result;
+    }
+
+    pub fn amdDiscovery(self: Firmware, selection: Selection) !?AmdIpDiscovery {
+        var result: ?AmdIpDiscovery = null;
+        var iterator = self.selected(selection);
+        while (try iterator.next()) |entry| {
+            if (!isAmdIpDiscovery(entry.name)) continue;
+            if (result != null) return error.DuplicateAmdIpDiscovery;
+            result = try parseAmdIpDiscovery(entry.data);
+        }
         return result;
     }
 
@@ -210,7 +228,10 @@ pub const Firmware = struct {
         var validated: usize = 0;
         while (try iterator.next()) |entry| {
             if (!startsWith(entry.name, selection.prefix) or entry.data.len == 0) continue;
-            _ = try parseAmdgpuFirmware(entry.data);
+            if (isAmdIpDiscovery(entry.name))
+                _ = try parseAmdIpDiscovery(entry.data)
+            else
+                _ = try parseAmdgpuFirmware(entry.data);
             validated += 1;
         }
         if (validated != selection.entries) return error.FirmwareSelectionIncomplete;
@@ -403,6 +424,10 @@ pub fn classifyFirmware(driver: Driver, name: []const u8) FirmwareBlock {
     return .other;
 }
 
+fn isAmdIpDiscovery(name: []const u8) bool {
+    return equal(name, "ip_discovery.bin") or contains(name, "_ip_discovery.bin");
+}
+
 comptime {
     @setEvalBranchQuota(5000);
     if (classifyFirmware(.amdgpu, "navi31_sos.bin") != .security or
@@ -422,6 +447,107 @@ pub const AmdgpuFirmware = struct {
     crc32: u32,
     payload: []const u8,
 };
+
+pub const AmdIpDiscovery = struct {
+    binary_version_major: u16,
+    binary_version_minor: u16,
+    table_version: u16,
+    dies: u16,
+    ips: u32,
+    base_addresses: u32,
+    harvested: u32,
+};
+
+pub fn parseAmdIpDiscovery(bytes: []const u8) !AmdIpDiscovery {
+    const binary_signature: u32 = 0x28211407;
+    const table_signature: u32 = 0x53445049;
+    if (bytes.len < 12 or readLittle32(bytes, 0) != binary_signature) return error.InvalidAmdIpDiscoverySignature;
+    const binary_major = readLittle16(bytes, 4);
+    const binary_minor = readLittle16(bytes, 6);
+    const binary_checksum = readLittle16(bytes, 8);
+    const binary_size: usize = readLittle16(bytes, 10);
+    if (binary_size < 12 or binary_size > bytes.len) return error.InvalidAmdIpDiscoverySize;
+    var table_count: usize = 6;
+    var table_list: usize = 12;
+    if (binary_major == 2) {
+        if (binary_size < 16) return error.InvalidAmdIpDiscoveryHeader;
+        table_count = readLittle16(bytes, 12);
+        table_list = 16;
+    } else if (binary_major > 1) return error.UnsupportedAmdIpDiscoveryVersion;
+    if (table_count == 0 or table_count > 16 or table_list + @as(usize, table_count) * 8 > binary_size) return error.InvalidAmdIpDiscoveryTableList;
+    if (byteSum(bytes[10..binary_size]) != binary_checksum) return error.InvalidAmdIpDiscoveryChecksum;
+    const table_offset: usize = readLittle16(bytes, table_list);
+    const table_checksum = readLittle16(bytes, table_list + 2);
+    if (table_offset > binary_size or binary_size - table_offset < 80) return error.InvalidAmdIpDiscoveryTableOffset;
+    if (readLittle32(bytes, table_offset) != table_signature) return error.InvalidAmdIpDiscoveryTableSignature;
+    const table_version = readLittle16(bytes, table_offset + 4);
+    const table_size: usize = readLittle16(bytes, table_offset + 6);
+    if (table_version == 0 or table_version > 4 or table_size < 80 or table_size > binary_size - table_offset) return error.InvalidAmdIpDiscoveryTableSize;
+    if (byteSum(bytes[table_offset .. table_offset + table_size]) != table_checksum) return error.InvalidAmdIpDiscoveryTableChecksum;
+    const dies = readLittle16(bytes, table_offset + 12);
+    if (dies == 0 or dies > 16) return error.InvalidAmdIpDiscoveryDieCount;
+    const address_bytes: usize = if (table_version == 4 and (bytes[table_offset + 78] & 1) != 0) 8 else 4;
+    var result = AmdIpDiscovery{ .binary_version_major = binary_major, .binary_version_minor = binary_minor, .table_version = table_version, .dies = dies, .ips = 0, .base_addresses = 0, .harvested = 0 };
+    var die_index: u16 = 0;
+    while (die_index < dies) : (die_index += 1) {
+        const die_info = table_offset + 14 + @as(usize, die_index) * 4;
+        const die_offset: usize = readLittle16(bytes, die_info + 2);
+        if (die_offset < table_offset or die_offset > table_offset + table_size or table_offset + table_size - die_offset < 4) return error.InvalidAmdIpDiscoveryDieOffset;
+        const ip_count = readLittle16(bytes, die_offset + 2);
+        var ip_offset: usize = die_offset + 4;
+        var ip_index: u16 = 0;
+        while (ip_index < ip_count) : (ip_index += 1) {
+            if (ip_offset > table_offset + table_size or table_offset + table_size - ip_offset < 8) return error.TruncatedAmdIpDiscoveryEntry;
+            const bases = bytes[ip_offset + 3];
+            const entry_size = 8 + @as(usize, bases) * address_bytes;
+            if (entry_size > table_offset + table_size - ip_offset) return error.TruncatedAmdIpDiscoveryBaseAddresses;
+            result.ips += 1;
+            result.base_addresses += bases;
+            if (table_version <= 2 and (bytes[ip_offset + 7] & 0xf) != 0) result.harvested += 1;
+            ip_offset += entry_size;
+        }
+    }
+    return result;
+}
+
+fn byteSum(bytes: []const u8) u16 {
+    var sum: u16 = 0;
+    for (bytes) |byte| sum +%= byte;
+    return sum;
+}
+
+fn writeLittle16(bytes: []u8, offset: usize, value: u16) void {
+    bytes[offset] = @truncate(value);
+    bytes[offset + 1] = @truncate(value >> 8);
+}
+fn writeLittle32(bytes: []u8, offset: usize, value: u32) void {
+    writeLittle16(bytes, offset, @truncate(value));
+    writeLittle16(bytes, offset + 2, @truncate(value >> 16));
+}
+
+comptime {
+    var sample = [_]u8{0} ** 156;
+    writeLittle32(&sample, 0, 0x28211407);
+    writeLittle16(&sample, 4, 1);
+    writeLittle16(&sample, 10, sample.len);
+    writeLittle16(&sample, 12, 60);
+    writeLittle16(&sample, 16, 96);
+    writeLittle32(&sample, 60, 0x53445049);
+    writeLittle16(&sample, 64, 3);
+    writeLittle16(&sample, 66, 96);
+    writeLittle16(&sample, 72, 1);
+    writeLittle16(&sample, 76, 140);
+    writeLittle16(&sample, 142, 1);
+    writeLittle16(&sample, 144, 42);
+    sample[147] = 1;
+    sample[148] = 11;
+    writeLittle32(&sample, 152, 0x1234);
+    writeLittle16(&sample, 14, byteSum(sample[60..156]));
+    writeLittle16(&sample, 8, byteSum(sample[10..156]));
+    const discovery = parseAmdIpDiscovery(&sample) catch @compileError("AMDGPU IP discovery sample was rejected");
+    if (discovery.table_version != 3 or discovery.dies != 1 or discovery.ips != 1 or discovery.base_addresses != 1)
+        @compileError("AMDGPU IP discovery sample decoded incorrectly");
+}
 
 pub fn parseAmdgpuFirmware(bytes: []const u8) !AmdgpuFirmware {
     const common_header_bytes = 32;
