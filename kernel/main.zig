@@ -520,16 +520,25 @@ pub fn start(info: BootInfo) noreturn {
     const gpu_sdma_major = if (gpu_ip_discovery) |discovery| if (discovery.find(gpu.amd_hw_id.sdma0, 0)) |ip| ip.major else 0 else 0;
     const gpu_registers = gpu_adapter.register_bar orelse panic("GPU register BAR missing");
     if (gpu_registers.size > 16 * 1024 * 1024) panic("GPU register BAR unexpectedly large");
+    var gpu_psp_mailbox_profile: ?gpu.AmdPspMailboxProfile = null;
     var gpu_psp_mailbox_registers: ?gpu.AmdPspMailboxRegisters = null;
     if (gpu_backend_plan) |plan| if (plan.psp.host_boot_components) {
         const psp_ip = if (gpu_ip_discovery) |*discovery| discovery.find(gpu.amd_hw_id.psp, 0) orelse
             panic("AMDGPU PSP IP missing") else panic("AMDGPU IP discovery missing");
         const profile = gpu.amdPspMailboxProfile(plan.psp) catch panic("AMDGPU PSP mailbox unsupported");
+        gpu_psp_mailbox_profile = profile;
         gpu_psp_mailbox_registers = gpu.resolveAmdPspMailboxRegisters(psp_ip, profile, gpu_registers.size) catch
             panic("AMDGPU PSP mailbox registers invalid");
     };
     mapper.mapIdentity(gpu_registers.address, @intCast(gpu_registers.size)) catch panic("GPU register MMIO mapping failed");
     mapper.activate();
+    var gpu_psp_mailbox_snapshot: ?gpu.AmdPspMailboxSnapshot = null;
+    if (gpu_psp_mailbox_registers) |registers| {
+        const command = gpu_adapter.readRegister(registers.command_offset) catch panic("AMDGPU PSP command read failed");
+        const sos = gpu_adapter.readRegister(registers.sos_offset) catch panic("AMDGPU PSP sOS read failed");
+        gpu_psp_mailbox_snapshot = gpu.classifyAmdPspMailbox(gpu_psp_mailbox_profile.?, command, sos) catch
+            panic("AMDGPU PSP mailbox unavailable");
+    }
     const gpu_identity = gpu_adapter.identifyChip() catch panic("GPU chipset identification failed");
     const gpu_register_probe = gpu_identity.boot0 orelse gpu_adapter.readRegister(0) catch panic("GPU register MMIO read failed");
     var screen = display.Context.init(info.framebuffer, display_device, &pages) catch panic("display initialization failed");
@@ -570,6 +579,8 @@ pub fn start(info: BootInfo) noreturn {
     serial.write(" psp-host-boot: "); serial.writeDecimal(if (gpu_backend_plan) |plan| @intFromBool(plan.psp.host_boot_components) else 0);
     serial.write(" psp-mailbox: "); serial.writeDecimal(if (gpu_psp_mailbox_registers) |_| 1 else 0);
     serial.write(" psp-command-reg: "); serial.writeDecimal(if (gpu_psp_mailbox_registers) |registers| registers.command_offset else 0);
+    serial.write(" psp-observed: "); serial.writeDecimal(if (gpu_psp_mailbox_snapshot) |_| 1 else 0);
+    serial.write(" psp-mailbox-state: "); serial.writeDecimal(if (gpu_psp_mailbox_snapshot) |snapshot| @intFromEnum(snapshot.state) else 0);
     serial.write(" staged: "); serial.writeDecimal(gpu_firmware_staging.count);
     serial.write(" staged-bytes: "); serial.writeDecimal(gpu_firmware_staging.image_bytes);
     serial.write(" staged-payload: "); serial.writeDecimal(gpu_firmware_staging.payload_bytes);

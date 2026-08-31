@@ -736,6 +736,11 @@ essa base aos dwords oficiais `0x63`, `0x64` e `0x91`, converte o resultado para
 offsets em bytes e rejeita overflow ou qualquer registrador que ultrapasse o
 BAR de MMIO. A resolução é somente declarativa; nenhuma escrita PSP é feita.
 
+Depois de mapear o BAR, o caminho AMD pode observar C2PMSG 35 e 81 e classificar
+o PSP como bootloader ocupado, bootloader pronto, sOS ativo ou falha reportada.
+Uma leitura `0xffffffff` é tratada como dispositivo/MMIO indisponível. Essa
+sondagem é estritamente somente leitura e não inicia o handoff.
+
 As capacidades PSP são tratadas separadamente: `autoload_supported`, TMR de
 boot e presença de callbacks host para carregar SYS/SOS não são sinônimos. O
 handoff host só é construído para as famílias em que o `psp_funcs` upstream

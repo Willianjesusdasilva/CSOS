@@ -662,11 +662,18 @@ pub const AmdPspMailboxProfile = struct {
     address_message: u8 = 36,
     sos_message: u8 = 81,
     ready_mask: u32 = 0x80000000,
+    error_mask: u32 = 0,
     supported_commands: u8,
 
     pub fn supports(self: AmdPspMailboxProfile, command: AmdPspBootCommand) bool {
         return self.supported_commands & (@as(u8, 1) << @intFromEnum(command)) != 0;
     }
+};
+pub const AmdPspMailboxState = enum { bootloader_busy, bootloader_ready, sos_alive, failed };
+pub const AmdPspMailboxSnapshot = struct {
+    command: u32,
+    sos: u32,
+    state: AmdPspMailboxState,
 };
 pub const AmdPspMailboxSubmission = struct {
     address_message: u8,
@@ -678,9 +685,9 @@ pub const AmdPspMailboxSubmission = struct {
     completion_mask: u32,
 };
 pub const AmdPspMailboxRegisters = struct {
-    command_offset: u64,
-    address_offset: u64,
-    sos_offset: u64,
+    command_offset: u32,
+    address_offset: u32,
+    sos_offset: u32,
 };
 pub const AmdPspHandoffStep = struct { command: AmdPspBootCommand = .load_sysdrv, source_address: u64 = 0, bytes: u32 = 0 };
 pub const AmdPspHandoffState = enum { empty, ready, staged, submitted, finished, failed };
@@ -809,11 +816,18 @@ pub fn amdPspMailboxProfile(plan: AmdPspPlan) !AmdPspMailboxProfile {
     // All currently supported host-boot families use the logical MP0
     // C2PMSG 35/36/81 protocol. Actual MMIO offsets still come from the
     // selected MP register map and must not be inferred from these indices.
-    return .{ .supported_commands = switch (plan.family) {
-        .v3_1, .v12_0 => psp_sys_sos_commands,
-        .v11_0, .v13_0, .v13_0_4, .v14_0 => psp_all_boot_commands,
-        else => return error.AmdPspHostBootUnsupported,
-    } };
+    return .{
+        .error_mask = switch (plan.family) {
+            .v11_0 => 0x0000ffff,
+            .v13_0 => 0x000000ff,
+            else => 0,
+        },
+        .supported_commands = switch (plan.family) {
+            .v3_1, .v12_0 => psp_sys_sos_commands,
+            .v11_0, .v13_0, .v13_0_4, .v14_0 => psp_all_boot_commands,
+            else => return error.AmdPspHostBootUnsupported,
+        },
+    };
 }
 
 pub fn encodeAmdPspMailboxSubmission(profile: AmdPspMailboxProfile, prepared: AmdPspPreparedCommand) !AmdPspMailboxSubmission {
@@ -844,15 +858,26 @@ pub fn resolveAmdPspMailboxRegisters(ip: *const AmdIp, profile: AmdPspMailboxPro
     const command_dword = std.math.add(u64, base, 0x40 + profile.command_message) catch return error.AmdPspRegisterOffsetOverflow;
     const address_dword = std.math.add(u64, base, 0x40 + profile.address_message) catch return error.AmdPspRegisterOffsetOverflow;
     const sos_dword = std.math.add(u64, base, 0x40 + profile.sos_message) catch return error.AmdPspRegisterOffsetOverflow;
-    const result = AmdPspMailboxRegisters{
-        .command_offset = std.math.mul(u64, command_dword, 4) catch return error.AmdPspRegisterOffsetOverflow,
-        .address_offset = std.math.mul(u64, address_dword, 4) catch return error.AmdPspRegisterOffsetOverflow,
-        .sos_offset = std.math.mul(u64, sos_dword, 4) catch return error.AmdPspRegisterOffsetOverflow,
-    };
-    if (register_bar_bytes < 4 or result.command_offset > register_bar_bytes - 4 or
-        result.address_offset > register_bar_bytes - 4 or result.sos_offset > register_bar_bytes - 4)
+    const command_offset = std.math.mul(u64, command_dword, 4) catch return error.AmdPspRegisterOffsetOverflow;
+    const address_offset = std.math.mul(u64, address_dword, 4) catch return error.AmdPspRegisterOffsetOverflow;
+    const sos_offset = std.math.mul(u64, sos_dword, 4) catch return error.AmdPspRegisterOffsetOverflow;
+    if (command_offset > ~@as(u32, 0) or address_offset > ~@as(u32, 0) or sos_offset > ~@as(u32, 0))
+        return error.AmdPspRegisterOffsetOverflow;
+    if (register_bar_bytes < 4 or command_offset > register_bar_bytes - 4 or
+        address_offset > register_bar_bytes - 4 or sos_offset > register_bar_bytes - 4)
         return error.AmdPspRegistersOutsideBar;
-    return result;
+    return .{ .command_offset = @intCast(command_offset), .address_offset = @intCast(address_offset), .sos_offset = @intCast(sos_offset) };
+}
+
+pub fn classifyAmdPspMailbox(profile: AmdPspMailboxProfile, command: u32, sos: u32) !AmdPspMailboxSnapshot {
+    if (command == 0xffffffff or sos == 0xffffffff) return error.AmdPspMmioUnavailable;
+    const state: AmdPspMailboxState = if (sos != 0)
+        .sos_alive
+    else if (command & profile.ready_mask == profile.ready_mask)
+        if (command & profile.error_mask != 0) .failed else .bootloader_ready
+    else
+        .bootloader_busy;
+    return .{ .command = command, .sos = sos, .state = state };
 }
 
 fn findStagedPspComponent(staging: *const AmdFirmwareStaging, kind: u32) !?AmdStagedPspComponent {
@@ -1130,6 +1155,18 @@ comptime {
         @compileError("missing AMD PSP register base was accepted")
     else |err| if (err != error.AmdPspRegisterBaseMissing)
         @compileError("missing AMD PSP register base returned the wrong error");
+    const ready_snapshot = classifyAmdPspMailbox(mailbox, 0x80000000, 0) catch
+        @compileError("ready AMD PSP mailbox was rejected");
+    const alive_snapshot = classifyAmdPspMailbox(mailbox, 0, 1) catch
+        @compileError("alive AMD PSP mailbox was rejected");
+    const failed_snapshot = classifyAmdPspMailbox(mailbox, 0x80000001, 0) catch
+        @compileError("failed AMD PSP mailbox was rejected");
+    if (ready_snapshot.state != .bootloader_ready or alive_snapshot.state != .sos_alive or failed_snapshot.state != .failed)
+        @compileError("AMD PSP mailbox state classified incorrectly");
+    if (classifyAmdPspMailbox(mailbox, 0xffffffff, 0)) |_|
+        @compileError("unavailable AMD PSP MMIO was accepted")
+    else |err| if (err != error.AmdPspMmioUnavailable)
+        @compileError("unavailable AMD PSP MMIO returned the wrong error");
     const sys_submission = encodeAmdPspMailboxSubmission(mailbox, .{
         .command = .load_sysdrv,
         .transfer_address = 0x400000,
