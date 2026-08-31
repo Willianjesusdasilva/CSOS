@@ -498,6 +498,12 @@ pub fn start(info: BootInfo) noreturn {
             gpu_ip_discovery = firmware.amdDiscovery(selection) catch panic("AMDGPU IP discovery invalid");
     };
     if (gpu_ip_discovery) |*discovery| gpu_backend_plan = gpu.planAmdBackend(discovery) catch panic("AMDGPU IP combination unsupported");
+    var gpu_firmware_staging = gpu.AmdFirmwareStaging{};
+    if (gpu_backend_plan != null) {
+        const firmware = gpu_firmware orelse panic("AMDGPU firmware archive missing");
+        const selection = gpu_selection orelse panic("AMDGPU firmware selection missing");
+        gpu_firmware_staging = firmware.stageAmdSecurity(selection, &pages) catch panic("AMDGPU security firmware staging failed");
+    }
     const gpu_psp_major = if (gpu_ip_discovery) |discovery| if (discovery.find(gpu.amd_hw_id.psp, 0)) |ip| ip.major else 0 else 0;
     const gpu_gfx_major = if (gpu_ip_discovery) |discovery| if (discovery.find(gpu.amd_hw_id.gfx, 0)) |ip| ip.major else 0 else 0;
     const gpu_mmhub_major = if (gpu_ip_discovery) |discovery| if (discovery.find(gpu.amd_hw_id.mmhub, 0)) |ip| ip.major else 0 else 0;
@@ -540,6 +546,9 @@ pub fn start(info: BootInfo) noreturn {
     serial.write(" mmhub: "); serial.writeDecimal(gpu_mmhub_major);
     serial.write(" sdma: "); serial.writeDecimal(gpu_sdma_major);
     serial.write(" plan: "); serial.writeDecimal(if (gpu_backend_plan) |_| 1 else 0);
+    serial.write(" staged: "); serial.writeDecimal(gpu_firmware_staging.count);
+    serial.write(" staged-bytes: "); serial.writeDecimal(gpu_firmware_staging.image_bytes);
+    serial.write(" staged-payload: "); serial.writeDecimal(gpu_firmware_staging.payload_bytes);
     serial.write(" driver: ");
     serial.write(switch (gpu_adapter.driver) {
         .amdgpu => "amdgpu",

@@ -180,6 +180,39 @@ pub const Firmware = struct {
         return result;
     }
 
+    pub fn stageAmdSecurity(self: Firmware, selection: Selection, pages: *physical.Allocator) !AmdFirmwareStaging {
+        var result = AmdFirmwareStaging{};
+        errdefer result.release(pages);
+        var iterator = self.selected(selection);
+        while (try iterator.next()) |entry| {
+            if (classifyFirmware(.amdgpu, entry.name) != .security) continue;
+            if (result.count == result.areas.len) return error.TooManyAmdSecurityFirmwareEntries;
+            const parsed = try parseAmdgpuFirmware(entry.data);
+            const page_count: u64 = @intCast((entry.data.len + 4095) / 4096);
+            const address = pages.allocate(page_count) orelse return error.OutOfMemory;
+            const target: [*]u8 = @ptrFromInt(address);
+            @memset(target[0 .. page_count * 4096], 0);
+            @memcpy(target[0..entry.data.len], entry.data);
+            const payload_offset = @intFromPtr(parsed.payload.ptr) - @intFromPtr(entry.data.ptr);
+            result.areas[result.count] = .{
+                .address = address,
+                .pages = page_count,
+                .image_bytes = entry.data.len,
+                .payload_offset = payload_offset,
+                .payload_bytes = parsed.payload.len,
+                .header_version_major = parsed.header_version_major,
+                .header_version_minor = parsed.header_version_minor,
+                .ucode_version = parsed.ucode_version,
+            };
+            result.count += 1;
+            result.image_bytes += entry.data.len;
+            result.payload_bytes += parsed.payload.len;
+        }
+        const security_bit = @as(u16, 1) << @intFromEnum(FirmwareBlock.security);
+        if ((selection.required_blocks & security_bit) != 0 and result.count == 0) return error.AmdSecurityFirmwareMissing;
+        return result;
+    }
+
     pub fn countPrefix(self: Firmware, prefix: []const u8) !usize {
         var iterator = CpioIterator{ .archive = self.bytes() };
         var count: usize = 0;
@@ -248,6 +281,33 @@ pub const FirmwareInventory = struct {
     blocks: [9]FirmwareBlockSummary = .{FirmwareBlockSummary{}} ** 9,
 
     pub fn block(self: *const FirmwareInventory, kind: FirmwareBlock) FirmwareBlockSummary { return self.blocks[@intFromEnum(kind)]; }
+};
+pub const AmdFirmwareArea = struct {
+    address: u64 = 0,
+    pages: u64 = 0,
+    image_bytes: usize = 0,
+    payload_offset: usize = 0,
+    payload_bytes: usize = 0,
+    header_version_major: u16 = 0,
+    header_version_minor: u16 = 0,
+    ucode_version: u32 = 0,
+};
+pub const AmdFirmwareStaging = struct {
+    count: usize = 0,
+    image_bytes: usize = 0,
+    payload_bytes: usize = 0,
+    areas: [128]AmdFirmwareArea = .{AmdFirmwareArea{}} ** 128,
+
+    pub fn release(self: *AmdFirmwareStaging, pages: *physical.Allocator) void {
+        while (self.count != 0) {
+            self.count -= 1;
+            const area = self.areas[self.count];
+            pages.release(area.address, area.pages) catch {};
+            self.areas[self.count] = .{};
+        }
+        self.image_bytes = 0;
+        self.payload_bytes = 0;
+    }
 };
 pub const SelectedEntry = struct { name: []const u8, data: []const u8 };
 pub const SelectedIterator = struct {
