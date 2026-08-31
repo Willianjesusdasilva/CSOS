@@ -477,6 +477,7 @@ pub fn start(info: BootInfo) noreturn {
     if (gpu_registers.size > 16 * 1024 * 1024) panic("GPU register BAR unexpectedly large");
     mapper.mapIdentity(gpu_registers.address, @intCast(gpu_registers.size)) catch panic("GPU register MMIO mapping failed");
     mapper.activate();
+    const gpu_register_probe = gpu_adapter.readRegister(0) catch panic("GPU register MMIO read failed");
     var screen = display.Context.init(info.framebuffer, display_device, &pages) catch panic("display initialization failed");
     screen.drawBaseline(@as(usize, hid.keyboards) + hid.mice, audio_info.playback_endpoints);
     const initial_pixels = screen.present();
@@ -487,6 +488,7 @@ pub fn start(info: BootInfo) noreturn {
     serial.write(" bars: "); serial.writeDecimal(gpu_adapter.bar_count);
     serial.write(" bytes: "); serial.writeDecimal(gpu_adapter.mmio_bytes);
     serial.write(" registers: "); serial.writeDecimal(gpu_registers.size);
+    serial.write(" probe: "); serial.writeDecimal(gpu_register_probe);
     serial.write(" firmware: "); serial.writeDecimal(if (gpu_firmware) |firmware| firmware.size else 0);
     serial.write(" entries: "); serial.writeDecimal(gpu_firmware_entries);
     serial.write(" catalog: "); serial.writeDecimal(gpu_catalog_entries);

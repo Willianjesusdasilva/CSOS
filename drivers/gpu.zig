@@ -48,6 +48,20 @@ pub const Adapter = struct {
     pub fn isAmd(self: *const Adapter) bool {
         return self.driver == .amdgpu;
     }
+
+    pub fn readRegister(self: *const Adapter, offset: u32) !u32 {
+        const bar = self.register_bar orelse return error.RegisterBarMissing;
+        if ((offset & 3) != 0 or offset > bar.size or bar.size - offset < 4) return error.InvalidRegisterOffset;
+        const register: *align(1) volatile const u32 = @ptrFromInt(bar.address + offset);
+        return register.*;
+    }
+
+    pub fn writeRegister(self: *const Adapter, offset: u32, value: u32) !void {
+        const bar = self.register_bar orelse return error.RegisterBarMissing;
+        if ((offset & 3) != 0 or offset > bar.size or bar.size - offset < 4) return error.InvalidRegisterOffset;
+        const register: *align(1) volatile u32 = @ptrFromInt(bar.address + offset);
+        register.* = value;
+    }
 };
 
 pub const Firmware = struct {
