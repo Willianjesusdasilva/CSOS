@@ -20,6 +20,12 @@ pub export var crtc: [104]u8 = .{0} ** 104;
 pub export var scanout_create: [32]u8 = .{0} ** 32;
 pub export var framebuffer_command: [28]u8 = .{0} ** 28;
 pub export var scanout_connector: u32 = 2;
+pub export var sync_create_signaled: [8]u8 = .{ 0, 0, 0, 0, 1, 0, 0, 0 };
+pub export var sync_create_pending: [8]u8 = .{0} ** 8;
+pub export var sync_handles: [2]u32 = .{ 0, 0 };
+pub export var sync_array: [16]u8 = .{0} ** 16;
+pub export var sync_wait: [40]u8 = .{0} ** 40;
+pub export var sync_destroy: [8]u8 = .{0} ** 8;
 pub export const success: [31]u8 = "Linux DRM core userspace ready\n".*;
 
 pub export fn _start() callconv(.naked) noreturn {
@@ -355,6 +361,99 @@ pub export fn _start() callconv(.naked) noreturn {
         \\testq %%rax, %%rax
         \\jne 1f
         \\cmpl $1, render_version(%%rip)
+        \\jne 1f
+        \\movq $0x13, capability(%%rip)
+        \\movq $16, %%rax
+        \\movq %%r12, %%rdi
+        \\movq $0xc010640c, %%rsi
+        \\leaq capability(%%rip), %%rdx
+        \\syscall
+        \\testq %%rax, %%rax
+        \\jne 1f
+        \\cmpq $1, capability+8(%%rip)
+        \\jne 1f
+        \\movq $16, %%rax
+        \\movq %%r12, %%rdi
+        \\movq $0xc00864bf, %%rsi
+        \\leaq sync_create_signaled(%%rip), %%rdx
+        \\syscall
+        \\testq %%rax, %%rax
+        \\jne 1f
+        \\movq $16, %%rax
+        \\movq %%r12, %%rdi
+        \\movq $0xc00864bf, %%rsi
+        \\leaq sync_create_pending(%%rip), %%rdx
+        \\syscall
+        \\testq %%rax, %%rax
+        \\jne 1f
+        \\movl sync_create_pending(%%rip), %%eax
+        \\movl %%eax, sync_handles(%%rip)
+        \\movl sync_create_signaled(%%rip), %%eax
+        \\movl %%eax, sync_handles+4(%%rip)
+        \\leaq sync_handles(%%rip), %%rax
+        \\movq %%rax, sync_wait(%%rip)
+        \\movl $2, sync_wait+16(%%rip)
+        \\movq $16, %%rax
+        \\movq %%r12, %%rdi
+        \\movq $0xc02864c3, %%rsi
+        \\leaq sync_wait(%%rip), %%rdx
+        \\syscall
+        \\testq %%rax, %%rax
+        \\jne 1f
+        \\cmpl $1, sync_wait+24(%%rip)
+        \\jne 1f
+        \\leaq sync_handles+4(%%rip), %%rax
+        \\movq %%rax, sync_array(%%rip)
+        \\movl $1, sync_array+8(%%rip)
+        \\movq $16, %%rax
+        \\movq %%r12, %%rdi
+        \\movq $0xc01064c4, %%rsi
+        \\leaq sync_array(%%rip), %%rdx
+        \\syscall
+        \\testq %%rax, %%rax
+        \\jne 1f
+        \\movl $1, sync_wait+20(%%rip)
+        \\movq $16, %%rax
+        \\movq %%r12, %%rdi
+        \\movq $0xc02864c3, %%rsi
+        \\leaq sync_wait(%%rip), %%rdx
+        \\syscall
+        \\cmpq $-62, %%rax
+        \\jne 1f
+        \\leaq sync_handles(%%rip), %%rax
+        \\movq %%rax, sync_array(%%rip)
+        \\movl $2, sync_array+8(%%rip)
+        \\movq $16, %%rax
+        \\movq %%r12, %%rdi
+        \\movq $0xc01064c5, %%rsi
+        \\leaq sync_array(%%rip), %%rdx
+        \\syscall
+        \\testq %%rax, %%rax
+        \\jne 1f
+        \\movq $16, %%rax
+        \\movq %%r12, %%rdi
+        \\movq $0xc02864c3, %%rsi
+        \\leaq sync_wait(%%rip), %%rdx
+        \\syscall
+        \\testq %%rax, %%rax
+        \\jne 1f
+        \\movl sync_handles(%%rip), %%eax
+        \\movl %%eax, sync_destroy(%%rip)
+        \\movq $16, %%rax
+        \\movq %%r12, %%rdi
+        \\movq $0xc00864c0, %%rsi
+        \\leaq sync_destroy(%%rip), %%rdx
+        \\syscall
+        \\testq %%rax, %%rax
+        \\jne 1f
+        \\movl sync_handles+4(%%rip), %%eax
+        \\movl %%eax, sync_destroy(%%rip)
+        \\movq $16, %%rax
+        \\movq %%r12, %%rdi
+        \\movq $0xc00864c0, %%rsi
+        \\leaq sync_destroy(%%rip), %%rdx
+        \\syscall
+        \\testq %%rax, %%rax
         \\jne 1f
         \\movq $3, %%rax
         \\movq %%r12, %%rdi

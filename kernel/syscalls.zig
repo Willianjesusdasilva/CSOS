@@ -43,6 +43,9 @@ var drm_framebuffer_created = false;
 var drm_framebuffer_handle: u32 = 0;
 var drm_scanout_framebuffer: u32 = 0;
 var drm_driver: DrmDriver = .csos;
+const max_drm_syncobjs = 16;
+const DrmSyncobj = struct { allocated: bool = false, signaled: bool = false };
+var drm_syncobjs: [max_drm_syncobjs]DrmSyncobj = .{DrmSyncobj{}} ** max_drm_syncobjs;
 var sockets: [4]Socket = .{Socket{}} ** 4;
 var unknown_seen: [512]bool = .{false} ** 512;
 pub export var syscall_kernel_rsp: u64 = 0;
@@ -105,6 +108,7 @@ pub fn configure(base: u64, size: u64, stack: u64, stack_length: u64, initial_br
     drm_releases = 0;
     drm_framebuffer_created = false;
     drm_framebuffer_handle = 0;
+    drm_syncobjs = .{DrmSyncobj{}} ** max_drm_syncobjs;
     drm_scanout_framebuffer = 0;
     sockets = .{Socket{}} ** sockets.len;
     vfs.reset();
@@ -324,6 +328,11 @@ fn ioctl(fd: u64, request: u64, address: u64) u64 {
             0xc05064a7 => if (render) errno(25) else drmGetConnector(address),
             0xc01c64ae => if (render) errno(25) else drmAddFramebuffer(address),
             0xc00464af => if (render) errno(25) else drmRemoveFramebuffer(address),
+            0xc00864bf => drmSyncobjCreate(address),
+            0xc00864c0 => drmSyncobjDestroy(address),
+            0xc02864c3 => drmSyncobjWait(address),
+            0xc01064c4 => drmSyncobjArray(address, false),
+            0xc01064c5 => drmSyncobjArray(address, true),
             else => errno(25),
         };
         if (result == 0) drm_ioctls += 1;
@@ -365,11 +374,75 @@ fn drmGetCap(address: u64) u64 {
     const output: [*]u8 = @ptrFromInt(address);
     const capability = read64(output);
     const value: u64 = switch (capability) {
-        0x1, 0x6 => 1,
+        0x1, 0x6, 0x13 => 1,
         else => 0,
     };
     put64(output + 8, value);
     return 0;
+}
+
+fn drmSyncobjCreate(address: u64) u64 {
+    if (!validUserSlice(address, 8)) return errno(14);
+    const output: [*]u8 = @ptrFromInt(address);
+    const flags = read32(output + 4);
+    if ((flags & ~@as(u32, 1)) != 0) return errno(22);
+    for (&drm_syncobjs, 0..) |*object, index| {
+        if (object.allocated) continue;
+        object.* = .{ .allocated = true, .signaled = (flags & 1) != 0 };
+        put32(output, @intCast(index + 1));
+        return 0;
+    }
+    return errno(12);
+}
+
+fn drmSyncobjDestroy(address: u64) u64 {
+    if (!validUserSlice(address, 8)) return errno(14);
+    const input: [*]const u8 = @ptrFromInt(address);
+    if (read32(input + 4) != 0) return errno(22);
+    const object = drmSyncobjForHandle(read32(input)) orelse return errno(22);
+    object.* = .{};
+    return 0;
+}
+
+fn drmSyncobjArray(address: u64, signal: bool) u64 {
+    if (!validUserSlice(address, 16)) return errno(14);
+    const input: [*]const u8 = @ptrFromInt(address);
+    const handles_address = read64(input);
+    const count = read32(input + 8);
+    if (count == 0 or count > max_drm_syncobjs or read32(input + 12) != 0 or !validUserSlice(handles_address, @as(u64, count) * 4)) return errno(22);
+    const handles: [*]const u8 = @ptrFromInt(handles_address);
+    var index: u32 = 0;
+    while (index < count) : (index += 1) if (drmSyncobjForHandle(read32(handles + @as(usize, index) * 4)) == null) return errno(22);
+    index = 0;
+    while (index < count) : (index += 1) drmSyncobjForHandle(read32(handles + @as(usize, index) * 4)).?.signaled = signal;
+    return 0;
+}
+
+fn drmSyncobjWait(address: u64) u64 {
+    if (!validUserSlice(address, 40)) return errno(14);
+    const output: [*]u8 = @ptrFromInt(address);
+    const handles_address = read64(output);
+    const count = read32(output + 16);
+    const flags = read32(output + 20);
+    if (count == 0 or count > max_drm_syncobjs or (flags & ~@as(u32, 1)) != 0 or read32(output + 28) != 0 or !validUserSlice(handles_address, @as(u64, count) * 4)) return errno(22);
+    const handles: [*]const u8 = @ptrFromInt(handles_address);
+    var signaled_count: u32 = 0;
+    var first: u32 = 0;
+    var index: u32 = 0;
+    while (index < count) : (index += 1) {
+        const object = drmSyncobjForHandle(read32(handles + @as(usize, index) * 4)) orelse return errno(22);
+        if (object.signaled) { if (signaled_count == 0) first = index; signaled_count += 1; }
+    }
+    const ready = if ((flags & 1) != 0) signaled_count == count else signaled_count != 0;
+    if (!ready) return errno(62);
+    put32(output + 24, first);
+    return 0;
+}
+
+fn drmSyncobjForHandle(handle: u32) ?*DrmSyncobj {
+    if (handle == 0 or handle > drm_syncobjs.len) return null;
+    const object = &drm_syncobjs[handle - 1];
+    return if (object.allocated) object else null;
 }
 
 fn drmCreateDumb(address: u64) u64 {
