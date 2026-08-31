@@ -679,17 +679,48 @@ pub const AmdGartPlan = struct {
 pub const AmdGmc11GartRegisters = struct {
     fb_location_base: u32,
     fb_offset: u32,
+    agp_base: u32,
+    agp_bottom: u32,
+    agp_top: u32,
+    system_aperture_low: u32,
+    system_aperture_high: u32,
+    system_default_low: u32,
+    system_default_high: u32,
+    fault_default_low: u32,
+    fault_default_high: u32,
+    fault_control2: u32,
     context_control: u32,
+    context1_control: u32,
     page_table_base_low: u32,
     page_table_base_high: u32,
     page_table_start_low: u32,
     page_table_start_high: u32,
     page_table_end_low: u32,
     page_table_end_high: u32,
+    context1_page_table_start_low: u32,
+    context1_page_table_start_high: u32,
+    context1_page_table_end_low: u32,
+    context1_page_table_end_high: u32,
     l1_tlb_control: u32,
     l2_control: u32,
+    l2_control2: u32,
+    l2_control3: u32,
+    l2_control4: u32,
+    l2_control5: u32,
+    identity_low_low: u32,
+    identity_low_high: u32,
+    identity_high_low: u32,
+    identity_high_high: u32,
+    identity_offset_low: u32,
+    identity_offset_high: u32,
     invalidate_request: u32,
     invalidate_ack: u32,
+    invalidate_range_low: u32,
+    invalidate_range_high: u32,
+    context_control_stride: u32,
+    context_address_stride: u32,
+    invalidate_engine_stride: u32,
+    invalidate_range_stride: u32,
 };
 pub const AmdGmc11MemorySnapshot = struct {
     vram_mc_base: u64,
@@ -698,6 +729,25 @@ pub const AmdGmc11MemorySnapshot = struct {
 };
 pub const AmdGmc11NbioRegisters = struct { memsize: u32 };
 pub const AmdGmc11GartWindow = struct { start: u64, end: u64 };
+pub const AmdGmc11GartApertureValues = struct {
+    page_table_base_low: u32,
+    page_table_base_high: u32,
+    page_table_start_low: u32,
+    page_table_start_high: u32,
+    page_table_end_low: u32,
+    page_table_end_high: u32,
+};
+pub const AmdGmc11GartRegisterSet = struct {
+    offsets: [144]u32 = .{0} ** 144,
+    count: usize = 0,
+
+    fn add(self: *AmdGmc11GartRegisterSet, offset: u32) !void {
+        for (self.offsets[0..self.count]) |existing| if (existing == offset) return error.DuplicateAmdGartRegister;
+        if (self.count == self.offsets.len) return error.TooManyAmdGartRegisters;
+        self.offsets[self.count] = offset;
+        self.count += 1;
+    }
+};
 pub const AmdGmc11VisibleVram = struct {
     cpu_start: u64,
     cpu_end: u64,
@@ -877,22 +927,103 @@ pub fn copyAmdGmc11GartTable(plan: AmdGartPlan, allocation: AmdVramAllocation) !
     for (0..allocation.bytes) |index| destination[index] = source[index];
 }
 
+pub fn prepareAmdGmc11GartAperture(plan: AmdGartPlan) !AmdGmc11GartApertureValues {
+    if (plan.family != .v11_0 or plan.active or plan.table_mc_address == null or plan.window_start == null or plan.window_end == null)
+        return error.AmdGartAddressSpaceNotBound;
+    const page_table_base = plan.table_mc_address.? | 1;
+    return .{
+        .page_table_base_low = @truncate(page_table_base),
+        .page_table_base_high = @truncate(page_table_base >> 32),
+        .page_table_start_low = @truncate(plan.window_start.? >> 12),
+        .page_table_start_high = @truncate(plan.window_start.? >> 44),
+        .page_table_end_low = @truncate(plan.window_end.? >> 12),
+        .page_table_end_high = @truncate(plan.window_end.? >> 44),
+    };
+}
+
+pub fn amdGmc11GartMutableRegisters(registers: AmdGmc11GartRegisters) !AmdGmc11GartRegisterSet {
+    var result = AmdGmc11GartRegisterSet{};
+    const fixed = [_]u32{
+        registers.page_table_base_low, registers.page_table_base_high,
+        registers.page_table_start_low, registers.page_table_start_high,
+        registers.page_table_end_low, registers.page_table_end_high,
+        registers.agp_base, registers.agp_bottom, registers.agp_top,
+        registers.system_aperture_low, registers.system_aperture_high,
+        registers.system_default_low, registers.system_default_high,
+        registers.fault_default_low, registers.fault_default_high, registers.fault_control2,
+        registers.l1_tlb_control, registers.l2_control, registers.l2_control2,
+        registers.l2_control3, registers.l2_control4, registers.l2_control5,
+        registers.context_control,
+        registers.identity_low_low, registers.identity_low_high,
+        registers.identity_high_low, registers.identity_high_high,
+        registers.identity_offset_low, registers.identity_offset_high,
+        registers.invalidate_request,
+    };
+    for (fixed) |offset| try result.add(offset);
+    for (0..15) |index| {
+        const control_delta: u32 = @intCast(index * registers.context_control_stride);
+        const address_delta: u32 = @intCast(index * registers.context_address_stride);
+        try result.add(registers.context1_control + control_delta);
+        try result.add(registers.context1_page_table_start_low + address_delta);
+        try result.add(registers.context1_page_table_start_high + address_delta);
+        try result.add(registers.context1_page_table_end_low + address_delta);
+        try result.add(registers.context1_page_table_end_high + address_delta);
+    }
+    for (0..18) |index| {
+        const delta: u32 = @intCast(index * registers.invalidate_range_stride);
+        try result.add(registers.invalidate_range_low + delta);
+        try result.add(registers.invalidate_range_high + delta);
+    }
+    return result;
+}
+
 pub fn resolveAmdGmc11GartRegisters(plan: AmdGartPlan, register_bar_bytes: u64) !AmdGmc11GartRegisters {
     if (plan.family != .v11_0 or plan.mmhub_base == 0) return error.UnsupportedAmdGartRegisterMap;
     return .{
         .fb_location_base = try resolveAmdRegister(plan.mmhub_base, 0x08ec, register_bar_bytes),
         .fb_offset = try resolveAmdRegister(plan.mmhub_base, 0x08d7, register_bar_bytes),
+        .agp_base = try resolveAmdRegister(plan.mmhub_base, 0x08f0, register_bar_bytes),
+        .agp_bottom = try resolveAmdRegister(plan.mmhub_base, 0x08ef, register_bar_bytes),
+        .agp_top = try resolveAmdRegister(plan.mmhub_base, 0x08ee, register_bar_bytes),
+        .system_aperture_low = try resolveAmdRegister(plan.mmhub_base, 0x08f1, register_bar_bytes),
+        .system_aperture_high = try resolveAmdRegister(plan.mmhub_base, 0x08f2, register_bar_bytes),
+        .system_default_low = try resolveAmdRegister(plan.mmhub_base, 0x08d8, register_bar_bytes),
+        .system_default_high = try resolveAmdRegister(plan.mmhub_base, 0x08d9, register_bar_bytes),
+        .fault_default_low = try resolveAmdRegister(plan.mmhub_base, 0x070f, register_bar_bytes),
+        .fault_default_high = try resolveAmdRegister(plan.mmhub_base, 0x0710, register_bar_bytes),
+        .fault_control2 = try resolveAmdRegister(plan.mmhub_base, 0x0709, register_bar_bytes),
         .context_control = try resolveAmdRegister(plan.mmhub_base, 0x0740, register_bar_bytes),
+        .context1_control = try resolveAmdRegister(plan.mmhub_base, 0x0741, register_bar_bytes),
         .page_table_base_low = try resolveAmdRegister(plan.mmhub_base, 0x07ab, register_bar_bytes),
         .page_table_base_high = try resolveAmdRegister(plan.mmhub_base, 0x07ac, register_bar_bytes),
         .page_table_start_low = try resolveAmdRegister(plan.mmhub_base, 0x07cb, register_bar_bytes),
         .page_table_start_high = try resolveAmdRegister(plan.mmhub_base, 0x07cc, register_bar_bytes),
         .page_table_end_low = try resolveAmdRegister(plan.mmhub_base, 0x07eb, register_bar_bytes),
         .page_table_end_high = try resolveAmdRegister(plan.mmhub_base, 0x07ec, register_bar_bytes),
+        .context1_page_table_start_low = try resolveAmdRegister(plan.mmhub_base, 0x07cd, register_bar_bytes),
+        .context1_page_table_start_high = try resolveAmdRegister(plan.mmhub_base, 0x07ce, register_bar_bytes),
+        .context1_page_table_end_low = try resolveAmdRegister(plan.mmhub_base, 0x07ed, register_bar_bytes),
+        .context1_page_table_end_high = try resolveAmdRegister(plan.mmhub_base, 0x07ee, register_bar_bytes),
         .l1_tlb_control = try resolveAmdRegister(plan.mmhub_base, 0x08f3, register_bar_bytes),
         .l2_control = try resolveAmdRegister(plan.mmhub_base, 0x0700, register_bar_bytes),
+        .l2_control2 = try resolveAmdRegister(plan.mmhub_base, 0x0701, register_bar_bytes),
+        .l2_control3 = try resolveAmdRegister(plan.mmhub_base, 0x0702, register_bar_bytes),
+        .l2_control4 = try resolveAmdRegister(plan.mmhub_base, 0x0718, register_bar_bytes),
+        .l2_control5 = try resolveAmdRegister(plan.mmhub_base, 0x071e, register_bar_bytes),
+        .identity_low_low = try resolveAmdRegister(plan.mmhub_base, 0x0712, register_bar_bytes),
+        .identity_low_high = try resolveAmdRegister(plan.mmhub_base, 0x0713, register_bar_bytes),
+        .identity_high_low = try resolveAmdRegister(plan.mmhub_base, 0x0714, register_bar_bytes),
+        .identity_high_high = try resolveAmdRegister(plan.mmhub_base, 0x0715, register_bar_bytes),
+        .identity_offset_low = try resolveAmdRegister(plan.mmhub_base, 0x0716, register_bar_bytes),
+        .identity_offset_high = try resolveAmdRegister(plan.mmhub_base, 0x0717, register_bar_bytes),
         .invalidate_request = try resolveAmdRegister(plan.mmhub_base, 0x0774, register_bar_bytes),
         .invalidate_ack = try resolveAmdRegister(plan.mmhub_base, 0x0786, register_bar_bytes),
+        .invalidate_range_low = try resolveAmdRegister(plan.mmhub_base, 0x0787, register_bar_bytes),
+        .invalidate_range_high = try resolveAmdRegister(plan.mmhub_base, 0x0788, register_bar_bytes),
+        .context_control_stride = 4,
+        .context_address_stride = 8,
+        .invalidate_engine_stride = 4,
+        .invalidate_range_stride = 8,
     };
 }
 
@@ -1053,11 +1184,21 @@ comptime {
     if (mmhub_only.gfxhub_base != null) @compileError("GMC 11 incorrectly requires GFXHUB GART");
     const gmc11_registers = resolveAmdGmc11GartRegisters(mmhub_only, 0x4000) catch
         @compileError("valid GMC 11 GART registers were rejected");
+    @setEvalBranchQuota(30000);
     if (gmc11_registers.context_control != 0x2900 or gmc11_registers.page_table_base_low != 0x2aac or
         gmc11_registers.invalidate_request != 0x29d0 or gmc11_registers.invalidate_ack != 0x2a18 or
         gmc11_registers.l1_tlb_control != 0x2fcc or gmc11_registers.fb_location_base != 0x2fb0 or
-        gmc11_registers.fb_offset != 0x2f5c)
+        gmc11_registers.fb_offset != 0x2f5c or gmc11_registers.agp_base != 0x2fc0 or
+        gmc11_registers.fault_default_low != 0x283c or gmc11_registers.context1_control != 0x2904 or
+        gmc11_registers.invalidate_range_low != 0x2a1c or gmc11_registers.invalidate_range_high != 0x2a20 or
+        gmc11_registers.context_control_stride != 4 or gmc11_registers.context_address_stride != 8 or
+        gmc11_registers.invalidate_range_stride != 8)
         @compileError("GMC 11 GART registers resolved incorrectly");
+    const mutable_registers = amdGmc11GartMutableRegisters(gmc11_registers) catch
+        @compileError("GMC 11 mutable register set was rejected");
+    if (mutable_registers.count != 141 or mutable_registers.offsets[0] != gmc11_registers.page_table_base_low or
+        mutable_registers.offsets[mutable_registers.count - 1] != gmc11_registers.invalidate_range_high + 17 * 8)
+        @compileError("GMC 11 mutable register set was enumerated incorrectly");
     if (resolveAmdGmc11GartRegisters(mmhub_only, 0x2fcc)) |_|
         @compileError("out-of-BAR GMC 11 GART registers were accepted")
     else |err| if (err != error.AmdRegistersOutsideBar)
@@ -1067,6 +1208,12 @@ comptime {
     if (bound_gart.table_cpu_address != 0x800000 or bound_gart.table_mc_address.? != 0x1000000 or
         bound_gart.window_start.? != 0x2000000 or bound_gart.window_end.? != 0x21fffff or bound_gart.active)
         @compileError("GMC 11 GART address space was bound incorrectly");
+    const aperture = prepareAmdGmc11GartAperture(bound_gart) catch
+        @compileError("bound GMC 11 GART aperture was rejected");
+    if (aperture.page_table_base_low != 0x1000001 or aperture.page_table_base_high != 0 or
+        aperture.page_table_start_low != 0x2000 or aperture.page_table_start_high != 0 or
+        aperture.page_table_end_low != 0x21ff or aperture.page_table_end_high != 0)
+        @compileError("GMC 11 GART aperture values were encoded incorrectly");
     if (bindAmdGmc11GartAddressSpace(mmhub_only, 0x800001, 0x2000000)) |_|
         @compileError("unaligned GMC 11 GART table MC address was accepted")
     else |err| if (err != error.InvalidAmdGartTableMcAddress)

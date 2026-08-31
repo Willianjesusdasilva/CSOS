@@ -878,6 +878,15 @@ uma alocação pinned na VRAM visível, é copiada pela janela CPU sem cache e o
 plano passa a carregar endereços CPU/MC distintos e a janela virtual alta. Isso
 ainda não ativa o GART nem escreve os registradores MMHUB.
 
+O mapa MMHUB v3.0 foi ampliado para toda a sequência de ativação usada pelo
+upstream: aperture AGP/sistema, páginas default e de fault, controles L1/L2,
+identity aperture, VMID 0–15 e ranges dos 18 engines de invalidação. O conjunto
+de 141 registradores mutáveis é enumerado sem duplicatas para formar o snapshot
+de rollback da futura transação. Os seis valores do aperture GART também são
+pré-calculados, incluindo o bit `AMDGPU_PTE_VALID` no endereço raiz e as unidades
+de página exigidas pelos registradores. O boot expõe
+`gart-aperture-ready`/`gart-rollback-registers`, mas mantém `gart-active: 0`.
+
 Com a faixa real conhecida, o candidato `gart-window-start/end` segue a política
 `AMDGPU_GART_PLACEMENT_HIGH`: limita o espaço MC antes do VA hole de 48 bits,
 posiciona a janela no topo e alinha sua base a 4 GiB. Overflow, faixa VRAM

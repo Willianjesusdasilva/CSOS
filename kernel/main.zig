@@ -594,6 +594,8 @@ pub fn start(info: BootInfo) noreturn {
         @as(u64, atom.reserved_kib) * 1024 else 64 * 1024 else 64 * 1024;
     const gpu_memory_training_reserved = if (gpu_atom_firmware_info) |atom| (atom.capability & 0x400) != 0 else false;
     var gpu_gart_table_vram: ?gpu.AmdVramAllocation = null;
+    var gpu_gart_aperture: ?gpu.AmdGmc11GartApertureValues = null;
+    var gpu_gart_rollback_registers: usize = 0;
     if (gpu_vram_allocator) |*allocator| {
         gpu.reserveAmdGmc11BootVram(allocator, gpu_gmc11_memory.?, gpu_firmware_tail_bytes, gpu_memory_training_reserved) catch
             panic("AMDGPU boot VRAM reservations invalid");
@@ -604,6 +606,9 @@ pub fn start(info: BootInfo) noreturn {
         gpu.copyAmdGmc11GartTable(gpu_gart_plan.?, allocation) catch panic("AMDGPU GART table VRAM copy failed");
         gpu_gart_plan = gpu.bindAmdGmc11GartAddressSpace(gpu_gart_plan.?, allocation.mc_address, gpu_gmc11_gart_window.?.start) catch
             panic("AMDGPU GART address space binding failed");
+        gpu_gart_aperture = gpu.prepareAmdGmc11GartAperture(gpu_gart_plan.?) catch panic("AMDGPU GART aperture preparation failed");
+        gpu_gart_rollback_registers = (gpu.amdGmc11GartMutableRegisters(gpu_gart_registers.?) catch
+            panic("AMDGPU GART rollback register set invalid")).count;
         gpu_gart_table_vram = allocation;
     }
     var gpu_psp_mailbox_snapshot: ?gpu.AmdPspMailboxSnapshot = null;
@@ -709,6 +714,8 @@ pub fn start(info: BootInfo) noreturn {
     serial.write(" gart-bound: "); serial.writeDecimal(if (gpu_gart_plan) |plan| @intFromBool(plan.table_mc_address != null) else 0);
     serial.write(" gart-table-mc: "); serial.writeDecimal(if (gpu_gart_plan) |plan| plan.table_mc_address orelse 0 else 0);
     serial.write(" gart-table-vram-cpu: "); serial.writeDecimal(if (gpu_gart_table_vram) |allocation| allocation.cpu_address else 0);
+    serial.write(" gart-aperture-ready: "); serial.writeDecimal(if (gpu_gart_aperture) |_| 1 else 0);
+    serial.write(" gart-rollback-registers: "); serial.writeDecimal(gpu_gart_rollback_registers);
     serial.write(" gart-window: "); serial.writeDecimal(if (gpu_gart_plan) |plan| plan.window_bytes else 0);
     serial.write(" gart-window-start: "); serial.writeDecimal(if (gpu_gmc11_gart_window) |window| window.start else 0);
     serial.write(" gart-window-end: "); serial.writeDecimal(if (gpu_gmc11_gart_window) |window| window.end else 0);
