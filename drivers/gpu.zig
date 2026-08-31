@@ -764,11 +764,29 @@ pub const AmdRegisterIo = struct {
     read: *const fn (*anyopaque, u32) anyerror!u32,
     write: *const fn (*anyopaque, u32, u32) anyerror!void,
 };
+pub const AmdGmc11AuthorizationEvidence = struct {
+    selected_firmware_entries: usize,
+    validated_firmware_entries: usize,
+    security_firmware_entries: usize,
+    compatible_ip_discovery: bool,
+    gart_table_bound: bool,
+    gart_window_bound: bool,
+    rollback_registers: usize,
+};
 pub const AmdGmc11MmioTransport = struct {
     adapter: *const Adapter,
     uncached: bool = false,
     authorized: bool = false,
     armed: bool = false,
+
+    pub fn authorize(self: *AmdGmc11MmioTransport, evidence: AmdGmc11AuthorizationEvidence) !void {
+        if (self.armed or self.authorized or !self.uncached or !self.adapter.isAmd() or self.adapter.device.vendor != 0x1002 or
+            evidence.selected_firmware_entries == 0 or evidence.validated_firmware_entries != evidence.selected_firmware_entries or
+            evidence.security_firmware_entries == 0 or !evidence.compatible_ip_discovery or !evidence.gart_table_bound or
+            !evidence.gart_window_bound or evidence.rollback_registers != 141)
+            return error.AmdGmc11MmioAuthorizationRejected;
+        self.authorized = true;
+    }
 
     pub fn arm(self: *AmdGmc11MmioTransport) !void {
         if (self.armed or !self.uncached or !self.authorized or !self.adapter.isAmd() or self.adapter.device.vendor != 0x1002)
@@ -1522,7 +1540,20 @@ pub fn validateAmdGmc11MmioTransportSelfTest() !void {
         if (err != error.AmdGmc11MmioTransportDisarmed) return err;
     if (transport.arm()) return error.AmdGmc11UnauthorizedArmAllowed else |err|
         if (err != error.AmdGmc11MmioTransportNotReady) return err;
-    transport.authorized = true;
+    const valid_evidence = AmdGmc11AuthorizationEvidence{
+        .selected_firmware_entries = 12,
+        .validated_firmware_entries = 12,
+        .security_firmware_entries = 3,
+        .compatible_ip_discovery = true,
+        .gart_table_bound = true,
+        .gart_window_bound = true,
+        .rollback_registers = 141,
+    };
+    var invalid_evidence = valid_evidence;
+    invalid_evidence.validated_firmware_entries = 11;
+    if (transport.authorize(invalid_evidence)) return error.AmdGmc11IncompleteFirmwareAuthorized else |err|
+        if (err != error.AmdGmc11MmioAuthorizationRejected) return err;
+    try transport.authorize(valid_evidence);
     try transport.arm();
     if (try transport.io().read(transport.io().context, 4) != 0x55667788) return error.AmdGmc11MmioReadMismatch;
     try transport.io().write(transport.io().context, 8, 0xa5a55a5a);

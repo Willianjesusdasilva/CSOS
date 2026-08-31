@@ -925,9 +925,12 @@ depender da stack reduzida da entrada UEFI.
 O transporte MMIO GMC 11 agora é um gate separado do planejamento: ele só lê
 ou escreve quando a BAR de registradores é não-prefetchable, está mapeada como
 uncached, o dispositivo é AMD `0x1002`, a autorização foi concedida e `arm()`
-foi chamado explicitamente. No boot normal ele é criado desarmado e não
-autorizado (`gart-write-authorized=0`, `gart-write-armed=0`); o teste nativo
-prova que acessos antes de armar e tentativas sem autorização são rejeitados.
+foi chamado explicitamente. A autorização exige que todos os firmwares
+selecionados tenham sido validados, que exista firmware de segurança, IP
+discovery GMC 11 compatível, tabela e janela GART vinculadas e os 141
+registradores de rollback enumerados. Em Radeon elegível o boot concede essa
+autorização, mas mantém `gart-write-armed=0`; o teste nativo prova que firmware
+parcial, acessos antes de armar e tentativas sem autorização são rejeitados.
 
 Com a faixa real conhecida, o candidato `gart-window-start/end` segue a política
 `AMDGPU_GART_PLACEMENT_HIGH`: limita o espaço MC antes do VA hole de 48 bits,

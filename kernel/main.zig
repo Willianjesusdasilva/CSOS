@@ -627,7 +627,16 @@ pub fn start(info: BootInfo) noreturn {
             panic("AMDGPU system aperture values invalid");
         gpu.validateAmdGmc11BootstrapWrites(gpu_gart_registers.?, gpu_gart_aperture.?, gpu_gmc11_system_aperture.?) catch
             panic("AMDGPU GART bootstrap write-set validation failed");
-        gpu_gart_mmio_transport = .{ .adapter = &gpu_adapter, .uncached = true, .authorized = false };
+        gpu_gart_mmio_transport = .{ .adapter = &gpu_adapter, .uncached = true };
+        gpu_gart_mmio_transport.?.authorize(.{
+            .selected_firmware_entries = gpu_backend_entries,
+            .validated_firmware_entries = gpu_validated_entries,
+            .security_firmware_entries = gpu_inventory.block(.security).entries,
+            .compatible_ip_discovery = gpu_backend_plan.?.gmc == .v11_0,
+            .gart_table_bound = gpu_gart_plan.?.table_mc_address != null,
+            .gart_window_bound = gpu_gart_plan.?.window_start != null and gpu_gart_plan.?.window_end != null,
+            .rollback_registers = gpu_gart_rollback_registers,
+        }) catch panic("AMDGPU GART MMIO authorization rejected");
     }
     var gpu_psp_mailbox_snapshot: ?gpu.AmdPspMailboxSnapshot = null;
     var gpu_psp_mmio_transport: ?gpu.AmdPspMmioTransport = null;
