@@ -22,7 +22,8 @@ ap_trampoline_start:
 
     movl $0xc0000080, %ecx
     rdmsr
-    orl $0x100, %eax
+    # Enable long mode and NX before CR0.PG; kernel/MMIO leaves use XD.
+    orl $0x900, %eax
     wrmsr
 
     movl %cr0, %eax

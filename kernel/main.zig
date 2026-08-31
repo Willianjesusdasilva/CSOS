@@ -264,7 +264,8 @@ pub fn start(info: BootInfo) noreturn {
     serial.write("\n");
     const nvme_device = inventory.findClass(0x01, 0x08) orelse panic("NVMe controller missing");
     const nvme_bar = pci.barAddress(nvme_device, 0) orelse panic("NVMe BAR missing");
-    mapper.mapIdentity(nvme_bar, 0x4000) catch panic("NVMe MMIO mapping failed");
+    mapper.mapIdentityUncached(nvme_bar, 0x4000) catch panic("NVMe MMIO mapping failed");
+    if (!mapper.identityIsUncached(nvme_bar)) panic("NVMe MMIO cache policy failed");
     mapper.activate();
     var storage = nvme.Controller.init(nvme_device, &pages) catch panic("NVMe setup failed");
     const namespaces = storage.identify(&pages) catch panic("NVMe identify failed");
@@ -351,7 +352,8 @@ pub fn start(info: BootInfo) noreturn {
     serial.write("CSOS M10 ready\n");
     const xhci_device = inventory.findClassInterface(0x0c, 0x03, 0x30) orelse panic("xHCI controller missing");
     const xhci_bar = pci.barAddress(xhci_device, 0) orelse panic("xHCI BAR missing");
-    mapper.mapIdentity(xhci_bar, 0x10000) catch panic("xHCI MMIO mapping failed");
+    mapper.mapIdentityUncached(xhci_bar, 0x10000) catch panic("xHCI MMIO mapping failed");
+    if (!mapper.identityIsUncached(xhci_bar)) panic("xHCI MMIO cache policy failed");
     mapper.activate();
     var usb = xhci.Controller.init(xhci_device, &pages) catch panic("xHCI setup failed");
     if (!xhci_device.msi and !xhci_device.msix) panic("xHCI MSI/MSI-X missing");
@@ -399,7 +401,8 @@ pub fn start(info: BootInfo) noreturn {
     }
     const network_device = inventory.findClass(0x02, 0x00) orelse panic("Ethernet controller missing");
     const network_bar = pci.barAddress(network_device, 0) orelse panic("Ethernet BAR missing");
-    mapper.mapIdentity(network_bar, 0x20000) catch panic("Ethernet MMIO mapping failed");
+    mapper.mapIdentityUncached(network_bar, 0x20000) catch panic("Ethernet MMIO mapping failed");
+    if (!mapper.identityIsUncached(network_bar)) panic("Ethernet MMIO cache policy failed");
     mapper.activate();
     var network = e1000.Controller.init(network_device, &pages) catch panic("Ethernet setup failed");
     if (!network_device.msi) panic("Ethernet MSI missing");
@@ -530,7 +533,8 @@ pub fn start(info: BootInfo) noreturn {
         gpu_psp_mailbox_registers = gpu.resolveAmdPspMailboxRegisters(psp_ip, profile, gpu_registers.size) catch
             panic("AMDGPU PSP mailbox registers invalid");
     };
-    mapper.mapIdentity(gpu_registers.address, @intCast(gpu_registers.size)) catch panic("GPU register MMIO mapping failed");
+    mapper.mapIdentityUncached(gpu_registers.address, gpu_registers.size) catch panic("GPU register MMIO mapping failed");
+    if (!mapper.identityIsUncached(gpu_registers.address)) panic("GPU register MMIO cache policy failed");
     mapper.activate();
     var gpu_psp_mailbox_snapshot: ?gpu.AmdPspMailboxSnapshot = null;
     var gpu_psp_mmio_transport: ?gpu.AmdPspMmioTransport = null;
@@ -539,7 +543,7 @@ pub fn start(info: BootInfo) noreturn {
         const sos = gpu_adapter.readRegister(registers.sos_offset) catch panic("AMDGPU PSP sOS read failed");
         gpu_psp_mailbox_snapshot = gpu.classifyAmdPspMailbox(gpu_psp_mailbox_profile.?, command, sos) catch
             panic("AMDGPU PSP mailbox unavailable");
-        gpu_psp_mmio_transport = .{ .adapter = &gpu_adapter, .profile = gpu_psp_mailbox_profile.?, .registers = registers };
+        gpu_psp_mmio_transport = .{ .adapter = &gpu_adapter, .profile = gpu_psp_mailbox_profile.?, .registers = registers, .uncached = true };
         if (gpu_psp_mmio_transport) |*transport| _ = transport.transport();
     }
     const gpu_identity = gpu_adapter.identifyChip() catch panic("GPU chipset identification failed");

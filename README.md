@@ -748,8 +748,16 @@ escreve o comando. Falha de leitura, status de erro ou comando divergente
 desarma o transporte. O boot normal apenas constrói a interface e mantém
 `psp-write-armed: 0`, portanto nenhuma escrita foi habilitada.
 O arming também exige que o BAR tenha sido explicitamente marcado como
-uncached; o mapeamento atual ainda não fornece essa garantia e mantém esse gate
-fechado.
+uncached; apenas o caminho de mapeamento MMIO validado pode abrir esse gate.
+
+O mapeador x86-64 agora possui identity map uncached para MMIO. Quando o BAR já
+está coberto por uma página enorme write-back, ele divide somente aquela página
+de 2 MiB em folhas de 4 KiB, preserva os vizinhos e marca o intervalo solicitado
+com PCD+PWT e NX. NVMe, xHCI, Ethernet e o BAR de registradores da GPU usam esse
+caminho e verificam a política antes de acessar o dispositivo. Com essa garantia
+o backend PSP pode ser marcado `uncached`, embora continue desarmado por padrão.
+Como as folhas MMIO também são NX, o trampoline dos processadores secundários
+habilita `EFER.NXE` junto com Long Mode antes de ativar paginação.
 
 As capacidades PSP são tratadas separadamente: `autoload_supported`, TMR de
 boot e presença de callbacks host para carregar SYS/SOS não são sinônimos. O

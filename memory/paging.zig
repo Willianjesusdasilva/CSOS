@@ -6,6 +6,8 @@ const entry_count = 512;
 const address_mask: u64 = 0x000ffffffffff000;
 const present_writable: u64 = 0x003;
 const huge_present_writable: u64 = 0x083;
+const cache_disable: u64 = 0x018;
+const no_execute: u64 = @as(u64, 1) << 63;
 
 pub const Mapper = struct {
     root: u64,
@@ -35,6 +37,25 @@ pub const Mapper = struct {
         try self.identityMapRange(address, size);
     }
 
+    pub fn mapIdentityUncached(self: *Mapper, start: u64, size: u64) !void {
+        if (size == 0) return;
+        if (start > address_mask or size > ~@as(u64, 0) - start) return error.InvalidPhysicalRange;
+        const last = start + size;
+        if (last > address_mask + page_size or last > ~@as(u64, page_size - 1)) return error.InvalidPhysicalRange;
+        var address = start & ~(page_size - 1);
+        const end = (last + page_size - 1) & ~(page_size - 1);
+        while (address < end) : (address += page_size) {
+            const leaf = try self.kernelLeaf(address);
+            leaf.* = address | present_writable | cache_disable | no_execute;
+        }
+    }
+
+    pub fn identityIsUncached(self: *const Mapper, address: u64) bool {
+        const leaf = kernelLeafExisting(self.root, address) orelse return false;
+        return (leaf.* & (1 | cache_disable)) == (1 | cache_disable) and
+            (leaf.* & address_mask) == (address & address_mask);
+    }
+
     fn identityMapRange(self: *Mapper, start: u64, size: u64) !void {
         if (size == 0) return;
         var address = start & ~(huge_page_size - 1);
@@ -50,6 +71,26 @@ pub const Mapper = struct {
         const directory = try childTable(self.pages, pdpt, pdpt_index);
         const directory_index = (address >> 21) & 0x1ff;
         directory[directory_index] = (address & ~(huge_page_size - 1)) | huge_present_writable;
+    }
+
+    fn kernelLeaf(self: *Mapper, address: u64) !*u64 {
+        const pml4 = table(self.root);
+        const pdpt = try childTable(self.pages, pml4, (address >> 39) & 0x1ff);
+        const directory = try childTable(self.pages, pdpt, (address >> 30) & 0x1ff);
+        const directory_index = (address >> 21) & 0x1ff;
+        if ((directory[directory_index] & 0x080) != 0) {
+            const huge_entry = directory[directory_index];
+            const huge_base = huge_entry & 0x000fffffffe00000;
+            const leaf_flags = huge_entry & 0x8000000000000fff & ~@as(u64, 0x080);
+            const page_table_address = try allocateTable(self.pages);
+            const page_table = table(page_table_address);
+            for (page_table, 0..) |*entry, page_index|
+                entry.* = huge_base + @as(u64, page_index) * page_size | leaf_flags;
+            directory[directory_index] = page_table_address | present_writable;
+        } else if ((directory[directory_index] & 1) == 0) {
+            directory[directory_index] = (try allocateTable(self.pages)) | present_writable;
+        }
+        return &table(directory[directory_index] & address_mask)[(address >> 12) & 0x1ff];
     }
 };
 
@@ -188,6 +229,16 @@ fn userLeaf(root: u64, virtual: u64) ?*u64 {
     const directory_entry = &table(pdpt_entry.* & address_mask)[(virtual >> 21) & 0x1ff];
     if ((directory_entry.* & 1) == 0 or (directory_entry.* & 0x080) != 0) return null;
     return &table(directory_entry.* & address_mask)[(virtual >> 12) & 0x1ff];
+}
+
+fn kernelLeafExisting(root: u64, virtual: u64) ?*u64 {
+    const pml4_entry = table(root)[(virtual >> 39) & 0x1ff];
+    if ((pml4_entry & 1) == 0 or (pml4_entry & 0x080) != 0) return null;
+    const pdpt_entry = table(pml4_entry & address_mask)[(virtual >> 30) & 0x1ff];
+    if ((pdpt_entry & 1) == 0 or (pdpt_entry & 0x080) != 0) return null;
+    const directory_entry = table(pdpt_entry & address_mask)[(virtual >> 21) & 0x1ff];
+    if ((directory_entry & 1) == 0 or (directory_entry & 0x080) != 0) return null;
+    return &table(directory_entry & address_mask)[(virtual >> 12) & 0x1ff];
 }
 
 fn destroyTable(pages: *physical.Allocator, address: u64, level: u8) void {
