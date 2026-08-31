@@ -843,7 +843,38 @@ pub const AmdGmc11ActivationWorkspace = struct {
     transaction: AmdGmc11RegisterTransaction = .{ .snapshot = .{}, .writes_applied = 0 },
     prepared: bool = false,
     active: bool = false,
+    snapshot_digest: u64 = 0,
+    write_digest: u64 = 0,
+    invalidate_polls: u32 = 0,
 };
+
+fn amdGartDigest(seed: u64, value: u32) u64 {
+    var digest = seed;
+    inline for (0..4) |shift| {
+        digest ^= @as(u8, @truncate(value >> @intCast(shift * 8)));
+        digest *%= 0x100000001b3;
+    }
+    return digest;
+}
+
+fn amdGartSnapshotDigest(snapshot: *const AmdGmc11GartSnapshot) u64 {
+    var digest: u64 = 0xcbf29ce484222325;
+    for (snapshot.offsets[0..snapshot.count], snapshot.values[0..snapshot.count]) |offset, value| {
+        digest = amdGartDigest(digest, offset);
+        digest = amdGartDigest(digest, value);
+    }
+    return digest;
+}
+
+fn amdGartWriteDigest(writes: *const AmdRegisterWriteSet) u64 {
+    var digest: u64 = 0xcbf29ce484222325;
+    for (writes.writes[0..writes.count]) |write| {
+        digest = amdGartDigest(digest, write.offset);
+        digest = amdGartDigest(digest, write.value);
+        digest = amdGartDigest(digest, write.verify_mask);
+    }
+    return digest;
+}
 pub const AmdGmc11VisibleVram = struct {
     cpu_start: u64,
     cpu_end: u64,
@@ -1400,6 +1431,9 @@ pub fn prepareAmdGmc11Activation(
     try captureAmdGmc11GartSnapshotInPlace(&workspace.register_set, io, &workspace.transaction.snapshot);
     try buildAmdGmc11GartBootstrapWritesInPlace(registers, aperture, system, &workspace.transaction.snapshot, &workspace.writes);
     workspace.transaction.writes_applied = 0;
+    workspace.snapshot_digest = amdGartSnapshotDigest(&workspace.transaction.snapshot);
+    workspace.write_digest = amdGartWriteDigest(&workspace.writes);
+    workspace.invalidate_polls = 0;
     workspace.prepared = true;
 }
 
@@ -1423,6 +1457,7 @@ pub fn commitAmdGmc11Activation(
     };
     workspace.prepared = false;
     workspace.active = true;
+    workspace.invalidate_polls = result.polls;
     return result;
 }
 
@@ -1512,6 +1547,8 @@ pub fn validateAmdGmc11BootstrapWrites(
     bank.acknowledge_after_reads = 3;
     const invalidation = try commitAmdGmc11Activation(workspace, registers, 8, bank.io());
     const transaction = &workspace.transaction;
+    if (workspace.snapshot_digest == 0 or workspace.write_digest == 0 or workspace.invalidate_polls != 3)
+        return error.AmdGartActivationTelemetryMissing;
     if (transaction.writes_applied != 80 or bank.values[bank.position(registers.page_table_base_low).?] != aperture.page_table_base_low or
         bank.values[bank.position(registers.system_default_low).?] != system.default_low or
         (bank.values[bank.position(registers.context_control).?] & 0x87) != 1 or

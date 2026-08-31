@@ -685,6 +685,8 @@ pub fn start(info: BootInfo) noreturn {
             .rollback_registers = gpu_gart_rollback_registers,
         }) catch panic("AMDGPU GART MMIO authorization rejected");
         if (build_options.amd_gart_mmio) {
+            if (build_options.amd_gart_device == 0 or build_options.amd_gart_device != gpu_adapter.device.device)
+                panic("AMDGPU GART activation PCI device gate mismatch");
             transport.arm() catch panic("AMDGPU GART MMIO arming failed");
             gpu.prepareAmdGmc11Activation(
                 &gpu_gmc11_activation_workspace,
@@ -791,6 +793,9 @@ pub fn start(info: BootInfo) noreturn {
     serial.write(" gart-write-armed: "); serial.writeDecimal(if (gpu_gart_mmio_transport) |transport| @intFromBool(transport.armed) else 0);
     serial.write(" gart-activation-prepared: "); serial.writeDecimal(@intFromBool(gpu_gmc11_activation_workspace.prepared));
     serial.write(" gart-activation-committed: "); serial.writeDecimal(@intFromBool(gpu_gmc11_activation_workspace.active));
+    serial.write(" gart-snapshot-digest: "); serial.writeDecimal(gpu_gmc11_activation_workspace.snapshot_digest);
+    serial.write(" gart-write-digest: "); serial.writeDecimal(gpu_gmc11_activation_workspace.write_digest);
+    serial.write(" gart-invalidate-polls: "); serial.writeDecimal(gpu_gmc11_activation_workspace.invalidate_polls);
     serial.write(" psp-version: "); serial.writeDecimal(if (gpu_backend_plan) |plan| plan.psp.ip_version else 0);
     serial.write(" psp-autoload: "); serial.writeDecimal(if (gpu_backend_plan) |plan| @intFromBool(plan.psp.autoload_supported) else 0);
     serial.write(" psp-boot-tmr: "); serial.writeDecimal(if (gpu_backend_plan) |plan| @intFromBool(plan.psp.boot_time_tmr) else 0);

@@ -943,11 +943,17 @@ O workspace real nasce com `gart-activation-prepared=0` e
 `gart-activation-committed=0` até o gate de hardware real ser explicitamente
 armado.
 
-A execução real permanece opt-in. `-Damd-gart-mmio=true` só chega ao MMIO após
-todos os gates acima e então faz `arm → prepare → commit → disarm`; o plano só
+A execução real permanece opt-in e presa ao modelo exato. É necessário fornecer
+`-Damd-gart-mmio=true -Damd-gart-device=0xNNNN`; ID ausente ou diferente do PCI
+detectado causa panic antes de `arm()`. Só após todos os gates o caminho faz
+`arm → prepare → commit → disarm`; o plano só
 recebe `gart-active=1` depois do ACK. Falha de preparação desarma sem escrever;
 falha/timeout no commit restaura o snapshot antes do panic. Sem a opção (padrão),
 o caminho é compilado e testado, mas nenhuma escrita GMC é realizada.
+Um teste real também registra `gart-snapshot-digest`, `gart-write-digest` e
+`gart-invalidate-polls`; os digests FNV-1a permitem comparar exatamente o
+estado capturado e a transação entre boots sem despejar conteúdo sensível ou
+centenas de registradores na serial.
 
 Com a faixa real conhecida, o candidato `gart-window-start/end` segue a política
 `AMDGPU_GART_PLACEMENT_HIGH`: limita o espaço MC antes do VA hole de 48 bits,
