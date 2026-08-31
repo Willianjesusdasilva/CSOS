@@ -138,6 +138,16 @@ pub fn build(b: *std.Build) void {
     gpu_module.addImport("pci", pci_module);
     gpu_module.addImport("fat16", fat16_module);
     gpu_module.addImport("physical", physical_module);
+    const gpu_test_module = b.createModule(.{
+        .root_source_file = b.path("tests/gpu_gart.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+    });
+    gpu_test_module.addImport("gpu", gpu_module);
+    const gpu_tests = b.addTest(.{ .root_module = gpu_test_module });
+    const run_gpu_tests = b.addRunArtifact(gpu_tests);
+    const test_step = b.step("test", "Run CSOS host-side tests");
+    test_step.dependOn(&run_gpu_tests.step);
     const display_module = b.createModule(.{ .root_source_file = b.path("drivers/display.zig") });
     display_module.addImport("pci", pci_module);
     display_module.addImport("physical", physical_module);

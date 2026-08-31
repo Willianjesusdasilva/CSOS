@@ -917,7 +917,10 @@ Depois da programação, o handshake de invalidação usa o engine 0 e VMID0:
 publica `0x00f80001` (PTE, PDE0/1/2 e L1), espera o bit de ACK com limite de
 polls e retorna timeout explícito. O banco sintético cobre ACK tardio e timeout;
 o snapshot integral continua sendo a origem do rollback antes de qualquer
-ativação real.
+ativação real. A ativação é atômica: aplica as 80 escritas, exige o ACK e, se o
+handshake falhar, restaura todos os registradores mutáveis em ordem reversa e
+zera o estado da transação. `zig build test` executa esse caminho no host sem
+depender da stack reduzida da entrada UEFI.
 
 Com a faixa real conhecida, o candidato `gart-window-start/end` segue a política
 `AMDGPU_GART_PLACEMENT_HIGH`: limita o espaço MC antes do VA hole de 48 bits,

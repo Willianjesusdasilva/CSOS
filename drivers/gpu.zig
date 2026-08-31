@@ -1181,14 +1181,15 @@ fn amdRmw(snapshot: *const AmdGmc11GartSnapshot, offset: u32, clear_mask: u32, s
     return (try amdSnapshotValue(snapshot, offset) & ~clear_mask) | set_bits;
 }
 
-pub fn buildAmdGmc11GartBootstrapWrites(
+fn buildAmdGmc11GartBootstrapWritesInPlace(
     registers: AmdGmc11GartRegisters,
     aperture: AmdGmc11GartApertureValues,
     system: AmdGmc11SystemApertureValues,
     snapshot: *const AmdGmc11GartSnapshot,
-) !AmdRegisterWriteSet {
+    writes: *AmdRegisterWriteSet,
+) !void {
     if (snapshot.count != 141) return error.InvalidAmdGartSnapshot;
-    var writes = AmdRegisterWriteSet{};
+    writes.* = AmdRegisterWriteSet{};
     try writes.add(.{ .offset = registers.page_table_base_low, .value = aperture.page_table_base_low });
     try writes.add(.{ .offset = registers.page_table_base_high, .value = aperture.page_table_base_high });
     try writes.add(.{ .offset = registers.page_table_start_low, .value = aperture.page_table_start_low });
@@ -1229,6 +1230,16 @@ pub fn buildAmdGmc11GartBootstrapWrites(
         try writes.add(.{ .offset = registers.invalidate_range_high + delta, .value = 0x0000001f });
     }
     if (writes.count != 80) return error.InvalidAmdGartBootstrapWriteCount;
+}
+
+pub fn buildAmdGmc11GartBootstrapWrites(
+    registers: AmdGmc11GartRegisters,
+    aperture: AmdGmc11GartApertureValues,
+    system: AmdGmc11SystemApertureValues,
+    snapshot: *const AmdGmc11GartSnapshot,
+) !AmdRegisterWriteSet {
+    var writes = AmdRegisterWriteSet{};
+    try buildAmdGmc11GartBootstrapWritesInPlace(registers, aperture, system, snapshot, &writes);
     return writes;
 }
 
@@ -1295,6 +1306,22 @@ pub fn invalidateAmdGmc11Gart(
     return error.AmdGartInvalidateTimeout;
 }
 
+pub fn activateAmdGmc11Gart(
+    register_set: *const AmdGmc11GartRegisterSet,
+    registers: AmdGmc11GartRegisters,
+    writes: *const AmdRegisterWriteSet,
+    timeout_polls: u32,
+    io: AmdRegisterIo,
+    transaction: *AmdGmc11RegisterTransaction,
+) !AmdGmc11InvalidateResult {
+    try applyAmdGmc11RegisterTransactionInPlace(register_set, writes, io, transaction);
+    return invalidateAmdGmc11Gart(registers, 0, 0, timeout_polls, io) catch |err| {
+        restoreAmdGmc11GartSnapshot(transaction.snapshot, io) catch return error.AmdGartRollbackFailed;
+        transaction.writes_applied = 0;
+        return err;
+    };
+}
+
 // Boot-time validation runs before scheduler stacks exist, so keep its large
 // synthetic register state out of the firmware-provided entry stack.
 var amd_bootstrap_test_bank = AmdGartRegisterTestBank{};
@@ -1359,16 +1386,29 @@ pub fn validateAmdGmc11BootstrapWrites(
     system: AmdGmc11SystemApertureValues,
 ) !void {
     const register_set = try amdGmc11GartMutableRegisters(registers);
-    amd_bootstrap_test_bank = AmdGartRegisterTestBank{ .count = register_set.count };
+    amd_bootstrap_test_bank = AmdGartRegisterTestBank{ .count = register_set.count + 1 };
     const bank = &amd_bootstrap_test_bank;
     for (register_set.offsets[0..register_set.count], 0..) |offset, index| {
         bank.offsets[index] = offset;
         bank.values[index] = 0x5a000000 | @as(u32, @intCast(index));
     }
+    bank.offsets[register_set.count] = registers.invalidate_ack;
+    bank.values[register_set.count] = 0;
+    bank.invalidate_request = registers.invalidate_request;
+    bank.invalidate_ack = registers.invalidate_ack;
+    bank.values[bank.position(registers.invalidate_ack).?] = 0;
     amd_bootstrap_test_snapshot = try captureAmdGmc11GartSnapshot(register_set, bank.io());
     const snapshot = &amd_bootstrap_test_snapshot;
-    amd_bootstrap_test_writes = try buildAmdGmc11GartBootstrapWrites(registers, aperture, system, snapshot);
-    try applyAmdGmc11RegisterTransactionInPlace(&register_set, &amd_bootstrap_test_writes, bank.io(), &amd_bootstrap_test_transaction);
+    try buildAmdGmc11GartBootstrapWritesInPlace(registers, aperture, system, snapshot, &amd_bootstrap_test_writes);
+    bank.acknowledge_after_reads = 3;
+    const invalidation = try activateAmdGmc11Gart(
+        &register_set,
+        registers,
+        &amd_bootstrap_test_writes,
+        8,
+        bank.io(),
+        &amd_bootstrap_test_transaction,
+    );
     const transaction = &amd_bootstrap_test_transaction;
     if (transaction.writes_applied != 80 or bank.values[bank.position(registers.page_table_base_low).?] != aperture.page_table_base_low or
         bank.values[bank.position(registers.system_default_low).?] != system.default_low or
@@ -1384,20 +1424,19 @@ pub fn validateAmdGmc11BootstrapWrites(
             bank.values[bank.position(registers.invalidate_range_high + delta).?] != 0x1f)
             return error.AmdGartInvalidateRangeMismatch;
     }
-    bank.invalidate_request = registers.invalidate_request;
-    bank.invalidate_ack = registers.invalidate_ack;
-    bank.acknowledge_after_reads = 3;
-    bank.values[bank.position(registers.invalidate_ack).?] = 0;
-    const invalidation = try invalidateAmdGmc11Gart(registers, 0, 0, 8, bank.io());
     if (invalidation.polls != 3 or bank.values[bank.position(registers.invalidate_request).?] != 0x00f80001)
         return error.AmdGartInvalidateHandshakeMismatch;
+    try restoreAmdGmc11GartSnapshot(transaction.snapshot, bank.io());
+    for (snapshot.values[0..snapshot.count], bank.values[0..snapshot.count]) |expected, observed|
+        if (expected != observed) return error.AmdGartBootstrapRestoreMismatch;
+
     bank.acknowledge_after_reads = null;
     bank.values[bank.position(registers.invalidate_ack).?] = 0;
-    if (invalidateAmdGmc11Gart(registers, 0, 0, 2, bank.io())) |_| return error.AmdGartInvalidateTimeoutNotDetected else |err|
+    if (activateAmdGmc11Gart(&register_set, registers, &amd_bootstrap_test_writes, 2, bank.io(), transaction)) |_| return error.AmdGartInvalidateTimeoutNotDetected else |err|
         if (err != error.AmdGartInvalidateTimeout) return err;
-    try restoreAmdGmc11GartSnapshot(transaction.snapshot, bank.io());
-    for (snapshot.values[0..snapshot.count], bank.values[0..bank.count]) |expected, observed|
-        if (expected != observed) return error.AmdGartBootstrapRestoreMismatch;
+    for (snapshot.values[0..snapshot.count], bank.values[0..snapshot.count]) |expected, observed|
+        if (expected != observed) return error.AmdGartInvalidateTimeoutRollbackMismatch;
+    if (transaction.writes_applied != 0) return error.AmdGartInvalidateTimeoutTransactionStillActive;
 }
 
 pub fn validateAmdGmc11BootstrapWritesSelfTest() !void {
