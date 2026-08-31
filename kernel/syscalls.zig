@@ -27,6 +27,7 @@ pub var unmapped_mmaps: u64 = 0;
 pub var sendfile_calls: u64 = 0;
 pub var framebuffer_ioctls: u64 = 0;
 pub var framebuffer_mmaps: u64 = 0;
+pub var drm_ioctls: u64 = 0;
 var network_stack: ?*net.Stack = null;
 var framebuffer = Framebuffer{};
 var sockets: [4]Socket = .{Socket{}} ** 4;
@@ -83,6 +84,7 @@ pub fn configure(base: u64, size: u64, stack: u64, stack_length: u64, initial_br
     process_pause = null;
     framebuffer_ioctls = 0;
     framebuffer_mmaps = 0;
+    drm_ioctls = 0;
     sockets = .{Socket{}} ** sockets.len;
     vfs.reset();
 }
@@ -274,14 +276,63 @@ fn fcntl(fd: u64, command: u64, argument: u64) u64 {
 }
 
 fn ioctl(fd: u64, request: u64, address: u64) u64 {
-    if (!vfs.isFramebuffer(@intCast(fd))) return errno(25);
-    const result = switch (request) {
-        0x4600 => framebufferVariable(address),
-        0x4602 => framebufferFixed(address),
-        else => errno(25),
+    if (vfs.isFramebuffer(@intCast(fd))) {
+        const result = switch (request) {
+            0x4600 => framebufferVariable(address),
+            0x4602 => framebufferFixed(address),
+            else => errno(25),
+        };
+        if (result == 0) framebuffer_ioctls += 1;
+        return result;
+    }
+    if (vfs.isDrm(@intCast(fd))) {
+        const result = switch (request) {
+            0xc0406400 => drmVersion(address),
+            0xc010640c => drmGetCap(address),
+            else => errno(25),
+        };
+        if (result == 0) drm_ioctls += 1;
+        return result;
+    }
+    return errno(25);
+}
+
+fn drmVersion(address: u64) u64 {
+    if (!validUserSlice(address, 64)) return errno(14);
+    const output: [*]u8 = @ptrFromInt(address);
+    const name_length = read64(output + 16);
+    const name_address = read64(output + 24);
+    const date_length = read64(output + 32);
+    const date_address = read64(output + 40);
+    const description_length = read64(output + 48);
+    const description_address = read64(output + 56);
+    put32(output + 0, 1); put32(output + 4, 0); put32(output + 8, 0);
+    if (!copyDrmString(name_address, name_length, "csosdrm")) return errno(14);
+    if (!copyDrmString(date_address, date_length, "20260830")) return errno(14);
+    if (!copyDrmString(description_address, description_length, "CSOS display DRM")) return errno(14);
+    put64(output + 16, 7); put64(output + 32, 8); put64(output + 48, 16);
+    return 0;
+}
+
+fn copyDrmString(address: u64, capacity: u64, value: []const u8) bool {
+    if (capacity == 0) return true;
+    const count = @min(capacity, value.len);
+    if (address == 0 or !validUserSlice(address, count)) return false;
+    const target: [*]u8 = @ptrFromInt(address);
+    @memcpy(target[0..@intCast(count)], value[0..@intCast(count)]);
+    return true;
+}
+
+fn drmGetCap(address: u64) u64 {
+    if (!validUserSlice(address, 16)) return errno(14);
+    const output: [*]u8 = @ptrFromInt(address);
+    const capability = read64(output);
+    const value: u64 = switch (capability) {
+        0x6 => 1,
+        else => 0,
     };
-    if (result == 0) framebuffer_ioctls += 1;
-    return result;
+    put64(output + 8, value);
+    return 0;
 }
 
 fn framebufferVariable(address: u64) u64 {

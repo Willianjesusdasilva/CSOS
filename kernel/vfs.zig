@@ -5,7 +5,7 @@ const hello = "Hello from initramfs\n";
 const max_fds = 32;
 
 const Kind = enum { unused, console, file, directory, device };
-const Node = enum { root, bin, dev, busybox, hello, framebuffer, disk };
+const Node = enum { root, bin, dev, dri, busybox, hello, framebuffer, drm, disk };
 
 const Descriptor = struct {
     kind: Kind = .unused,
@@ -50,7 +50,7 @@ pub fn openAt(directory_fd: i64, path: []const u8, flags: u64) !usize {
     };
     const node = try resolve(directory_fd, path);
     const info = nodeInfo(node);
-    descriptors[fd] = .{ .kind = if (info.directory) .directory else if (node == .framebuffer) .device else .file, .node = node, .size = @intCast(info.size) };
+    descriptors[fd] = .{ .kind = if (info.directory) .directory else if (node == .framebuffer or node == .drm) .device else .file, .node = node, .size = @intCast(info.size) };
     return fd;
 }
 
@@ -79,6 +79,10 @@ pub fn isConsole(fd: usize) bool {
 
 pub fn isFramebuffer(fd: usize) bool {
     return fd < descriptors.len and descriptors[fd].kind == .device and descriptors[fd].node == .framebuffer;
+}
+
+pub fn isDrm(fd: usize) bool {
+    return fd < descriptors.len and descriptors[fd].kind == .device and descriptors[fd].node == .drm;
 }
 
 pub fn duplicateMinimum(old_fd: usize, minimum: usize) !usize {
@@ -161,7 +165,8 @@ pub fn getDents(fd: usize, output: []u8) !usize {
     const entries = switch (descriptors[fd].node) {
         .root => &[_][]const u8{ "bin", "dev", "hello.txt" },
         .bin => &[_][]const u8{ "busybox", "sh", "ls", "cat", "echo" },
-        .dev => &[_][]const u8{"fb0"},
+        .dev => &[_][]const u8{ "dri", "fb0" },
+        .dri => &[_][]const u8{"card0"},
         else => return error.NotDirectory,
     };
     var written: usize = 0;
@@ -173,7 +178,7 @@ pub fn getDents(fd: usize, output: []u8) !usize {
         write64(output[written..], descriptors[fd].offset + 1);
         write64(output[written + 8 ..], descriptors[fd].offset + 1);
         write16(output[written + 16 ..], @intCast(record_length));
-        output[written + 18] = if (equal(name, "bin") or equal(name, "dev")) 4 else 8;
+        output[written + 18] = if (equal(name, "bin") or equal(name, "dev") or equal(name, "dri")) 4 else 8;
         @memcpy(output[written + 19 .. written + 19 + name.len], name);
         written += record_length;
         descriptors[fd].offset += 1;
@@ -185,6 +190,8 @@ fn resolve(directory_fd: i64, path: []const u8) !Node {
     if (equal(path, "/") or equal(path, ".")) return .root;
     if (equal(path, "/bin") or equal(path, "bin")) return .bin;
     if (equal(path, "/dev") or equal(path, "dev")) return .dev;
+    if (equal(path, "/dev/dri")) return .dri;
+    if (equal(path, "/dev/dri/card0")) return .drm;
     if (equal(path, "/dev/fb0")) return .framebuffer;
     if (equal(path, "/hello.txt") or equal(path, "hello.txt")) return .hello;
     if (equal(path, "/bin/busybox") or equal(path, "/bin/sh") or equal(path, "/bin/ls") or
@@ -196,10 +203,11 @@ fn resolve(directory_fd: i64, path: []const u8) !Node {
 
 fn nodeInfo(node: Node) Info {
     return switch (node) {
-        .root, .bin, .dev => .{ .mode = 0o040755, .size = 0, .directory = true },
+        .root, .bin, .dev, .dri => .{ .mode = 0o040755, .size = 0, .directory = true },
         .busybox => .{ .mode = 0o100755, .size = busybox.len, .directory = false },
         .hello => .{ .mode = 0o100644, .size = hello.len, .directory = false },
         .framebuffer => .{ .mode = 0o020600, .size = 0, .directory = false },
+        .drm => .{ .mode = 0o020660, .size = 0, .directory = false },
         .disk => .{ .mode = 0o100644, .size = 0, .directory = false },
     };
 }

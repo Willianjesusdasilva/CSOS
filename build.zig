@@ -100,6 +100,17 @@ pub fn build(b: *std.Build) void {
     fbtest.entry = .{ .symbol_name = "_start" };
     fbtest.image_base = 0x0000008100000000;
 
+    const drmtest = b.addExecutable(.{
+        .name = "drmtest",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("userspace/drmtest.zig"),
+            .target = user_target,
+            .optimize = .ReleaseSmall,
+        }),
+    });
+    drmtest.entry = .{ .symbol_name = "_start" };
+    drmtest.image_base = 0x0000008200000000;
+
     const serial_module = b.createModule(.{ .root_source_file = b.path("arch/x86_64/serial.zig") });
     const gdt_module = b.createModule(.{ .root_source_file = b.path("arch/x86_64/gdt.zig") });
     const idt_module = b.createModule(.{ .root_source_file = b.path("arch/x86_64/idt.zig") });
@@ -166,6 +177,7 @@ pub fn build(b: *std.Build) void {
     process_module.addAnonymousImport("dynamic_elf", .{ .root_source_file = dynamic_hello.getEmittedBin() });
     process_module.addAnonymousImport("nettest_elf", .{ .root_source_file = nettest.getEmittedBin() });
     process_module.addAnonymousImport("fbtest_elf", .{ .root_source_file = fbtest.getEmittedBin() });
+    process_module.addAnonymousImport("drmtest_elf", .{ .root_source_file = drmtest.getEmittedBin() });
     process_module.addAnonymousImport("busybox_elf", .{ .root_source_file = b.path("userspace/initramfs/bin/busybox") });
     const kernel_module = b.createModule(.{ .root_source_file = b.path("kernel/main.zig") });
     kernel_module.addImport("serial", serial_module);
