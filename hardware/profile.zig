@@ -1,4 +1,4 @@
-const profile_version: u8 = 6;
+const profile_version: u8 = 7;
 
 pub const Cpu = struct {
     vendor: [12]u8,
@@ -20,6 +20,8 @@ pub const Facts = struct {
     gpu_revision: u8,
     gpu_subsystem_vendor: u16,
     gpu_subsystem_device: u16,
+    gpu_chipset: u16,
+    gpu_chip_revision: u8,
     gpu_msi: bool,
     gpu_msix: bool,
     gpu_bus: u8,
@@ -166,6 +168,8 @@ pub fn build(cpu: Cpu, facts: Facts) !Profile {
     try append(&result, "\nrevision="); try appendHex(&result, facts.gpu_revision);
     try append(&result, "\nsubsystem_vendor="); try appendHex(&result, facts.gpu_subsystem_vendor);
     try append(&result, "\nsubsystem_device="); try appendHex(&result, facts.gpu_subsystem_device);
+    try append(&result, "\nchipset="); try appendHex(&result, facts.gpu_chipset);
+    try append(&result, "\nchip_revision="); try appendHex(&result, facts.gpu_chip_revision);
     try append(&result, "\nmsi="); try append(&result, if (facts.gpu_msi) "true" else "false");
     try append(&result, "\nmsix="); try append(&result, if (facts.gpu_msix) "true" else "false");
     try append(&result, "\nbus="); try appendDecimal(&result, facts.gpu_bus);
@@ -198,6 +202,7 @@ fn signature(cpu: Cpu, facts: Facts) u64 {
     hash = hashInteger(hash, facts.logical_cpus); hash = hashInteger(hash, facts.memory_pages);
     hash = hashInteger(hash, facts.pci_devices); hash = hashInteger(hash, facts.gpu_vendor); hash = hashInteger(hash, facts.gpu_device);
     hash = hashInteger(hash, facts.gpu_revision); hash = hashInteger(hash, facts.gpu_subsystem_vendor); hash = hashInteger(hash, facts.gpu_subsystem_device);
+    hash = hashInteger(hash, facts.gpu_chipset); hash = hashInteger(hash, facts.gpu_chip_revision);
     hash = hashInteger(hash, @intFromBool(facts.gpu_msi)); hash = hashInteger(hash, @intFromBool(facts.gpu_msix));
     hash = hashInteger(hash, facts.gpu_bus); hash = hashInteger(hash, facts.gpu_slot);
     hash = hashInteger(hash, facts.nvme_vendor); hash = hashInteger(hash, facts.nvme_device); hash = hashInteger(hash, facts.nvme_namespaces);

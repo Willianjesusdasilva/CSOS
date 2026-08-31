@@ -13,6 +13,14 @@ pub const Driver = enum {
     nouveau,
 };
 
+pub const ChipIdentity = struct {
+    pci_device: u16,
+    pci_revision: u8,
+    chipset: ?u16 = null,
+    chip_revision: ?u8 = null,
+    boot0: ?u32 = null,
+};
+
 pub const Adapter = struct {
     device: pci.Device,
     driver: Driver,
@@ -23,6 +31,7 @@ pub const Adapter = struct {
 
     pub fn discover(device: pci.Device) !Adapter {
         if (device.class != 0x03) return error.NotDisplayController;
+        const driver = driverFor(device.vendor, device.device);
         var bars: [6]?pci.Bar = .{null} ** 6;
         var count: u8 = 0;
         var bytes: u64 = 0;
@@ -35,10 +44,15 @@ pub const Adapter = struct {
                 if (!bar.prefetchable and bar.size != 0 and (register_bar == null or bar.size < register_bar.?.size)) register_bar = bar;
             }
         }
+        if (driver == .nouveau) {
+            const bar0 = bars[0] orelse return error.NouveauPriBarMissing;
+            if (bar0.prefetchable or bar0.size == 0) return error.InvalidNouveauPriBar;
+            register_bar = bar0;
+        }
         pci.enableMemoryAndBusMaster(device);
         return .{
             .device = device,
-            .driver = driverFor(device.vendor, device.device),
+            .driver = driver,
             .bars = bars,
             .bar_count = count,
             .mmio_bytes = bytes,
@@ -63,7 +77,39 @@ pub const Adapter = struct {
         const register: *align(1) volatile u32 = @ptrFromInt(bar.address + offset);
         register.* = value;
     }
+
+    pub fn identifyChip(self: *const Adapter) !ChipIdentity {
+        var identity = ChipIdentity{
+            .pci_device = self.device.device,
+            .pci_revision = self.device.revision,
+        };
+        if (self.driver != .nouveau) return identity;
+        const boot0 = try self.readRegister(0);
+        const decoded = try decodeNouveauBoot0(boot0);
+        identity.chipset = decoded.chipset;
+        identity.chip_revision = decoded.revision;
+        identity.boot0 = boot0;
+        return identity;
+    }
 };
+
+pub const NouveauChip = struct { chipset: u16, revision: u8 };
+
+// NVKM derives modern NVIDIA chipset and revision fields from PMC_BOOT_0.
+// Legacy encodings intentionally remain unsupported until their init path exists.
+pub fn decodeNouveauBoot0(boot0: u32) !NouveauChip {
+    if (boot0 == 0xffffffff) return error.DeviceUnavailable;
+    if ((boot0 & 0x1f000000) == 0) return error.LegacyNouveauChipsetUnsupported;
+    return .{
+        .chipset = @intCast((boot0 & 0x1ff00000) >> 20),
+        .revision = @truncate(boot0),
+    };
+}
+
+comptime {
+    const tu102 = decodeNouveauBoot0(0x162000a1) catch @compileError("Nouveau BOOT0 decoder rejected a modern encoding");
+    if (tu102.chipset != 0x162 or tu102.revision != 0xa1) @compileError("Nouveau BOOT0 decoder produced the wrong identity");
+}
 
 pub const Firmware = struct {
     address: u64,
