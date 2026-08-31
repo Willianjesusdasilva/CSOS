@@ -693,6 +693,8 @@ pub const AmdGmc11GartRegisters = struct {
     context1_control: u32,
     page_table_base_low: u32,
     page_table_base_high: u32,
+    context1_page_table_base_low: u32,
+    context1_page_table_base_high: u32,
     page_table_start_low: u32,
     page_table_start_high: u32,
     page_table_end_low: u32,
@@ -846,6 +848,15 @@ pub const AmdGmc11ActivationWorkspace = struct {
     snapshot_digest: u64 = 0,
     write_digest: u64 = 0,
     invalidate_polls: u32 = 0,
+};
+pub const AmdGmc11VmContextWorkspace = struct {
+    register_set: AmdGmc11GartRegisterSet = .{},
+    transaction: AmdGmc11RegisterTransaction = .{ .snapshot = .{}, .writes_applied = 0 },
+    vmid: u4 = 0,
+    engine: u5 = 0,
+    root_page: u64 = 0,
+    invalidate_polls: u32 = 0,
+    bound: bool = false,
 };
 pub const AmdGpuVaMapping = struct {
     active: bool = false,
@@ -1823,6 +1834,7 @@ const AmdGartRegisterTestBank = struct {
     invalidate_ack: ?u32 = null,
     acknowledge_after_reads: ?u32 = null,
     acknowledge_reads: u32 = 0,
+    acknowledge_mask: u32 = 1,
 
     fn position(self: *const AmdGartRegisterTestBank, offset: u32) ?usize {
         for (self.offsets[0..self.count], 0..) |candidate, index| if (candidate == offset) return index;
@@ -1834,7 +1846,7 @@ const AmdGartRegisterTestBank = struct {
         if (self.invalidate_ack != null and self.invalidate_ack.? == offset and self.acknowledge_after_reads != null) {
             self.acknowledge_reads += 1;
             if (self.acknowledge_reads >= self.acknowledge_after_reads.?)
-                self.values[self.position(offset) orelse return error.UnknownAmdRegister] |= 1;
+                self.values[self.position(offset) orelse return error.UnknownAmdRegister] |= self.acknowledge_mask;
         }
         return self.values[self.position(offset) orelse return error.UnknownAmdRegister];
     }
@@ -1873,6 +1885,105 @@ pub fn invalidateAmdGmc11Gart(
             return .{ .engine = engine, .vmid = vmid, .polls = polls };
     }
     return error.AmdGartInvalidateTimeout;
+}
+
+pub fn amdGmc11VmContextRegisters(registers: AmdGmc11GartRegisters, vmid: u4) !AmdGmc11GartRegisterSet {
+    if (vmid == 0 or vmid > 15) return error.InvalidAmdGpuVmid;
+    const index = @as(u32, vmid) - 1;
+    const control_delta = index * registers.context_control_stride;
+    const address_delta = index * registers.context_address_stride;
+    var result = AmdGmc11GartRegisterSet{};
+    try result.add(registers.context1_control + control_delta);
+    try result.add(registers.context1_page_table_base_low + address_delta);
+    try result.add(registers.context1_page_table_base_high + address_delta);
+    try result.add(registers.context1_page_table_start_low + address_delta);
+    try result.add(registers.context1_page_table_start_high + address_delta);
+    try result.add(registers.context1_page_table_end_low + address_delta);
+    try result.add(registers.context1_page_table_end_high + address_delta);
+    return result;
+}
+
+pub fn buildAmdGmc11VmContextBindWrites(
+    registers: AmdGmc11GartRegisters,
+    vmid: u4,
+    root_page: u64,
+    snapshot: *const AmdGmc11GartSnapshot,
+) !AmdRegisterWriteSet {
+    if (root_page == 0 or (root_page & 4095) != 0 or (root_page & ~amd_gpu_page_address_mask) != 0)
+        return error.InvalidAmdGpuVmPage;
+    const context_registers = try amdGmc11VmContextRegisters(registers, vmid);
+    if (snapshot.count != context_registers.count) return error.InvalidAmdGartSnapshot;
+    const address_delta = (@as(u32, vmid) - 1) * registers.context_address_stride;
+    const control_offset = registers.context1_control + (@as(u32, vmid) - 1) * registers.context_control_stride;
+    if (try amdSnapshotValue(snapshot, control_offset) != 0) return error.AmdGpuVmContextNotDisabled;
+    const pd_address = try amdGpuVmSystemPde(root_page, amd_gpu_pde_bfs_9);
+    var writes = AmdRegisterWriteSet{};
+    try writes.add(.{ .offset = registers.context1_page_table_base_low + address_delta, .value = @truncate(pd_address) });
+    try writes.add(.{ .offset = registers.context1_page_table_base_high + address_delta, .value = @truncate(pd_address >> 32) });
+    try writes.add(.{ .offset = registers.context1_page_table_start_low + address_delta, .value = 0 });
+    try writes.add(.{ .offset = registers.context1_page_table_start_high + address_delta, .value = 0 });
+    try writes.add(.{ .offset = registers.context1_page_table_end_low + address_delta, .value = 0xffffffff });
+    try writes.add(.{ .offset = registers.context1_page_table_end_high + address_delta, .value = 0x0000000f });
+    // Four page-table levels mean depth=3. Block size 9 gives 512 entries.
+    // Default fault responses are enabled; retry stays disabled to avoid storms.
+    try writes.add(.{ .offset = control_offset, .value = try amdRmw(snapshot, control_offset, 0x005555ff, 0x00555407) });
+    return writes;
+}
+
+pub fn bindAmdGmc11VmContext(
+    workspace: *AmdGmc11VmContextWorkspace,
+    registers: AmdGmc11GartRegisters,
+    vmid: u4,
+    root_page: u64,
+    engine: u5,
+    timeout_polls: u32,
+    io: AmdRegisterIo,
+) !AmdGmc11InvalidateResult {
+    if (workspace.bound) return error.AmdGpuVmContextAlreadyBound;
+    workspace.* = .{};
+    workspace.register_set = try amdGmc11VmContextRegisters(registers, vmid);
+    workspace.transaction.snapshot = try captureAmdGmc11GartSnapshot(workspace.register_set, io);
+    const writes = try buildAmdGmc11VmContextBindWrites(registers, vmid, root_page, &workspace.transaction.snapshot);
+    try applyAmdGmc11RegisterTransactionInPlace(&workspace.register_set, &writes, io, &workspace.transaction);
+    const invalidation = invalidateAmdGmc11Gart(registers, engine, vmid, timeout_polls, io) catch |err| {
+        restoreAmdGmc11GartSnapshot(workspace.transaction.snapshot, io) catch return error.AmdGartRollbackFailed;
+        workspace.* = .{};
+        return err;
+    };
+    workspace.vmid = vmid;
+    workspace.engine = engine;
+    workspace.root_page = root_page;
+    workspace.invalidate_polls = invalidation.polls;
+    workspace.bound = true;
+    return invalidation;
+}
+
+pub fn unbindAmdGmc11VmContext(
+    workspace: *AmdGmc11VmContextWorkspace,
+    registers: AmdGmc11GartRegisters,
+    timeout_polls: u32,
+    io: AmdRegisterIo,
+) !AmdGmc11InvalidateResult {
+    if (!workspace.bound or workspace.vmid == 0) return error.AmdGpuVmContextNotBound;
+    const expected_set = try amdGmc11VmContextRegisters(registers, workspace.vmid);
+    if (expected_set.count != workspace.register_set.count) return error.AmdGpuVmContextRegisterMismatch;
+    for (expected_set.offsets[0..expected_set.count], workspace.register_set.offsets[0..workspace.register_set.count]) |expected, stored|
+        if (expected != stored) return error.AmdGpuVmContextRegisterMismatch;
+    var writes = AmdRegisterWriteSet{};
+    // Disable the context before restoring its address registers.
+    try writes.add(.{ .offset = workspace.register_set.offsets[0], .value = workspace.transaction.snapshot.values[0] });
+    for (1..workspace.register_set.count) |index| try writes.add(.{
+        .offset = workspace.register_set.offsets[index],
+        .value = workspace.transaction.snapshot.values[index],
+    });
+    var unbind_transaction = AmdGmc11RegisterTransaction{ .snapshot = .{}, .writes_applied = 0 };
+    try applyAmdGmc11RegisterTransactionInPlace(&workspace.register_set, &writes, io, &unbind_transaction);
+    const invalidation = invalidateAmdGmc11Gart(registers, workspace.engine, workspace.vmid, timeout_polls, io) catch |err| {
+        restoreAmdGmc11GartSnapshot(unbind_transaction.snapshot, io) catch return error.AmdGartRollbackFailed;
+        return err;
+    };
+    workspace.* = .{};
+    return invalidation;
 }
 
 pub fn activateAmdGmc11Gart(
@@ -2079,6 +2190,75 @@ pub fn validateAmdGmc11BootstrapWritesSelfTest() !void {
         .fault_default_low = 0x5000,
         .fault_default_high = 0,
     });
+}
+
+pub fn validateAmdGmc11VmContextSelfTest() !void {
+    const plan = AmdGartPlan{
+        .family = .v11_0,
+        .gfxhub_base = null,
+        .mmhub_base = 0x300,
+        .table_cpu_address = 0x800000,
+        .entries = 512,
+        .window_bytes = 2 * 1024 * 1024,
+    };
+    const registers = try resolveAmdGmc11GartRegisters(plan, 0x4000);
+    const vmid: u4 = 3;
+    const engine: u5 = 2;
+    const root_page: u64 = 0x0000123456789000;
+    const register_set = try amdGmc11VmContextRegisters(registers, vmid);
+    var bank = AmdGartRegisterTestBank{ .count = register_set.count + 2, .acknowledge_mask = @as(u32, 1) << vmid };
+    for (register_set.offsets[0..register_set.count], 0..) |offset, index| {
+        bank.offsets[index] = offset;
+        bank.values[index] = if (index == 0) 0 else 0xa0000000 | @as(u32, @intCast(index));
+    }
+    const request_offset = registers.invalidate_request + @as(u32, engine) * registers.invalidate_engine_stride;
+    const ack_offset = registers.invalidate_ack + @as(u32, engine) * registers.invalidate_engine_stride;
+    bank.offsets[register_set.count] = request_offset;
+    bank.offsets[register_set.count + 1] = ack_offset;
+    bank.invalidate_request = request_offset;
+    bank.invalidate_ack = ack_offset;
+    var original: [7]u32 = undefined;
+    @memcpy(&original, bank.values[0..7]);
+
+    var workspace = AmdGmc11VmContextWorkspace{};
+    bank.acknowledge_after_reads = 2;
+    const bound = try bindAmdGmc11VmContext(&workspace, registers, vmid, root_page, engine, 8, bank.io());
+    const address_delta = (@as(u32, vmid) - 1) * registers.context_address_stride;
+    const control_delta = (@as(u32, vmid) - 1) * registers.context_control_stride;
+    const pd_address = try amdGpuVmSystemPde(root_page, amd_gpu_pde_bfs_9);
+    if (!workspace.bound or workspace.transaction.writes_applied != 7 or bound.polls != 2 or
+        bank.values[bank.position(registers.context1_page_table_base_low + address_delta).?] != @as(u32, @truncate(pd_address)) or
+        bank.values[bank.position(registers.context1_page_table_base_high + address_delta).?] != @as(u32, @truncate(pd_address >> 32)) or
+        bank.values[bank.position(registers.context1_page_table_end_low + address_delta).?] != 0xffffffff or
+        bank.values[bank.position(registers.context1_page_table_end_high + address_delta).?] != 0x0f or
+        bank.values[bank.position(registers.context1_control + control_delta).?] != ((original[0] & ~@as(u32, 0x005555ff)) | 0x00555407) or
+        bank.values[bank.position(request_offset).?] != 0x00f80008)
+        return error.AmdGpuVmContextBindMismatch;
+
+    var bound_values: [7]u32 = undefined;
+    @memcpy(&bound_values, bank.values[0..7]);
+    bank.acknowledge_after_reads = null;
+    bank.values[bank.position(ack_offset).?] = 0;
+    if (unbindAmdGmc11VmContext(&workspace, registers, 2, bank.io())) |_| return error.AmdGpuVmContextUnbindTimeoutNotDetected else |err|
+        if (err != error.AmdGartInvalidateTimeout) return err;
+    if (!workspace.bound) return error.AmdGpuVmContextLostAfterUnbindTimeout;
+    for (bound_values, bank.values[0..7]) |expected, observed| if (expected != observed)
+        return error.AmdGpuVmContextUnbindRollbackMismatch;
+
+    bank.acknowledge_after_reads = 1;
+    bank.values[bank.position(ack_offset).?] = 0;
+    _ = try unbindAmdGmc11VmContext(&workspace, registers, 4, bank.io());
+    if (workspace.bound) return error.AmdGpuVmContextStillBound;
+    for (original, bank.values[0..7]) |expected, observed| if (expected != observed)
+        return error.AmdGpuVmContextRestoreMismatch;
+
+    bank.acknowledge_after_reads = null;
+    bank.values[bank.position(ack_offset).?] = 0;
+    if (bindAmdGmc11VmContext(&workspace, registers, vmid, root_page, engine, 2, bank.io())) |_| return error.AmdGpuVmContextBindTimeoutNotDetected else |err|
+        if (err != error.AmdGartInvalidateTimeout) return err;
+    if (workspace.bound) return error.AmdGpuVmContextBoundAfterTimeout;
+    for (original, bank.values[0..7]) |expected, observed| if (expected != observed)
+        return error.AmdGpuVmContextBindRollbackMismatch;
 }
 
 pub fn validateAmdGmc11MmioTransportSelfTest() !void {
@@ -2337,6 +2517,8 @@ pub fn resolveAmdGmc11GartRegisters(plan: AmdGartPlan, register_bar_bytes: u64) 
         .context1_control = try resolveAmdRegister(plan.mmhub_base, 0x0741, register_bar_bytes),
         .page_table_base_low = try resolveAmdRegister(plan.mmhub_base, 0x07ab, register_bar_bytes),
         .page_table_base_high = try resolveAmdRegister(plan.mmhub_base, 0x07ac, register_bar_bytes),
+        .context1_page_table_base_low = try resolveAmdRegister(plan.mmhub_base, 0x07ad, register_bar_bytes),
+        .context1_page_table_base_high = try resolveAmdRegister(plan.mmhub_base, 0x07ae, register_bar_bytes),
         .page_table_start_low = try resolveAmdRegister(plan.mmhub_base, 0x07cb, register_bar_bytes),
         .page_table_start_high = try resolveAmdRegister(plan.mmhub_base, 0x07cc, register_bar_bytes),
         .page_table_end_low = try resolveAmdRegister(plan.mmhub_base, 0x07eb, register_bar_bytes),

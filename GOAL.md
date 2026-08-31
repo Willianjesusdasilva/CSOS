@@ -1826,7 +1826,8 @@ GFX11 48-bit page-path and PDE/PTE encoding: implemented and host-tested
 dynamic branch sharing/reference/prune plan: implemented and host-tested
 dynamic physical page-table allocation/link/prune: implemented and host-tested
 GEM_VA immediate GTT MAP/UNMAP software path: implemented; Radeon validation pending
-GPUVM context-register programming and TLB invalidation: pending
+MMHUB 3.0 VMID bind/unbind register transaction: implemented and host-tested
+real-MMIO lifecycle integration and Radeon validation: pending
 rings and command submission: pending
 AMD RADV triangle on real hardware: pending
 NVIDIA NVK/compatible-stack triangle on real hardware: pending

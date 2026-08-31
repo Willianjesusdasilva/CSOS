@@ -724,8 +724,15 @@ para MAP/UNMAP imediato de páginas GTT. MAP é transacional entre todas as
 páginas pedidas e aceita apenas R/W/X já codificados pelo GFX11; timeline,
 delayed update, PRT, MTYPE e operações CLEAR/REPLACE retornam erro enquanto não
 forem reais. UNMAP pré-valida o intervalo inteiro, e fechar um BO ainda mapeado
-retorna busy. Os context registers permanecem desabilitados até o vínculo do
-PDB2 por VM ser programado e invalidado em hardware.
+retorna busy. Os context registers permanecem desabilitados no runtime. O plano
+de vínculo já existe para MMHUB 3.0/GMC11: exige o contexto previamente
+desabilitado, escreve o PD address da raiz com
+`VALID|SYSTEM|SNOOPED|BFS=9`, cobre o intervalo PFN de 48 bits, habilita
+profundidade 3 e os faults-default, e invalida somente o VMID selecionado. Bind
+e unbind possuem snapshot, readback e rollback inclusive quando o ACK de
+invalidação expira. Esse plano ainda não é chamado pelo ioctl nem autoriza MMIO
+real; falta conectá-lo ao gate de hardware e ao lifecycle do arquivo DRM em uma
+Radeon validada.
 Para VA de 48 bits, o walker segue `PDB2[47:39] → PDB1[38:30] →
 PDB0[29:21] → PTB[20:12]`, com offset `[11:0]`. Cada nível possui até 512
 entradas de 64 bits e ocupa uma página de 4 KiB, conforme a geometria do

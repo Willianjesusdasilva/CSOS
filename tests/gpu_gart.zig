@@ -8,6 +8,10 @@ test "GMC 11 MMIO transport requires explicit authorization and arming" {
     try gpu.validateAmdGmc11MmioTransportSelfTest();
 }
 
+test "GMC 11 VM context bind and unbind invalidate transactionally" {
+    try gpu.validateAmdGmc11VmContextSelfTest();
+}
+
 test "AMDGPU VMIDs isolate mappings and reject overlap" {
     try gpu.validateAmdGpuVmManagerSelfTest();
 }
