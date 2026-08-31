@@ -229,7 +229,11 @@ pub fn start(info: BootInfo) noreturn {
     serial.write("CSOS M14 userspace framebuffer mmap ready\n");
     const drm_guard: *volatile const u32 = @ptrFromInt(info.framebuffer.base + 16380);
     const drm_guard_before = drm_guard.*;
-    process.runDrmTest(mapper.root, &pages) catch panic("Linux DRM core userspace failed");
+    process.runDrmTest(mapper.root, &pages) catch {
+        serial.write("DRM last request: "); serial.writeDecimal(syscalls.drm_last_request);
+        serial.write(" result: "); serial.writeDecimal(syscalls.drm_last_result); serial.write("\n");
+        panic("Linux DRM core userspace failed");
+    };
     mapper.activate();
     if (syscalls.drm_ioctls != 35 or syscalls.drm_mmaps != 2) panic("Linux DRM ioctl coverage failed");
     if (syscalls.drm_allocations != 3 or syscalls.drm_releases != 3) panic("DRM backing memory lifecycle failed");

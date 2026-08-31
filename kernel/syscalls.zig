@@ -32,11 +32,13 @@ pub var drm_ioctls: u64 = 0;
 pub var drm_mmaps: u64 = 0;
 pub var drm_allocations: u64 = 0;
 pub var drm_releases: u64 = 0;
+pub var drm_last_request: u64 = 0;
+pub var drm_last_result: u64 = 0;
 var network_stack: ?*net.Stack = null;
 var framebuffer = Framebuffer{};
 const max_drm_objects = 8;
 const drm_object_stride: u64 = 16 * 1024 * 1024;
-const DrmObject = struct { allocated: bool = false, handle: u32 = 0, size: u64 = 0, physical_address: u64 = 0, pages: u64 = 0, map_offset: u64 = 0 };
+const DrmObject = struct { allocated: bool = false, handle_open: bool = false, framebuffer_reference: bool = false, handle: u32 = 0, size: u64 = 0, physical_address: u64 = 0, pages: u64 = 0, map_offset: u64 = 0 };
 var drm_objects: [max_drm_objects]DrmObject = .{DrmObject{}} ** max_drm_objects;
 var drm_pages: ?*physical.Allocator = null;
 var drm_framebuffer_created = false;
@@ -318,6 +320,7 @@ fn ioctl(fd: u64, request: u64, address: u64) u64 {
         const result = switch (request) {
             0xc0406400 => drmVersion(address),
             0xc010640c => drmGetCap(address),
+            0x40086409 => drmGemClose(address),
             0xc02064b2 => if (render) errno(25) else drmCreateDumb(address),
             0xc01064b3 => if (render) errno(25) else drmMapDumb(address),
             0xc00464b4 => if (render) errno(25) else drmDestroyDumb(address),
@@ -336,8 +339,12 @@ fn ioctl(fd: u64, request: u64, address: u64) u64 {
             0xc03064ca => drmSyncobjTimelineWait(address),
             0xc01864cb => drmSyncobjTimelineQuery(address),
             0xc01864cd => drmSyncobjTimelineSignal(address),
+            0xc0206440 => if (drm_driver == .amdgpu) amdgpuGemCreate(address) else errno(25),
+            0xc0086441 => if (drm_driver == .amdgpu) amdgpuGemMmap(address) else errno(25),
             else => errno(25),
         };
+        drm_last_request = request;
+        drm_last_result = result;
         if (result == 0) drm_ioctls += 1;
         return result;
     }
@@ -532,8 +539,44 @@ fn drmCreateDumb(address: u64) u64 {
     put32(output + 16, handle);
     put32(output + 20, @intCast(pitch));
     put64(output + 24, size);
-    drm_objects[object_index] = .{ .allocated = true, .handle = handle, .size = size, .physical_address = allocation, .pages = page_count, .map_offset = @as(u64, @intCast(object_index)) * drm_object_stride };
+    drm_objects[object_index] = .{ .allocated = true, .handle_open = true, .handle = handle, .size = size, .physical_address = allocation, .pages = page_count, .map_offset = @as(u64, @intCast(object_index)) * drm_object_stride };
     drm_allocations += 1;
+    return 0;
+}
+
+fn amdgpuGemCreate(address: u64) u64 {
+    if (!validUserSlice(address, 32)) return errno(14);
+    const io: [*]u8 = @ptrFromInt(address);
+    const size = read64(io);
+    const alignment = read64(io + 8);
+    const domains = read64(io + 16);
+    const flags = read64(io + 24);
+    if (size == 0 or size > drm_object_stride or (alignment != 0 and (alignment > 4096 or (alignment & (alignment - 1)) != 0))) return errno(22);
+    // Until GART/VRAM placement exists, only CPU and page-backed GTT candidates
+    // are accepted. Claiming VRAM here would make RADV infer false residency.
+    if (domains == 0 or (domains & ~@as(u64, 0x3)) != 0 or (flags & ~@as(u64, 0x5)) != 0) return errno(95);
+    var free_index: ?usize = null;
+    for (drm_objects, 0..) |object, index| if (!object.allocated) { free_index = index; break; };
+    const object_index = free_index orelse return errno(12);
+    const page_count = (size + 4095) / 4096;
+    const pages = drm_pages orelse return errno(19);
+    const allocation = pages.allocate(page_count) orelse return errno(12);
+    const memory: [*]u8 = @ptrFromInt(allocation);
+    @memset(memory[0..@intCast(page_count * 4096)], 0);
+    const handle: u32 = @intCast(object_index + 1);
+    drm_objects[object_index] = .{ .allocated = true, .handle_open = true, .handle = handle, .size = size, .physical_address = allocation, .pages = page_count, .map_offset = @as(u64, @intCast(object_index)) * drm_object_stride };
+    put32(io, handle);
+    put32(io + 4, 0);
+    drm_allocations += 1;
+    return 0;
+}
+
+fn amdgpuGemMmap(address: u64) u64 {
+    if (!validUserSlice(address, 8)) return errno(14);
+    const io: [*]u8 = @ptrFromInt(address);
+    if (read32(io + 4) != 0) return errno(22);
+    const object = drmObjectForHandle(read32(io)) orelse return errno(2);
+    put64(io, object.map_offset);
     return 0;
 }
 
@@ -549,9 +592,20 @@ fn drmDestroyDumb(address: u64) u64 {
     if (!validUserSlice(address, 4)) return errno(14);
     const input: [*]const u8 = @ptrFromInt(address);
     const handle = read32(input);
-    if (drm_framebuffer_created and drm_framebuffer_handle == handle) return errno(16);
+    return drmCloseHandle(handle);
+}
+
+fn drmGemClose(address: u64) u64 {
+    if (!validUserSlice(address, 8)) return errno(14);
+    const input: [*]const u8 = @ptrFromInt(address);
+    if (read32(input + 4) != 0) return errno(22);
+    return drmCloseHandle(read32(input));
+}
+
+fn drmCloseHandle(handle: u32) u64 {
     const object = drmObjectForHandle(handle) orelse return errno(2);
-    releaseDrmObject(object);
+    object.handle_open = false;
+    if (!object.framebuffer_reference) releaseDrmObject(object);
     return 0;
 }
 
@@ -567,7 +621,7 @@ fn releaseAllDrmObjects() void { for (&drm_objects) |*object| releaseDrmObject(o
 fn drmObjectForHandle(handle: u32) ?*DrmObject {
     if (handle == 0 or handle > drm_objects.len) return null;
     const object = &drm_objects[handle - 1];
-    return if (object.allocated and object.handle == handle) object else null;
+    return if (object.allocated and object.handle_open and object.handle == handle) object else null;
 }
 fn drmObjectForMap(offset: u64, length: u64) ?*DrmObject {
     for (&drm_objects) |*object| {
@@ -662,6 +716,7 @@ fn drmAddFramebuffer(address: u64) u64 {
     put32(output, 4);
     drm_framebuffer_created = true;
     drm_framebuffer_handle = handle;
+    object.framebuffer_reference = true;
     return 0;
 }
 
@@ -683,6 +738,9 @@ fn drmRemoveFramebuffer(address: u64) u64 {
     const input: [*]const u8 = @ptrFromInt(address);
     if (!drm_framebuffer_created or read32(input) != 4) return errno(2);
     drm_scanout_framebuffer = 0;
+    const object = &drm_objects[drm_framebuffer_handle - 1];
+    object.framebuffer_reference = false;
+    if (!object.handle_open) releaseDrmObject(object);
     drm_framebuffer_created = false;
     drm_framebuffer_handle = 0;
     return 0;

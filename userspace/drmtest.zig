@@ -6,10 +6,10 @@ pub export var name: [16]u8 = .{0} ** 16;
 pub export var capability: [16]u8 = .{0} ** 16;
 pub export var dumb_create: [32]u8 = .{0} ** 32;
 pub export var dumb_map: [16]u8 = .{0} ** 16;
-pub export var dumb_destroy: [4]u8 = .{0} ** 4;
+pub export var dumb_destroy: [8]u8 = .{0} ** 8;
 pub export var second_create: [32]u8 = .{0} ** 32;
 pub export var second_map: [16]u8 = .{0} ** 16;
-pub export var second_destroy: [4]u8 = .{0} ** 4;
+pub export var second_destroy: [8]u8 = .{0} ** 8;
 pub export var resources: [64]u8 = .{0} ** 64;
 pub export var resource_ids: [3]u32 = .{ 0, 0, 0 };
 pub export var connector: [80]u8 = .{0} ** 80;
@@ -170,10 +170,17 @@ pub export fn _start() callconv(.naked) noreturn {
         \\movl $2, second_destroy(%%rip)
         \\movq $16, %%rax
         \\movq %%r12, %%rdi
-        \\movq $0xc00464b4, %%rsi
+        \\movq $0x40086409, %%rsi
         \\leaq second_destroy(%%rip), %%rdx
         \\syscall
         \\testq %%rax, %%rax
+        \\jne 1f
+        \\movq $16, %%rax
+        \\movq %%r12, %%rdi
+        \\movq $0xc01064b3, %%rsi
+        \\leaq second_map(%%rip), %%rdx
+        \\syscall
+        \\cmpq $-2, %%rax
         \\jne 1f
         \\movq $11, %%rax
         \\movq %%r13, %%rdi
@@ -331,18 +338,18 @@ pub export fn _start() callconv(.naked) noreturn {
         \\jne 1f
         \\cmpl $4, crtc+16(%%rip)
         \\jne 1f
+        \\movl $1, dumb_destroy(%%rip)
+        \\movq $16, %%rax
+        \\movq %%r12, %%rdi
+        \\movq $0x40086409, %%rsi
+        \\leaq dumb_destroy(%%rip), %%rdx
+        \\syscall
+        \\testq %%rax, %%rax
+        \\jne 1f
         \\movq $16, %%rax
         \\movq %%r12, %%rdi
         \\movq $0xc00464af, %%rsi
         \\leaq framebuffer_command(%%rip), %%rdx
-        \\syscall
-        \\testq %%rax, %%rax
-        \\jne 1f
-        \\movl $1, dumb_destroy(%%rip)
-        \\movq $16, %%rax
-        \\movq %%r12, %%rdi
-        \\movq $0xc00464b4, %%rsi
-        \\leaq dumb_destroy(%%rip), %%rdx
         \\syscall
         \\testq %%rax, %%rax
         \\jne 1f
