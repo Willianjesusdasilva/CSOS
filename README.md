@@ -704,6 +704,12 @@ rejeitada em vez de escolher firmware por suposição. Nenhuma dessas etapas,
 isoladamente, representa aceleração 3D nem
 suporte Vulkan concluído.
 
+A ABI AMDGPU inicial também preserva por BO tamanho, alinhamento, domínio e
+flags de criação, implementa `AMDGPU_GEM_METADATA` (set/get de até 256 bytes) e
+`AMDGPU_GEM_WAIT_IDLE`. Este último só retorna idle porque command submission
+ainda é recusado; `AMDGPU_INFO_ACCEL_WORKING` continua zero. VM e CS não são
+simulados antes de existir page table por processo e ring verificado.
+
 O handoff PSP é mantido declarativo: KDB, SPL, SYS_DRV e SOS são ordenados como
 no fluxo upstream e apontam para suas fontes físicas validadas. Uma única área
 de transferência é reservada com alinhamento de 1 MiB, necessário para o

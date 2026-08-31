@@ -38,7 +38,23 @@ var network_stack: ?*net.Stack = null;
 var framebuffer = Framebuffer{};
 const max_drm_objects = 8;
 const drm_object_stride: u64 = 16 * 1024 * 1024;
-const DrmObject = struct { allocated: bool = false, handle_open: bool = false, framebuffer_reference: bool = false, handle: u32 = 0, size: u64 = 0, physical_address: u64 = 0, pages: u64 = 0, map_offset: u64 = 0 };
+const DrmObject = struct {
+    allocated: bool = false,
+    handle_open: bool = false,
+    framebuffer_reference: bool = false,
+    handle: u32 = 0,
+    size: u64 = 0,
+    physical_address: u64 = 0,
+    pages: u64 = 0,
+    map_offset: u64 = 0,
+    alignment: u64 = 0,
+    domains: u64 = 0,
+    allocation_flags: u64 = 0,
+    metadata_flags: u64 = 0,
+    tiling_info: u64 = 0,
+    metadata_size: u32 = 0,
+    metadata: [64]u32 = .{0} ** 64,
+};
 var drm_objects: [max_drm_objects]DrmObject = .{DrmObject{}} ** max_drm_objects;
 var drm_pages: ?*physical.Allocator = null;
 var drm_framebuffer_created = false;
@@ -342,6 +358,8 @@ fn ioctl(fd: u64, request: u64, address: u64) u64 {
             0xc0206440 => if (drm_driver == .amdgpu) amdgpuGemCreate(address) else errno(25),
             0xc0086441 => if (drm_driver == .amdgpu) amdgpuGemMmap(address) else errno(25),
             0x40206445 => if (drm_driver == .amdgpu) amdgpuInfo(address) else errno(25),
+            0xc1206446 => if (drm_driver == .amdgpu) amdgpuGemMetadata(address) else errno(25),
+            0xc0106447 => if (drm_driver == .amdgpu) amdgpuGemWaitIdle(address) else errno(25),
             else => errno(25),
         };
         drm_last_request = request;
@@ -565,7 +583,7 @@ fn amdgpuGemCreate(address: u64) u64 {
     const memory: [*]u8 = @ptrFromInt(allocation);
     @memset(memory[0..@intCast(page_count * 4096)], 0);
     const handle: u32 = @intCast(object_index + 1);
-    drm_objects[object_index] = .{ .allocated = true, .handle_open = true, .handle = handle, .size = size, .physical_address = allocation, .pages = page_count, .map_offset = @as(u64, @intCast(object_index)) * drm_object_stride };
+    drm_objects[object_index] = .{ .allocated = true, .handle_open = true, .handle = handle, .size = size, .physical_address = allocation, .pages = page_count, .map_offset = @as(u64, @intCast(object_index)) * drm_object_stride, .alignment = if (alignment == 0) 4096 else alignment, .domains = domains, .allocation_flags = flags };
     put32(io, handle);
     put32(io + 4, 0);
     drm_allocations += 1;
@@ -578,6 +596,44 @@ fn amdgpuGemMmap(address: u64) u64 {
     if (read32(io + 4) != 0) return errno(22);
     const object = drmObjectForHandle(read32(io)) orelse return errno(2);
     put64(io, object.map_offset);
+    return 0;
+}
+
+fn amdgpuGemMetadata(address: u64) u64 {
+    if (!validUserSlice(address, 288)) return errno(14);
+    const io: [*]u8 = @ptrFromInt(address);
+    const object = drmObjectForHandle(read32(io)) orelse return errno(2);
+    const operation = read32(io + 4);
+    if (operation == 1) {
+        const size = read32(io + 24);
+        if (size > 256) return errno(22);
+        object.metadata_flags = read64(io + 8);
+        object.tiling_info = read64(io + 16);
+        object.metadata_size = size;
+        @memset(&object.metadata, 0);
+        const words = (size + 3) / 4;
+        var index: usize = 0;
+        while (index < words) : (index += 1) object.metadata[index] = read32(io + 28 + index * 4);
+        return 0;
+    }
+    if (operation != 2) return errno(22);
+    put64(io + 8, object.metadata_flags);
+    put64(io + 16, object.tiling_info);
+    put32(io + 24, object.metadata_size);
+    @memset(io[28..288], 0);
+    const words = (object.metadata_size + 3) / 4;
+    var index: usize = 0;
+    while (index < words) : (index += 1) put32(io + 28 + index * 4, object.metadata[index]);
+    return 0;
+}
+
+fn amdgpuGemWaitIdle(address: u64) u64 {
+    if (!validUserSlice(address, 16)) return errno(14);
+    const io: [*]u8 = @ptrFromInt(address);
+    if (read32(io + 4) != 0) return errno(22);
+    if (drmObjectForHandle(read32(io)) == null) return errno(2);
+    // Command submission is still unavailable, so every accepted BO is idle.
+    @memset(io[0..16], 0);
     return 0;
 }
 
