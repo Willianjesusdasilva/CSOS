@@ -484,6 +484,7 @@ pub fn start(info: BootInfo) noreturn {
     const gpu_firmware_mappings = if (gpu_firmware) |firmware| firmware.mappingCount() catch panic("GPU firmware manifest invalid") else 0;
     const gpu_selection = if (gpu_firmware) |firmware| firmware.select(display_device, gpu_adapter.driver) catch panic("GPU firmware selection invalid") else null;
     const gpu_backend_entries = if (gpu_selection) |selection| selection.entries else 0;
+    const gpu_required_blocks = if (gpu_selection) |selection| selection.required_blocks else 0;
     if ((gpu_adapter.driver == .amdgpu or gpu_adapter.driver == .nouveau) and gpu_selection == null) panic("GPU model firmware mapping missing");
     const gpu_validated_entries = if (gpu_firmware) |firmware|
         if (gpu_selection) |selection| firmware.validateSelection(selection, gpu_adapter.driver) catch panic("GPU firmware validation failed") else 0
@@ -516,6 +517,7 @@ pub fn start(info: BootInfo) noreturn {
     serial.write(" catalog: "); serial.writeDecimal(gpu_catalog_entries);
     serial.write(" mappings: "); serial.writeDecimal(gpu_firmware_mappings);
     serial.write(" selected: "); serial.writeDecimal(gpu_backend_entries);
+    serial.write(" required-mask: "); serial.writeDecimal(gpu_required_blocks);
     serial.write(" validated: "); serial.writeDecimal(gpu_validated_entries);
     serial.write(" payloads: "); serial.writeDecimal(gpu_inventory.entries);
     serial.write(" payload-bytes: "); serial.writeDecimal(gpu_inventory.payload_bytes);

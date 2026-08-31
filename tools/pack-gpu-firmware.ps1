@@ -35,7 +35,12 @@ try {
     }
     if ($Mapping) {
         foreach ($line in $Mapping) {
-            if ($line -notmatch '^[0-9A-Fa-f]{4}:[0-9A-Fa-f]{4}(:[0-9A-Fa-f]{2})?(@[0-9A-Fa-f]{4}:[0-9A-Fa-f]{4})?=(amdgpu|nouveau)/' -or -not $line.EndsWith('/')) { throw "Invalid GPU firmware mapping: $line" }
+            if ($line -notmatch '^[0-9A-Fa-f]{4}:[0-9A-Fa-f]{4}(:[0-9A-Fa-f]{2})?(@[0-9A-Fa-f]{4}:[0-9A-Fa-f]{4})?=(amdgpu|nouveau)/[^|]+/(\|(security|management|memory|graphics|dma|display|media|discovery|other)(,(security|management|memory|graphics|dma|display|media|discovery|other))*)?$') { throw "Invalid GPU firmware mapping: $line" }
+            $requirementsAt = $line.IndexOf('|')
+            if ($requirementsAt -ge 0) {
+                $requirements = $line.Substring($requirementsAt + 1).Split(',')
+                if (($requirements | Select-Object -Unique).Count -ne $requirements.Count) { throw "Duplicate GPU firmware requirement: $line" }
+            }
         }
         $manifest = [Text.Encoding]::ASCII.GetBytes(($Mapping -join "`n") + "`n")
         & $writeEntry 'csos-gpu.conf' $manifest $inode

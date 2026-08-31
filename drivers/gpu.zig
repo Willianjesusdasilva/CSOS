@@ -154,6 +154,11 @@ pub const Firmware = struct {
             result.payload_bytes += payload_bytes;
         }
         if (result.entries != selection.entries) return error.FirmwareSelectionIncomplete;
+        var present: u16 = 0;
+        for (result.blocks, 0..) |summary, index| {
+            if (summary.entries != 0) present |= @as(u16, 1) << @intCast(index);
+        }
+        if ((present & selection.required_blocks) != selection.required_blocks) return error.RequiredFirmwareBlockMissing;
         return result;
     }
 
@@ -188,7 +193,7 @@ pub const Firmware = struct {
         const mapping = best orelse return null;
         const count = try self.countPrefix(mapping.prefix);
         if (count == 0) return error.FirmwareSelectionEmpty;
-        return .{ .prefix = mapping.prefix, .entries = count };
+        return .{ .prefix = mapping.prefix, .entries = count, .required_blocks = mapping.required_blocks };
     }
 
     pub fn mappingCount(self: Firmware) !usize {
@@ -213,7 +218,7 @@ pub const Firmware = struct {
     }
 };
 
-pub const Selection = struct { prefix: []const u8, entries: usize };
+pub const Selection = struct { prefix: []const u8, entries: usize, required_blocks: u16 };
 pub const FirmwareBlock = enum { security, management, memory, graphics, dma, display, media, discovery, other };
 pub const FirmwareBlockSummary = struct { entries: usize = 0, bytes: usize = 0 };
 pub const FirmwareInventory = struct {
@@ -236,7 +241,7 @@ pub const SelectedIterator = struct {
         return null;
     }
 };
-const Mapping = struct { vendor: u16, device: u16, revision: ?u8, subsystem_vendor: ?u16, subsystem_device: ?u16, prefix: []const u8 };
+const Mapping = struct { vendor: u16, device: u16, revision: ?u8, subsystem_vendor: ?u16, subsystem_device: ?u16, prefix: []const u8, required_blocks: u16 };
 
 const ManifestIterator = struct {
     manifest: []const u8,
@@ -252,8 +257,12 @@ const ManifestIterator = struct {
             if (line.len == 0 or line[0] == '#') continue;
             const separator = findByte(line, '=') orelse return error.InvalidFirmwareManifest;
             const identity = line[0..separator];
-            const prefix = line[separator + 1 ..];
-            if ((!startsWith(prefix, "amdgpu/") and !startsWith(prefix, "nouveau/")) or prefix[prefix.len - 1] != '/') return error.InvalidFirmwareManifest;
+            const target = line[separator + 1 ..];
+            const requirement_separator = findByte(target, '|');
+            const prefix = if (requirement_separator) |index| target[0..index] else target;
+            const requirements: ?[]const u8 = if (requirement_separator) |index| target[index + 1 ..] else null;
+            if (prefix.len == 0 or (!startsWith(prefix, "amdgpu/") and !startsWith(prefix, "nouveau/")) or prefix[prefix.len - 1] != '/') return error.InvalidFirmwareManifest;
+            if (requirements) |value| if (value.len == 0) return error.InvalidFirmwareManifest;
             const subsystem_separator = findByte(identity, '@');
             const pci_identity = if (subsystem_separator) |index| identity[0..index] else identity;
             const subsystem: ?[]const u8 = if (subsystem_separator) |index| identity[index + 1 ..] else null;
@@ -267,6 +276,7 @@ const ManifestIterator = struct {
                 .subsystem_vendor = if (subsystem) |value| try readHexValue(value[0..4]) else null,
                 .subsystem_device = if (subsystem) |value| try readHexValue(value[5..9]) else null,
                 .prefix = prefix,
+                .required_blocks = if (requirements) |value| try parseRequiredBlocks(value) else 0,
             };
         }
         return null;
@@ -274,9 +284,9 @@ const ManifestIterator = struct {
 };
 
 comptime {
-    var mappings = ManifestIterator{ .manifest = "1002:744c:cc@1da2:e471=amdgpu/navi31/\n10de:2684=nouveau/ad102/\n" };
+    var mappings = ManifestIterator{ .manifest = "1002:744c:cc@1da2:e471=amdgpu/navi31/|security,graphics,dma\n10de:2684=nouveau/ad102/\n" };
     const amd = mappings.next() catch @compileError("GPU subsystem firmware mapping was rejected");
-    if (amd == null or amd.?.revision != 0xcc or amd.?.subsystem_vendor != 0x1da2 or amd.?.subsystem_device != 0xe471)
+    if (amd == null or amd.?.revision != 0xcc or amd.?.subsystem_vendor != 0x1da2 or amd.?.subsystem_device != 0xe471 or amd.?.required_blocks != 0x19)
         @compileError("GPU subsystem firmware mapping decoded incorrectly");
     const nvidia = mappings.next() catch @compileError("GPU firmware mapping compatibility was rejected");
     if (nvidia == null or nvidia.?.revision != null or nvidia.?.subsystem_vendor != null)
@@ -328,6 +338,32 @@ fn readHex(bytes: []const u8) !usize {
 }
 fn readHexValue(bytes: []const u8) !u16 { return @intCast(try readHex(bytes)); }
 fn findByte(bytes: []const u8, wanted: u8) ?usize { for (bytes, 0..) |byte, index| if (byte == wanted) return index; return null; }
+
+fn parseRequiredBlocks(value: []const u8) !u16 {
+    var mask: u16 = 0;
+    var offset: usize = 0;
+    while (offset < value.len) {
+        var end = offset;
+        while (end < value.len and value[end] != ',') : (end += 1) {}
+        const name = value[offset..end];
+        const block: FirmwareBlock = if (equal(name, "security")) .security
+            else if (equal(name, "management")) .management
+            else if (equal(name, "memory")) .memory
+            else if (equal(name, "graphics")) .graphics
+            else if (equal(name, "dma")) .dma
+            else if (equal(name, "display")) .display
+            else if (equal(name, "media")) .media
+            else if (equal(name, "discovery")) .discovery
+            else if (equal(name, "other")) .other
+            else return error.InvalidFirmwareRequirement;
+        const bit = @as(u16, 1) << @intFromEnum(block);
+        if ((mask & bit) != 0) return error.DuplicateFirmwareRequirement;
+        mask |= bit;
+        if (end < value.len and end + 1 == value.len) return error.InvalidFirmwareRequirement;
+        offset = if (end < value.len) end + 1 else end;
+    }
+    return mask;
+}
 
 fn align4(value: usize) usize { return (value + 3) & ~@as(usize, 3); }
 fn equal(left: []const u8, right: []const u8) bool {
