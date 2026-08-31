@@ -662,6 +662,63 @@ pub const AmdMemoryPlan = struct {
     doorbell_bar: pci.Bar,
     vram_bar: ?pci.Bar,
 };
+pub const AmdPspGttStaging = struct {
+    page_table_address: u64 = 0,
+    page_table_pages: u64 = 0,
+    buffer_address: u64 = 0,
+    buffer_pages: u64 = 0,
+    ring_page: u16 = 0,
+    command_page: u16 = 1,
+    fence_page: u16 = 2,
+    active: bool = false,
+
+    pub fn release(self: *AmdPspGttStaging, pages: *physical.Allocator) void {
+        if (self.page_table_pages != 0) pages.release(self.page_table_address, self.page_table_pages) catch {};
+        if (self.buffer_pages != 0) pages.release(self.buffer_address, self.buffer_pages) catch {};
+        self.* = .{};
+    }
+};
+
+const amd_pte_valid: u64 = 1 << 0;
+const amd_pte_system: u64 = 1 << 1;
+const amd_pte_snooped: u64 = 1 << 2;
+const amd_pte_readable: u64 = 1 << 5;
+const amd_pte_writeable: u64 = 1 << 6;
+const amd_gtt_pte_flags = amd_pte_valid | amd_pte_system | amd_pte_snooped | amd_pte_readable | amd_pte_writeable;
+
+pub fn prepareAmdPspGtt(pages: *physical.Allocator) !AmdPspGttStaging {
+    var result = AmdPspGttStaging{};
+    errdefer result.release(pages);
+    result.page_table_pages = 1;
+    result.page_table_address = pages.allocate(result.page_table_pages) orelse return error.OutOfMemory;
+    result.buffer_pages = 3;
+    result.buffer_address = pages.allocate(result.buffer_pages) orelse return error.OutOfMemory;
+    if ((result.page_table_address & 4095) != 0 or (result.buffer_address & 4095) != 0) return error.InvalidAmdGttAlignment;
+    const table: [*]u64 = @ptrFromInt(result.page_table_address);
+    @memset(table[0..512], 0);
+    const buffers: [*]u8 = @ptrFromInt(result.buffer_address);
+    @memset(buffers[0 .. result.buffer_pages * 4096], 0);
+    table[result.ring_page] = amdGttPte(result.buffer_address);
+    table[result.command_page] = amdGttPte(result.buffer_address + 4096);
+    table[result.fence_page] = amdGttPte(result.buffer_address + 8192);
+    return result;
+}
+
+pub fn validateAmdPspGtt(pages: *physical.Allocator) !void {
+    var staging = try prepareAmdPspGtt(pages);
+    defer staging.release(pages);
+    const table: [*]const u64 = @ptrFromInt(staging.page_table_address);
+    if (table[staging.ring_page] != amdGttPte(staging.buffer_address) or
+        table[staging.command_page] != amdGttPte(staging.buffer_address + 4096) or
+        table[staging.fence_page] != amdGttPte(staging.buffer_address + 8192) or staging.active)
+        return error.AmdPspGttValidationFailed;
+    const buffers: [*]const u8 = @ptrFromInt(staging.buffer_address);
+    for (buffers[0 .. staging.buffer_pages * 4096]) |byte| if (byte != 0) return error.AmdPspGttBufferNotZero;
+}
+
+fn amdGttPte(address: u64) u64 {
+    return (address & 0x0000fffffffff000) | amd_gtt_pte_flags;
+}
 
 pub fn planAmdMemory(bars: [6]?pci.Bar, register_bar: ?pci.Bar, family: GmcFamily) !AmdMemoryPlan {
     const registers = register_bar orelse return error.AmdRegisterBarMissing;
@@ -697,6 +754,7 @@ comptime {
         @compileError("overlapping AMD MMIO apertures were accepted")
     else |err| if (err != error.InvalidAmdMmioApertures)
         @compileError("overlapping AMD MMIO apertures returned the wrong error");
+    if (amdGttPte(0x12345000) != 0x12345067) @compileError("AMD GTT system PTE encoded incorrectly");
 }
 
 pub const AmdPspPlan = struct {

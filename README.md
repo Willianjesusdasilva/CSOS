@@ -796,6 +796,12 @@ doorbell como MMIO uncached. `gtt-ready` permanece zero até page tables e
 endereços MC serem realmente programados; memória física da CPU não é anunciada
 como endereço de GPU.
 
+Uma página de tabela GTT pode agora ser preparada com PTEs de sistema
+`VALID|SYSTEM|SNOOPED|READABLE|WRITEABLE` para três páginas físicas separadas:
+ring PSP, buffer de comando e fence. A tabela e os buffers nascem zerados e o
+diagnóstico expõe `gtt-table`/`gtt-pages`, mas `active` continua falso e nenhum
+endereço MC é derivado antes da programação específica do GMC.
+
 As capacidades PSP são tratadas separadamente: `autoload_supported`, TMR de
 boot e presença de callbacks host para carregar SYS/SOS não são sinônimos. O
 handoff host só é construído para as famílias em que o `psp_funcs` upstream

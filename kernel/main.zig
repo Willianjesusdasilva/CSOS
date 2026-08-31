@@ -90,6 +90,7 @@ pub fn start(info: BootInfo) noreturn {
     var pages = physical.Allocator.init(info.memory_map, info.memory_map_len, info.memory_descriptor_size);
     syscalls.configureDrmMemory(&pages);
     gpu.validateAmdPspHandoff(&pages) catch panic("AMDGPU PSP handoff self-test failed");
+    gpu.validateAmdPspGtt(&pages) catch panic("AMDGPU PSP GTT self-test failed");
     serial.write("CSOS M14 PSP handoff state machine ready\n");
     serial.write("physical allocator ready\n");
 
@@ -505,6 +506,7 @@ pub fn start(info: BootInfo) noreturn {
     if (gpu_ip_discovery) |*discovery| gpu_backend_plan = gpu.planAmdBackend(discovery) catch panic("AMDGPU IP combination unsupported");
     const gpu_memory_plan = if (gpu_backend_plan) |plan| gpu.planAmdMemory(gpu_adapter.bars, gpu_adapter.register_bar, plan.gmc) catch
         panic("AMDGPU memory apertures invalid") else null;
+    const gpu_psp_gtt = if (gpu_memory_plan != null) gpu.prepareAmdPspGtt(&pages) catch panic("AMDGPU PSP GTT staging failed") else gpu.AmdPspGttStaging{};
     var gpu_firmware_staging = gpu.AmdFirmwareStaging{};
     var gpu_psp_boot_images: ?gpu.AmdPspBootImages = null;
     var gpu_psp_handoff = gpu.AmdPspHandoff{};
@@ -620,7 +622,9 @@ pub fn start(info: BootInfo) noreturn {
     serial.write(" gmc-plan: "); serial.writeDecimal(if (gpu_memory_plan) |_| 1 else 0);
     serial.write(" vram-aperture: "); serial.writeDecimal(if (gpu_memory_plan) |plan| if (plan.vram_bar) |bar| bar.size else 0 else 0);
     serial.write(" doorbell-aperture: "); serial.writeDecimal(if (gpu_memory_plan) |plan| plan.doorbell_bar.size else 0);
-    serial.write(" gtt-ready: 0");
+    serial.write(" gtt-table: "); serial.writeDecimal(gpu_psp_gtt.page_table_address);
+    serial.write(" gtt-pages: "); serial.writeDecimal(gpu_psp_gtt.buffer_pages);
+    serial.write(" gtt-ready: "); serial.writeDecimal(@intFromBool(gpu_psp_gtt.active));
     serial.write(" psp-version: "); serial.writeDecimal(if (gpu_backend_plan) |plan| plan.psp.ip_version else 0);
     serial.write(" psp-autoload: "); serial.writeDecimal(if (gpu_backend_plan) |plan| @intFromBool(plan.psp.autoload_supported) else 0);
     serial.write(" psp-boot-tmr: "); serial.writeDecimal(if (gpu_backend_plan) |plan| @intFromBool(plan.psp.boot_time_tmr) else 0);
