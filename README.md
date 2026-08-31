@@ -748,11 +748,15 @@ upstream com 1024 dwords, MQD alinhado a página, EOP de 2048 bytes, ponteiros d
 64 bits e doorbell obrigatório. O preflight permanece fechado enquanto
 qualquer um desses recursos, PSP, GART ou GPUVM não estiver pronto; ele ainda
 não programa o ring nem autoriza command submission.
-Ring, MQD, EOP e ponteiros agora recebem páginas físicas separadas, zeradas e
-abaixo da máscara DMA de 44 bits por uma transação que libera tudo em ordem
-reversa se qualquer alocação ou limpeza falhar. Esses recursos apenas
-alimentam o preflight: doorbell continua ausente, portanto o estado ainda é
-bloqueado e nenhuma fila é ativada.
+As duas filas exigidas pelo bootstrap — scheduler MES ring0 e KIQ ring1 — agora
+recebem, cada uma, páginas físicas separadas para ring, MQD, EOP e ponteiros.
+As oito páginas nascem zeradas abaixo da máscara DMA de 44 bits e são liberadas
+em ordem reversa se qualquer alocação ou limpeza falhar. O GART reserva oito
+entradas após as três páginas PSP e fornece endereços MC distintos às filas.
+Os MQDs de 512 dwords codificam bases, EOP, RPTR/WPTR e os doorbells reservados
+`0x0b/0x0c` conforme SOC21, mas preservam `HQD_ACTIVE=0`. O preflight pode
+confirmar que os recursos estão completos sem ativar fila, tocar o doorbell ou
+autorizar command submission.
 Para VA de 48 bits, o walker segue `PDB2[47:39] → PDB1[38:30] →
 PDB0[29:21] → PTB[20:12]`, com offset `[11:0]`. Cada nível possui até 512
 entradas de 64 bits e ocupa uma página de 4 KiB, conforme a geometria do

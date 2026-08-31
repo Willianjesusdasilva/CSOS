@@ -360,19 +360,25 @@ pub const AmdGfx11RingContract = struct {
     uses_64bit_pointers: bool = true,
     requires_doorbell: bool = true,
 };
-pub const AmdGfx11RingResources = struct {
+pub const AmdGfx11QueueResources = struct {
     ring: u64 = 0,
     mqd: u64 = 0,
     eop: u64 = 0,
     pointers: u64 = 0,
+};
+pub const AmdGfx11RingResources = struct {
+    scheduler: AmdGfx11QueueResources = .{},
+    kiq: AmdGfx11QueueResources = .{},
     allocator: ?AmdGpuVmPageAllocator = null,
 
     pub fn release(self: *AmdGfx11RingResources) !void {
         const allocator = self.allocator orelse return error.AmdGfxRingResourcesNotAllocated;
         var failed = false;
-        inline for (.{ "pointers", "eop", "mqd", "ring" }) |field| {
-            const address = @field(self, field);
-            if (address != 0) allocator.release(allocator.context, address) catch { failed = true; };
+        inline for (.{ "kiq", "scheduler" }) |queue_field| {
+            inline for (.{ "pointers", "eop", "mqd", "ring" }) |field| {
+                const address = @field(@field(self, queue_field), field);
+                if (address != 0) allocator.release(allocator.context, address) catch { failed = true; };
+            }
         }
         self.* = .{};
         if (failed) return error.AmdGfxRingResourceReleaseFailed;
@@ -384,12 +390,133 @@ pub fn allocateAmdGfx11RingResources(allocator: AmdGpuVmPageAllocator) !AmdGfx11
     errdefer {
         if (result.allocator != null) result.release() catch {};
     }
-    inline for (.{ "ring", "mqd", "eop", "pointers" }) |field| {
-        const address = try allocateCheckedAmdGpuVmPage(allocator);
-        @field(result, field) = address;
-        try allocator.zero(allocator.context, address);
+    inline for (.{ "scheduler", "kiq" }) |queue_field| {
+        inline for (.{ "ring", "mqd", "eop", "pointers" }) |field| {
+            const address = try allocateCheckedAmdGpuVmPage(allocator);
+            @field(@field(result, queue_field), field) = address;
+            try allocator.zero(allocator.context, address);
+        }
     }
     return result;
+}
+pub const AmdGfx11QueueKind = enum { scheduler, kiq };
+pub const AmdGfx11Doorbell = struct { assignment: u16, register_index: u16, byte_offset: u32 };
+
+pub fn planAmdGfx11MesDoorbell(kind: AmdGfx11QueueKind, aperture_bytes: u64) !AmdGfx11Doorbell {
+    const assignment: u16 = switch (kind) { .scheduler => 0x00b, .kiq => 0x00c };
+    const register_index = assignment << 1;
+    const byte_offset = @as(u32, register_index) * 4;
+    if (aperture_bytes < @as(u64, byte_offset) + 8) return error.AmdGfxDoorbellOutsideAperture;
+    return .{ .assignment = assignment, .register_index = register_index, .byte_offset = byte_offset };
+}
+
+pub const AmdGfx11QueueAddresses = struct {
+    ring: u64,
+    mqd: u64,
+    eop: u64,
+    rptr: u64,
+    wptr: u64,
+};
+pub const AmdGfx11ComputeMqd = struct {
+    dwords: [512]u32 = .{0} ** 512,
+    doorbell: AmdGfx11Doorbell,
+};
+
+fn setField(value: u32, mask: u32, shift: u5, field: u32) u32 {
+    return (value & ~mask) | ((field << shift) & mask);
+}
+
+pub fn encodeAmdGfx11MesMqd(kind: AmdGfx11QueueKind, addresses: AmdGfx11QueueAddresses, aperture_bytes: u64) !AmdGfx11ComputeMqd {
+    const gpu_limit: u64 = @as(u64, 1) << 48;
+    if (addresses.ring == 0 or (addresses.ring & 255) != 0 or addresses.mqd == 0 or (addresses.mqd & 4095) != 0 or
+        addresses.eop == 0 or (addresses.eop & 255) != 0 or addresses.rptr == 0 or (addresses.rptr & 7) != 0 or
+        addresses.wptr == 0 or (addresses.wptr & 7) != 0)
+        return error.InvalidAmdGfxQueueAddress;
+    inline for (.{ addresses.ring, addresses.mqd, addresses.eop, addresses.rptr, addresses.wptr }) |address|
+        if (address >= gpu_limit) return error.AmdGfxQueueAddressOutsideRange;
+    if (addresses.rptr == addresses.wptr) return error.InvalidAmdGfxQueuePointers;
+
+    const doorbell = try planAmdGfx11MesDoorbell(kind, aperture_bytes);
+    var result = AmdGfx11ComputeMqd{ .doorbell = doorbell };
+    const mqd = &result.dwords;
+    mqd[0] = 0xc0310800;
+    mqd[11] = 1;
+    mqd[23] = 0xffffffff;
+    mqd[24] = 0xffffffff;
+    mqd[26] = 0xffffffff;
+    mqd[27] = 0xffffffff;
+    mqd[32] = 7;
+    mqd[128] = @truncate(addresses.mqd & 0xfffffffc);
+    mqd[129] = @truncate(addresses.mqd >> 32);
+    mqd[130] = 0; // Queue activation is a later, separately gated transaction.
+    mqd[132] = setField(0x0be05501, 0x0003ff00, 8, 0x55);
+    const ring_base = addresses.ring >> 8;
+    mqd[136] = @truncate(ring_base);
+    mqd[137] = @truncate(ring_base >> 32);
+    mqd[139] = @truncate(addresses.rptr & 0xfffffffc);
+    mqd[140] = @truncate((addresses.rptr >> 32) & 0xffff);
+    mqd[141] = @truncate(addresses.wptr & 0xfffffffc);
+    mqd[142] = @truncate((addresses.wptr >> 32) & 0xffff);
+    mqd[143] = setField(0, 0x0ffffffc, 2, doorbell.register_index) | 0x40000000;
+    var pq_control: u32 = 0x00308509;
+    pq_control = setField(pq_control, 0x0000003f, 0, 9);
+    pq_control = setField(pq_control, 0x00003f00, 8, 9);
+    mqd[145] = pq_control | 0x10000000 | 0x40000000 | 0x80000000;
+    mqd[149] = setField(0x00300000, 0x00300000, 20, 3);
+    mqd[162] = 0x00000100;
+    const eop_base = addresses.eop >> 8;
+    mqd[165] = @truncate(eop_base);
+    mqd[166] = @truncate(eop_base >> 32);
+    mqd[167] = setField(0x00000006, 0x0000003f, 0, 8);
+    return result;
+}
+pub const AmdGfx11MesBootstrap = struct {
+    scheduler: AmdGfx11QueueAddresses,
+    kiq: AmdGfx11QueueAddresses,
+    scheduler_doorbell: AmdGfx11Doorbell,
+    kiq_doorbell: AmdGfx11Doorbell,
+    first_gart_page: u16 = 3,
+    gart_pages: u16 = 8,
+};
+
+pub fn prepareAmdGfx11MesBootstrap(
+    staging: AmdPspGttStaging,
+    resources: AmdGfx11RingResources,
+    window_start: u64,
+    doorbell_aperture_bytes: u64,
+) !AmdGfx11MesBootstrap {
+    if (staging.active or staging.page_table_address == 0 or staging.page_table_pages != 1 or staging.buffer_pages != 3 or
+        resources.allocator == null or (window_start & 4095) != 0)
+        return error.InvalidAmdGfxMesBootstrap;
+    const queues = .{ resources.scheduler, resources.kiq };
+    inline for (queues) |queue| if (queue.ring == 0 or queue.mqd == 0 or queue.eop == 0 or queue.pointers == 0)
+        return error.InvalidAmdGfxMesBootstrap;
+
+    const scheduler = AmdGfx11QueueAddresses{
+        .ring = window_start + 3 * 4096, .mqd = window_start + 4 * 4096, .eop = window_start + 5 * 4096,
+        .rptr = window_start + 6 * 4096, .wptr = window_start + 6 * 4096 + 8,
+    };
+    const kiq = AmdGfx11QueueAddresses{
+        .ring = window_start + 7 * 4096, .mqd = window_start + 8 * 4096, .eop = window_start + 9 * 4096,
+        .rptr = window_start + 10 * 4096, .wptr = window_start + 10 * 4096 + 8,
+    };
+    const scheduler_mqd = try encodeAmdGfx11MesMqd(.scheduler, scheduler, doorbell_aperture_bytes);
+    const kiq_mqd = try encodeAmdGfx11MesMqd(.kiq, kiq, doorbell_aperture_bytes);
+    const table: [*]u64 = @ptrFromInt(staging.page_table_address);
+    for (3..11) |index| if (table[index] != 0) return error.AmdGfxGartPageAlreadyMapped;
+    const physical_pages = .{
+        resources.scheduler.ring, resources.scheduler.mqd, resources.scheduler.eop, resources.scheduler.pointers,
+        resources.kiq.ring, resources.kiq.mqd, resources.kiq.eop, resources.kiq.pointers,
+    };
+    inline for (physical_pages, 3..) |address, index| table[index] = amdGttPte(address);
+    const scheduler_target: *[512]u32 = @ptrFromInt(resources.scheduler.mqd);
+    const kiq_target: *[512]u32 = @ptrFromInt(resources.kiq.mqd);
+    scheduler_target.* = scheduler_mqd.dwords;
+    kiq_target.* = kiq_mqd.dwords;
+    return .{
+        .scheduler = scheduler, .kiq = kiq,
+        .scheduler_doorbell = scheduler_mqd.doorbell, .kiq_doorbell = kiq_mqd.doorbell,
+    };
 }
 
 pub const AmdGfx11PreflightEvidence = struct {
@@ -2606,17 +2733,56 @@ pub fn validateAmdGpuVmBranchPlannerSelfTest() !void {
 pub fn validateAmdGfx11RingResourceSelfTest() !void {
     var pool = AmdGpuVmPageTestPool{};
     var resources = try allocateAmdGfx11RingResources(pool.pageAllocator());
-    if (resources.ring == 0 or resources.mqd == 0 or resources.eop == 0 or resources.pointers == 0)
+    if (resources.scheduler.ring == 0 or resources.scheduler.mqd == 0 or resources.scheduler.eop == 0 or resources.scheduler.pointers == 0 or
+        resources.kiq.ring == 0 or resources.kiq.mqd == 0 or resources.kiq.eop == 0 or resources.kiq.pointers == 0)
         return error.AmdGfxRingResourceMissing;
     for (pool.allocated, 0..) |allocated, index| if (allocated)
         for (pool.storage[index]) |byte| if (byte != 0) return error.AmdGfxRingResourceNotZeroed;
     try resources.release();
     for (pool.allocated) |allocated| if (allocated) return error.AmdGfxRingResourceReleaseLeak;
 
-    var failing = AmdGpuVmPageTestPool{ .fail_after = 2 };
+    var failing = AmdGpuVmPageTestPool{ .fail_after = 5 };
     if (allocateAmdGfx11RingResources(failing.pageAllocator())) |_| return error.AmdGfxRingResourceFailureNotDetected else |err|
         if (err != error.InjectedAmdGpuVmAllocationFailure) return err;
     for (failing.allocated) |allocated| if (allocated) return error.AmdGfxRingResourceRollbackLeak;
+
+    const scheduler = try encodeAmdGfx11MesMqd(.scheduler, .{
+        .ring = 0x100000,
+        .mqd = 0x110000,
+        .eop = 0x120000,
+        .rptr = 0x130000,
+        .wptr = 0x130008,
+    }, 0x200000);
+    if (scheduler.doorbell.assignment != 0x0b or scheduler.doorbell.register_index != 0x16 or scheduler.doorbell.byte_offset != 0x58 or
+        scheduler.dwords[128] != 0x110000 or scheduler.dwords[136] != 0x1000 or scheduler.dwords[139] != 0x130000 or
+        scheduler.dwords[141] != 0x130008 or scheduler.dwords[143] != 0x40000058 or scheduler.dwords[145] != 0xd0308909 or
+        scheduler.dwords[165] != 0x1200 or scheduler.dwords[167] != 8 or scheduler.dwords[130] != 0)
+        return error.AmdGfxMqdEncodingMismatch;
+    const kiq = try planAmdGfx11MesDoorbell(.kiq, 0x200000);
+    if (kiq.assignment != 0x0c or kiq.register_index != 0x18 or kiq.byte_offset != 0x60)
+        return error.AmdGfxKiqDoorbellMismatch;
+    if (planAmdGfx11MesDoorbell(.scheduler, 0x5f)) |_| return error.AmdGfxShortDoorbellApertureAccepted else |err|
+        if (err != error.AmdGfxDoorbellOutsideAperture) return err;
+
+    var bootstrap_pool = AmdGpuVmPageTestPool{};
+    var bootstrap_resources = try allocateAmdGfx11RingResources(bootstrap_pool.pageAllocator());
+    var gart_table = [_]u64{0} ** 512;
+    const bootstrap = try prepareAmdGfx11MesBootstrap(.{
+        .page_table_address = @intFromPtr(&gart_table), .page_table_pages = 1,
+        .buffer_address = 0x800000, .buffer_pages = 3,
+    }, bootstrap_resources, 0x2000000, 0x200000);
+    if (bootstrap.scheduler.ring != 0x2003000 or bootstrap.scheduler.mqd != 0x2004000 or
+        bootstrap.kiq.ring != 0x2007000 or bootstrap.kiq.mqd != 0x2008000 or
+        gart_table[3] != amdGttPte(bootstrap_resources.scheduler.ring) or
+        gart_table[10] != amdGttPte(bootstrap_resources.kiq.pointers))
+        return error.AmdGfxMesBootstrapLayoutMismatch;
+    const staged_scheduler: *const [512]u32 = @ptrFromInt(bootstrap_resources.scheduler.mqd);
+    const staged_kiq: *const [512]u32 = @ptrFromInt(bootstrap_resources.kiq.mqd);
+    if (staged_scheduler[143] != 0x40000058 or staged_kiq[143] != 0x40000060 or
+        staged_scheduler[130] != 0 or staged_kiq[130] != 0)
+        return error.AmdGfxMesBootstrapMqdMismatch;
+    try bootstrap_resources.release();
+    for (bootstrap_pool.allocated) |allocated| if (allocated) return error.AmdGfxMesBootstrapReleaseLeak;
 }
 
 const AmdGpuVmPageTestPool = struct {

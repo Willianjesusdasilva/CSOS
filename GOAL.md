@@ -1831,8 +1831,10 @@ gate-controlled GEM_VA bind/invalidate/unbind lifecycle: implemented and host-te
 typed GFX11 firmware roles and MES payload validation: implemented and host-tested
 GFX11 ring resource contract and fail-closed preflight: implemented and host-tested
 transactional ring/MQD/EOP/pointer physical allocation: implemented and host-tested
+dual MES scheduler/KIQ GART layout and GFX11 MQD encoding: implemented and host-tested
+SOC21 MES ring0/ring1 doorbell assignment: implemented as a write-free plan
 real Radeon MMIO lifecycle validation: pending
-doorbell assignment, MQD encoding, ring activation and command submission: pending
+MES firmware loading, queue activation/handshake and command submission: pending
 AMD RADV triangle on real hardware: pending
 NVIDIA NVK/compatible-stack triangle on real hardware: pending
 ```
