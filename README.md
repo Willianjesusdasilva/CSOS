@@ -802,6 +802,13 @@ ring PSP, buffer de comando e fence. A tabela e os buffers nascem zerados e o
 diagnóstico expõe `gtt-table`/`gtt-pages`, mas `active` continua falso e nenhum
 endereço MC é derivado antes da programação específica do GMC.
 
+O plano GART também preserva a diferença entre gerações observada no upstream:
+GMC 9/10 exigem GFXHUB e MMHUB, enquanto o caminho GMC 11 inicializa somente o
+MMHUB; GMC 12 volta a exigir ambos no plano atual. As bases dos hubs vêm do IP
+discovery e uma ausência é terminal. A tabela inicial cobre uma janela mínima
+de 2 MiB (512 páginas); `gart-active` permanece zero até os contextos VMID 0,
+invalidação de TLB e leitura de confirmação específicos da família existirem.
+
 As capacidades PSP são tratadas separadamente: `autoload_supported`, TMR de
 boot e presença de callbacks host para carregar SYS/SOS não são sinônimos. O
 handoff host só é construído para as famílias em que o `psp_funcs` upstream

@@ -662,6 +662,15 @@ pub const AmdMemoryPlan = struct {
     doorbell_bar: pci.Bar,
     vram_bar: ?pci.Bar,
 };
+pub const AmdGartPlan = struct {
+    family: GmcFamily,
+    gfxhub_base: ?u64,
+    mmhub_base: u64,
+    table_address: u64,
+    entries: u16,
+    window_bytes: u64,
+    active: bool = false,
+};
 pub const AmdPspGttStaging = struct {
     page_table_address: u64 = 0,
     page_table_pages: u64 = 0,
@@ -678,6 +687,24 @@ pub const AmdPspGttStaging = struct {
         self.* = .{};
     }
 };
+
+pub fn planAmdGart(discovery: *const AmdIpDiscovery, memory: AmdMemoryPlan, staging: AmdPspGttStaging) !AmdGartPlan {
+    if (staging.page_table_address == 0 or staging.page_table_pages != 1 or staging.buffer_pages != 3 or staging.active)
+        return error.InvalidAmdGartStaging;
+    const mmhub = discovery.find(amd_hw_id.mmhub, 0) orelse return error.AmdMmhubMissing;
+    if (mmhub.base_count == 0) return error.AmdMmhubBaseMissing;
+    const needs_gfxhub = memory.family == .v9_0 or memory.family == .v10_0 or memory.family == .v12_0;
+    const gfxhub: ?*const AmdIp = if (needs_gfxhub) discovery.find(amd_hw_id.gfx, 0) orelse return error.AmdGfxhubMissing else null;
+    if (gfxhub) |ip| if (ip.base_count == 0) return error.AmdGfxhubBaseMissing;
+    return .{
+        .family = memory.family,
+        .gfxhub_base = if (gfxhub) |ip| ip.bases[0] else null,
+        .mmhub_base = mmhub.bases[0],
+        .table_address = staging.page_table_address,
+        .entries = 512,
+        .window_bytes = 512 * 4096,
+    };
+}
 
 const amd_pte_valid: u64 = 1 << 0;
 const amd_pte_system: u64 = 1 << 1;
@@ -755,6 +782,21 @@ comptime {
     else |err| if (err != error.InvalidAmdMmioApertures)
         @compileError("overlapping AMD MMIO apertures returned the wrong error");
     if (amdGttPte(0x12345000) != 0x12345067) @compileError("AMD GTT system PTE encoded incorrectly");
+    var gart_discovery = AmdIpDiscovery{ .binary_version_major = 1, .binary_version_minor = 0, .table_version = 3, .dies = 1, .ips = 2, .base_addresses = 2, .harvested = 0 };
+    gart_discovery.critical_count = 2;
+    gart_discovery.critical[0] = .{ .hw_id = amd_hw_id.gfx, .base_count = 1, .bases = .{0x200} ++ .{0} ** 7 };
+    gart_discovery.critical[1] = .{ .hw_id = amd_hw_id.mmhub, .base_count = 1, .bases = .{0x300} ++ .{0} ** 7 };
+    const gart = planAmdGart(&gart_discovery, .{ .family = .v10_0, .register_bar = registers, .doorbell_bar = doorbells, .vram_bar = vram }, .{ .page_table_address = 0x800000, .page_table_pages = 1, .buffer_address = 0x900000, .buffer_pages = 3 }) catch
+        @compileError("valid AMD GART plan was rejected");
+    if (gart.gfxhub_base != 0x200 or gart.mmhub_base != 0x300 or gart.entries != 512 or gart.window_bytes != 2 * 1024 * 1024 or gart.active)
+        @compileError("AMD GART plan was classified incorrectly");
+    const mmhub_only = planAmdGart(&gart_discovery, .{ .family = .v11_0, .register_bar = registers, .doorbell_bar = doorbells, .vram_bar = vram }, .{
+        .page_table_address = 0x800000,
+        .page_table_pages = 1,
+        .buffer_address = 0x900000,
+        .buffer_pages = 3,
+    }) catch @compileError("valid GMC 11 GART plan was rejected");
+    if (mmhub_only.gfxhub_base != null) @compileError("GMC 11 incorrectly requires GFXHUB GART");
 }
 
 pub const AmdPspPlan = struct {
