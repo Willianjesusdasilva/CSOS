@@ -759,6 +759,19 @@ o backend PSP pode ser marcado `uncached`, embora continue desarmado por padrão
 Como as folhas MMIO também são NX, o trampoline dos processadores secundários
 habilita `EFER.NXE` junto com Long Mode antes de ativar paginação.
 
+Escritas PSP exigem ainda uma autorização `psp-host-boot` na linha selecionada
+de `csos-gpu.conf`. O marcador só é aceito para AMD com device, revisão e
+subsystem IDs exatos e com os blocos `security` e `discovery` obrigatórios, por
+exemplo:
+
+```text
+1002:744c:cc@1da2:e471=amdgpu/navi31/|security,graphics,dma,discovery,psp-host-boot
+```
+
+Mapeamentos genéricos, NVIDIA ou sem os blocos necessários são rejeitados. A
+autorização apenas abre o segundo gate do transporte; não arma nem executa o
+handoff automaticamente.
+
 As capacidades PSP são tratadas separadamente: `autoload_supported`, TMR de
 boot e presença de callbacks host para carregar SYS/SOS não são sinônimos. O
 handoff host só é construído para as famílias em que o `psp_funcs` upstream

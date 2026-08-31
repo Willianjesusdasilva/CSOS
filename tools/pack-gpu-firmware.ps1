@@ -35,11 +35,20 @@ try {
     }
     if ($Mapping) {
         foreach ($line in $Mapping) {
-            if ($line -notmatch '^[0-9A-Fa-f]{4}:[0-9A-Fa-f]{4}(:[0-9A-Fa-f]{2})?(@[0-9A-Fa-f]{4}:[0-9A-Fa-f]{4})?=(amdgpu|nouveau)/[^|]+/(\|(security|management|memory|graphics|dma|display|media|discovery|other)(,(security|management|memory|graphics|dma|display|media|discovery|other))*)?$') { throw "Invalid GPU firmware mapping: $line" }
+            if ($line -notmatch '^[0-9A-Fa-f]{4}:[0-9A-Fa-f]{4}(:[0-9A-Fa-f]{2})?(@[0-9A-Fa-f]{4}:[0-9A-Fa-f]{4})?=(amdgpu|nouveau)/[^|]+/(\|(security|management|memory|graphics|dma|display|media|discovery|other|psp-host-boot)(,(security|management|memory|graphics|dma|display|media|discovery|other|psp-host-boot))*)?$') { throw "Invalid GPU firmware mapping: $line" }
             $requirementsAt = $line.IndexOf('|')
             if ($requirementsAt -ge 0) {
                 $requirements = $line.Substring($requirementsAt + 1).Split(',')
                 if (($requirements | Select-Object -Unique).Count -ne $requirements.Count) { throw "Duplicate GPU firmware requirement: $line" }
+                if ($requirements -contains 'psp-host-boot') {
+                    $identity = $line.Substring(0, $line.IndexOf('='))
+                    $target = $line.Substring($line.IndexOf('=') + 1, $requirementsAt - $line.IndexOf('=') - 1)
+                    if ($identity -notmatch '^1002:[0-9A-Fa-f]{4}:[0-9A-Fa-f]{2}@[0-9A-Fa-f]{4}:[0-9A-Fa-f]{4}$' -or
+                        -not $target.StartsWith('amdgpu/') -or
+                        $requirements -notcontains 'security' -or $requirements -notcontains 'discovery') {
+                        throw "Unsafe PSP host boot mapping: $line"
+                    }
+                }
             }
         }
         $manifest = [Text.Encoding]::ASCII.GetBytes(($Mapping -join "`n") + "`n")

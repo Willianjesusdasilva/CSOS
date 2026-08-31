@@ -543,7 +543,7 @@ pub fn start(info: BootInfo) noreturn {
         const sos = gpu_adapter.readRegister(registers.sos_offset) catch panic("AMDGPU PSP sOS read failed");
         gpu_psp_mailbox_snapshot = gpu.classifyAmdPspMailbox(gpu_psp_mailbox_profile.?, command, sos) catch
             panic("AMDGPU PSP mailbox unavailable");
-        gpu_psp_mmio_transport = .{ .adapter = &gpu_adapter, .profile = gpu_psp_mailbox_profile.?, .registers = registers, .uncached = true };
+        gpu_psp_mmio_transport = .{ .adapter = &gpu_adapter, .profile = gpu_psp_mailbox_profile.?, .registers = registers, .uncached = true, .authorized = gpu_selection.?.psp_host_boot };
         if (gpu_psp_mmio_transport) |*transport| _ = transport.transport();
     }
     const gpu_identity = gpu_adapter.identifyChip() catch panic("GPU chipset identification failed");
@@ -590,6 +590,7 @@ pub fn start(info: BootInfo) noreturn {
     serial.write(" psp-mailbox-state: "); serial.writeDecimal(if (gpu_psp_mailbox_snapshot) |snapshot| @intFromEnum(snapshot.state) else 0);
     serial.write(" psp-mmio-transport: "); serial.writeDecimal(if (gpu_psp_mmio_transport) |_| 1 else 0);
     serial.write(" psp-write-armed: "); serial.writeDecimal(if (gpu_psp_mmio_transport) |transport| @intFromBool(transport.armed) else 0);
+    serial.write(" psp-write-authorized: "); serial.writeDecimal(if (gpu_psp_mmio_transport) |transport| @intFromBool(transport.authorized) else 0);
     serial.write(" staged: "); serial.writeDecimal(gpu_firmware_staging.count);
     serial.write(" staged-bytes: "); serial.writeDecimal(gpu_firmware_staging.image_bytes);
     serial.write(" staged-payload: "); serial.writeDecimal(gpu_firmware_staging.payload_bytes);

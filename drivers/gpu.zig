@@ -258,7 +258,14 @@ pub const Firmware = struct {
         const mapping = best orelse return null;
         const count = try self.countPrefix(mapping.prefix);
         if (count == 0) return error.FirmwareSelectionEmpty;
-        return .{ .prefix = mapping.prefix, .entries = count, .required_blocks = mapping.required_blocks };
+        if (mapping.psp_host_boot) {
+            const required = (@as(u16, 1) << @intFromEnum(FirmwareBlock.security)) |
+                (@as(u16, 1) << @intFromEnum(FirmwareBlock.discovery));
+            if (driver != .amdgpu or mapping.revision == null or mapping.subsystem_vendor == null or
+                (mapping.required_blocks & required) != required)
+                return error.UnsafeAmdPspHostBootMapping;
+        }
+        return .{ .prefix = mapping.prefix, .entries = count, .required_blocks = mapping.required_blocks, .psp_host_boot = mapping.psp_host_boot };
     }
 
     pub fn mappingCount(self: Firmware) !usize {
@@ -286,7 +293,7 @@ pub const Firmware = struct {
     }
 };
 
-pub const Selection = struct { prefix: []const u8, entries: usize, required_blocks: u16 };
+pub const Selection = struct { prefix: []const u8, entries: usize, required_blocks: u16, psp_host_boot: bool };
 pub const FirmwareBlock = enum { security, management, memory, graphics, dma, display, media, discovery, other };
 pub const FirmwareBlockSummary = struct { entries: usize = 0, bytes: usize = 0 };
 pub const FirmwareInventory = struct {
@@ -340,7 +347,7 @@ pub const SelectedIterator = struct {
         return null;
     }
 };
-const Mapping = struct { vendor: u16, device: u16, revision: ?u8, subsystem_vendor: ?u16, subsystem_device: ?u16, prefix: []const u8, required_blocks: u16 };
+const Mapping = struct { vendor: u16, device: u16, revision: ?u8, subsystem_vendor: ?u16, subsystem_device: ?u16, prefix: []const u8, required_blocks: u16, psp_host_boot: bool };
 
 const ManifestIterator = struct {
     manifest: []const u8,
@@ -368,6 +375,7 @@ const ManifestIterator = struct {
             if (pci_identity.len != 9 and pci_identity.len != 12) return error.InvalidFirmwareManifest;
             if (pci_identity[4] != ':' or (pci_identity.len == 12 and pci_identity[9] != ':')) return error.InvalidFirmwareManifest;
             if (subsystem) |value| if (value.len != 9 or value[4] != ':') return error.InvalidFirmwareManifest;
+            const parsed_requirements = if (requirements) |value| try parseFirmwareRequirements(value) else FirmwareRequirements{};
             return .{
                 .vendor = try readHexValue(pci_identity[0..4]),
                 .device = try readHexValue(pci_identity[5..9]),
@@ -375,7 +383,8 @@ const ManifestIterator = struct {
                 .subsystem_vendor = if (subsystem) |value| try readHexValue(value[0..4]) else null,
                 .subsystem_device = if (subsystem) |value| try readHexValue(value[5..9]) else null,
                 .prefix = prefix,
-                .required_blocks = if (requirements) |value| try parseRequiredBlocks(value) else 0,
+                .required_blocks = parsed_requirements.blocks,
+                .psp_host_boot = parsed_requirements.psp_host_boot,
             };
         }
         return null;
@@ -383,9 +392,9 @@ const ManifestIterator = struct {
 };
 
 comptime {
-    var mappings = ManifestIterator{ .manifest = "1002:744c:cc@1da2:e471=amdgpu/navi31/|security,graphics,dma\n10de:2684=nouveau/ad102/\n" };
+    var mappings = ManifestIterator{ .manifest = "1002:744c:cc@1da2:e471=amdgpu/navi31/|security,graphics,dma,discovery,psp-host-boot\n10de:2684=nouveau/ad102/\n" };
     const amd = mappings.next() catch @compileError("GPU subsystem firmware mapping was rejected");
-    if (amd == null or amd.?.revision != 0xcc or amd.?.subsystem_vendor != 0x1da2 or amd.?.subsystem_device != 0xe471 or amd.?.required_blocks != 0x19)
+    if (amd == null or amd.?.revision != 0xcc or amd.?.subsystem_vendor != 0x1da2 or amd.?.subsystem_device != 0xe471 or amd.?.required_blocks != 0x99 or !amd.?.psp_host_boot)
         @compileError("GPU subsystem firmware mapping decoded incorrectly");
     const nvidia = mappings.next() catch @compileError("GPU firmware mapping compatibility was rejected");
     if (nvidia == null or nvidia.?.revision != null or nvidia.?.subsystem_vendor != null)
@@ -438,13 +447,22 @@ fn readHex(bytes: []const u8) !usize {
 fn readHexValue(bytes: []const u8) !u16 { return @intCast(try readHex(bytes)); }
 fn findByte(bytes: []const u8, wanted: u8) ?usize { for (bytes, 0..) |byte, index| if (byte == wanted) return index; return null; }
 
-fn parseRequiredBlocks(value: []const u8) !u16 {
-    var mask: u16 = 0;
+const FirmwareRequirements = struct { blocks: u16 = 0, psp_host_boot: bool = false };
+
+fn parseFirmwareRequirements(value: []const u8) !FirmwareRequirements {
+    var result = FirmwareRequirements{};
     var offset: usize = 0;
     while (offset < value.len) {
         var end = offset;
         while (end < value.len and value[end] != ',') : (end += 1) {}
         const name = value[offset..end];
+        if (equal(name, "psp-host-boot")) {
+            if (result.psp_host_boot) return error.DuplicateFirmwareRequirement;
+            result.psp_host_boot = true;
+            if (end < value.len and end + 1 == value.len) return error.InvalidFirmwareRequirement;
+            offset = if (end < value.len) end + 1 else end;
+            continue;
+        }
         const block: FirmwareBlock = if (equal(name, "security")) .security
             else if (equal(name, "management")) .management
             else if (equal(name, "memory")) .memory
@@ -456,12 +474,12 @@ fn parseRequiredBlocks(value: []const u8) !u16 {
             else if (equal(name, "other")) .other
             else return error.InvalidFirmwareRequirement;
         const bit = @as(u16, 1) << @intFromEnum(block);
-        if ((mask & bit) != 0) return error.DuplicateFirmwareRequirement;
-        mask |= bit;
+        if ((result.blocks & bit) != 0) return error.DuplicateFirmwareRequirement;
+        result.blocks |= bit;
         if (end < value.len and end + 1 == value.len) return error.InvalidFirmwareRequirement;
         offset = if (end < value.len) end + 1 else end;
     }
-    return mask;
+    return result;
 }
 
 fn align4(value: usize) usize { return (value + 3) & ~@as(usize, 3); }
@@ -710,12 +728,13 @@ pub const AmdPspMmioTransport = struct {
     profile: AmdPspMailboxProfile,
     registers: AmdPspMailboxRegisters,
     uncached: bool = false,
+    authorized: bool = false,
     armed: bool = false,
     active: ?AmdPspBootCommand = null,
     sos_before: u32 = 0,
 
     pub fn arm(self: *AmdPspMmioTransport, initial: AmdPspMailboxSnapshot) !void {
-        if (!self.uncached or self.armed or self.active != null or initial.state != .bootloader_ready)
+        if (!self.uncached or !self.authorized or self.armed or self.active != null or initial.state != .bootloader_ready)
             return error.AmdPspTransportNotReady;
         self.armed = true;
         self.sos_before = initial.sos;
