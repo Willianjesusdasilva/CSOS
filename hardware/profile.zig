@@ -1,4 +1,4 @@
-const profile_version: u8 = 5;
+const profile_version: u8 = 6;
 
 pub const Cpu = struct {
     vendor: [12]u8,
@@ -17,6 +17,11 @@ pub const Facts = struct {
     pci_devices: u16,
     gpu_vendor: u16,
     gpu_device: u16,
+    gpu_revision: u8,
+    gpu_subsystem_vendor: u16,
+    gpu_subsystem_device: u16,
+    gpu_msi: bool,
+    gpu_msix: bool,
     gpu_bus: u8,
     gpu_slot: u5,
     nvme_vendor: u16,
@@ -158,6 +163,11 @@ pub fn build(cpu: Cpu, facts: Facts) !Profile {
     try append(&result, "\n\n[pci]\ndevices="); try appendDecimal(&result, facts.pci_devices);
     try append(&result, "\n\n[gpu]\nvendor="); try appendHex(&result, facts.gpu_vendor);
     try append(&result, "\ndevice="); try appendHex(&result, facts.gpu_device);
+    try append(&result, "\nrevision="); try appendHex(&result, facts.gpu_revision);
+    try append(&result, "\nsubsystem_vendor="); try appendHex(&result, facts.gpu_subsystem_vendor);
+    try append(&result, "\nsubsystem_device="); try appendHex(&result, facts.gpu_subsystem_device);
+    try append(&result, "\nmsi="); try append(&result, if (facts.gpu_msi) "true" else "false");
+    try append(&result, "\nmsix="); try append(&result, if (facts.gpu_msix) "true" else "false");
     try append(&result, "\nbus="); try appendDecimal(&result, facts.gpu_bus);
     try append(&result, "\nslot="); try appendDecimal(&result, facts.gpu_slot);
     try append(&result, "\n\n[nvme]\nvendor="); try appendHex(&result, facts.nvme_vendor);
@@ -187,6 +197,8 @@ fn signature(cpu: Cpu, facts: Facts) u64 {
     hash = hashInteger(hash, @intFromBool(cpu.invariant_tsc));
     hash = hashInteger(hash, facts.logical_cpus); hash = hashInteger(hash, facts.memory_pages);
     hash = hashInteger(hash, facts.pci_devices); hash = hashInteger(hash, facts.gpu_vendor); hash = hashInteger(hash, facts.gpu_device);
+    hash = hashInteger(hash, facts.gpu_revision); hash = hashInteger(hash, facts.gpu_subsystem_vendor); hash = hashInteger(hash, facts.gpu_subsystem_device);
+    hash = hashInteger(hash, @intFromBool(facts.gpu_msi)); hash = hashInteger(hash, @intFromBool(facts.gpu_msix));
     hash = hashInteger(hash, facts.gpu_bus); hash = hashInteger(hash, facts.gpu_slot);
     hash = hashInteger(hash, facts.nvme_vendor); hash = hashInteger(hash, facts.nvme_device); hash = hashInteger(hash, facts.nvme_namespaces);
     hash = hashInteger(hash, facts.nic_vendor); hash = hashInteger(hash, facts.nic_device);

@@ -6,6 +6,9 @@ pub const Device = struct {
     function: u3,
     vendor: u16,
     device: u16,
+    revision: u8,
+    subsystem_vendor: u16,
+    subsystem_device: u16,
     class: u8,
     subclass: u8,
     programming_interface: u8,
@@ -56,17 +59,21 @@ pub const Inventory = struct {
         if (vendor == 0xffff or self.count == max_devices) return;
         const class = read8(bus, slot, function, 0x0b);
         const subclass = read8(bus, slot, function, 0x0a);
-        const probe = Device{ .bus = bus, .slot = slot, .function = function, .vendor = vendor, .device = 0, .class = class, .subclass = subclass, .programming_interface = 0, .header_type = 0, .msi = false, .msix = false };
+        const header_type = read8(bus, slot, function, 0x0e) & 0x7f;
+        const probe = Device{ .bus = bus, .slot = slot, .function = function, .vendor = vendor, .device = 0, .revision = 0, .subsystem_vendor = 0, .subsystem_device = 0, .class = class, .subclass = subclass, .programming_interface = 0, .header_type = header_type, .msi = false, .msix = false };
         self.devices[self.count] = .{
             .bus = bus,
             .slot = slot,
             .function = function,
             .vendor = vendor,
             .device = read16(bus, slot, function, 2),
+            .revision = read8(bus, slot, function, 8),
+            .subsystem_vendor = if (header_type == 0) read16(bus, slot, function, 0x2c) else 0,
+            .subsystem_device = if (header_type == 0) read16(bus, slot, function, 0x2e) else 0,
             .class = class,
             .subclass = subclass,
             .programming_interface = read8(bus, slot, function, 9),
-            .header_type = read8(bus, slot, function, 0x0e) & 0x7f,
+            .header_type = header_type,
             .msi = capabilityOffset(probe, 0x05) != null,
             .msix = capabilityOffset(probe, 0x11) != null,
         };

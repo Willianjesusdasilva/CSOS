@@ -471,6 +471,7 @@ pub fn start(info: BootInfo) noreturn {
     if (initial_pixels == 0) panic("display presentation failed");
     serial.write("GPU PCI vendor: "); serial.writeDecimal(screen.adapter.vendor);
     serial.write(" device: "); serial.writeDecimal(screen.adapter.device);
+    serial.write(" revision: "); serial.writeDecimal(display_device.revision);
     serial.write(" bars: "); serial.writeDecimal(gpu_adapter.bar_count);
     serial.write(" bytes: "); serial.writeDecimal(gpu_adapter.mmio_bytes);
     serial.write(" registers: "); serial.writeDecimal(gpu_registers.size);
@@ -493,6 +494,11 @@ pub fn start(info: BootInfo) noreturn {
         .pci_devices = @intCast(inventory.count),
         .gpu_vendor = display_device.vendor,
         .gpu_device = display_device.device,
+        .gpu_revision = display_device.revision,
+        .gpu_subsystem_vendor = display_device.subsystem_vendor,
+        .gpu_subsystem_device = display_device.subsystem_device,
+        .gpu_msi = display_device.msi,
+        .gpu_msix = display_device.msix,
         .gpu_bus = display_device.bus,
         .gpu_slot = display_device.slot,
         .nvme_vendor = nvme_device.vendor,
