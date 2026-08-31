@@ -757,6 +757,14 @@ Os MQDs de 512 dwords codificam bases, EOP, RPTR/WPTR e os doorbells reservados
 `0x0b/0x0c` conforme SOC21, mas preservam `HQD_ACTIVE=0`. O preflight pode
 confirmar que os recursos estão completos sem ativar fila, tocar o doorbell ou
 autorizar command submission.
+A seleção MES agora segue a preferência upstream de GFX11: `mes_2` para o
+scheduler, com fallback explícito para `mes`, e `mes1` separado para a KIQ.
+Cada cabeçalho fornece versões, endereços de início e fatias independentes de
+código/dados; valores vazios, offsets fora da imagem e IP diferente de 11 são
+rejeitados. Os quatro payloads são copiados para alocações físicas
+transacionais e recebem entradas GART a partir da página 11, respeitando o
+limite total de 512 entradas. Isso ainda é staging: nenhum microcontrolador MES
+é iniciado por esse passo.
 Para VA de 48 bits, o walker segue `PDB2[47:39] → PDB1[38:30] →
 PDB0[29:21] → PTB[20:12]`, com offset `[11:0]`. Cada nível possui até 512
 entradas de 64 bits e ocupa uma página de 4 KiB, conforme a geometria do

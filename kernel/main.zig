@@ -552,6 +552,14 @@ pub fn start(info: BootInfo) noreturn {
             plan.gfx,
         ) catch panic("AMDGPU GFX11 firmware set incomplete")
     else null else null;
+    const gpu_mes_firmware = if (gpu_gfx_firmware != null)
+        (gpu_firmware orelse panic("AMDGPU firmware archive missing")).amdMesFirmwareSet(
+            gpu_selection orelse panic("AMDGPU firmware selection missing"),
+        ) catch panic("AMDGPU MES firmware selection failed")
+    else null;
+    const gpu_mes_firmware_staging = if (gpu_mes_firmware) |firmware|
+        gpu.stageAmdMesFirmwareSet(firmware, &pages) catch panic("AMDGPU MES firmware staging failed")
+    else gpu.AmdMesFirmwareStaging{};
     const gpu_gfx_ring_resources = if (gpu_gfx_firmware != null)
         gpu.allocateAmdGfx11RingResources(gpu.physicalAmdGpuVmPageAllocator(&pages)) catch
             panic("AMDGPU GFX11 ring resource allocation failed")
@@ -644,6 +652,10 @@ pub fn start(info: BootInfo) noreturn {
             gpu_gmc11_gart_window.?.start,
             gpu_memory_plan.?.doorbell_bar.size,
         ) catch panic("AMDGPU GFX11 MES bootstrap preparation failed")
+    else null;
+    const gpu_mes_firmware_gpu = if (gpu_mes_firmware != null and gpu_gmc11_gart_window != null)
+        gpu.mapAmdMesFirmwareIntoGart(gpu_psp_gtt, gpu_mes_firmware_staging, gpu_gmc11_gart_window.?.start) catch
+            panic("AMDGPU MES firmware GART mapping failed")
     else null;
     const gpu_gmc11_visible_vram = if (gpu_gmc11_memory) |memory| if (gpu_memory_plan.?.vram_bar) |bar|
         gpu.mapAmdGmc11VisibleVram(memory, bar, info.framebuffer.base, info.framebuffer.size) catch panic("AMDGPU visible VRAM mapping invalid")
@@ -896,6 +908,7 @@ pub fn start(info: BootInfo) noreturn {
     })));
     serial.write(" mes-ring0-db: "); serial.writeDecimal(if (gpu_gfx_mes_bootstrap) |bootstrap| bootstrap.scheduler_doorbell.register_index else 0);
     serial.write(" mes-ring1-db: "); serial.writeDecimal(if (gpu_gfx_mes_bootstrap) |bootstrap| bootstrap.kiq_doorbell.register_index else 0);
+    serial.write(" mes-fw-gart-pages: "); serial.writeDecimal(if (gpu_mes_firmware_gpu) |layout| layout.gart_pages else 0);
     serial.write(" driver: ");
     serial.write(switch (gpu_adapter.driver) {
         .amdgpu => "amdgpu",

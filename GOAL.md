@@ -1833,8 +1833,10 @@ GFX11 ring resource contract and fail-closed preflight: implemented and host-tes
 transactional ring/MQD/EOP/pointer physical allocation: implemented and host-tested
 dual MES scheduler/KIQ GART layout and GFX11 MQD encoding: implemented and host-tested
 SOC21 MES ring0/ring1 doorbell assignment: implemented as a write-free plan
+MES mes_2/mes fallback + mes1 typed selection: implemented; archive validation pending
+MES code/data physical staging and bounded GART layout: implemented; GART layout host-tested
 real Radeon MMIO lifecycle validation: pending
-MES firmware loading, queue activation/handshake and command submission: pending
+MES register loading, queue activation/handshake and command submission: pending
 AMD RADV triangle on real hardware: pending
 NVIDIA NVK/compatible-stack triangle on real hardware: pending
 ```

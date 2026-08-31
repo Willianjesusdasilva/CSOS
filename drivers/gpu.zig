@@ -194,6 +194,30 @@ pub const Firmware = struct {
         return result;
     }
 
+    pub fn amdMesFirmwareSet(self: Firmware, selection: Selection) !AmdMesFirmwareSet {
+        var scheduler_v2: ?AmdMesFirmware = null;
+        var scheduler_fallback: ?AmdMesFirmware = null;
+        var kiq: ?AmdMesFirmware = null;
+        var iterator = self.selected(selection);
+        while (try iterator.next()) |entry| {
+            if (endsWith(entry.name, "_mes_2.bin")) {
+                if (scheduler_v2 != null) return error.DuplicateAmdMesSchedulerFirmware;
+                scheduler_v2 = try parseAmdMesFirmware(entry.data);
+            } else if (endsWith(entry.name, "_mes.bin")) {
+                if (scheduler_fallback != null) return error.DuplicateAmdMesSchedulerFirmware;
+                scheduler_fallback = try parseAmdMesFirmware(entry.data);
+            } else if (endsWith(entry.name, "_mes1.bin")) {
+                if (kiq != null) return error.DuplicateAmdMesKiqFirmware;
+                kiq = try parseAmdMesFirmware(entry.data);
+            }
+        }
+        const scheduler = scheduler_v2 orelse scheduler_fallback orelse return error.AmdMesSchedulerFirmwareMissing;
+        const selected_kiq = kiq orelse return error.AmdMesKiqFirmwareMissing;
+        if (scheduler.ip_version_major != 11 or selected_kiq.ip_version_major != 11)
+            return error.AmdMesFirmwareIpMismatch;
+        return .{ .scheduler = scheduler, .kiq = selected_kiq, .scheduler_v2 = scheduler_v2 != null };
+    }
+
     pub fn stageAmdSecurity(self: Firmware, selection: Selection, pages: *physical.Allocator) !AmdFirmwareStaging {
         var result = AmdFirmwareStaging{};
         errdefer result.release(pages);
@@ -317,6 +341,56 @@ pub const FirmwareInventory = struct {
     pub fn block(self: *const FirmwareInventory, kind: FirmwareBlock) FirmwareBlockSummary { return self.blocks[@intFromEnum(kind)]; }
 };
 pub const AmdGfxFirmwareRole = enum { pfp, me, mec, rlc, mes_scheduler, mes_kiq };
+pub const AmdMesFirmware = struct {
+    ip_version_major: u16,
+    ip_version_minor: u16,
+    ucode_version: u32,
+    data_version: u32,
+    ucode: []const u8,
+    data: []const u8,
+    ucode_start: u64,
+    data_start: u64,
+};
+pub const AmdMesFirmwareSet = struct { scheduler: AmdMesFirmware, kiq: AmdMesFirmware, scheduler_v2: bool };
+pub const AmdMesPayloadArea = struct { address: u64 = 0, pages: u64 = 0, bytes: usize = 0 };
+pub const AmdMesStagedImage = struct { ucode: AmdMesPayloadArea = .{}, data: AmdMesPayloadArea = .{} };
+pub const AmdMesFirmwareStaging = struct {
+    scheduler: AmdMesStagedImage = .{},
+    kiq: AmdMesStagedImage = .{},
+
+    pub fn release(self: *AmdMesFirmwareStaging, pages: *physical.Allocator) void {
+        inline for (.{ "kiq", "scheduler" }) |image_field| {
+            inline for (.{ "data", "ucode" }) |area_field| {
+                const area = @field(@field(self, image_field), area_field);
+                if (area.pages != 0) pages.release(area.address, area.pages) catch {};
+            }
+        }
+        self.* = .{};
+    }
+};
+
+fn stageAmdMesPayload(payload: []const u8, pages: *physical.Allocator) !AmdMesPayloadArea {
+    const page_count: u64 = @intCast((payload.len + 4095) / 4096);
+    const address = pages.allocate(page_count) orelse return error.OutOfMemory;
+    if (address >= (@as(u64, 1) << 44) or page_count > (((@as(u64, 1) << 44) - address) / 4096)) {
+        pages.release(address, page_count) catch {};
+        return error.AmdMesFirmwareOutsideDmaMask;
+    }
+    const target: [*]u8 = @ptrFromInt(address);
+    @memset(target[0 .. page_count * 4096], 0);
+    @memcpy(target[0..payload.len], payload);
+    return .{ .address = address, .pages = page_count, .bytes = payload.len };
+}
+
+pub fn stageAmdMesFirmwareSet(set: AmdMesFirmwareSet, pages: *physical.Allocator) !AmdMesFirmwareStaging {
+    var result = AmdMesFirmwareStaging{};
+    errdefer result.release(pages);
+    result.scheduler.ucode = try stageAmdMesPayload(set.scheduler.ucode, pages);
+    result.scheduler.data = try stageAmdMesPayload(set.scheduler.data, pages);
+    result.kiq.ucode = try stageAmdMesPayload(set.kiq.ucode, pages);
+    result.kiq.data = try stageAmdMesPayload(set.kiq.data, pages);
+    return result;
+}
 pub const AmdGfxFirmwareSummary = struct {
     entries: usize = 0,
     image_bytes: usize = 0,
@@ -516,6 +590,42 @@ pub fn prepareAmdGfx11MesBootstrap(
     return .{
         .scheduler = scheduler, .kiq = kiq,
         .scheduler_doorbell = scheduler_mqd.doorbell, .kiq_doorbell = kiq_mqd.doorbell,
+    };
+}
+pub const AmdMesFirmwareGpuLayout = struct {
+    scheduler_ucode: u64,
+    scheduler_data: u64,
+    kiq_ucode: u64,
+    kiq_data: u64,
+    first_gart_page: u16 = 11,
+    gart_pages: u16,
+};
+
+pub fn mapAmdMesFirmwareIntoGart(staging: AmdPspGttStaging, firmware: AmdMesFirmwareStaging, window_start: u64) !AmdMesFirmwareGpuLayout {
+    if (staging.active or staging.page_table_address == 0 or staging.page_table_pages != 1 or (window_start & 4095) != 0)
+        return error.InvalidAmdMesFirmwareGart;
+    const areas = .{ firmware.scheduler.ucode, firmware.scheduler.data, firmware.kiq.ucode, firmware.kiq.data };
+    var total_pages: u64 = 0;
+    inline for (areas) |area| {
+        if (area.address == 0 or area.pages == 0 or area.bytes == 0 or (area.address & 4095) != 0 or area.bytes > area.pages * 4096)
+            return error.InvalidAmdMesFirmwareStaging;
+        total_pages += area.pages;
+    }
+    if (total_pages > 512 - 11) return error.AmdMesFirmwareExceedsGartWindow;
+    const table: [*]u64 = @ptrFromInt(staging.page_table_address);
+    for (11..11 + total_pages) |index| if (table[index] != 0) return error.AmdMesFirmwareGartPageAlreadyMapped;
+    var next: u64 = 11;
+    var gpu_addresses: [4]u64 = undefined;
+    inline for (areas, 0..) |area, area_index| {
+        gpu_addresses[area_index] = window_start + next * 4096;
+        var page: u64 = 0;
+        while (page < area.pages) : (page += 1) table[next + page] = amdGttPte(area.address + page * 4096);
+        next += area.pages;
+    }
+    return .{
+        .scheduler_ucode = gpu_addresses[0], .scheduler_data = gpu_addresses[1],
+        .kiq_ucode = gpu_addresses[2], .kiq_data = gpu_addresses[3],
+        .gart_pages = @intCast(total_pages),
     };
 }
 
@@ -745,17 +855,32 @@ pub fn classifyAmdGfxFirmware(name: []const u8) ?AmdGfxFirmwareRole {
     return null;
 }
 
-fn validateAmdMesFirmware(image: []const u8) !void {
+pub fn parseAmdMesFirmware(image: []const u8) !AmdMesFirmware {
     // common_firmware_header (32 bytes) followed by mes_firmware_header_v1_0.
     if (image.len < 72 or readLittle16(image, 8) != 1) return error.UnsupportedAmdMesFirmwareHeader;
+    const common = try parseAmdgpuFirmware(image);
     const ucode_bytes: usize = readLittle32(image, 36);
     const ucode_offset: usize = readLittle32(image, 40);
     const data_bytes: usize = readLittle32(image, 48);
     const data_offset: usize = readLittle32(image, 52);
+    const mes_ucode_version = readLittle32(image, 32);
+    const mes_data_version = readLittle32(image, 44);
     if (ucode_bytes == 0 or data_bytes == 0 or ucode_offset > image.len or ucode_bytes > image.len - ucode_offset or
-        data_offset > image.len or data_bytes > image.len - data_offset)
+        data_offset > image.len or data_bytes > image.len - data_offset or mes_ucode_version == 0 or mes_data_version == 0)
         return error.InvalidAmdMesFirmwarePayload;
+    return .{
+        .ip_version_major = common.ip_version_major,
+        .ip_version_minor = common.ip_version_minor,
+        .ucode_version = @intCast(mes_ucode_version),
+        .data_version = @intCast(mes_data_version),
+        .ucode = image[ucode_offset .. ucode_offset + ucode_bytes],
+        .data = image[data_offset .. data_offset + data_bytes],
+        .ucode_start = readLittle64(image, 56),
+        .data_start = readLittle64(image, 64),
+    };
 }
+
+fn validateAmdMesFirmware(image: []const u8) !void { _ = try parseAmdMesFirmware(image); }
 
 pub fn classifyFirmware(driver: Driver, name: []const u8) FirmwareBlock {
     if (driver == .amdgpu) {
@@ -2781,6 +2906,16 @@ pub fn validateAmdGfx11RingResourceSelfTest() !void {
     if (staged_scheduler[143] != 0x40000058 or staged_kiq[143] != 0x40000060 or
         staged_scheduler[130] != 0 or staged_kiq[130] != 0)
         return error.AmdGfxMesBootstrapMqdMismatch;
+    const firmware_layout = try mapAmdMesFirmwareIntoGart(.{
+        .page_table_address = @intFromPtr(&gart_table), .page_table_pages = 1,
+        .buffer_address = 0x800000, .buffer_pages = 3,
+    }, .{
+        .scheduler = .{ .ucode = .{ .address = @intFromPtr(&bootstrap_pool.storage[0]), .pages = 1, .bytes = 16 }, .data = .{ .address = @intFromPtr(&bootstrap_pool.storage[1]), .pages = 1, .bytes = 16 } },
+        .kiq = .{ .ucode = .{ .address = @intFromPtr(&bootstrap_pool.storage[2]), .pages = 1, .bytes = 16 }, .data = .{ .address = @intFromPtr(&bootstrap_pool.storage[3]), .pages = 1, .bytes = 16 } },
+    }, 0x2000000);
+    if (firmware_layout.scheduler_ucode != 0x200b000 or firmware_layout.kiq_data != 0x200e000 or firmware_layout.gart_pages != 4 or
+        gart_table[11] != amdGttPte(@intFromPtr(&bootstrap_pool.storage[0])) or gart_table[14] != amdGttPte(@intFromPtr(&bootstrap_pool.storage[3])))
+        return error.AmdMesFirmwareGartLayoutMismatch;
     try bootstrap_resources.release();
     for (bootstrap_pool.allocated) |allocated| if (allocated) return error.AmdGfxMesBootstrapReleaseLeak;
 }
@@ -4249,10 +4384,16 @@ pub fn validateAmdGfx11FirmwarePreflightSelfTest() !void {
     writeLittle32(&image, 16, 7);
     writeLittle32(&image, 20, 8);
     writeLittle32(&image, 24, 72);
+    writeLittle32(&image, 32, 9);
     writeLittle32(&image, 36, 4);
     writeLittle32(&image, 40, 72);
+    writeLittle32(&image, 44, 10);
     writeLittle32(&image, 48, 4);
     writeLittle32(&image, 52, 76);
+
+    const mes = try parseAmdMesFirmware(&image);
+    if (mes.ip_version_major != 11 or mes.ucode_version != 9 or mes.data_version != 10 or mes.ucode.len != 4 or mes.data.len != 4)
+        return error.AmdMesFirmwareParserSelfTestFailed;
 
     var manifest = AmdGfxFirmwareManifest{ .family = .v11_0 };
     inline for (.{ AmdGfxFirmwareRole.pfp, .me, .mec, .rlc, .mes_scheduler, .mes_kiq }) |kind| try manifest.add(kind, &image);
