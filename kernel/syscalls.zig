@@ -341,6 +341,7 @@ fn ioctl(fd: u64, request: u64, address: u64) u64 {
             0xc01864cd => drmSyncobjTimelineSignal(address),
             0xc0206440 => if (drm_driver == .amdgpu) amdgpuGemCreate(address) else errno(25),
             0xc0086441 => if (drm_driver == .amdgpu) amdgpuGemMmap(address) else errno(25),
+            0x40206445 => if (drm_driver == .amdgpu) amdgpuInfo(address) else errno(25),
             else => errno(25),
         };
         drm_last_request = request;
@@ -360,7 +361,7 @@ fn drmVersion(address: u64) u64 {
     const date_address = read64(output + 40);
     const description_length = read64(output + 48);
     const description_address = read64(output + 56);
-    put32(output + 0, 1); put32(output + 4, 0); put32(output + 8, 0);
+    put32(output + 0, if (drm_driver == .amdgpu) 3 else 1); put32(output + 4, 0); put32(output + 8, 0);
     const driver_name = switch (drm_driver) { .csos => "csosdrm", .amdgpu => "amdgpu", .nouveau => "nouveau" };
     const driver_description = switch (drm_driver) { .csos => "CSOS display DRM", .amdgpu => "AMD GPU", .nouveau => "NVIDIA GPU" };
     if (!copyDrmString(name_address, name_length, driver_name)) return errno(14);
@@ -577,6 +578,23 @@ fn amdgpuGemMmap(address: u64) u64 {
     if (read32(io + 4) != 0) return errno(22);
     const object = drmObjectForHandle(read32(io)) orelse return errno(2);
     put64(io, object.map_offset);
+    return 0;
+}
+
+fn amdgpuInfo(address: u64) u64 {
+    if (!validUserSlice(address, 32)) return errno(14);
+    const input: [*]const u8 = @ptrFromInt(address);
+    const return_address = read64(input);
+    const return_size = read32(input + 8);
+    const query = read32(input + 12);
+    if (return_address == 0 or return_size == 0) return errno(22);
+    if (query != 0) return errno(22);
+    const count = @min(return_size, 4);
+    if (!validUserSlice(return_address, count)) return errno(14);
+    const output: [*]u8 = @ptrFromInt(return_address);
+    // AMDGPU_INFO_ACCEL_WORKING remains false until firmware, GART and a
+    // command ring have all been initialized and verified on the device.
+    @memset(output[0..count], 0);
     return 0;
 }
 
