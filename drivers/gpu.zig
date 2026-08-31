@@ -59,7 +59,71 @@ pub const Firmware = struct {
         const pointer: [*]const u8 = @ptrFromInt(self.address);
         return pointer[0..self.size];
     }
+
+    pub fn entryCount(self: Firmware) !usize {
+        var iterator = CpioIterator{ .archive = self.bytes() };
+        var count: usize = 0;
+        while (try iterator.next()) |_| count += 1;
+        return count;
+    }
+
+    pub fn find(self: Firmware, wanted: []const u8) !?[]const u8 {
+        var iterator = CpioIterator{ .archive = self.bytes() };
+        while (try iterator.next()) |entry| if (equal(entry.name, wanted)) return entry.data;
+        return null;
+    }
 };
+
+const CpioEntry = struct { name: []const u8, data: []const u8 };
+
+const CpioIterator = struct {
+    archive: []const u8,
+    offset: usize = 0,
+    finished: bool = false,
+
+    fn next(self: *CpioIterator) !?CpioEntry {
+        if (self.finished) return null;
+        if (self.offset > self.archive.len or self.archive.len - self.offset < 110) return error.InvalidFirmwareArchive;
+        const header = self.archive[self.offset .. self.offset + 110];
+        if (!equal(header[0..6], "070701") and !equal(header[0..6], "070702")) return error.InvalidFirmwareArchive;
+        const file_size = try readHex(header[54..62]);
+        const name_size = try readHex(header[94..102]);
+        if (name_size == 0) return error.InvalidFirmwareArchive;
+        const name_start = self.offset + 110;
+        if (name_size > self.archive.len - name_start) return error.InvalidFirmwareArchive;
+        const name_end = name_start + name_size;
+        if (self.archive[name_end - 1] != 0) return error.InvalidFirmwareArchive;
+        const data_start = align4(name_end);
+        if (data_start > self.archive.len or file_size > self.archive.len - data_start) return error.InvalidFirmwareArchive;
+        const data_end = data_start + file_size;
+        self.offset = align4(data_end);
+        const name = self.archive[name_start .. name_end - 1];
+        if (equal(name, "TRAILER!!!")) {
+            self.finished = true;
+            return null;
+        }
+        return .{ .name = name, .data = self.archive[data_start..data_end] };
+    }
+};
+
+fn readHex(bytes: []const u8) !usize {
+    var value: usize = 0;
+    for (bytes) |character| {
+        const digit: u8 = if (character >= '0' and character <= '9') character - '0'
+            else if (character >= 'a' and character <= 'f') character - 'a' + 10
+            else if (character >= 'A' and character <= 'F') character - 'A' + 10
+            else return error.InvalidFirmwareArchive;
+        value = value * 16 + digit;
+    }
+    return value;
+}
+
+fn align4(value: usize) usize { return (value + 3) & ~@as(usize, 3); }
+fn equal(left: []const u8, right: []const u8) bool {
+    if (left.len != right.len) return false;
+    for (left, right) |a, b| if (a != b) return false;
+    return true;
+}
 
 pub fn loadFirmware(volume: *fat16.Volume, pages: *physical.Allocator) !?Firmware {
     const size = volume.fileSize(&firmware_name) catch |err| switch (err) {

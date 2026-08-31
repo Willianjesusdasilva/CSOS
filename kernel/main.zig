@@ -464,6 +464,7 @@ pub fn start(info: BootInfo) noreturn {
     if (gpu_adapter.bar_count == 0) panic("GPU BAR discovery failed");
     const gpu_firmware = gpu.loadFirmware(&volume, &pages) catch panic("GPU firmware load failed");
     if ((gpu_adapter.driver == .amdgpu or gpu_adapter.driver == .nouveau) and gpu_firmware == null) panic("GPU firmware archive missing");
+    const gpu_firmware_entries = if (gpu_firmware) |firmware| firmware.entryCount() catch panic("GPU firmware archive invalid") else 0;
     const gpu_registers = gpu_adapter.register_bar orelse panic("GPU register BAR missing");
     if (gpu_registers.size > 16 * 1024 * 1024) panic("GPU register BAR unexpectedly large");
     mapper.mapIdentity(gpu_registers.address, @intCast(gpu_registers.size)) catch panic("GPU register MMIO mapping failed");
@@ -479,6 +480,7 @@ pub fn start(info: BootInfo) noreturn {
     serial.write(" bytes: "); serial.writeDecimal(gpu_adapter.mmio_bytes);
     serial.write(" registers: "); serial.writeDecimal(gpu_registers.size);
     serial.write(" firmware: "); serial.writeDecimal(if (gpu_firmware) |firmware| firmware.size else 0);
+    serial.write(" entries: "); serial.writeDecimal(gpu_firmware_entries);
     serial.write(" driver: ");
     serial.write(switch (gpu_adapter.driver) {
         .amdgpu => "amdgpu",
