@@ -726,6 +726,14 @@ PDB0[29:21] → PTB[20:12]`, com offset `[11:0]`. Cada nível possui até 512
 entradas de 64 bits e ocupa uma página de 4 KiB, conforme a geometria do
 AMDGPU VMPT upstream. O código já rejeita VA fora dos 48 bits; PDEs só serão
 emitidos depois que as quatro páginas físicas/VRAM do caminho forem alocadas.
+Um allocator transacional agora materializa essas quatro páginas, exige
+alinhamento de 4 KiB, rejeita endereço zero/duplicado, limpa cada página e
+libera em ordem reversa. Falha em qualquer nível devolve todos os níveis já
+alocados. O backend físico usa o allocator do kernel; o teste host injeta falha
+no terceiro nível e comprova ausência de leak.
+O lifecycle do VMID agora exige `allocate → materialize → map/unmap →
+dematerialize → release`: não é possível liberar VMID com tabelas vivas nem
+desmaterializar enquanto houver intervalos GPUVA ativos.
 
 O handoff PSP é mantido declarativo: KDB, SPL, SYS_DRV e SOS são ordenados como
 no fluxo upstream e apontam para suas fontes físicas validadas. Uma única área

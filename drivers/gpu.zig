@@ -862,6 +862,63 @@ pub const AmdGpuVmPagePath = struct {
     ptb: u9,
     page_offset: u12,
 };
+pub const AmdGpuVmPageAllocator = struct {
+    context: *anyopaque,
+    allocate: *const fn (*anyopaque) anyerror!u64,
+    release: *const fn (*anyopaque, u64) anyerror!void,
+    zero: *const fn (*anyopaque, u64) anyerror!void,
+};
+pub const AmdGpuVmPageTables = struct {
+    pages: [4]u64 = .{0} ** 4,
+    count: u3 = 0,
+
+    pub fn root(self: *const AmdGpuVmPageTables) ?u64 {
+        return if (self.count == 4) self.pages[0] else null;
+    }
+};
+
+pub fn allocateAmdGpuVmPageTables(allocator: AmdGpuVmPageAllocator) !AmdGpuVmPageTables {
+    var tables = AmdGpuVmPageTables{};
+    errdefer releaseAmdGpuVmPageTables(&tables, allocator) catch {};
+    while (tables.count < tables.pages.len) {
+        const page = try allocator.allocate(allocator.context);
+        if (page == 0 or (page & 4095) != 0) return error.InvalidAmdGpuVmPage;
+        for (tables.pages[0..tables.count]) |existing| if (existing == page) return error.DuplicateAmdGpuVmPage;
+        try allocator.zero(allocator.context, page);
+        tables.pages[tables.count] = page;
+        tables.count += 1;
+    }
+    return tables;
+}
+
+pub fn releaseAmdGpuVmPageTables(tables: *AmdGpuVmPageTables, allocator: AmdGpuVmPageAllocator) !void {
+    var failed = false;
+    while (tables.count != 0) {
+        tables.count -= 1;
+        const page = tables.pages[tables.count];
+        allocator.release(allocator.context, page) catch { failed = true; };
+        tables.pages[tables.count] = 0;
+    }
+    if (failed) return error.AmdGpuVmPageReleaseFailed;
+}
+
+pub fn physicalAmdGpuVmPageAllocator(pages: *physical.Allocator) AmdGpuVmPageAllocator {
+    return .{ .context = pages, .allocate = &allocatePhysicalAmdGpuVmPage, .release = &releasePhysicalAmdGpuVmPage, .zero = &zeroPhysicalAmdGpuVmPage };
+}
+
+fn allocatePhysicalAmdGpuVmPage(context: *anyopaque) !u64 {
+    const pages: *physical.Allocator = @ptrCast(@alignCast(context));
+    return pages.allocate(1) orelse error.OutOfMemory;
+}
+
+fn releasePhysicalAmdGpuVmPage(context: *anyopaque, address: u64) !void {
+    const pages: *physical.Allocator = @ptrCast(@alignCast(context));
+    try pages.release(address, 1);
+}
+
+fn zeroPhysicalAmdGpuVmPage(_: *anyopaque, address: u64) !void {
+    @memset(@as([*]u8, @ptrFromInt(address))[0..4096], 0);
+}
 
 pub fn amdGpuVmPagePath(address: u64) !AmdGpuVmPagePath {
     if (address >= 0x0000800000000000) return error.InvalidAmdGpuVa;
@@ -882,6 +939,7 @@ pub const AmdGpuVm = struct {
     allocated: bool = false,
     vmid: u4 = 0,
     mappings: [32]AmdGpuVaMapping = .{AmdGpuVaMapping{}} ** 32,
+    page_tables: AmdGpuVmPageTables = .{},
 };
 pub const AmdGpuVmManager = struct {
     vms: [15]AmdGpuVm = .{AmdGpuVm{}} ** 15,
@@ -896,7 +954,21 @@ pub const AmdGpuVmManager = struct {
 
     pub fn release(self: *AmdGpuVmManager, vmid: u4) !void {
         const vm = try self.get(vmid);
+        if (vm.page_tables.count != 0) return error.AmdGpuVmPageTablesStillAllocated;
         vm.* = .{};
+    }
+
+    pub fn materialize(self: *AmdGpuVmManager, vmid: u4, allocator: AmdGpuVmPageAllocator) !void {
+        const vm = try self.get(vmid);
+        if (vm.page_tables.count != 0) return error.AmdGpuVmPageTablesAlreadyAllocated;
+        vm.page_tables = try allocateAmdGpuVmPageTables(allocator);
+    }
+
+    pub fn dematerialize(self: *AmdGpuVmManager, vmid: u4, allocator: AmdGpuVmPageAllocator) !void {
+        const vm = try self.get(vmid);
+        for (vm.mappings) |mapping| if (mapping.active) return error.AmdGpuVmMappingsStillActive;
+        if (vm.page_tables.count == 0) return error.AmdGpuVmPageTablesNotAllocated;
+        try releaseAmdGpuVmPageTables(&vm.page_tables, allocator);
     }
 
     pub fn map(self: *AmdGpuVmManager, vmid: u4, handle: u32, address: u64, size: u64, bo_offset: u64, bo_size: u64, flags: u32) !void {
@@ -1767,6 +1839,73 @@ pub fn validateAmdGpuVmManagerSelfTest() !void {
         return error.AmdGpuVmTableSizeMismatch;
     if (amdGpuVmPagePath(0x0000800000000000)) |_| return error.AmdGpuVmNonCanonicalVaAccepted else |err|
         if (err != error.InvalidAmdGpuVa) return err;
+}
+
+const AmdGpuVmPageTestPool = struct {
+    storage: [5][4096]u8 align(4096) = .{.{0xaa} ** 4096} ** 5,
+    allocated: [5]bool = .{false} ** 5,
+    fail_after: ?u3 = null,
+    allocations: u3 = 0,
+
+    fn pageAllocator(self: *AmdGpuVmPageTestPool) AmdGpuVmPageAllocator {
+        return .{ .context = self, .allocate = &allocate, .release = &release, .zero = &zero };
+    }
+    fn allocate(context: *anyopaque) !u64 {
+        const self: *AmdGpuVmPageTestPool = @ptrCast(@alignCast(context));
+        if (self.fail_after != null and self.allocations == self.fail_after.?) return error.InjectedAmdGpuVmAllocationFailure;
+        for (&self.allocated, 0..) |*allocated, index| if (!allocated.*) {
+            allocated.* = true;
+            self.allocations += 1;
+            return @intFromPtr(&self.storage[index]);
+        };
+        return error.OutOfMemory;
+    }
+    fn release(context: *anyopaque, address: u64) !void {
+        const self: *AmdGpuVmPageTestPool = @ptrCast(@alignCast(context));
+        for (&self.storage, 0..) |*page, index| if (@intFromPtr(page) == address) {
+            if (!self.allocated[index]) return error.DoubleAmdGpuVmPageRelease;
+            self.allocated[index] = false;
+            return;
+        };
+        return error.UnknownAmdGpuVmPage;
+    }
+    fn zero(context: *anyopaque, address: u64) !void {
+        const self: *AmdGpuVmPageTestPool = @ptrCast(@alignCast(context));
+        for (&self.storage) |*page| if (@intFromPtr(page) == address) {
+            @memset(page, 0);
+            return;
+        };
+        return error.UnknownAmdGpuVmPage;
+    }
+};
+
+pub fn validateAmdGpuVmPageTablesSelfTest() !void {
+    var pool = AmdGpuVmPageTestPool{};
+    var tables = try allocateAmdGpuVmPageTables(pool.pageAllocator());
+    if (tables.count != 4 or tables.root() != @intFromPtr(&pool.storage[0])) return error.AmdGpuVmPageTableAllocationMismatch;
+    for (tables.pages) |address| for (@as([*]const u8, @ptrFromInt(address))[0..4096]) |byte|
+        if (byte != 0) return error.AmdGpuVmPageTableNotZero;
+    try releaseAmdGpuVmPageTables(&tables, pool.pageAllocator());
+    for (pool.allocated) |allocated| if (allocated) return error.AmdGpuVmPageTableReleaseLeak;
+
+    pool = AmdGpuVmPageTestPool{ .fail_after = 2 };
+    if (allocateAmdGpuVmPageTables(pool.pageAllocator())) |_| return error.AmdGpuVmPageFailureNotDetected else |err|
+        if (err != error.InjectedAmdGpuVmAllocationFailure) return err;
+    for (pool.allocated) |allocated| if (allocated) return error.AmdGpuVmPageRollbackLeak;
+
+    pool = AmdGpuVmPageTestPool{};
+    var manager = AmdGpuVmManager{};
+    const vm = try manager.allocate();
+    try manager.materialize(vm.vmid, pool.pageAllocator());
+    if (manager.release(vm.vmid)) return error.AmdGpuVmReleasedWithPageTables else |err|
+        if (err != error.AmdGpuVmPageTablesStillAllocated) return err;
+    try manager.map(vm.vmid, 1, 0x200000000, 0x1000, 0, 0x1000, 1 << 1);
+    if (manager.dematerialize(vm.vmid, pool.pageAllocator())) return error.AmdGpuVmDematerializedWithMappings else |err|
+        if (err != error.AmdGpuVmMappingsStillActive) return err;
+    try manager.unmap(vm.vmid, 0x200000000, 0x1000);
+    try manager.dematerialize(vm.vmid, pool.pageAllocator());
+    try manager.release(vm.vmid);
+    for (pool.allocated) |allocated| if (allocated) return error.AmdGpuVmLifecyclePageLeak;
 }
 
 pub fn resolveAmdGmc11GartRegisters(plan: AmdGartPlan, register_bar_bytes: u64) !AmdGmc11GartRegisters {

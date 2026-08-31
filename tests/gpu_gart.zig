@@ -11,3 +11,7 @@ test "GMC 11 MMIO transport requires explicit authorization and arming" {
 test "AMDGPU VMIDs isolate mappings and reject overlap" {
     try gpu.validateAmdGpuVmManagerSelfTest();
 }
+
+test "AMDGPU GPUVM page paths allocate and roll back atomically" {
+    try gpu.validateAmdGpuVmPageTablesSelfTest();
+}
