@@ -231,7 +231,7 @@ pub fn start(info: BootInfo) noreturn {
     const drm_guard_before = drm_guard.*;
     process.runDrmTest(mapper.root, &pages) catch panic("Linux DRM core userspace failed");
     mapper.activate();
-    if (syscalls.drm_ioctls != 31 or syscalls.drm_mmaps != 2) panic("Linux DRM ioctl coverage failed");
+    if (syscalls.drm_ioctls != 35 or syscalls.drm_mmaps != 2) panic("Linux DRM ioctl coverage failed");
     if (syscalls.drm_allocations != 3 or syscalls.drm_releases != 3) panic("DRM backing memory lifecycle failed");
     if (drm_guard.* != drm_guard_before) panic("DRM buffer aliased firmware framebuffer");
     serial.write("CSOS M14 userspace DRM core ready\n");

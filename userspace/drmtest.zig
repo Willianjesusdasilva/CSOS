@@ -26,6 +26,10 @@ pub export var sync_handles: [2]u32 = .{ 0, 0 };
 pub export var sync_array: [16]u8 = .{0} ** 16;
 pub export var sync_wait: [40]u8 = .{0} ** 40;
 pub export var sync_destroy: [8]u8 = .{0} ** 8;
+pub export var timeline_point: u64 = 5;
+pub export var timeline_query_point: u64 = 0;
+pub export var timeline_array: [24]u8 = .{0} ** 24;
+pub export var timeline_wait: [48]u8 = .{0} ** 48;
 pub export const success: [31]u8 = "Linux DRM core userspace ready\n".*;
 
 pub export fn _start() callconv(.naked) noreturn {
@@ -436,6 +440,59 @@ pub export fn _start() callconv(.naked) noreturn {
         \\leaq sync_wait(%%rip), %%rdx
         \\syscall
         \\testq %%rax, %%rax
+        \\jne 1f
+        \\movq $0x14, capability(%%rip)
+        \\movq $16, %%rax
+        \\movq %%r12, %%rdi
+        \\movq $0xc010640c, %%rsi
+        \\leaq capability(%%rip), %%rdx
+        \\syscall
+        \\testq %%rax, %%rax
+        \\jne 1f
+        \\cmpq $1, capability+8(%%rip)
+        \\jne 1f
+        \\leaq sync_handles(%%rip), %%rax
+        \\movq %%rax, timeline_array(%%rip)
+        \\leaq timeline_point(%%rip), %%rax
+        \\movq %%rax, timeline_array+8(%%rip)
+        \\movl $1, timeline_array+16(%%rip)
+        \\movq $16, %%rax
+        \\movq %%r12, %%rdi
+        \\movq $0xc01864cd, %%rsi
+        \\leaq timeline_array(%%rip), %%rdx
+        \\syscall
+        \\testq %%rax, %%rax
+        \\jne 1f
+        \\leaq timeline_query_point(%%rip), %%rax
+        \\movq %%rax, timeline_array+8(%%rip)
+        \\movq $16, %%rax
+        \\movq %%r12, %%rdi
+        \\movq $0xc01864cb, %%rsi
+        \\leaq timeline_array(%%rip), %%rdx
+        \\syscall
+        \\testq %%rax, %%rax
+        \\jne 1f
+        \\cmpq $5, timeline_query_point(%%rip)
+        \\jne 1f
+        \\leaq sync_handles(%%rip), %%rax
+        \\movq %%rax, timeline_wait(%%rip)
+        \\leaq timeline_point(%%rip), %%rax
+        \\movq %%rax, timeline_wait+8(%%rip)
+        \\movl $1, timeline_wait+24(%%rip)
+        \\movq $16, %%rax
+        \\movq %%r12, %%rdi
+        \\movq $0xc03064ca, %%rsi
+        \\leaq timeline_wait(%%rip), %%rdx
+        \\syscall
+        \\testq %%rax, %%rax
+        \\jne 1f
+        \\movq $6, timeline_point(%%rip)
+        \\movq $16, %%rax
+        \\movq %%r12, %%rdi
+        \\movq $0xc03064ca, %%rsi
+        \\leaq timeline_wait(%%rip), %%rdx
+        \\syscall
+        \\cmpq $-62, %%rax
         \\jne 1f
         \\movl sync_handles(%%rip), %%eax
         \\movl %%eax, sync_destroy(%%rip)

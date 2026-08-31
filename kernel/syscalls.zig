@@ -44,7 +44,7 @@ var drm_framebuffer_handle: u32 = 0;
 var drm_scanout_framebuffer: u32 = 0;
 var drm_driver: DrmDriver = .csos;
 const max_drm_syncobjs = 16;
-const DrmSyncobj = struct { allocated: bool = false, signaled: bool = false };
+const DrmSyncobj = struct { allocated: bool = false, point: u64 = 0 };
 var drm_syncobjs: [max_drm_syncobjs]DrmSyncobj = .{DrmSyncobj{}} ** max_drm_syncobjs;
 var sockets: [4]Socket = .{Socket{}} ** 4;
 var unknown_seen: [512]bool = .{false} ** 512;
@@ -333,6 +333,9 @@ fn ioctl(fd: u64, request: u64, address: u64) u64 {
             0xc02864c3 => drmSyncobjWait(address),
             0xc01064c4 => drmSyncobjArray(address, false),
             0xc01064c5 => drmSyncobjArray(address, true),
+            0xc03064ca => drmSyncobjTimelineWait(address),
+            0xc01864cb => drmSyncobjTimelineQuery(address),
+            0xc01864cd => drmSyncobjTimelineSignal(address),
             else => errno(25),
         };
         if (result == 0) drm_ioctls += 1;
@@ -374,7 +377,7 @@ fn drmGetCap(address: u64) u64 {
     const output: [*]u8 = @ptrFromInt(address);
     const capability = read64(output);
     const value: u64 = switch (capability) {
-        0x1, 0x6, 0x13 => 1,
+        0x1, 0x6, 0x13, 0x14 => 1,
         else => 0,
     };
     put64(output + 8, value);
@@ -388,7 +391,7 @@ fn drmSyncobjCreate(address: u64) u64 {
     if ((flags & ~@as(u32, 1)) != 0) return errno(22);
     for (&drm_syncobjs, 0..) |*object, index| {
         if (object.allocated) continue;
-        object.* = .{ .allocated = true, .signaled = (flags & 1) != 0 };
+        object.* = .{ .allocated = true, .point = if ((flags & 1) != 0) 1 else 0 };
         put32(output, @intCast(index + 1));
         return 0;
     }
@@ -414,7 +417,7 @@ fn drmSyncobjArray(address: u64, signal: bool) u64 {
     var index: u32 = 0;
     while (index < count) : (index += 1) if (drmSyncobjForHandle(read32(handles + @as(usize, index) * 4)) == null) return errno(22);
     index = 0;
-    while (index < count) : (index += 1) drmSyncobjForHandle(read32(handles + @as(usize, index) * 4)).?.signaled = signal;
+    while (index < count) : (index += 1) drmSyncobjForHandle(read32(handles + @as(usize, index) * 4)).?.point = if (signal) 1 else 0;
     return 0;
 }
 
@@ -431,11 +434,72 @@ fn drmSyncobjWait(address: u64) u64 {
     var index: u32 = 0;
     while (index < count) : (index += 1) {
         const object = drmSyncobjForHandle(read32(handles + @as(usize, index) * 4)) orelse return errno(22);
-        if (object.signaled) { if (signaled_count == 0) first = index; signaled_count += 1; }
+        if (object.point != 0) { if (signaled_count == 0) first = index; signaled_count += 1; }
     }
     const ready = if ((flags & 1) != 0) signaled_count == count else signaled_count != 0;
     if (!ready) return errno(62);
     put32(output + 24, first);
+    return 0;
+}
+
+fn drmSyncobjTimelineSignal(address: u64) u64 {
+    if (!validUserSlice(address, 24)) return errno(14);
+    const input: [*]const u8 = @ptrFromInt(address);
+    const handles_address = read64(input);
+    const points_address = read64(input + 8);
+    const count = read32(input + 16);
+    if (count == 0 or count > max_drm_syncobjs or read32(input + 20) != 0 or !validUserSlice(handles_address, @as(u64, count) * 4) or !validUserSlice(points_address, @as(u64, count) * 8)) return errno(22);
+    const handles: [*]const u8 = @ptrFromInt(handles_address);
+    const points: [*]const u8 = @ptrFromInt(points_address);
+    var index: u32 = 0;
+    while (index < count) : (index += 1) {
+        const object = drmSyncobjForHandle(read32(handles + @as(usize, index) * 4)) orelse return errno(22);
+        const point = read64(points + @as(usize, index) * 8);
+        if (point == 0 or point < object.point) return errno(22);
+    }
+    index = 0;
+    while (index < count) : (index += 1) drmSyncobjForHandle(read32(handles + @as(usize, index) * 4)).?.point = read64(points + @as(usize, index) * 8);
+    return 0;
+}
+
+fn drmSyncobjTimelineQuery(address: u64) u64 {
+    if (!validUserSlice(address, 24)) return errno(14);
+    const input: [*]const u8 = @ptrFromInt(address);
+    const handles_address = read64(input);
+    const points_address = read64(input + 8);
+    const count = read32(input + 16);
+    if (count == 0 or count > max_drm_syncobjs or (read32(input + 20) & ~@as(u32, 1)) != 0 or !validUserSlice(handles_address, @as(u64, count) * 4) or !validUserSlice(points_address, @as(u64, count) * 8)) return errno(22);
+    const handles: [*]const u8 = @ptrFromInt(handles_address);
+    const points: [*]u8 = @ptrFromInt(points_address);
+    var index: u32 = 0;
+    while (index < count) : (index += 1) {
+        const object = drmSyncobjForHandle(read32(handles + @as(usize, index) * 4)) orelse return errno(22);
+        put64(points + @as(usize, index) * 8, object.point);
+    }
+    return 0;
+}
+
+fn drmSyncobjTimelineWait(address: u64) u64 {
+    if (!validUserSlice(address, 48)) return errno(14);
+    const output: [*]u8 = @ptrFromInt(address);
+    const handles_address = read64(output);
+    const points_address = read64(output + 8);
+    const count = read32(output + 24);
+    const flags = read32(output + 28);
+    if (count == 0 or count > max_drm_syncobjs or (flags & ~@as(u32, 1)) != 0 or read32(output + 36) != 0 or !validUserSlice(handles_address, @as(u64, count) * 4) or !validUserSlice(points_address, @as(u64, count) * 8)) return errno(22);
+    const handles: [*]const u8 = @ptrFromInt(handles_address);
+    const points: [*]const u8 = @ptrFromInt(points_address);
+    var ready_count: u32 = 0;
+    var first: u32 = 0;
+    var index: u32 = 0;
+    while (index < count) : (index += 1) {
+        const object = drmSyncobjForHandle(read32(handles + @as(usize, index) * 4)) orelse return errno(22);
+        const wanted = read64(points + @as(usize, index) * 8);
+        if (wanted != 0 and object.point >= wanted) { if (ready_count == 0) first = index; ready_count += 1; }
+    }
+    const ready = if ((flags & 1) != 0) ready_count == count else ready_count != 0;
+    if (!ready) return errno(62);
+    put32(output + 32, first);
     return 0;
 }
 
