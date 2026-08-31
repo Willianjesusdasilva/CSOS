@@ -692,7 +692,10 @@ pub const AmdGmc11GartRegisters = struct {
 pub const AmdGmc11MemorySnapshot = struct {
     vram_mc_base: u64,
     vram_mc_offset: u64,
+    vram_bytes: u64,
 };
+pub const AmdGmc11NbioRegisters = struct { memsize: u32 };
+pub const AmdGmc11GartWindow = struct { start: u64, end: u64 };
 pub const AmdPspGttStaging = struct {
     page_table_address: u64 = 0,
     page_table_pages: u64 = 0,
@@ -764,12 +767,40 @@ pub fn resolveAmdGmc11GartRegisters(plan: AmdGartPlan, register_bar_bytes: u64) 
     };
 }
 
-pub fn decodeAmdGmc11MemorySnapshot(fb_location_base: u32, fb_offset: u32) !AmdGmc11MemorySnapshot {
-    if (fb_location_base == 0xffffffff or fb_offset == 0xffffffff) return error.AmdGmc11MemoryMmioUnavailable;
+pub fn resolveAmdGmc11NbioRegisters(ip: *const AmdIp, register_bar_bytes: u64) !AmdGmc11NbioRegisters {
+    if (ip.hw_id != amd_hw_id.nbif or ip.instance != 0 or ip.base_count <= 2 or ip.bases[2] == 0)
+        return error.AmdGmc11NbioBaseMissing;
+    switch (version(ip)) {
+        0x060301, 0x070700, 0x070701, 0x070900, 0x070901,
+        0x070b00, 0x070b01, 0x070b02, 0x070b03, 0x070b04, 0x070b05,
+        => {},
+        else => return error.UnsupportedAmdGmc11NbioVersion,
+    }
+    return .{ .memsize = try resolveAmdRegister(ip.bases[2], 0x00c3, register_bar_bytes) };
+}
+
+pub fn decodeAmdGmc11MemorySnapshot(fb_location_base: u32, fb_offset: u32, memsize_mb: u32) !AmdGmc11MemorySnapshot {
+    if (fb_location_base == 0xffffffff or fb_offset == 0xffffffff or memsize_mb == 0xffffffff)
+        return error.AmdGmc11MemoryMmioUnavailable;
+    if (memsize_mb == 0) return error.AmdGmc11VramSizeMissing;
     return .{
         .vram_mc_base = @as(u64, fb_location_base & 0x00ffffff) << 24,
         .vram_mc_offset = @as(u64, fb_offset) << 24,
+        .vram_bytes = @as(u64, memsize_mb) * 1024 * 1024,
     };
+}
+
+pub fn planAmdGmc11HighGartWindow(memory: AmdGmc11MemorySnapshot, window_bytes: u64) !AmdGmc11GartWindow {
+    if (window_bytes == 0 or (window_bytes & 4095) != 0) return error.InvalidAmdGartWindow;
+    const max_mc_address: u64 = 0x00007fffffffffff;
+    if (memory.vram_bytes == 0 or memory.vram_mc_base > max_mc_address) return error.InvalidAmdGmc11VramRange;
+    const vram_end = std.math.add(u64, memory.vram_mc_base, memory.vram_bytes - 1) catch return error.InvalidAmdGmc11VramRange;
+    if (vram_end > max_mc_address or window_bytes > max_mc_address + 1) return error.InvalidAmdGmc11VramRange;
+    const unaligned_start = max_mc_address - window_bytes + 1;
+    const start = unaligned_start & ~@as(u64, (4 * 1024 * 1024 * 1024) - 1);
+    const end = std.math.add(u64, start, window_bytes - 1) catch return error.AmdGartWindowOverflow;
+    if (!(end < memory.vram_mc_base or start > vram_end)) return error.AmdGartOverlapsVram;
+    return .{ .start = start, .end = end };
 }
 
 fn resolveAmdRegister(base: u64, register_dword: u64, bar_bytes: u64) !u32 {
@@ -891,11 +922,20 @@ comptime {
         @compileError("unaligned GMC 11 GART table MC address was accepted")
     else |err| if (err != error.InvalidAmdGartTableMcAddress)
         @compileError("unaligned GMC 11 GART table MC address returned the wrong error");
-    const memory_snapshot = decodeAmdGmc11MemorySnapshot(0xab123456, 0x42) catch
+    const nbio_ip = AmdIp{ .hw_id = amd_hw_id.nbif, .major = 7, .minor = 11, .base_count = 3, .bases = .{ 0, 0, 0x500 } ++ .{0} ** 5 };
+    const nbio_registers = resolveAmdGmc11NbioRegisters(&nbio_ip, 0x4000) catch
+        @compileError("valid GMC 11 NBIO registers were rejected");
+    if (nbio_registers.memsize != 0x170c) @compileError("GMC 11 NBIO memsize register resolved incorrectly");
+    const memory_snapshot = decodeAmdGmc11MemorySnapshot(0xab123456, 0x42, 12288) catch
         @compileError("valid GMC 11 memory snapshot was rejected");
-    if (memory_snapshot.vram_mc_base != 0x123456000000 or memory_snapshot.vram_mc_offset != 0x42000000)
+    if (memory_snapshot.vram_mc_base != 0x123456000000 or memory_snapshot.vram_mc_offset != 0x42000000 or
+        memory_snapshot.vram_bytes != 12 * 1024 * 1024 * 1024)
         @compileError("GMC 11 memory snapshot decoded incorrectly");
-    if (decodeAmdGmc11MemorySnapshot(0xffffffff, 0)) |_|
+    const high_window = planAmdGmc11HighGartWindow(memory_snapshot, 2 * 1024 * 1024) catch
+        @compileError("valid GMC 11 high GART window was rejected");
+    if (high_window.start != 0x7fff00000000 or high_window.end != 0x7fff001fffff)
+        @compileError("GMC 11 high GART window was placed incorrectly");
+    if (decodeAmdGmc11MemorySnapshot(0xffffffff, 0, 1)) |_|
         @compileError("unavailable GMC 11 memory MMIO was accepted")
     else |err| if (err != error.AmdGmc11MemoryMmioUnavailable)
         @compileError("unavailable GMC 11 memory MMIO returned the wrong error");

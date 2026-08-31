@@ -512,6 +512,10 @@ pub fn start(info: BootInfo) noreturn {
     const gpu_gart_registers = if (gpu_gart_plan) |plan| if (plan.family == .v11_0)
         gpu.resolveAmdGmc11GartRegisters(plan, gpu_adapter.register_bar.?.size) catch panic("AMDGPU GART registers invalid")
     else null else null;
+    const gpu_gmc11_nbio_registers = if (gpu_gart_plan) |plan| if (plan.family == .v11_0) blk: {
+        const nbio_ip = gpu_ip_discovery.?.find(gpu.amd_hw_id.nbif, 0) orelse panic("AMDGPU NBIO IP missing");
+        break :blk gpu.resolveAmdGmc11NbioRegisters(nbio_ip, gpu_adapter.register_bar.?.size) catch panic("AMDGPU NBIO registers invalid");
+    } else null else null;
     var gpu_firmware_staging = gpu.AmdFirmwareStaging{};
     var gpu_psp_boot_images: ?gpu.AmdPspBootImages = null;
     var gpu_psp_handoff = gpu.AmdPspHandoff{};
@@ -553,7 +557,10 @@ pub fn start(info: BootInfo) noreturn {
     const gpu_gmc11_memory = if (gpu_gart_registers) |registers| gpu.decodeAmdGmc11MemorySnapshot(
         gpu_adapter.readRegister(registers.fb_location_base) catch panic("AMDGPU VRAM MC base read failed"),
         gpu_adapter.readRegister(registers.fb_offset) catch panic("AMDGPU VRAM MC offset read failed"),
+        gpu_adapter.readRegister(gpu_gmc11_nbio_registers.?.memsize) catch panic("AMDGPU VRAM size read failed"),
     ) catch panic("AMDGPU memory topology unavailable") else null;
+    const gpu_gmc11_gart_window = if (gpu_gmc11_memory) |memory| gpu.planAmdGmc11HighGartWindow(memory, gpu_gart_plan.?.window_bytes) catch
+        panic("AMDGPU GART high window invalid") else null;
     var gpu_psp_mailbox_snapshot: ?gpu.AmdPspMailboxSnapshot = null;
     var gpu_psp_mmio_transport: ?gpu.AmdPspMmioTransport = null;
     var gpu_psp_preflight: ?gpu.AmdPspPreflight = null;
@@ -632,6 +639,7 @@ pub fn start(info: BootInfo) noreturn {
     serial.write(" gmc-snapshot: "); serial.writeDecimal(if (gpu_gmc11_memory) |_| 1 else 0);
     serial.write(" vram-mc-base: "); serial.writeDecimal(if (gpu_gmc11_memory) |snapshot| snapshot.vram_mc_base else 0);
     serial.write(" vram-mc-offset: "); serial.writeDecimal(if (gpu_gmc11_memory) |snapshot| snapshot.vram_mc_offset else 0);
+    serial.write(" vram-bytes: "); serial.writeDecimal(if (gpu_gmc11_memory) |snapshot| snapshot.vram_bytes else 0);
     serial.write(" vram-aperture: "); serial.writeDecimal(if (gpu_memory_plan) |plan| if (plan.vram_bar) |bar| bar.size else 0 else 0);
     serial.write(" doorbell-aperture: "); serial.writeDecimal(if (gpu_memory_plan) |plan| plan.doorbell_bar.size else 0);
     serial.write(" gtt-table: "); serial.writeDecimal(gpu_psp_gtt.page_table_address);
@@ -641,6 +649,8 @@ pub fn start(info: BootInfo) noreturn {
     serial.write(" gart-bound: "); serial.writeDecimal(if (gpu_gart_plan) |plan| @intFromBool(plan.table_mc_address != null) else 0);
     serial.write(" gart-table-mc: "); serial.writeDecimal(if (gpu_gart_plan) |plan| plan.table_mc_address orelse 0 else 0);
     serial.write(" gart-window: "); serial.writeDecimal(if (gpu_gart_plan) |plan| plan.window_bytes else 0);
+    serial.write(" gart-window-start: "); serial.writeDecimal(if (gpu_gmc11_gart_window) |window| window.start else 0);
+    serial.write(" gart-window-end: "); serial.writeDecimal(if (gpu_gmc11_gart_window) |window| window.end else 0);
     serial.write(" gart-gfxhub: "); serial.writeDecimal(if (gpu_gart_plan) |plan| @intFromBool(plan.gfxhub_base != null) else 0);
     serial.write(" gart-registers: "); serial.writeDecimal(if (gpu_gart_registers) |_| 1 else 0);
     serial.write(" gart-context-reg: "); serial.writeDecimal(if (gpu_gart_registers) |registers| registers.context_control else 0);

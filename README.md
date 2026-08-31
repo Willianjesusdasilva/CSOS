@@ -827,7 +827,17 @@ A topologia GMC 11 passa a observar, sem escrita, os registradores MMHUB v3.0
 unidades oficiais de 16 MiB para `vram-mc-base` e `vram-mc-offset`; leituras
 `0xffffffff` são rejeitadas como MMIO indisponível. O tamanho da VRAM continua
 dependendo da descoberta NBIO e não é deduzido do tamanho do BAR 0, que representa
-somente a janela visível pela CPU. Por isso esse snapshot ainda não faz o binding.
+somente a janela visível pela CPU. As versões NBIO 7.7, 7.9, 7.11 e NBIF 6.3.1
+usadas pelo dispatcher upstream resolvem `CONFIG_MEMSIZE` pelo terceiro base
+segment do IP discovery e convertem o valor em MiB para `vram-bytes`. Versão,
+base ausente, tamanho zero e MMIO indisponível são terminais. Mesmo com esse
+snapshot, o binding aguarda reservar uma tabela dentro de VRAM visível.
+
+Com a faixa real conhecida, o candidato `gart-window-start/end` segue a política
+`AMDGPU_GART_PLACEMENT_HIGH`: limita o espaço MC antes do VA hole de 48 bits,
+posiciona a janela no topo e alinha sua base a 4 GiB. Overflow, faixa VRAM
+inválida e sobreposição são rejeitados. Esse candidato ainda não define
+`gart-bound`, pois o endereço MC da própria page table continua ausente.
 
 As capacidades PSP são tratadas separadamente: `autoload_supported`, TMR de
 boot e presença de callbacks host para carregar SYS/SOS não são sinônimos. O
