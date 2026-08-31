@@ -503,6 +503,8 @@ pub fn start(info: BootInfo) noreturn {
             gpu_ip_discovery = firmware.amdDiscovery(selection) catch panic("AMDGPU IP discovery invalid");
     };
     if (gpu_ip_discovery) |*discovery| gpu_backend_plan = gpu.planAmdBackend(discovery) catch panic("AMDGPU IP combination unsupported");
+    const gpu_memory_plan = if (gpu_backend_plan) |plan| gpu.planAmdMemory(gpu_adapter.bars, gpu_adapter.register_bar, plan.gmc) catch
+        panic("AMDGPU memory apertures invalid") else null;
     var gpu_firmware_staging = gpu.AmdFirmwareStaging{};
     var gpu_psp_boot_images: ?gpu.AmdPspBootImages = null;
     var gpu_psp_handoff = gpu.AmdPspHandoff{};
@@ -536,6 +538,10 @@ pub fn start(info: BootInfo) noreturn {
     };
     mapper.mapIdentityUncached(gpu_registers.address, gpu_registers.size) catch panic("GPU register MMIO mapping failed");
     if (!mapper.identityIsUncached(gpu_registers.address)) panic("GPU register MMIO cache policy failed");
+    if (gpu_memory_plan) |plan| {
+        mapper.mapIdentityUncached(plan.doorbell_bar.address, plan.doorbell_bar.size) catch panic("AMDGPU doorbell mapping failed");
+        if (!mapper.identityIsUncached(plan.doorbell_bar.address)) panic("AMDGPU doorbell cache policy failed");
+    }
     mapper.activate();
     var gpu_psp_mailbox_snapshot: ?gpu.AmdPspMailboxSnapshot = null;
     var gpu_psp_mmio_transport: ?gpu.AmdPspMmioTransport = null;
@@ -611,6 +617,10 @@ pub fn start(info: BootInfo) noreturn {
     serial.write(" mmhub: "); serial.writeDecimal(gpu_mmhub_major);
     serial.write(" sdma: "); serial.writeDecimal(gpu_sdma_major);
     serial.write(" plan: "); serial.writeDecimal(if (gpu_backend_plan) |_| 1 else 0);
+    serial.write(" gmc-plan: "); serial.writeDecimal(if (gpu_memory_plan) |_| 1 else 0);
+    serial.write(" vram-aperture: "); serial.writeDecimal(if (gpu_memory_plan) |plan| if (plan.vram_bar) |bar| bar.size else 0 else 0);
+    serial.write(" doorbell-aperture: "); serial.writeDecimal(if (gpu_memory_plan) |plan| plan.doorbell_bar.size else 0);
+    serial.write(" gtt-ready: 0");
     serial.write(" psp-version: "); serial.writeDecimal(if (gpu_backend_plan) |plan| plan.psp.ip_version else 0);
     serial.write(" psp-autoload: "); serial.writeDecimal(if (gpu_backend_plan) |plan| @intFromBool(plan.psp.autoload_supported) else 0);
     serial.write(" psp-boot-tmr: "); serial.writeDecimal(if (gpu_backend_plan) |plan| @intFromBool(plan.psp.boot_time_tmr) else 0);

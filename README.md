@@ -788,6 +788,14 @@ polling estritamente somente leitura, também limitado pelo timer APIC e por
 spins, até observar `ready`, sOS ativo, erro ou timeout. O diagnóstico registra
 essa passagem em `psp-mailbox-waited`.
 
+O passo seguinte ao sOS não é TMR direto: o protocolo upstream submete TMR por
+um ring PSP com buffers de comando e fence em endereços MC válidos. Como base
+para isso, o plano GMC agora separa o BAR de registradores, o BAR 2 de doorbells
+e o aperture opcional de VRAM no BAR 0, rejeita sobreposição e mapeia somente o
+doorbell como MMIO uncached. `gtt-ready` permanece zero até page tables e
+endereços MC serem realmente programados; memória física da CPU não é anunciada
+como endereço de GPU.
+
 As capacidades PSP são tratadas separadamente: `autoload_supported`, TMR de
 boot e presença de callbacks host para carregar SYS/SOS não são sinônimos. O
 handoff host só é construído para as famílias em que o `psp_funcs` upstream

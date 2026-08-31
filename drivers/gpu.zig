@@ -656,6 +656,49 @@ pub const AmdIp = struct {
 pub const amd_hw_id = struct { pub const smu: u16 = 1; pub const gfx: u16 = 11; pub const mmhub: u16 = 34; pub const sdma0: u16 = 42; pub const sdma1: u16 = 43; pub const sdma2: u16 = 44; pub const sdma3: u16 = 45; pub const nbif: u16 = 108; pub const psp: u16 = 255; };
 
 pub const AmdBackendPlan = struct { psp: AmdPspPlan, gmc: GmcFamily, gfx: GfxFamily, sdma: SdmaFamily };
+pub const AmdMemoryPlan = struct {
+    family: GmcFamily,
+    register_bar: pci.Bar,
+    doorbell_bar: pci.Bar,
+    vram_bar: ?pci.Bar,
+};
+
+pub fn planAmdMemory(bars: [6]?pci.Bar, register_bar: ?pci.Bar, family: GmcFamily) !AmdMemoryPlan {
+    const registers = register_bar orelse return error.AmdRegisterBarMissing;
+    const doorbells = bars[2] orelse return error.AmdDoorbellBarMissing;
+    if (registers.size < 4096 or registers.prefetchable or doorbells.size < 4096 or doorbells.size > 16 * 1024 * 1024 or
+        (registers.address & 4095) != 0 or (doorbells.address & 4095) != 0 or
+        registers.address == doorbells.address or aperturesOverlap(registers, doorbells))
+        return error.InvalidAmdMmioApertures;
+    const vram: ?pci.Bar = if (bars[0]) |bar| if (bar.prefetchable and bar.size != 0) bar else null else null;
+    if (vram) |bar| if (aperturesOverlap(bar, registers) or aperturesOverlap(bar, doorbells)) return error.InvalidAmdVramAperture;
+    return .{ .family = family, .register_bar = registers, .doorbell_bar = doorbells, .vram_bar = vram };
+}
+
+fn aperturesOverlap(left: pci.Bar, right: pci.Bar) bool {
+    if (left.size == 0 or right.size == 0) return false;
+    const left_end = std.math.add(u64, left.address, left.size) catch return true;
+    const right_end = std.math.add(u64, right.address, right.size) catch return true;
+    return left.address < right_end and right.address < left_end;
+}
+
+comptime {
+    const registers = pci.Bar{ .address = 0xf0000000, .size = 0x80000, .is_64_bit = false, .prefetchable = false };
+    const doorbells = pci.Bar{ .address = 0xf1000000, .size = 0x200000, .is_64_bit = true, .prefetchable = true };
+    const vram = pci.Bar{ .address = 0x100000000, .size = 0x40000000, .is_64_bit = true, .prefetchable = true };
+    var bars: [6]?pci.Bar = .{null} ** 6;
+    bars[0] = vram;
+    bars[2] = doorbells;
+    const plan = planAmdMemory(bars, registers, .v11_0) catch @compileError("valid AMD memory apertures were rejected");
+    if (plan.family != .v11_0 or plan.doorbell_bar.address != doorbells.address or plan.vram_bar == null or plan.vram_bar.?.address != vram.address)
+        @compileError("AMD memory apertures were classified incorrectly");
+    bars[2] = registers;
+    if (planAmdMemory(bars, registers, .v11_0)) |_|
+        @compileError("overlapping AMD MMIO apertures were accepted")
+    else |err| if (err != error.InvalidAmdMmioApertures)
+        @compileError("overlapping AMD MMIO apertures returned the wrong error");
+}
+
 pub const AmdPspPlan = struct {
     family: PspFamily,
     ip_version: u32,
