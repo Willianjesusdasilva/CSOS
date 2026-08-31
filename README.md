@@ -848,6 +848,18 @@ cada faixa como pinned e devolve os endereços CPU e MC correspondentes. O boot
 ainda não sela o mapa, pois as demais reservas PSP/VBIOS não foram enumeradas;
 portanto nenhuma page table é copiada para VRAM nesta etapa.
 
+O mapa de boot GMC 11 também normaliza como ocupado todo o prefixo da VRAM até
+o fim do framebuffer pré-OS, seguindo a reserva VGA/scanout do upstream. Quando
+IP discovery usa TMR, os últimos 64 KiB da VRAM real também são reservados se
+caírem na janela CPU-visível; caudas fora do BAR já são inalocáveis por este
+allocator. O selo continua fechado até conhecer a reserva firmware completa.
+
+Como pré-requisito para importar `vram_usagebyfirmware`, a descoberta PCI agora
+sonda também o Expansion ROM BAR de dispositivos display header type 0. A sonda
+preserva command register e ROM BAR originais e expõe `rom-bytes` e
+`rom-enabled`; ela não habilita nem executa a imagem. A leitura do VBIOS e o
+parser ATOM ainda precisam de um fluxo temporário com restauração garantida.
+
 Com a faixa real conhecida, o candidato `gart-window-start/end` segue a política
 `AMDGPU_GART_PLACEMENT_HIGH`: limita o espaço MC antes do VA hole de 48 bits,
 posiciona a janela no topo e alinha sua base a 4 GiB. Overflow, faixa VRAM

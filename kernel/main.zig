@@ -564,8 +564,10 @@ pub fn start(info: BootInfo) noreturn {
     const gpu_gmc11_visible_vram = if (gpu_gmc11_memory) |memory| if (gpu_memory_plan.?.vram_bar) |bar|
         gpu.mapAmdGmc11VisibleVram(memory, bar, info.framebuffer.base, info.framebuffer.size) catch panic("AMDGPU visible VRAM mapping invalid")
     else null else null;
-    const gpu_vram_allocator = if (gpu_gmc11_visible_vram) |visible| gpu.AmdVramAllocator.init(visible) catch
+    var gpu_vram_allocator = if (gpu_gmc11_visible_vram) |visible| gpu.AmdVramAllocator.init(visible) catch
         panic("AMDGPU VRAM allocator invalid") else null;
+    if (gpu_vram_allocator) |*allocator| gpu.reserveAmdGmc11BootVram(allocator, gpu_gmc11_memory.?, true) catch
+        panic("AMDGPU boot VRAM reservations invalid");
     var gpu_psp_mailbox_snapshot: ?gpu.AmdPspMailboxSnapshot = null;
     var gpu_psp_mmio_transport: ?gpu.AmdPspMmioTransport = null;
     var gpu_psp_preflight: ?gpu.AmdPspPreflight = null;
@@ -618,6 +620,8 @@ pub fn start(info: BootInfo) noreturn {
     serial.write(" bars: "); serial.writeDecimal(gpu_adapter.bar_count);
     serial.write(" bytes: "); serial.writeDecimal(gpu_adapter.mmio_bytes);
     serial.write(" registers: "); serial.writeDecimal(gpu_registers.size);
+    serial.write(" rom-bytes: "); serial.writeDecimal(if (gpu_adapter.rom_bar) |rom| rom.size else 0);
+    serial.write(" rom-enabled: "); serial.writeDecimal(if (gpu_adapter.rom_bar) |rom| @intFromBool(rom.enabled) else 0);
     serial.write(" probe: "); serial.writeDecimal(gpu_register_probe);
     serial.write(" chipset: "); serial.writeDecimal(gpu_identity.chipset orelse 0);
     serial.write(" chiprev: "); serial.writeDecimal(gpu_identity.chip_revision orelse 0);

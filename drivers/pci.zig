@@ -162,6 +162,28 @@ pub const Bar = struct {
     prefetchable: bool,
 };
 
+pub const RomBar = struct { address: u64, size: u64, enabled: bool };
+
+pub fn romInfo(device: Device, probe_size: bool) ?RomBar {
+    if (device.header_type != 0) return null;
+    const offset: u8 = 0x30;
+    const original = read32(device.bus, device.slot, device.function, offset);
+    if (original == 0xffffffff) return null;
+    const address: u64 = original & 0xfffff800;
+    if (address == 0) return null;
+    var size: u64 = 0;
+    if (probe_size) {
+        const command = read16(device.bus, device.slot, device.function, 4);
+        write16(device.bus, device.slot, device.function, 4, command & ~@as(u16, 3));
+        write32(device.bus, device.slot, device.function, offset, 0xfffff800);
+        const mask = read32(device.bus, device.slot, device.function, offset) & 0xfffff800;
+        write32(device.bus, device.slot, device.function, offset, original);
+        write16(device.bus, device.slot, device.function, 4, command);
+        if (mask != 0) size = @as(u64, (~mask) +% 1);
+    }
+    return .{ .address = address, .size = size, .enabled = (original & 1) != 0 };
+}
+
 pub fn barInfo(device: Device, index: u3, probe_size: bool) ?Bar {
     if (index >= 6) return null;
     if (index != 0) {

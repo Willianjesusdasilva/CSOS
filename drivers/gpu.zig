@@ -29,6 +29,7 @@ pub const Adapter = struct {
     bar_count: u8,
     mmio_bytes: u64,
     register_bar: ?pci.Bar,
+    rom_bar: ?pci.RomBar,
 
     pub fn discover(device: pci.Device) !Adapter {
         if (device.class != 0x03) return error.NotDisplayController;
@@ -58,6 +59,7 @@ pub const Adapter = struct {
             .bar_count = count,
             .mmio_bytes = bytes,
             .register_bar = register_bar,
+            .rom_bar = pci.romInfo(device, true),
         };
     }
 
@@ -787,6 +789,18 @@ fn rangesTouch(left: AmdVramRange, right: AmdVramRange) bool {
     return rangesOverlap(left, right) or (left.end != ~@as(u64, 0) and left.end + 1 == right.start) or
         (right.end != ~@as(u64, 0) and right.end + 1 == left.start);
 }
+
+pub fn reserveAmdGmc11BootVram(allocator: *AmdVramAllocator, memory: AmdGmc11MemorySnapshot, reserve_discovery_tmr: bool) !void {
+    if (allocator.firmware_map_sealed or allocator.visible.mc_start != memory.vram_mc_base)
+        return error.InvalidAmdGmc11BootVramMap;
+    try allocator.reserve(allocator.visible.mc_start, allocator.visible.framebuffer_mc_end - allocator.visible.mc_start + 1);
+    if (!reserve_discovery_tmr) return;
+    const discovery_bytes: u64 = 64 * 1024;
+    if (memory.vram_bytes < discovery_bytes) return error.InvalidAmdGmc11VramRange;
+    const discovery_start = memory.vram_mc_base + memory.vram_bytes - discovery_bytes;
+    if (discovery_start >= allocator.visible.mc_start and discovery_start <= allocator.visible.mc_end)
+        try allocator.reserve(discovery_start, discovery_bytes);
+}
 pub const AmdPspGttStaging = struct {
     page_table_address: u64 = 0,
     page_table_pages: u64 = 0,
@@ -1057,10 +1071,23 @@ comptime {
         @compileError("unsealed GMC 11 VRAM allocator accepted an allocation")
     else |err| if (err != error.AmdVramFirmwareMapIncomplete)
         @compileError("unsealed GMC 11 VRAM allocator returned the wrong error");
+    reserveAmdGmc11BootVram(&vram_allocator, memory_snapshot, true) catch
+        @compileError("valid GMC 11 boot VRAM reservations were rejected");
+    var found_boot_prefix = false;
+    for (vram_allocator.reservations[0..vram_allocator.reservation_count]) |reservation| if (
+        reservation.start == memory_snapshot.vram_mc_base and reservation.end == visible_vram.framebuffer_mc_end) {
+        found_boot_prefix = true;
+    };
+    if (vram_allocator.reservation_count != 1 or !found_boot_prefix)
+        @compileError("GMC 11 boot VRAM reservations were imported incorrectly");
     vram_allocator.reserve(memory_snapshot.vram_mc_base + 8 * 1024 * 1024, 12 * 1024 * 1024) catch
         @compileError("overlapping GMC 11 firmware reservations were not normalized");
-    if (vram_allocator.reservation_count != 1 or vram_allocator.reservations[0].start != memory_snapshot.vram_mc_base + 8 * 1024 * 1024 or
-        vram_allocator.reservations[0].end != visible_vram.framebuffer_mc_end)
+    found_boot_prefix = false;
+    for (vram_allocator.reservations[0..vram_allocator.reservation_count]) |reservation| if (
+        reservation.start == memory_snapshot.vram_mc_base and reservation.end == visible_vram.framebuffer_mc_end) {
+        found_boot_prefix = true;
+    };
+    if (vram_allocator.reservation_count != 1 or !found_boot_prefix)
         @compileError("GMC 11 firmware reservations were normalized incorrectly");
     vram_allocator.reserve(memory_snapshot.vram_mc_base + 248 * 1024 * 1024, 8 * 1024 * 1024) catch
         @compileError("valid GMC 11 firmware VRAM reservation was rejected");
