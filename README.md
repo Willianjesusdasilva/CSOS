@@ -734,6 +734,11 @@ no terceiro nível e comprova ausência de leak.
 O lifecycle do VMID agora exige `allocate → materialize → map/unmap →
 dematerialize → release`: não é possível liberar VMID com tabelas vivas nem
 desmaterializar enquanto houver intervalos GPUVA ativos.
+O primeiro page path pode agora ser ligado: PDB2→PDB1 usa BFS=9,
+PDB1→PDB0 usa `TRANSLATE_FURTHER`, PDB0→PTB usa PDE base e a PTE final converte
+R/W/X da UAPI nos bits GFX11. Todos os níveis em RAM carregam
+VALID|SYSTEM|SNOOPED; endereços fora da máscara física, desalinhamento e
+colisão com entrada diferente são rejeitados antes de alterar a hierarquia.
 
 O handoff PSP é mantido declarativo: KDB, SPL, SYS_DRV e SOS são ordenados como
 no fluxo upstream e apontam para suas fontes físicas validadas. Uma única área

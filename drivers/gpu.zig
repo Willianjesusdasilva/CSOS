@@ -935,6 +935,50 @@ pub fn amdGpuVmTableBytes(entries: u16) !u32 {
     if (entries == 0 or entries > 512) return error.InvalidAmdGpuVmTableEntries;
     return @intCast((@as(u32, entries) * 8 + 4095) & ~@as(u32, 4095));
 }
+
+const amd_gpu_pte_valid: u64 = 1 << 0;
+const amd_gpu_pte_system: u64 = 1 << 1;
+const amd_gpu_pte_snooped: u64 = 1 << 2;
+const amd_gpu_pte_executable: u64 = 1 << 4;
+const amd_gpu_pte_readable: u64 = 1 << 5;
+const amd_gpu_pte_writeable: u64 = 1 << 6;
+const amd_gpu_pte_translate_further: u64 = 1 << 56;
+const amd_gpu_pde_bfs_9: u64 = @as(u64, 9) << 59;
+const amd_gpu_page_address_mask: u64 = 0x0000fffffffff000;
+
+fn amdGpuVmSystemPde(address: u64, flags: u64) !u64 {
+    if (address == 0 or (address & 4095) != 0 or (address & ~amd_gpu_page_address_mask) != 0)
+        return error.InvalidAmdGpuVmPage;
+    return (address & amd_gpu_page_address_mask) | amd_gpu_pte_valid | amd_gpu_pte_system | amd_gpu_pte_snooped | flags;
+}
+
+pub fn amdGpuVmSystemPte(address: u64, mapping_flags: u32) !u64 {
+    const allowed_flags: u32 = (1 << 1) | (1 << 2) | (1 << 3);
+    if (address == 0 or (address & 4095) != 0 or (address & ~amd_gpu_page_address_mask) != 0 or
+        mapping_flags == 0 or (mapping_flags & ~allowed_flags) != 0)
+        return error.InvalidAmdGpuVmPte;
+    var value = (address & amd_gpu_page_address_mask) | amd_gpu_pte_valid | amd_gpu_pte_system | amd_gpu_pte_snooped;
+    if ((mapping_flags & (1 << 1)) != 0) value |= amd_gpu_pte_readable;
+    if ((mapping_flags & (1 << 2)) != 0) value |= amd_gpu_pte_writeable;
+    if ((mapping_flags & (1 << 3)) != 0) value |= amd_gpu_pte_executable;
+    return value;
+}
+
+pub fn linkAmdGpuVmPagePath(tables: *const AmdGpuVmPageTables, path: AmdGpuVmPagePath, physical_page: u64, mapping_flags: u32) !void {
+    if (tables.count != 4) return error.AmdGpuVmPageTablesNotAllocated;
+    const pdb2: [*]u64 = @ptrFromInt(tables.pages[0]);
+    const pdb1: [*]u64 = @ptrFromInt(tables.pages[1]);
+    const pdb0: [*]u64 = @ptrFromInt(tables.pages[2]);
+    const ptb: [*]u64 = @ptrFromInt(tables.pages[3]);
+    const links = [_]struct { slot: *u64, value: u64 }{
+        .{ .slot = &pdb2[path.pdb2], .value = try amdGpuVmSystemPde(tables.pages[1], amd_gpu_pde_bfs_9) },
+        .{ .slot = &pdb1[path.pdb1], .value = try amdGpuVmSystemPde(tables.pages[2], amd_gpu_pte_translate_further) },
+        .{ .slot = &pdb0[path.pdb0], .value = try amdGpuVmSystemPde(tables.pages[3], 0) },
+        .{ .slot = &ptb[path.ptb], .value = try amdGpuVmSystemPte(physical_page, mapping_flags) },
+    };
+    for (links) |link| if (link.slot.* != 0 and link.slot.* != link.value) return error.AmdGpuVmPagePathCollision;
+    for (links) |link| link.slot.* = link.value;
+}
 pub const AmdGpuVm = struct {
     allocated: bool = false,
     vmid: u4 = 0,
@@ -1885,6 +1929,20 @@ pub fn validateAmdGpuVmPageTablesSelfTest() !void {
     if (tables.count != 4 or tables.root() != @intFromPtr(&pool.storage[0])) return error.AmdGpuVmPageTableAllocationMismatch;
     for (tables.pages) |address| for (@as([*]const u8, @ptrFromInt(address))[0..4096]) |byte|
         if (byte != 0) return error.AmdGpuVmPageTableNotZero;
+    const path = try amdGpuVmPagePath(0x00007f1234567000);
+    const data_page = @intFromPtr(&pool.storage[4]);
+    try linkAmdGpuVmPagePath(&tables, path, data_page, (1 << 1) | (1 << 2));
+    const pdb2: [*]const u64 = @ptrFromInt(tables.pages[0]);
+    const pdb1: [*]const u64 = @ptrFromInt(tables.pages[1]);
+    const pdb0: [*]const u64 = @ptrFromInt(tables.pages[2]);
+    const ptb: [*]const u64 = @ptrFromInt(tables.pages[3]);
+    if (pdb2[path.pdb2] != try amdGpuVmSystemPde(tables.pages[1], amd_gpu_pde_bfs_9) or
+        pdb1[path.pdb1] != try amdGpuVmSystemPde(tables.pages[2], amd_gpu_pte_translate_further) or
+        pdb0[path.pdb0] != try amdGpuVmSystemPde(tables.pages[3], 0) or
+        ptb[path.ptb] != try amdGpuVmSystemPte(data_page, (1 << 1) | (1 << 2)))
+        return error.AmdGpuVmPageLinkMismatch;
+    if (linkAmdGpuVmPagePath(&tables, path, tables.pages[0], 1 << 1)) return error.AmdGpuVmPageCollisionNotDetected else |err|
+        if (err != error.AmdGpuVmPagePathCollision) return err;
     try releaseAmdGpuVmPageTables(&tables, pool.pageAllocator());
     for (pool.allocated) |allocated| if (allocated) return error.AmdGpuVmPageTableReleaseLeak;
 
