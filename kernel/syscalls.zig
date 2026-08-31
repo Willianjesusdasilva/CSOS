@@ -34,12 +34,13 @@ pub var drm_allocations: u64 = 0;
 pub var drm_releases: u64 = 0;
 var network_stack: ?*net.Stack = null;
 var framebuffer = Framebuffer{};
-var drm_dumb_created = false;
-var drm_dumb_size: u64 = 0;
-var drm_dumb_physical: u64 = 0;
-var drm_dumb_pages: u64 = 0;
+const max_drm_objects = 8;
+const drm_object_stride: u64 = 16 * 1024 * 1024;
+const DrmObject = struct { allocated: bool = false, handle: u32 = 0, size: u64 = 0, physical_address: u64 = 0, pages: u64 = 0, map_offset: u64 = 0 };
+var drm_objects: [max_drm_objects]DrmObject = .{DrmObject{}} ** max_drm_objects;
 var drm_pages: ?*physical.Allocator = null;
 var drm_framebuffer_created = false;
+var drm_framebuffer_handle: u32 = 0;
 var drm_scanout_framebuffer: u32 = 0;
 var drm_driver: DrmDriver = .csos;
 var sockets: [4]Socket = .{Socket{}} ** 4;
@@ -90,7 +91,7 @@ pub fn configure(base: u64, size: u64, stack: u64, stack_length: u64, initial_br
     mmap_base = mmap_start;
     mmap_limit = mmap_end;
     device_mmap_next = mmap_end;
-    device_mmap_limit = mmap_end + ((@as(u64, framebuffer.size) + 4095) & ~@as(u64, 4095));
+    device_mmap_limit = mmap_end + max_drm_objects * drm_object_stride;
     writes = 0;
     unknown_seen = .{false} ** unknown_seen.len;
     process_exit_status = 0xffffffffffffffff;
@@ -99,11 +100,11 @@ pub fn configure(base: u64, size: u64, stack: u64, stack_length: u64, initial_br
     framebuffer_mmaps = 0;
     drm_ioctls = 0;
     drm_mmaps = 0;
+    releaseAllDrmObjects();
     drm_allocations = 0;
     drm_releases = 0;
-    releaseDrmDumb();
-    drm_dumb_size = 0;
     drm_framebuffer_created = false;
+    drm_framebuffer_handle = 0;
     drm_scanout_framebuffer = 0;
     sockets = .{Socket{}} ** sockets.len;
     vfs.reset();
@@ -373,7 +374,9 @@ fn drmGetCap(address: u64) u64 {
 
 fn drmCreateDumb(address: u64) u64 {
     if (!validUserSlice(address, 32)) return errno(14);
-    if (drm_dumb_created) return errno(12);
+    var free_index: ?usize = null;
+    for (drm_objects, 0..) |object, index| if (!object.allocated) { free_index = index; break; };
+    const object_index = free_index orelse return errno(12);
     const output: [*]u8 = @ptrFromInt(address);
     const height = read32(output + 0);
     const width = read32(output + 4);
@@ -388,13 +391,11 @@ fn drmCreateDumb(address: u64) u64 {
     const allocation = pages.allocate(page_count) orelse return errno(12);
     const memory: [*]u8 = @ptrFromInt(allocation);
     @memset(memory[0..@intCast(page_count * 4096)], 0);
-    put32(output + 16, 1);
+    const handle: u32 = @intCast(object_index + 1);
+    put32(output + 16, handle);
     put32(output + 20, @intCast(pitch));
     put64(output + 24, size);
-    drm_dumb_created = true;
-    drm_dumb_size = size;
-    drm_dumb_physical = allocation;
-    drm_dumb_pages = page_count;
+    drm_objects[object_index] = .{ .allocated = true, .handle = handle, .size = size, .physical_address = allocation, .pages = page_count, .map_offset = @as(u64, @intCast(object_index)) * drm_object_stride };
     drm_allocations += 1;
     return 0;
 }
@@ -402,29 +403,40 @@ fn drmCreateDumb(address: u64) u64 {
 fn drmMapDumb(address: u64) u64 {
     if (!validUserSlice(address, 16)) return errno(14);
     const output: [*]u8 = @ptrFromInt(address);
-    if (!drm_dumb_created or read32(output) != 1) return errno(2);
-    put64(output + 8, 0);
+    const object = drmObjectForHandle(read32(output)) orelse return errno(2);
+    put64(output + 8, object.map_offset);
     return 0;
 }
 
 fn drmDestroyDumb(address: u64) u64 {
     if (!validUserSlice(address, 4)) return errno(14);
     const input: [*]const u8 = @ptrFromInt(address);
-    if (!drm_dumb_created or read32(input) != 1) return errno(2);
-    if (drm_framebuffer_created) return errno(16);
-    releaseDrmDumb();
+    const handle = read32(input);
+    if (drm_framebuffer_created and drm_framebuffer_handle == handle) return errno(16);
+    const object = drmObjectForHandle(handle) orelse return errno(2);
+    releaseDrmObject(object);
     return 0;
 }
 
-fn releaseDrmDumb() void {
-    if (drm_dumb_created and drm_dumb_physical != 0 and drm_dumb_pages != 0) {
-        if (drm_pages) |pages| pages.release(drm_dumb_physical, drm_dumb_pages) catch {};
+fn releaseDrmObject(object: *DrmObject) void {
+    if (object.allocated and object.physical_address != 0 and object.pages != 0) {
+        if (drm_pages) |pages| pages.release(object.physical_address, object.pages) catch {};
         drm_releases += 1;
     }
-    drm_dumb_created = false;
-    drm_dumb_size = 0;
-    drm_dumb_physical = 0;
-    drm_dumb_pages = 0;
+    object.* = .{};
+}
+
+fn releaseAllDrmObjects() void { for (&drm_objects) |*object| releaseDrmObject(object); }
+fn drmObjectForHandle(handle: u32) ?*DrmObject {
+    if (handle == 0 or handle > drm_objects.len) return null;
+    const object = &drm_objects[handle - 1];
+    return if (object.allocated and object.handle == handle) object else null;
+}
+fn drmObjectForMap(offset: u64, length: u64) ?*DrmObject {
+    for (&drm_objects) |*object| {
+        if (object.allocated and offset >= object.map_offset and offset - object.map_offset <= object.size and length <= object.size - (offset - object.map_offset)) return object;
+    }
+    return null;
 }
 
 fn drmGetResources(address: u64) u64 {
@@ -500,16 +512,19 @@ fn drmGetCrtc(address: u64) u64 {
 
 fn drmAddFramebuffer(address: u64) u64 {
     if (!validUserSlice(address, 28)) return errno(14);
-    if (!drm_dumb_created or drm_framebuffer_created) return errno(16);
+    if (drm_framebuffer_created) return errno(16);
     const output: [*]u8 = @ptrFromInt(address);
     const width = read32(output + 4);
     const height = read32(output + 8);
     const pitch = read32(output + 12);
     if (width == 0 or height == 0 or width > framebuffer.width or height > framebuffer.height) return errno(22);
-    if (pitch != width * 4 or read32(output + 16) != 32 or read32(output + 20) != 24 or read32(output + 24) != 1) return errno(22);
-    if (@as(u64, pitch) * height > drm_dumb_size) return errno(22);
+    if (pitch != width * 4 or read32(output + 16) != 32 or read32(output + 20) != 24) return errno(22);
+    const handle = read32(output + 24);
+    const object = drmObjectForHandle(handle) orelse return errno(2);
+    if (@as(u64, pitch) * height > object.size) return errno(22);
     put32(output, 4);
     drm_framebuffer_created = true;
+    drm_framebuffer_handle = handle;
     return 0;
 }
 
@@ -532,6 +547,7 @@ fn drmRemoveFramebuffer(address: u64) u64 {
     if (!drm_framebuffer_created or read32(input) != 4) return errno(2);
     drm_scanout_framebuffer = 0;
     drm_framebuffer_created = false;
+    drm_framebuffer_handle = 0;
     return 0;
 }
 
@@ -796,14 +812,14 @@ fn mmap(requested: u64, length: u64, protection: u64, flags: u64, fd: u64, file_
     const framebuffer_device = !anonymous and vfs.isFramebuffer(@intCast(fd));
     const drm_device = !anonymous and vfs.isDrmPrimary(@intCast(fd));
     if (framebuffer_device or drm_device) {
-        const available: u64 = if (drm_device) drm_dumb_size else framebuffer.size;
-        if ((flags & 1) == 0 or (protection & 4) != 0 or (drm_device and !drm_dumb_created) or file_offset > available or length > available - file_offset) return errno(22);
+        const drm_object = if (drm_device) drmObjectForMap(file_offset, length) else null;
+        if ((flags & 1) == 0 or (protection & 4) != 0 or (drm_device and drm_object == null) or (!drm_device and (file_offset > framebuffer.size or length > framebuffer.size - file_offset))) return errno(22);
         const aligned_length = (length + 4095) & ~@as(u64, 4095);
         const address = if (requested != 0) requested else (device_mmap_next + 4095) & ~@as(u64, 4095);
         if (address < mmap_limit or address > device_mmap_limit or aligned_length > device_mmap_limit - address) return errno(12);
         const hook = device_mmap_hook orelse return errno(19);
-        const physical_base = if (drm_device) drm_dumb_physical else framebuffer.base;
-        if (!hook(address, physical_base + file_offset, aligned_length, (protection & 2) != 0)) return errno(12);
+        const physical_address = if (drm_object) |object| object.physical_address + (file_offset - object.map_offset) else framebuffer.base + file_offset;
+        if (!hook(address, physical_address, aligned_length, (protection & 2) != 0)) return errno(12);
         device_mmap_next = address + aligned_length;
         if (drm_device) drm_mmaps += 1 else framebuffer_mmaps += 1;
         return address;

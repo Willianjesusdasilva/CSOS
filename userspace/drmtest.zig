@@ -7,6 +7,9 @@ pub export var capability: [16]u8 = .{0} ** 16;
 pub export var dumb_create: [32]u8 = .{0} ** 32;
 pub export var dumb_map: [16]u8 = .{0} ** 16;
 pub export var dumb_destroy: [4]u8 = .{0} ** 4;
+pub export var second_create: [32]u8 = .{0} ** 32;
+pub export var second_map: [16]u8 = .{0} ** 16;
+pub export var second_destroy: [4]u8 = .{0} ** 4;
 pub export var resources: [64]u8 = .{0} ** 64;
 pub export var resource_ids: [3]u32 = .{ 0, 0, 0 };
 pub export var connector: [80]u8 = .{0} ** 80;
@@ -107,6 +110,60 @@ pub export fn _start() callconv(.naked) noreturn {
         \\movq %%rax, %%r13
         \\movl $0x00667788, 16380(%%r13)
         \\cmpl $0x00667788, 16380(%%r13)
+        \\jne 1f
+        \\movl $32, second_create(%%rip)
+        \\movl $32, second_create+4(%%rip)
+        \\movl $32, second_create+8(%%rip)
+        \\movq $16, %%rax
+        \\movq %%r12, %%rdi
+        \\movq $0xc02064b2, %%rsi
+        \\leaq second_create(%%rip), %%rdx
+        \\syscall
+        \\testq %%rax, %%rax
+        \\jne 1f
+        \\cmpl $2, second_create+16(%%rip)
+        \\jne 1f
+        \\cmpq $4096, second_create+24(%%rip)
+        \\jne 1f
+        \\movl $2, second_map(%%rip)
+        \\movq $16, %%rax
+        \\movq %%r12, %%rdi
+        \\movq $0xc01064b3, %%rsi
+        \\leaq second_map(%%rip), %%rdx
+        \\syscall
+        \\testq %%rax, %%rax
+        \\jne 1f
+        \\cmpq $16777216, second_map+8(%%rip)
+        \\jne 1f
+        \\movq $9, %%rax
+        \\xorq %%rdi, %%rdi
+        \\movq $4096, %%rsi
+        \\movq $3, %%rdx
+        \\movq $1, %%r10
+        \\movq %%r12, %%r8
+        \\movq second_map+8(%%rip), %%r9
+        \\syscall
+        \\testq %%rax, %%rax
+        \\js 1f
+        \\movq %%rax, %%r14
+        \\movl $0x00123456, (%%r14)
+        \\cmpl $0x00123456, (%%r14)
+        \\jne 1f
+        \\cmpl $0x00667788, 16380(%%r13)
+        \\jne 1f
+        \\movq $11, %%rax
+        \\movq %%r14, %%rdi
+        \\movq $4096, %%rsi
+        \\syscall
+        \\testq %%rax, %%rax
+        \\jne 1f
+        \\movl $2, second_destroy(%%rip)
+        \\movq $16, %%rax
+        \\movq %%r12, %%rdi
+        \\movq $0xc00464b4, %%rsi
+        \\leaq second_destroy(%%rip), %%rdx
+        \\syscall
+        \\testq %%rax, %%rax
         \\jne 1f
         \\movq $11, %%rax
         \\movq %%r13, %%rdi
