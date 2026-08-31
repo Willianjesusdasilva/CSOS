@@ -705,6 +705,75 @@ pub fn planAmdGfx11MesLoad(
         },
     };
 }
+pub const AmdGfx11MesLoadTransaction = struct {
+    offsets: [9]u32 = .{0} ** 9,
+    values: [9]u32 = .{0} ** 9,
+    applied: u8 = 0,
+    pipe: u1,
+};
+
+fn rollbackAmdGfx11MesLoad(plan: AmdGfx11MesLoadPlan, transaction: *const AmdGfx11MesLoadTransaction, io: AmdRegisterIo) !void {
+    var failed = false;
+    var index: usize = transaction.applied;
+    while (index != 0) {
+        index -= 1;
+        io.write(io.context, transaction.offsets[index], transaction.values[index]) catch { failed = true; };
+    }
+    io.write(io.context, plan.writes[0].offset, 0) catch { failed = true; };
+    if (failed) return error.AmdMesLoadRollbackFailed;
+}
+
+pub fn restoreAmdGfx11MesLoad(plan: AmdGfx11MesLoadPlan, transaction: AmdGfx11MesLoadTransaction, io: AmdRegisterIo) !void {
+    if (transaction.applied != 9 or transaction.pipe != plan.pipe or try io.read(io.context, plan.writes[0].offset) != 0)
+        return error.InvalidAmdMesLoadRestore;
+    try io.write(io.context, plan.writes[0].offset, plan.writes[0].value);
+    try rollbackAmdGfx11MesLoad(plan, &transaction, io);
+}
+
+pub fn executeAmdGfx11MesLoad(plan: AmdGfx11MesLoadPlan, io: AmdRegisterIo) !AmdGfx11MesLoadTransaction {
+    if (plan.count != 11 or plan.writes[0].offset != plan.writes[10].offset or plan.writes[10].value != 0)
+        return error.InvalidAmdMesLoadTransaction;
+    if (try io.read(io.context, plan.writes[0].offset) != 0) return error.AmdMesGrbmSelectorBusy;
+    io.write(io.context, plan.writes[0].offset, plan.writes[0].value) catch return error.AmdMesRegisterWriteFailed;
+    if (try io.read(io.context, plan.writes[0].offset) != plan.writes[0].value) {
+        io.write(io.context, plan.writes[0].offset, 0) catch return error.AmdMesLoadRollbackFailed;
+        return error.AmdMesRegisterReadbackMismatch;
+    }
+    var transaction = AmdGfx11MesLoadTransaction{ .pipe = plan.pipe };
+    for (plan.writes[1..10], 0..) |write, index| {
+        transaction.offsets[index] = write.offset;
+        transaction.values[index] = io.read(io.context, write.offset) catch {
+            rollbackAmdGfx11MesLoad(plan, &transaction, io) catch return error.AmdMesLoadRollbackFailed;
+            return error.AmdMesRegisterReadFailed;
+        };
+        transaction.applied += 1;
+        io.write(io.context, write.offset, write.value) catch {
+            rollbackAmdGfx11MesLoad(plan, &transaction, io) catch return error.AmdMesLoadRollbackFailed;
+            return error.AmdMesRegisterWriteFailed;
+        };
+        const observed = io.read(io.context, write.offset) catch {
+            rollbackAmdGfx11MesLoad(plan, &transaction, io) catch return error.AmdMesLoadRollbackFailed;
+            return error.AmdMesRegisterReadFailed;
+        };
+        if (observed != write.value) {
+            rollbackAmdGfx11MesLoad(plan, &transaction, io) catch return error.AmdMesLoadRollbackFailed;
+            return error.AmdMesRegisterReadbackMismatch;
+        }
+    }
+    io.write(io.context, plan.writes[10].offset, 0) catch {
+        rollbackAmdGfx11MesLoad(plan, &transaction, io) catch return error.AmdMesLoadRollbackFailed;
+        return error.AmdMesRegisterWriteFailed;
+    };
+    const selector = io.read(io.context, plan.writes[10].offset) catch {
+        rollbackAmdGfx11MesLoad(plan, &transaction, io) catch return error.AmdMesLoadRollbackFailed;
+        return error.AmdMesRegisterReadFailed;
+    };
+    if (selector != 0) {
+        rollbackAmdGfx11MesLoad(plan, &transaction, io) catch return error.AmdMesLoadRollbackFailed;
+        return error.AmdMesRegisterReadbackMismatch;
+    }
+    return transaction;
+}
 
 pub const AmdGfx11PreflightEvidence = struct {
     firmware: bool = false,
@@ -2695,6 +2764,35 @@ pub fn validateAmdGmc11BootstrapWritesSelfTest() !void {
         .fault_default_low = 0x5000,
         .fault_default_high = 0,
     });
+}
+
+pub fn validateAmdGfx11MesLoadTransactionSelfTest() !void {
+    const gfx_ip = AmdIp{ .hw_id = amd_hw_id.gfx, .major = 11, .instance = 0, .base_count = 2, .bases = .{ 0, 0x100 } ++ .{0} ** 6 };
+    const registers = try resolveAmdGfx11MesRegisters(&gfx_ip, 0x20000);
+    var ucode = [_]u8{0} ** 4;
+    var data = [_]u8{0} ** 4;
+    const plan = try planAmdGfx11MesLoad(.scheduler, loadFirmwareForSelfTest(&ucode, &data), 0x2010000, 0x2020000, registers, true);
+    var bank = AmdGartRegisterTestBank{ .count = 10 };
+    bank.offsets[0] = plan.writes[0].offset;
+    bank.values[0] = 0;
+    for (plan.writes[1..10], 1..) |write, index| {
+        bank.offsets[index] = write.offset;
+        bank.values[index] = 0xa5000000 | @as(u32, @intCast(index));
+    }
+    var original: [10]u32 = undefined;
+    @memcpy(&original, bank.values[0..10]);
+    const transaction = try executeAmdGfx11MesLoad(plan, bank.io());
+    if (transaction.applied != 9 or bank.values[0] != 0 or bank.values[bank.position(registers.instruction_bound_low).?] != 0x1fffff or
+        bank.values[bank.position(registers.data_bound_low).?] != 0x7ffff)
+        return error.AmdMesLoadTransactionMismatch;
+    try restoreAmdGfx11MesLoad(plan, transaction, bank.io());
+    for (original, bank.values[0..10]) |expected, observed| if (expected != observed)
+        return error.AmdMesLoadExplicitRestoreMismatch;
+    bank.fail_write_once = registers.data_base_high;
+    if (executeAmdGfx11MesLoad(plan, bank.io())) |_| return error.AmdMesLoadWriteFailureNotDetected else |err|
+        if (err != error.AmdMesRegisterWriteFailed) return err;
+    for (original, bank.values[0..10]) |expected, observed| if (expected != observed)
+        return error.AmdMesLoadRollbackMismatch;
 }
 
 pub fn validateAmdGmc11VmContextSelfTest() !void {

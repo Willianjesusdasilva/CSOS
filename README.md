@@ -772,6 +772,14 @@ seguramente parada quando os dois pipes estão em reset, ambos inativos e
 selecionar ME3/pipe0 ou ME3/pipe1 e programar PC, bases e limites de instrução e
 dados. Os planos sempre restauram o seletor GRBM e não são executados: não há
 unhalt nem ativação escondida neste checkpoint.
+Uma transação de carga por pipe agora captura todos os registradores após
+selecionar o pipe, aplica cada write com readback e restaura o snapshot em
+ordem reversa diante de falha. O segundo pipe só é carregado depois do primeiro;
+se ele falhar, o primeiro também é restaurado. Escritas reais exigem
+simultaneamente `-Damd-gart-mmio=true`, `-Damd-mes-mmio=true` e o PCI ID exato
+em `-Damd-gart-device=0xNNNN`, além de GART ativo e nova confirmação de que MES
+continua halted. Mesmo com esse gate, a transação apenas carrega bases/PC:
+unhalt, ativação dos pipes e doorbells permanecem proibidos.
 Para VA de 48 bits, o walker segue `PDB2[47:39] → PDB1[38:30] →
 PDB0[29:21] → PTB[20:12]`, com offset `[11:0]`. Cada nível possui até 512
 entradas de 64 bits e ocupa uma página de 4 KiB, conforme a geometria do

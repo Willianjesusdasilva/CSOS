@@ -756,6 +756,7 @@ pub fn start(info: BootInfo) noreturn {
             }
         }
     }
+    var gpu_mes_loads: u8 = 0;
     if (gpu_gart_mmio_transport) |*transport| {
         const psp_ready = (gpu_psp_mailbox_snapshot != null and gpu_psp_mailbox_snapshot.?.state == .sos_alive) or
             gpu_psp_handoff.state == .finished;
@@ -801,6 +802,33 @@ pub fn start(info: BootInfo) noreturn {
                 .invalidate = &invalidateDrmGpuVm,
                 .unbind = &unbindDrmGpuVm,
             });
+        }
+        if (build_options.amd_mes_mmio) {
+            if (!build_options.amd_gart_mmio or !gpu_gmc11_activation_workspace.active or
+                build_options.amd_gart_device == 0 or build_options.amd_gart_device != gpu_adapter.device.device)
+                panic("AMDGPU MES load gate requires matching active GART");
+            const scheduler_plan = gpu_mes_scheduler_load orelse panic("AMDGPU MES scheduler load plan unavailable");
+            const kiq_plan = gpu_mes_kiq_load orelse panic("AMDGPU MES KIQ load plan unavailable");
+            const current_mes_control = gpu_adapter.readRegister(gpu_mes_registers.?.mes_control) catch
+                panic("AMDGPU MES control revalidation failed");
+            if (!gpu.amdGfx11MesIsHalted(current_mes_control)) panic("AMDGPU MES left halted state before load");
+            transport.arm() catch panic("AMDGPU MES MMIO arming failed");
+            const scheduler_transaction = gpu.executeAmdGfx11MesLoad(scheduler_plan, transport.io()) catch {
+                transport.disarm();
+                panic("AMDGPU MES scheduler load failed and rolled back");
+            };
+            gpu_mes_loads = 1;
+            _ = gpu.executeAmdGfx11MesLoad(kiq_plan, transport.io()) catch {
+                gpu.restoreAmdGfx11MesLoad(scheduler_plan, scheduler_transaction, transport.io()) catch {
+                    transport.disarm();
+                    panic("AMDGPU MES dual-pipe rollback failed");
+                };
+                gpu_mes_loads = 0;
+                transport.disarm();
+                panic("AMDGPU MES KIQ load failed and rolled back");
+            };
+            gpu_mes_loads = 2;
+            transport.disarm();
         }
     }
     const gpu_identity = gpu_adapter.identifyChip() catch panic("GPU chipset identification failed");
@@ -927,6 +955,7 @@ pub fn start(info: BootInfo) noreturn {
     serial.write(" mes-fw-gart-pages: "); serial.writeDecimal(if (gpu_mes_firmware_gpu) |layout| layout.gart_pages else 0);
     serial.write(" mes-halted: "); serial.writeDecimal(@intFromBool(gpu_mes_halted));
     serial.write(" mes-load-plans: "); serial.writeDecimal(@intFromBool(gpu_mes_scheduler_load != null) + @intFromBool(gpu_mes_kiq_load != null));
+    serial.write(" mes-loads: "); serial.writeDecimal(gpu_mes_loads);
     serial.write(" driver: ");
     serial.write(switch (gpu_adapter.driver) {
         .amdgpu => "amdgpu",

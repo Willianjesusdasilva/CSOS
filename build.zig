@@ -4,10 +4,12 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
     const gpu_firmware = b.option([]const u8, "gpu-firmware", "Firmware archive copied to GPUFW.BIN on the CSOS disk");
     const amd_gart_mmio = b.option(bool, "amd-gart-mmio", "Explicitly arm and commit the validated GMC 11 GART transaction") orelse false;
+    const amd_mes_mmio = b.option(bool, "amd-mes-mmio", "Explicitly load validated GFX11 MES firmware while MES remains halted") orelse false;
     const amd_gart_device_text = b.option([]const u8, "amd-gart-device", "Required AMD PCI device ID for real GART MMIO activation (for example 0x744c)") orelse "0";
     const amd_gart_device = std.fmt.parseInt(u16, amd_gart_device_text, 0) catch @panic("invalid -Damd-gart-device PCI ID");
     const build_options = b.addOptions();
     build_options.addOption(bool, "amd_gart_mmio", amd_gart_mmio);
+    build_options.addOption(bool, "amd_mes_mmio", amd_mes_mmio);
     build_options.addOption(u16, "amd_gart_device", amd_gart_device);
     const target = b.resolveTargetQuery(.{
         .cpu_arch = .x86_64,
