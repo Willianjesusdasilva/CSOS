@@ -693,7 +693,10 @@ primary/render, buffers GEM page-backed, mmap, framebuffer, sincronização
 binária/timeline e início da ABI de alocação AMDGPU. A preparação AMD também já
 valida o catálogo de firmware, interpreta `ip_discovery.bin`, preserva as
 versões exatas dos blocos IP, escolhe a família de backend e prepara firmware
-de segurança em páginas físicas. A política PSP mantém a revisão MP0 exata e
+de segurança em páginas físicas. Os pacotes PSP v1/v2 são decompostos em
+componentes tipados e validados — como SYS_DRV, SOS, KDB, TOC, SPL e RL — sem
+confundir o payload comum com a imagem que cada comando de boot consumirá. A
+política PSP mantém a revisão MP0 exata e
 distingue host boot, autoload e TMR de boot conforme o dispatcher upstream do
 AMDGPU. Nenhuma dessas etapas, isoladamente, representa aceleração 3D nem
 suporte Vulkan concluído.

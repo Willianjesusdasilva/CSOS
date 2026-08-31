@@ -552,6 +552,7 @@ pub fn start(info: BootInfo) noreturn {
     serial.write(" staged: "); serial.writeDecimal(gpu_firmware_staging.count);
     serial.write(" staged-bytes: "); serial.writeDecimal(gpu_firmware_staging.image_bytes);
     serial.write(" staged-payload: "); serial.writeDecimal(gpu_firmware_staging.payload_bytes);
+    serial.write(" psp-components: "); serial.writeDecimal(gpu_firmware_staging.psp_component_count);
     serial.write(" driver: ");
     serial.write(switch (gpu_adapter.driver) {
         .amdgpu => "amdgpu",

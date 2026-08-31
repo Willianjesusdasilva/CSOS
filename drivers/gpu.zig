@@ -188,6 +188,7 @@ pub const Firmware = struct {
             if (classifyFirmware(.amdgpu, entry.name) != .security) continue;
             if (result.count == result.areas.len) return error.TooManyAmdSecurityFirmwareEntries;
             const parsed = try parseAmdgpuFirmware(entry.data);
+            const psp = if (isAmdPspPackage(entry.name)) try parseAmdPspFirmware(entry.data) else null;
             const page_count: u64 = @intCast((entry.data.len + 4095) / 4096);
             const address = pages.allocate(page_count) orelse return error.OutOfMemory;
             const target: [*]u8 = @ptrFromInt(address);
@@ -207,6 +208,18 @@ pub const Firmware = struct {
             result.count += 1;
             result.image_bytes += entry.data.len;
             result.payload_bytes += parsed.payload.len;
+            if (psp) |package| {
+                for (package.components[0..package.count]) |component| {
+                    if (result.psp_component_count == result.psp_components.len) return error.TooManyAmdPspFirmwareComponents;
+                    result.psp_components[result.psp_component_count] = .{
+                        .kind = component.kind,
+                        .version = component.version,
+                        .address = address + component.offset,
+                        .bytes = component.bytes,
+                    };
+                    result.psp_component_count += 1;
+                }
+            }
         }
         const security_bit = @as(u16, 1) << @intFromEnum(FirmwareBlock.security);
         if ((selection.required_blocks & security_bit) != 0 and result.count == 0) return error.AmdSecurityFirmwareMissing;
@@ -296,7 +309,9 @@ pub const AmdFirmwareStaging = struct {
     count: usize = 0,
     image_bytes: usize = 0,
     payload_bytes: usize = 0,
+    psp_component_count: usize = 0,
     areas: [128]AmdFirmwareArea = .{AmdFirmwareArea{}} ** 128,
+    psp_components: [128]AmdStagedPspComponent = .{AmdStagedPspComponent{}} ** 128,
 
     pub fn release(self: *AmdFirmwareStaging, pages: *physical.Allocator) void {
         while (self.count != 0) {
@@ -307,8 +322,10 @@ pub const AmdFirmwareStaging = struct {
         }
         self.image_bytes = 0;
         self.payload_bytes = 0;
+        self.psp_component_count = 0;
     }
 };
+pub const AmdStagedPspComponent = struct { kind: u32 = 0, version: u32 = 0, address: u64 = 0, bytes: u32 = 0 };
 pub const SelectedEntry = struct { name: []const u8, data: []const u8 };
 pub const SelectedIterator = struct {
     iterator: CpioIterator,
@@ -488,6 +505,10 @@ fn isAmdIpDiscovery(name: []const u8) bool {
     return equal(name, "ip_discovery.bin") or contains(name, "_ip_discovery.bin");
 }
 
+fn isAmdPspPackage(name: []const u8) bool {
+    return contains(name, "_sos.") or contains(name, "_toc.");
+}
+
 comptime {
     @setEvalBranchQuota(5000);
     if (classifyFirmware(.amdgpu, "navi31_sos.bin") != .security or
@@ -507,6 +528,77 @@ pub const AmdgpuFirmware = struct {
     crc32: u32,
     payload: []const u8,
 };
+
+pub const AmdPspComponent = struct {
+    kind: u32 = 0,
+    version: u32 = 0,
+    offset: u32 = 0,
+    bytes: u32 = 0,
+};
+pub const AmdPspFirmware = struct {
+    count: usize = 0,
+    components: [32]AmdPspComponent = .{AmdPspComponent{}} ** 32,
+};
+
+fn appendPspComponent(result: *AmdPspFirmware, bytes: []const u8, kind: u32, component_version: u32, offset: usize, size: usize) !void {
+    if (kind == 0 or kind > 14) return error.UnsupportedAmdPspFirmwareType;
+    if (size == 0 or offset > bytes.len or size > bytes.len - offset) return error.InvalidAmdPspFirmwareComponent;
+    for (result.components[0..result.count]) |component| if (component.kind == kind) return error.DuplicateAmdPspFirmwareComponent;
+    if (result.count == result.components.len) return error.TooManyAmdPspFirmwareComponents;
+    result.components[result.count] = .{ .kind = kind, .version = component_version, .offset = @intCast(offset), .bytes = @intCast(size) };
+    result.count += 1;
+}
+
+fn appendLegacyPspComponent(result: *AmdPspFirmware, bytes: []const u8, descriptor: usize, kind: u32, payload_base: usize) !void {
+    try appendPspComponent(result, bytes, kind, @intCast(readLittle32(bytes, descriptor)), payload_base + readLittle32(bytes, descriptor + 4), readLittle32(bytes, descriptor + 8));
+}
+
+pub fn parseAmdPspFirmware(bytes: []const u8) !AmdPspFirmware {
+    const common = try parseAmdgpuFirmware(bytes);
+    const common_offset = readLittle32(bytes, 24);
+    var result = AmdPspFirmware{};
+    if (common.header_version_major == 1) {
+        const required_header: usize = switch (common.header_version_minor) {
+            0 => 44,
+            1, 2 => 68,
+            3 => 116,
+            else => return error.UnsupportedAmdPspFirmwareHeader,
+        };
+        if (readLittle32(bytes, 4) < required_header) return error.TruncatedAmdPspFirmwareHeader;
+        const sos_offset = readLittle32(bytes, 36);
+        try appendPspComponent(&result, bytes, 2, common.ucode_version, common_offset, sos_offset);
+        try appendLegacyPspComponent(&result, bytes, 32, 1, common_offset);
+        if (common.header_version_minor == 1 or common.header_version_minor == 3) {
+            try appendLegacyPspComponent(&result, bytes, 44, 4, common_offset);
+            try appendLegacyPspComponent(&result, bytes, 56, 3, common_offset);
+        } else if (common.header_version_minor == 2) {
+            // v1.2 calls the middle descriptor RES upstream; it is not a
+            // loadable PSP type, so retain only the explicitly typed KDB.
+            try appendLegacyPspComponent(&result, bytes, 56, 3, common_offset);
+        }
+        if (common.header_version_minor == 3) {
+            try appendLegacyPspComponent(&result, bytes, 68, 5, common_offset);
+            try appendLegacyPspComponent(&result, bytes, 80, 6, common_offset);
+            // Internal kinds 13/14 retain v1.3 SYS/SOS auxiliary images; the
+            // upstream selection rule is applied later using the exact MP0 IP.
+            try appendLegacyPspComponent(&result, bytes, 92, 13, common_offset);
+            try appendLegacyPspComponent(&result, bytes, 104, 14, common_offset);
+        }
+    } else if (common.header_version_major == 2) {
+        if (common.header_version_minor > 1) return error.UnsupportedAmdPspFirmwareHeader;
+        const descriptor_start: usize = if (common.header_version_minor == 0) 36 else 40;
+        const count = readLittle32(bytes, 32);
+        const header_size = readLittle32(bytes, 4);
+        if (count == 0 or count > result.components.len or descriptor_start > header_size or count * 16 > header_size - descriptor_start)
+            return error.InvalidAmdPspFirmwareComponentTable;
+        var index: usize = 0;
+        while (index < count) : (index += 1) {
+            const descriptor = descriptor_start + index * 16;
+            try appendPspComponent(&result, bytes, @intCast(readLittle32(bytes, descriptor)), @intCast(readLittle32(bytes, descriptor + 4)), common_offset + readLittle32(bytes, descriptor + 8), readLittle32(bytes, descriptor + 12));
+        }
+    } else return error.UnsupportedAmdPspFirmwareHeader;
+    return result;
+}
 
 pub const AmdIpDiscovery = struct {
     binary_version_major: u16,
@@ -838,6 +930,27 @@ comptime {
     const parsed = parseAmdgpuFirmware(&sample) catch @compileError("AMDGPU common firmware header was rejected");
     if (parsed.header_version_major != 1 or parsed.ip_version_major != 11 or parsed.ucode_version != 7 or parsed.payload.len != 4)
         @compileError("AMDGPU common firmware header decoded incorrectly");
+
+    var psp_sample = [_]u8{0} ** 104;
+    writeLittle32(&psp_sample, 0, psp_sample.len);
+    writeLittle32(&psp_sample, 4, 68);
+    writeLittle16(&psp_sample, 8, 2);
+    writeLittle16(&psp_sample, 10, 0);
+    writeLittle32(&psp_sample, 20, 36);
+    writeLittle32(&psp_sample, 24, 68);
+    writeLittle32(&psp_sample, 32, 2);
+    writeLittle32(&psp_sample, 36, 1);
+    writeLittle32(&psp_sample, 40, 0x10203);
+    writeLittle32(&psp_sample, 44, 0);
+    writeLittle32(&psp_sample, 48, 16);
+    writeLittle32(&psp_sample, 52, 2);
+    writeLittle32(&psp_sample, 56, 0x40506);
+    writeLittle32(&psp_sample, 60, 16);
+    writeLittle32(&psp_sample, 64, 20);
+    const psp = parseAmdPspFirmware(&psp_sample) catch @compileError("AMDGPU PSP v2 package was rejected");
+    if (psp.count != 2 or psp.components[0].kind != 1 or psp.components[0].version != 0x10203 or
+        psp.components[0].offset != 68 or psp.components[1].kind != 2 or psp.components[1].bytes != 20)
+        @compileError("AMDGPU PSP component table decoded incorrectly");
 }
 
 pub fn loadFirmware(volume: *fat16.Volume, pages: *physical.Allocator) !?Firmware {
