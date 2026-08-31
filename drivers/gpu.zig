@@ -653,6 +653,21 @@ pub const AmdPspBootImages = struct {
     rl: ?AmdStagedPspComponent,
     auxiliary: bool,
 };
+pub const AmdPspBootCommand = enum { load_kdb, load_spl, load_sysdrv, load_sos };
+pub const AmdPspHandoffStep = struct { command: AmdPspBootCommand = .load_sysdrv, source_address: u64 = 0, bytes: u32 = 0 };
+pub const AmdPspHandoff = struct {
+    reservation_address: u64 = 0,
+    reservation_pages: u64 = 0,
+    transfer_address: u64 = 0,
+    transfer_pages: u64 = 0,
+    count: usize = 0,
+    steps: [4]AmdPspHandoffStep = .{AmdPspHandoffStep{}} ** 4,
+
+    pub fn release(self: *AmdPspHandoff, pages: *physical.Allocator) void {
+        if (self.reservation_pages != 0) pages.release(self.reservation_address, self.reservation_pages) catch {};
+        self.* = .{};
+    }
+};
 pub const PspFamily = enum { v3_1, v10_0, v11_0, v11_0_8, v12_0, v13_0, v13_0_4, v14_0, v15_0, v15_0_8 };
 pub const GmcFamily = enum { v9_0, v10_0, v11_0, v12_0 };
 pub const GfxFamily = enum { v9_0, v9_4_3, v10_0, v11_0, v12_0, v12_1 };
@@ -688,6 +703,41 @@ pub fn selectAmdPspBootImages(staging: *const AmdFirmwareStaging, plan: AmdPspPl
         .rl = try findStagedPspComponent(staging, 6),
         .auxiliary = use_auxiliary,
     };
+}
+
+fn appendPspHandoffStep(handoff: *AmdPspHandoff, command: AmdPspBootCommand, image: ?AmdStagedPspComponent) !void {
+    const component = image orelse return;
+    if (component.address == 0 or component.bytes == 0) return error.InvalidAmdPspBootImage;
+    if (handoff.count == handoff.steps.len) return error.TooManyAmdPspHandoffSteps;
+    handoff.steps[handoff.count] = .{ .command = command, .source_address = component.address, .bytes = component.bytes };
+    handoff.count += 1;
+}
+
+pub fn prepareAmdPspHandoff(images: AmdPspBootImages, pages: *physical.Allocator) !AmdPspHandoff {
+    var result = AmdPspHandoff{};
+    errdefer result.release(pages);
+    try appendPspHandoffStep(&result, .load_kdb, images.kdb);
+    try appendPspHandoffStep(&result, .load_spl, images.spl);
+    try appendPspHandoffStep(&result, .load_sysdrv, images.sys);
+    try appendPspHandoffStep(&result, .load_sos, images.sos);
+    if (result.count < 2 or result.steps[result.count - 2].command != .load_sysdrv or result.steps[result.count - 1].command != .load_sos)
+        return error.InvalidAmdPspHandoffOrder;
+    var maximum_bytes: u64 = 0;
+    for (result.steps[0..result.count]) |step| maximum_bytes = @max(maximum_bytes, step.bytes);
+    const transfer_pages = (maximum_bytes + 4095) / 4096;
+    const alignment_pages: u64 = 256;
+    const reservation_pages = transfer_pages + alignment_pages - 1;
+    const reservation = pages.allocate(reservation_pages) orelse return error.OutOfMemory;
+    const transfer = (reservation + 1024 * 1024 - 1) & ~@as(u64, 1024 * 1024 - 1);
+    result.reservation_address = reservation;
+    result.reservation_pages = reservation_pages;
+    if (transfer < reservation or transfer + transfer_pages * 4096 > reservation + reservation_pages * 4096)
+        return error.InvalidAmdPspTransferReservation;
+    result.transfer_address = transfer;
+    result.transfer_pages = transfer_pages;
+    const target: [*]u8 = @ptrFromInt(transfer);
+    @memset(target[0 .. transfer_pages * 4096], 0);
+    return result;
 }
 
 pub fn planAmdBackend(discovery: *const AmdIpDiscovery) !AmdBackendPlan {
@@ -818,6 +868,14 @@ comptime {
         @compileError("auxiliary AMD PSP boot images were rejected");
     if (!auxiliary_images.auxiliary or auxiliary_images.sys.address != 0x3000 or auxiliary_images.sos.address != 0x4000)
         @compileError("auxiliary AMD PSP boot images selected incorrectly");
+    var handoff = AmdPspHandoff{};
+    appendPspHandoffStep(&handoff, .load_kdb, AmdStagedPspComponent{ .kind = 3, .address = 0x5000, .bytes = 0x80 }) catch
+        @compileError("valid AMD PSP KDB handoff was rejected");
+    appendPspHandoffStep(&handoff, .load_spl, null) catch @compileError("optional AMD PSP SPL was rejected");
+    appendPspHandoffStep(&handoff, .load_sysdrv, normal_images.sys) catch @compileError("valid AMD PSP SYS handoff was rejected");
+    appendPspHandoffStep(&handoff, .load_sos, normal_images.sos) catch @compileError("valid AMD PSP SOS handoff was rejected");
+    if (handoff.count != 3 or handoff.steps[0].command != .load_kdb or handoff.steps[1].command != .load_sysdrv or handoff.steps[2].command != .load_sos)
+        @compileError("AMD PSP handoff order is incorrect");
 }
 
 pub fn parseAmdIpDiscovery(bytes: []const u8) !AmdIpDiscovery {

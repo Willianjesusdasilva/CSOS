@@ -704,6 +704,13 @@ rejeitada em vez de escolher firmware por suposição. Nenhuma dessas etapas,
 isoladamente, representa aceleração 3D nem
 suporte Vulkan concluído.
 
+O handoff PSP é mantido declarativo: KDB, SPL, SYS_DRV e SOS são ordenados como
+no fluxo upstream e apontam para suas fontes físicas validadas. Uma única área
+de transferência é reservada com alinhamento de 1 MiB, necessário para o
+endereço comunicado ao bootloader. A preparação não copia nem envia comandos
+ao mailbox; execução permanece desativada até existir backend MMIO e validação
+em Radeon real suportada.
+
 Os próximos incrementos de GPU devem privilegiar adaptação e reutilização do
 AMDGPU/RADV e, depois, Nouveau/NVK compatíveis. O código Zig existente serve de
 ponte de kernel, DRM e plataforma; ele não autoriza reimplementar integralmente
