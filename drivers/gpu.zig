@@ -480,6 +480,89 @@ pub const AmdIp = struct {
 
 pub const amd_hw_id = struct { pub const smu: u16 = 1; pub const gfx: u16 = 11; pub const mmhub: u16 = 34; pub const sdma0: u16 = 42; pub const sdma1: u16 = 43; pub const sdma2: u16 = 44; pub const sdma3: u16 = 45; pub const nbif: u16 = 108; pub const psp: u16 = 255; };
 
+pub const AmdBackendPlan = struct { psp: PspFamily, gmc: GmcFamily, gfx: GfxFamily, sdma: SdmaFamily };
+pub const PspFamily = enum { v3_1, v10_0, v11_0, v11_0_8, v12_0, v13_0, v13_0_4, v14_0, v15_0, v15_0_8 };
+pub const GmcFamily = enum { v9_0, v10_0, v11_0, v12_0 };
+pub const GfxFamily = enum { v9_0, v9_4_3, v10_0, v11_0, v12_0, v12_1 };
+pub const SdmaFamily = enum { v4_0, v4_4_2, v5_0, v5_2, v6_0, v7_0, v7_1 };
+
+pub fn planAmdBackend(discovery: *const AmdIpDiscovery) !AmdBackendPlan {
+    const psp = discovery.find(amd_hw_id.psp, 0) orelse return error.AmdPspMissing;
+    const gfx = discovery.find(amd_hw_id.gfx, 0) orelse return error.AmdGfxMissing;
+    const mmhub = discovery.find(amd_hw_id.mmhub, 0) orelse return error.AmdMmhubMissing;
+    const sdma = discovery.find(amd_hw_id.sdma0, 0) orelse return error.AmdSdmaMissing;
+    if (psp.harvest != 0 or gfx.harvest != 0 or mmhub.harvest != 0 or sdma.harvest != 0) return error.RequiredAmdIpHarvested;
+    if (mmhub.base_count == 0) return error.AmdMmhubBaseMissing;
+    return .{
+        .psp = try selectPsp(psp),
+        .gmc = try selectGmc(gfx),
+        .gfx = try selectGfx(gfx),
+        .sdma = try selectSdma(sdma),
+    };
+}
+
+fn version(ip: *const AmdIp) u32 { return (@as(u32, ip.major) << 16) | (@as(u32, ip.minor) << 8) | ip.revision; }
+fn selectPsp(ip: *const AmdIp) !PspFamily {
+    return switch (version(ip)) {
+        0x090000 => .v3_1,
+        0x0a0000, 0x0a0001 => .v10_0,
+        0x0b0000, 0x0b0002, 0x0b0004, 0x0b0005, 0x0b0007, 0x0b0009, 0x0b000b, 0x0b000c, 0x0b000d, 0x0b0500, 0x0b0502 => .v11_0,
+        0x0b0008 => .v11_0_8,
+        0x0b0003, 0x0c0001 => .v12_0,
+        0x0d0000, 0x0d0001, 0x0d0002, 0x0d0003, 0x0d0005, 0x0d0006, 0x0d0007, 0x0d0008, 0x0d000a, 0x0d000b, 0x0d000c, 0x0d000e, 0x0d000f, 0x0e0000, 0x0e0001, 0x0e0004 => .v13_0,
+        0x0d0004 => .v13_0_4,
+        0x0e0002, 0x0e0003, 0x0e0005 => .v14_0,
+        0x0f0000, 0x0f0005, 0x0f0009 => .v15_0,
+        0x0f0008 => .v15_0_8,
+        else => error.UnsupportedAmdPspVersion,
+    };
+}
+fn selectGmc(ip: *const AmdIp) !GmcFamily {
+    return switch (version(ip)) {
+        0x090000, 0x090001, 0x090100, 0x090201, 0x090202, 0x090300, 0x090400, 0x090401, 0x090402, 0x090403, 0x090404, 0x090500 => .v9_0,
+        0x0a0101, 0x0a0102, 0x0a0103, 0x0a0104, 0x0a010a, 0x0a0300, 0x0a0301, 0x0a0302, 0x0a0303, 0x0a0304, 0x0a0305, 0x0a0306, 0x0a0307 => .v10_0,
+        0x0b0000, 0x0b0001, 0x0b0002, 0x0b0003, 0x0b0004, 0x0b0500, 0x0b0501, 0x0b0502, 0x0b0503, 0x0b0504, 0x0b0506, 0x0b0700, 0x0b0701 => .v11_0,
+        0x0c0000, 0x0c0001, 0x0c0100 => .v12_0,
+        else => error.UnsupportedAmdGmcVersion,
+    };
+}
+fn selectGfx(ip: *const AmdIp) !GfxFamily {
+    const value = version(ip);
+    return switch (value) {
+        0x090000, 0x090001, 0x090100, 0x090201, 0x090202, 0x090300, 0x090400, 0x090401, 0x090402 => .v9_0,
+        0x090403, 0x090404, 0x090500 => .v9_4_3,
+        0x0a0101, 0x0a0102, 0x0a0103, 0x0a0104, 0x0a010a, 0x0a0300, 0x0a0301, 0x0a0302, 0x0a0303, 0x0a0304, 0x0a0305, 0x0a0306, 0x0a0307 => .v10_0,
+        0x0b0000, 0x0b0001, 0x0b0002, 0x0b0003, 0x0b0004, 0x0b0500, 0x0b0501, 0x0b0502, 0x0b0503, 0x0b0504, 0x0b0506, 0x0b0700, 0x0b0701 => .v11_0,
+        0x0c0000, 0x0c0001 => .v12_0,
+        0x0c0100 => .v12_1,
+        else => error.UnsupportedAmdGfxVersion,
+    };
+}
+fn selectSdma(ip: *const AmdIp) !SdmaFamily {
+    return switch (version(ip)) {
+        0x040000, 0x040001, 0x040100, 0x040101, 0x040102, 0x040200, 0x040202, 0x040400 => .v4_0,
+        0x040402, 0x040404, 0x040405 => .v4_4_2,
+        0x050000, 0x050001, 0x050002, 0x050005 => .v5_0,
+        0x050200, 0x050201, 0x050202, 0x050203, 0x050204, 0x050205, 0x050206, 0x050207 => .v5_2,
+        0x060000, 0x060001, 0x060002, 0x060003, 0x060100, 0x060101, 0x060102, 0x060103, 0x060104, 0x060400 => .v6_0,
+        0x070000, 0x070001 => .v7_0,
+        0x070100 => .v7_1,
+        else => error.UnsupportedAmdSdmaVersion,
+    };
+}
+
+comptime {
+    var discovery = AmdIpDiscovery{ .binary_version_major = 1, .binary_version_minor = 0, .table_version = 3, .dies = 1, .ips = 4, .base_addresses = 4, .harvested = 0 };
+    discovery.critical_count = 4;
+    discovery.critical[0] = .{ .hw_id = amd_hw_id.psp, .major = 13, .base_count = 1 };
+    discovery.critical[1] = .{ .hw_id = amd_hw_id.gfx, .major = 11, .base_count = 1 };
+    discovery.critical[2] = .{ .hw_id = amd_hw_id.mmhub, .major = 3, .base_count = 1, .bases = .{1} ++ .{0} ** 7 };
+    discovery.critical[3] = .{ .hw_id = amd_hw_id.sdma0, .major = 6, .base_count = 1 };
+    const plan = planAmdBackend(&discovery) catch @compileError("valid AMD backend combination was rejected");
+    if (plan.psp != .v13_0 or plan.gmc != .v11_0 or plan.gfx != .v11_0 or plan.sdma != .v6_0)
+        @compileError("AMD backend combination selected incorrectly");
+}
+
 pub fn parseAmdIpDiscovery(bytes: []const u8) !AmdIpDiscovery {
     const binary_signature: u32 = 0x28211407;
     const table_signature: u32 = 0x53445049;

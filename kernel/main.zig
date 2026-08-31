@@ -491,11 +491,13 @@ pub fn start(info: BootInfo) noreturn {
     else 0;
     var gpu_inventory = gpu.FirmwareInventory{};
     var gpu_ip_discovery: ?gpu.AmdIpDiscovery = null;
+    var gpu_backend_plan: ?gpu.AmdBackendPlan = null;
     if (gpu_firmware) |firmware| if (gpu_selection) |selection| {
         gpu_inventory = firmware.inventory(selection, gpu_adapter.driver) catch panic("GPU firmware inventory invalid");
         if (gpu_adapter.driver == .amdgpu)
             gpu_ip_discovery = firmware.amdDiscovery(selection) catch panic("AMDGPU IP discovery invalid");
     };
+    if (gpu_ip_discovery) |*discovery| gpu_backend_plan = gpu.planAmdBackend(discovery) catch panic("AMDGPU IP combination unsupported");
     const gpu_psp_major = if (gpu_ip_discovery) |discovery| if (discovery.find(gpu.amd_hw_id.psp, 0)) |ip| ip.major else 0 else 0;
     const gpu_gfx_major = if (gpu_ip_discovery) |discovery| if (discovery.find(gpu.amd_hw_id.gfx, 0)) |ip| ip.major else 0 else 0;
     const gpu_mmhub_major = if (gpu_ip_discovery) |discovery| if (discovery.find(gpu.amd_hw_id.mmhub, 0)) |ip| ip.major else 0 else 0;
@@ -537,6 +539,7 @@ pub fn start(info: BootInfo) noreturn {
     serial.write(" gfx: "); serial.writeDecimal(gpu_gfx_major);
     serial.write(" mmhub: "); serial.writeDecimal(gpu_mmhub_major);
     serial.write(" sdma: "); serial.writeDecimal(gpu_sdma_major);
+    serial.write(" plan: "); serial.writeDecimal(if (gpu_backend_plan) |_| 1 else 0);
     serial.write(" driver: ");
     serial.write(switch (gpu_adapter.driver) {
         .amdgpu => "amdgpu",
