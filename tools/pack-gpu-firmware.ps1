@@ -1,6 +1,7 @@
 param(
     [string]$AmdDirectory,
     [string]$NvidiaDirectory,
+    [string[]]$Mapping,
     [Parameter(Mandatory = $true)][string]$Output
 )
 
@@ -31,6 +32,14 @@ try {
             & $writeEntry ($source.Prefix + '/' + $relative) ([IO.File]::ReadAllBytes($_.FullName)) $inode
             $inode += 1
         }
+    }
+    if ($Mapping) {
+        foreach ($line in $Mapping) {
+            if ($line -notmatch '^[0-9A-Fa-f]{4}:[0-9A-Fa-f]{4}(:[0-9A-Fa-f]{2})?=(amdgpu|nouveau)/' -or -not $line.EndsWith('/')) { throw "Invalid GPU firmware mapping: $line" }
+        }
+        $manifest = [Text.Encoding]::ASCII.GetBytes(($Mapping -join "`n") + "`n")
+        & $writeEntry 'csos-gpu.conf' $manifest $inode
+        $inode += 1
     }
     & $writeEntry 'TRAILER!!!' ([byte[]]::new(0)) $inode
 } finally {

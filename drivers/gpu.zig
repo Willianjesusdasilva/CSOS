@@ -81,6 +81,61 @@ pub const Firmware = struct {
         }
         return count;
     }
+
+    pub fn select(self: Firmware, device: pci.Device, driver: Driver) !?Selection {
+        const manifest = try self.find("csos-gpu.conf") orelse return null;
+        const backend = switch (driver) { .amdgpu => "amdgpu/", .nouveau => "nouveau/", else => return null };
+        var iterator = ManifestIterator{ .manifest = manifest };
+        while (try iterator.next()) |mapping| {
+            if (!startsWith(mapping.prefix, backend)) continue;
+            if (mapping.vendor == device.vendor and mapping.device == device.device and (mapping.revision == null or mapping.revision.? == device.revision)) {
+                const count = try self.countPrefix(mapping.prefix);
+                if (count == 0) return error.FirmwareSelectionEmpty;
+                return .{ .prefix = mapping.prefix, .entries = count };
+            }
+        }
+        return null;
+    }
+
+    pub fn mappingCount(self: Firmware) !usize {
+        const manifest = try self.find("csos-gpu.conf") orelse return 0;
+        var iterator = ManifestIterator{ .manifest = manifest };
+        var count: usize = 0;
+        while (try iterator.next()) |_| count += 1;
+        return count;
+    }
+};
+
+pub const Selection = struct { prefix: []const u8, entries: usize };
+const Mapping = struct { vendor: u16, device: u16, revision: ?u8, prefix: []const u8 };
+
+const ManifestIterator = struct {
+    manifest: []const u8,
+    offset: usize = 0,
+
+    fn next(self: *ManifestIterator) !?Mapping {
+        while (self.offset < self.manifest.len) {
+            var end = self.offset;
+            while (end < self.manifest.len and self.manifest[end] != '\n') : (end += 1) {}
+            var line = self.manifest[self.offset..end];
+            if (line.len != 0 and line[line.len - 1] == '\r') line = line[0 .. line.len - 1];
+            self.offset = if (end < self.manifest.len) end + 1 else end;
+            if (line.len == 0 or line[0] == '#') continue;
+            const separator = findByte(line, '=') orelse return error.InvalidFirmwareManifest;
+            const identity = line[0..separator];
+            const prefix = line[separator + 1 ..];
+            if ((!startsWith(prefix, "amdgpu/") and !startsWith(prefix, "nouveau/")) or prefix[prefix.len - 1] != '/') return error.InvalidFirmwareManifest;
+            if (identity.len != 9 and identity.len != 12) return error.InvalidFirmwareManifest;
+            if (identity[4] != ':' or (identity.len == 12 and identity[9] != ':')) return error.InvalidFirmwareManifest;
+            return .{
+                .vendor = try readHexValue(identity[0..4]),
+                .device = try readHexValue(identity[5..9]),
+                .revision = if (identity.len == 12) @intCast(try readHexValue(identity[10..12])) else null,
+                .prefix = prefix,
+            };
+        }
+        return null;
+    }
 };
 
 const CpioEntry = struct { name: []const u8, data: []const u8 };
@@ -126,6 +181,8 @@ fn readHex(bytes: []const u8) !usize {
     }
     return value;
 }
+fn readHexValue(bytes: []const u8) !u16 { return @intCast(try readHex(bytes)); }
+fn findByte(bytes: []const u8, wanted: u8) ?usize { for (bytes, 0..) |byte, index| if (byte == wanted) return index; return null; }
 
 fn align4(value: usize) usize { return (value + 3) & ~@as(usize, 3); }
 fn equal(left: []const u8, right: []const u8) bool {
