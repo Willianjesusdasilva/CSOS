@@ -599,6 +599,7 @@ pub fn start(info: BootInfo) noreturn {
     var gpu_gmc11_system_aperture: ?gpu.AmdGmc11SystemApertureValues = null;
     var gpu_gart_aperture: ?gpu.AmdGmc11GartApertureValues = null;
     var gpu_gart_rollback_registers: usize = 0;
+    var gpu_gart_mmio_transport: ?gpu.AmdGmc11MmioTransport = null;
     if (gpu_vram_allocator) |*allocator| {
         gpu.reserveAmdGmc11BootVram(allocator, gpu_gmc11_memory.?, gpu_firmware_tail_bytes, gpu_memory_training_reserved) catch
             panic("AMDGPU boot VRAM reservations invalid");
@@ -626,6 +627,7 @@ pub fn start(info: BootInfo) noreturn {
             panic("AMDGPU system aperture values invalid");
         gpu.validateAmdGmc11BootstrapWrites(gpu_gart_registers.?, gpu_gart_aperture.?, gpu_gmc11_system_aperture.?) catch
             panic("AMDGPU GART bootstrap write-set validation failed");
+        gpu_gart_mmio_transport = .{ .adapter = &gpu_adapter, .uncached = true, .authorized = false };
     }
     var gpu_psp_mailbox_snapshot: ?gpu.AmdPspMailboxSnapshot = null;
     var gpu_psp_mmio_transport: ?gpu.AmdPspMmioTransport = null;
@@ -744,6 +746,9 @@ pub fn start(info: BootInfo) noreturn {
     serial.write(" gart-context-reg: "); serial.writeDecimal(if (gpu_gart_registers) |registers| registers.context_control else 0);
     serial.write(" gart-invalidate-reg: "); serial.writeDecimal(if (gpu_gart_registers) |registers| registers.invalidate_request else 0);
     serial.write(" gart-active: "); serial.writeDecimal(if (gpu_gart_plan) |plan| @intFromBool(plan.active) else 0);
+    serial.write(" gart-mmio-transport: "); serial.writeDecimal(if (gpu_gart_mmio_transport) |_| 1 else 0);
+    serial.write(" gart-write-authorized: "); serial.writeDecimal(if (gpu_gart_mmio_transport) |transport| @intFromBool(transport.authorized) else 0);
+    serial.write(" gart-write-armed: "); serial.writeDecimal(if (gpu_gart_mmio_transport) |transport| @intFromBool(transport.armed) else 0);
     serial.write(" psp-version: "); serial.writeDecimal(if (gpu_backend_plan) |plan| plan.psp.ip_version else 0);
     serial.write(" psp-autoload: "); serial.writeDecimal(if (gpu_backend_plan) |plan| @intFromBool(plan.psp.autoload_supported) else 0);
     serial.write(" psp-boot-tmr: "); serial.writeDecimal(if (gpu_backend_plan) |plan| @intFromBool(plan.psp.boot_time_tmr) else 0);

@@ -922,6 +922,13 @@ handshake falhar, restaura todos os registradores mutáveis em ordem reversa e
 zera o estado da transação. `zig build test` executa esse caminho no host sem
 depender da stack reduzida da entrada UEFI.
 
+O transporte MMIO GMC 11 agora é um gate separado do planejamento: ele só lê
+ou escreve quando a BAR de registradores é não-prefetchable, está mapeada como
+uncached, o dispositivo é AMD `0x1002`, a autorização foi concedida e `arm()`
+foi chamado explicitamente. No boot normal ele é criado desarmado e não
+autorizado (`gart-write-authorized=0`, `gart-write-armed=0`); o teste nativo
+prova que acessos antes de armar e tentativas sem autorização são rejeitados.
+
 Com a faixa real conhecida, o candidato `gart-window-start/end` segue a política
 `AMDGPU_GART_PLACEMENT_HIGH`: limita o espaço MC antes do VA hole de 48 bits,
 posiciona a janela no topo e alinha sua base a 4 GiB. Overflow, faixa VRAM

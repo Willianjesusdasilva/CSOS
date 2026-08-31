@@ -764,6 +764,41 @@ pub const AmdRegisterIo = struct {
     read: *const fn (*anyopaque, u32) anyerror!u32,
     write: *const fn (*anyopaque, u32, u32) anyerror!void,
 };
+pub const AmdGmc11MmioTransport = struct {
+    adapter: *const Adapter,
+    uncached: bool = false,
+    authorized: bool = false,
+    armed: bool = false,
+
+    pub fn arm(self: *AmdGmc11MmioTransport) !void {
+        if (self.armed or !self.uncached or !self.authorized or !self.adapter.isAmd() or self.adapter.device.vendor != 0x1002)
+            return error.AmdGmc11MmioTransportNotReady;
+        const bar = self.adapter.register_bar orelse return error.RegisterBarMissing;
+        if (bar.address == 0 or bar.prefetchable or bar.size < 4 or bar.size > 16 * 1024 * 1024)
+            return error.InvalidAmdGmc11RegisterBar;
+        self.armed = true;
+    }
+
+    pub fn disarm(self: *AmdGmc11MmioTransport) void {
+        self.armed = false;
+    }
+
+    pub fn io(self: *AmdGmc11MmioTransport) AmdRegisterIo {
+        return .{ .context = self, .read = &read, .write = &write };
+    }
+
+    fn read(context: *anyopaque, offset: u32) !u32 {
+        const self: *AmdGmc11MmioTransport = @ptrCast(@alignCast(context));
+        if (!self.armed) return error.AmdGmc11MmioTransportDisarmed;
+        return self.adapter.readRegister(offset);
+    }
+
+    fn write(context: *anyopaque, offset: u32, value: u32) !void {
+        const self: *AmdGmc11MmioTransport = @ptrCast(@alignCast(context));
+        if (!self.armed) return error.AmdGmc11MmioTransportDisarmed;
+        try self.adapter.writeRegister(offset, value);
+    }
+};
 pub const AmdGmc11GartSnapshot = struct {
     offsets: [144]u32 = .{0} ** 144,
     values: [144]u32 = .{0} ** 144,
@@ -1467,6 +1502,34 @@ pub fn validateAmdGmc11BootstrapWritesSelfTest() !void {
         .fault_default_low = 0x5000,
         .fault_default_high = 0,
     });
+}
+
+pub fn validateAmdGmc11MmioTransportSelfTest() !void {
+    var registers = [_]u32{ 0x11223344, 0x55667788, 0, 0 };
+    const device = pci.Device{
+        .bus = 0, .slot = 1, .function = 0, .vendor = 0x1002, .device = 0x744c,
+        .revision = 1, .subsystem_vendor = 0x1002, .subsystem_device = 1,
+        .class = 3, .subclass = 0, .programming_interface = 0, .header_type = 0,
+        .msi = true, .msix = true,
+    };
+    const bar = pci.Bar{ .address = @intFromPtr(&registers), .size = @sizeOf(@TypeOf(registers)), .is_64_bit = true, .prefetchable = false };
+    const adapter = Adapter{
+        .device = device, .driver = .amdgpu, .bars = .{ bar, null, null, null, null, null },
+        .bar_count = 1, .mmio_bytes = bar.size, .register_bar = bar, .rom_bar = null,
+    };
+    var transport = AmdGmc11MmioTransport{ .adapter = &adapter, .uncached = true };
+    if (transport.io().read(transport.io().context, 0)) |_| return error.AmdGmc11DisarmedReadAllowed else |err|
+        if (err != error.AmdGmc11MmioTransportDisarmed) return err;
+    if (transport.arm()) return error.AmdGmc11UnauthorizedArmAllowed else |err|
+        if (err != error.AmdGmc11MmioTransportNotReady) return err;
+    transport.authorized = true;
+    try transport.arm();
+    if (try transport.io().read(transport.io().context, 4) != 0x55667788) return error.AmdGmc11MmioReadMismatch;
+    try transport.io().write(transport.io().context, 8, 0xa5a55a5a);
+    if (registers[2] != 0xa5a55a5a) return error.AmdGmc11MmioWriteMismatch;
+    transport.disarm();
+    if (transport.io().write(transport.io().context, 8, 0)) return error.AmdGmc11DisarmedWriteAllowed else |err|
+        if (err != error.AmdGmc11MmioTransportDisarmed) return err;
 }
 
 pub fn resolveAmdGmc11GartRegisters(plan: AmdGartPlan, register_bar_bytes: u64) !AmdGmc11GartRegisters {
