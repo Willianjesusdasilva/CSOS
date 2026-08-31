@@ -765,6 +765,13 @@ rejeitados. Os quatro payloads são copiados para alocações físicas
 transacionais e recebem entradas GART a partir da página 11, respeitando o
 limite total de 512 entradas. Isso ainda é staging: nenhum microcontrolador MES
 é iniciado por esse passo.
+O resolvedor GFX11 também localiza o bloco de registradores MES pela base GC
+correta do `ip_discovery`. Uma leitura de `CP_MES_CNTL` só considera a unidade
+seguramente parada quando os dois pipes estão em reset, ambos inativos e
+`MES_HALT` está ligado. Apenas nesse estado são construídos write-sets para
+selecionar ME3/pipe0 ou ME3/pipe1 e programar PC, bases e limites de instrução e
+dados. Os planos sempre restauram o seletor GRBM e não são executados: não há
+unhalt nem ativação escondida neste checkpoint.
 Para VA de 48 bits, o walker segue `PDB2[47:39] → PDB1[38:30] →
 PDB0[29:21] → PTB[20:12]`, com offset `[11:0]`. Cada nível possui até 512
 entradas de 64 bits e ocupa uma página de 4 KiB, conforme a geometria do

@@ -599,6 +599,10 @@ pub fn start(info: BootInfo) noreturn {
     if (gpu_registers.size > 16 * 1024 * 1024) panic("GPU register BAR unexpectedly large");
     var gpu_psp_mailbox_profile: ?gpu.AmdPspMailboxProfile = null;
     var gpu_psp_mailbox_registers: ?gpu.AmdPspMailboxRegisters = null;
+    const gpu_mes_registers = if (gpu_backend_plan) |plan| if (plan.gfx == .v11_0) blk: {
+        const gfx_ip = gpu_ip_discovery.?.find(gpu.amd_hw_id.gfx, 0) orelse panic("AMDGPU GFX IP missing");
+        break :blk gpu.resolveAmdGfx11MesRegisters(gfx_ip, gpu_registers.size) catch panic("AMDGPU MES registers invalid");
+    } else null else null;
     if (gpu_backend_plan) |plan| if (plan.psp.host_boot_components) {
         const psp_ip = if (gpu_ip_discovery) |*discovery| discovery.find(gpu.amd_hw_id.psp, 0) orelse
             panic("AMDGPU PSP IP missing") else panic("AMDGPU IP discovery missing");
@@ -619,6 +623,10 @@ pub fn start(info: BootInfo) noreturn {
         if (!mapper.identityIsUncached(rom.address)) panic("GPU expansion ROM cache policy failed");
     }
     mapper.activate();
+    const gpu_mes_control = if (gpu_mes_registers) |registers|
+        gpu_adapter.readRegister(registers.mes_control) catch panic("AMDGPU MES control read failed")
+    else 0;
+    const gpu_mes_halted = gpu_mes_registers != null and gpu.amdGfx11MesIsHalted(gpu_mes_control);
     var gpu_atom_vram_usage: ?gpu.AmdAtomVramUsage = null;
     var gpu_atom_firmware_info: ?gpu.AmdAtomFirmwareInfo = null;
     var gpu_rom_read = false;
@@ -657,6 +665,14 @@ pub fn start(info: BootInfo) noreturn {
         gpu.mapAmdMesFirmwareIntoGart(gpu_psp_gtt, gpu_mes_firmware_staging, gpu_gmc11_gart_window.?.start) catch
             panic("AMDGPU MES firmware GART mapping failed")
     else null;
+    const gpu_mes_scheduler_load = if (gpu_mes_halted) if (gpu_mes_firmware) |firmware| if (gpu_mes_firmware_gpu) |layout| if (gpu_mes_registers) |registers|
+        gpu.planAmdGfx11MesLoad(.scheduler, firmware.scheduler, layout.scheduler_ucode, layout.scheduler_data, registers, true) catch
+            panic("AMDGPU MES scheduler load plan invalid")
+    else null else null else null else null;
+    const gpu_mes_kiq_load = if (gpu_mes_halted) if (gpu_mes_firmware) |firmware| if (gpu_mes_firmware_gpu) |layout| if (gpu_mes_registers) |registers|
+        gpu.planAmdGfx11MesLoad(.kiq, firmware.kiq, layout.kiq_ucode, layout.kiq_data, registers, true) catch
+            panic("AMDGPU MES KIQ load plan invalid")
+    else null else null else null else null;
     const gpu_gmc11_visible_vram = if (gpu_gmc11_memory) |memory| if (gpu_memory_plan.?.vram_bar) |bar|
         gpu.mapAmdGmc11VisibleVram(memory, bar, info.framebuffer.base, info.framebuffer.size) catch panic("AMDGPU visible VRAM mapping invalid")
     else null else null;
@@ -909,6 +925,8 @@ pub fn start(info: BootInfo) noreturn {
     serial.write(" mes-ring0-db: "); serial.writeDecimal(if (gpu_gfx_mes_bootstrap) |bootstrap| bootstrap.scheduler_doorbell.register_index else 0);
     serial.write(" mes-ring1-db: "); serial.writeDecimal(if (gpu_gfx_mes_bootstrap) |bootstrap| bootstrap.kiq_doorbell.register_index else 0);
     serial.write(" mes-fw-gart-pages: "); serial.writeDecimal(if (gpu_mes_firmware_gpu) |layout| layout.gart_pages else 0);
+    serial.write(" mes-halted: "); serial.writeDecimal(@intFromBool(gpu_mes_halted));
+    serial.write(" mes-load-plans: "); serial.writeDecimal(@intFromBool(gpu_mes_scheduler_load != null) + @intFromBool(gpu_mes_kiq_load != null));
     serial.write(" driver: ");
     serial.write(switch (gpu_adapter.driver) {
         .amdgpu => "amdgpu",

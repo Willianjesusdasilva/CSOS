@@ -1835,8 +1835,9 @@ dual MES scheduler/KIQ GART layout and GFX11 MQD encoding: implemented and host-
 SOC21 MES ring0/ring1 doorbell assignment: implemented as a write-free plan
 MES mes_2/mes fallback + mes1 typed selection: implemented; archive validation pending
 MES code/data physical staging and bounded GART layout: implemented; GART layout host-tested
+GFX11 MES register resolution, halted-state classification and load write-set: implemented and host-tested
 real Radeon MMIO lifecycle validation: pending
-MES register loading, queue activation/handshake and command submission: pending
+transactional MES register loading, queue activation/handshake and command submission: pending
 AMD RADV triangle on real hardware: pending
 NVIDIA NVK/compatible-stack triangle on real hardware: pending
 ```

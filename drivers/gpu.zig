@@ -628,6 +628,83 @@ pub fn mapAmdMesFirmwareIntoGart(staging: AmdPspGttStaging, firmware: AmdMesFirm
         .gart_pages = @intCast(total_pages),
     };
 }
+pub const AmdGfx11MesRegisters = struct {
+    grbm_gfx_cntl: u32,
+    mes_control: u32,
+    ic_base_cntl: u32,
+    program_counter_low: u32,
+    program_counter_high: u32,
+    instruction_base_low: u32,
+    instruction_base_high: u32,
+    instruction_bound_low: u32,
+    data_base_low: u32,
+    data_base_high: u32,
+    data_bound_low: u32,
+};
+
+pub fn resolveAmdGfx11MesRegisters(ip: *const AmdIp, register_bar_bytes: u64) !AmdGfx11MesRegisters {
+    if (ip.hw_id != amd_hw_id.gfx or ip.instance != 0 or ip.major != 11 or ip.base_count <= 1 or ip.bases[1] == 0)
+        return error.AmdGfx11MesRegisterBaseMissing;
+    const base = ip.bases[1];
+    return .{
+        .grbm_gfx_cntl = try resolveAmdRegister(base, 0x0900, register_bar_bytes),
+        .mes_control = try resolveAmdRegister(base, 0x2807, register_bar_bytes),
+        .ic_base_cntl = try resolveAmdRegister(base, 0x5852, register_bar_bytes),
+        .program_counter_low = try resolveAmdRegister(base, 0x2800, register_bar_bytes),
+        .program_counter_high = try resolveAmdRegister(base, 0x289d, register_bar_bytes),
+        .instruction_base_low = try resolveAmdRegister(base, 0x5850, register_bar_bytes),
+        .instruction_base_high = try resolveAmdRegister(base, 0x5851, register_bar_bytes),
+        .instruction_bound_low = try resolveAmdRegister(base, 0x585b, register_bar_bytes),
+        .data_base_low = try resolveAmdRegister(base, 0x5854, register_bar_bytes),
+        .data_base_high = try resolveAmdRegister(base, 0x5855, register_bar_bytes),
+        .data_bound_low = try resolveAmdRegister(base, 0x585d, register_bar_bytes),
+    };
+}
+
+pub fn amdGfx11MesIsHalted(control: u32) bool {
+    const reset = control & 0x00030000;
+    const active = control & 0x0c000000;
+    return reset == 0x00030000 and active == 0 and (control & 0x40000000) != 0;
+}
+
+pub const AmdGfx11MesLoadPlan = struct {
+    writes: [11]AmdRegisterWrite,
+    count: u8 = 11,
+    pipe: u1,
+};
+
+pub fn planAmdGfx11MesLoad(
+    kind: AmdGfx11QueueKind,
+    firmware: AmdMesFirmware,
+    ucode_gpu_address: u64,
+    data_gpu_address: u64,
+    registers: AmdGfx11MesRegisters,
+    halted: bool,
+) !AmdGfx11MesLoadPlan {
+    if (!halted) return error.AmdMesMustBeHaltedBeforeLoad;
+    if ((firmware.ucode_start & 3) != 0 or firmware.ucode.len > 0x200000 or firmware.data.len > 0x80000 or
+        ucode_gpu_address == 0 or data_gpu_address == 0 or (ucode_gpu_address & 4095) != 0 or (data_gpu_address & 4095) != 0)
+        return error.InvalidAmdMesLoadPlan;
+    const pipe: u1 = if (kind == .scheduler) 0 else 1;
+    const selector: u32 = (@as(u32, pipe) & 3) | (3 << 2); // ME=3, queue=0, VMID=0.
+    const pc = firmware.ucode_start >> 2;
+    return .{
+        .pipe = pipe,
+        .writes = .{
+            .{ .offset = registers.grbm_gfx_cntl, .value = selector },
+            .{ .offset = registers.ic_base_cntl, .value = 0 },
+            .{ .offset = registers.program_counter_low, .value = @truncate(pc) },
+            .{ .offset = registers.program_counter_high, .value = @truncate(pc >> 32) },
+            .{ .offset = registers.instruction_base_low, .value = @truncate(ucode_gpu_address) },
+            .{ .offset = registers.instruction_base_high, .value = @truncate(ucode_gpu_address >> 32) },
+            .{ .offset = registers.instruction_bound_low, .value = 0x1fffff },
+            .{ .offset = registers.data_base_low, .value = @truncate(data_gpu_address) },
+            .{ .offset = registers.data_base_high, .value = @truncate(data_gpu_address >> 32) },
+            .{ .offset = registers.data_bound_low, .value = 0x7ffff },
+            .{ .offset = registers.grbm_gfx_cntl, .value = 0 },
+        },
+    };
+}
 
 pub const AmdGfx11PreflightEvidence = struct {
     firmware: bool = false,
@@ -2918,6 +2995,28 @@ pub fn validateAmdGfx11RingResourceSelfTest() !void {
         return error.AmdMesFirmwareGartLayoutMismatch;
     try bootstrap_resources.release();
     for (bootstrap_pool.allocated) |allocated| if (allocated) return error.AmdGfxMesBootstrapReleaseLeak;
+
+    const gfx_ip = AmdIp{ .hw_id = amd_hw_id.gfx, .major = 11, .instance = 0, .base_count = 2, .bases = .{ 0, 0x100 } ++ .{0} ** 6 };
+    const registers = try resolveAmdGfx11MesRegisters(&gfx_ip, 0x20000);
+    if (!amdGfx11MesIsHalted(0x40030000) or amdGfx11MesIsHalted(0x44030000) or amdGfx11MesIsHalted(0x40010000))
+        return error.AmdGfxMesHaltClassificationMismatch;
+    var ucode = [_]u8{0} ** 4;
+    var data = [_]u8{0} ** 4;
+    const load = try planAmdGfx11MesLoad(.kiq, .{
+        .ip_version_major = 11, .ip_version_minor = 0, .ucode_version = 1, .data_version = 1,
+        .ucode = &ucode, .data = &data, .ucode_start = 0x3000, .data_start = 0x8000,
+    }, 0x2010000, 0x2020000, registers, true);
+    if (load.pipe != 1 or load.writes[0].value != 0x0d or load.writes[1].value != 0 or
+        load.writes[2].value != 0x0c00 or load.writes[4].value != 0x2010000 or
+        load.writes[6].value != 0x1fffff or load.writes[9].value != 0x7ffff or load.writes[10].value != 0)
+        return error.AmdGfxMesLoadPlanMismatch;
+    if (planAmdGfx11MesLoad(.scheduler, loadFirmwareForSelfTest(&ucode, &data), 0x2010000, 0x2020000, registers, false)) |_|
+        return error.AmdGfxMesUnhaltedLoadAccepted
+    else |err| if (err != error.AmdMesMustBeHaltedBeforeLoad) return err;
+}
+
+fn loadFirmwareForSelfTest(ucode: []const u8, data: []const u8) AmdMesFirmware {
+    return .{ .ip_version_major = 11, .ip_version_minor = 0, .ucode_version = 1, .data_version = 1, .ucode = ucode, .data = data, .ucode_start = 0x3000, .data_start = 0x8000 };
 }
 
 const AmdGpuVmPageTestPool = struct {
