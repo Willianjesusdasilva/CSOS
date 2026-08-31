@@ -855,6 +855,29 @@ pub const AmdGpuVaMapping = struct {
     bo_offset: u64 = 0,
     flags: u32 = 0,
 };
+pub const AmdGpuVmPagePath = struct {
+    pdb2: u9,
+    pdb1: u9,
+    pdb0: u9,
+    ptb: u9,
+    page_offset: u12,
+};
+
+pub fn amdGpuVmPagePath(address: u64) !AmdGpuVmPagePath {
+    if (address >= 0x0000800000000000) return error.InvalidAmdGpuVa;
+    return .{
+        .pdb2 = @truncate(address >> 39),
+        .pdb1 = @truncate(address >> 30),
+        .pdb0 = @truncate(address >> 21),
+        .ptb = @truncate(address >> 12),
+        .page_offset = @truncate(address),
+    };
+}
+
+pub fn amdGpuVmTableBytes(entries: u16) !u32 {
+    if (entries == 0 or entries > 512) return error.InvalidAmdGpuVmTableEntries;
+    return @intCast((@as(u32, entries) * 8 + 4095) & ~@as(u32, 4095));
+}
 pub const AmdGpuVm = struct {
     allocated: bool = false,
     vmid: u4 = 0,
@@ -1737,6 +1760,13 @@ pub fn validateAmdGpuVmManagerSelfTest() !void {
     const recycled = try manager.allocate();
     if (recycled.vmid != 1) return error.AmdGpuVmidNotRecycled;
     for (recycled.mappings) |mapping| if (mapping.active) return error.AmdGpuVmReleaseLeakedMapping;
+    const path = try amdGpuVmPagePath(0x00007f123456789a);
+    if (path.pdb2 != 0xfe or path.pdb1 != 0x48 or path.pdb0 != 0x1a2 or path.ptb != 0x167 or path.page_offset != 0x89a)
+        return error.AmdGpuVmPagePathMismatch;
+    if (try amdGpuVmTableBytes(512) != 4096 or try amdGpuVmTableBytes(1) != 4096)
+        return error.AmdGpuVmTableSizeMismatch;
+    if (amdGpuVmPagePath(0x0000800000000000)) |_| return error.AmdGpuVmNonCanonicalVaAccepted else |err|
+        if (err != error.InvalidAmdGpuVa) return err;
 }
 
 pub fn resolveAmdGmc11GartRegisters(plan: AmdGartPlan, register_bar_bytes: u64) !AmdGmc11GartRegisters {
