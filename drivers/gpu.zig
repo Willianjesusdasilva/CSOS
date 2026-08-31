@@ -1138,6 +1138,99 @@ pub fn applyAmdGmc11RegisterTransaction(
     return .{ .snapshot = snapshot, .writes_applied = applied };
 }
 
+fn applyAmdGmc11RegisterTransactionInPlace(
+    registers: *const AmdGmc11GartRegisterSet,
+    writes: *const AmdRegisterWriteSet,
+    io: AmdRegisterIo,
+    transaction: *AmdGmc11RegisterTransaction,
+) !void {
+    if (writes.count == 0 or writes.count > writes.writes.len) return error.InvalidAmdRegisterWriteSet;
+    for (writes.writes[0..writes.count]) |write| {
+        var known = false;
+        for (registers.offsets[0..registers.count]) |offset| if (offset == write.offset) { known = true; break; };
+        if (!known) return error.AmdRegisterWriteOutsideSnapshot;
+    }
+    transaction.snapshot = try captureAmdGmc11GartSnapshot(registers.*, io);
+    transaction.writes_applied = 0;
+    for (writes.writes[0..writes.count]) |write| {
+        io.write(io.context, write.offset, write.value) catch {
+            restoreAmdGmc11GartSnapshot(transaction.snapshot, io) catch return error.AmdGartRollbackFailed;
+            return error.AmdGartRegisterWriteFailed;
+        };
+        transaction.writes_applied += 1;
+        const observed = io.read(io.context, write.offset) catch {
+            restoreAmdGmc11GartSnapshot(transaction.snapshot, io) catch return error.AmdGartRollbackFailed;
+            return error.AmdGartRegisterReadbackFailed;
+        };
+        if ((observed & write.verify_mask) != (write.value & write.verify_mask)) {
+            restoreAmdGmc11GartSnapshot(transaction.snapshot, io) catch return error.AmdGartRollbackFailed;
+            return error.AmdGartRegisterReadbackMismatch;
+        }
+    }
+}
+
+fn amdSnapshotValue(snapshot: *const AmdGmc11GartSnapshot, offset: u32) !u32 {
+    for (snapshot.offsets[0..snapshot.count], snapshot.values[0..snapshot.count]) |candidate, value|
+        if (candidate == offset) return value;
+    return error.AmdRegisterMissingFromSnapshot;
+}
+
+fn amdRmw(snapshot: *const AmdGmc11GartSnapshot, offset: u32, clear_mask: u32, set_bits: u32) !u32 {
+    if ((set_bits & clear_mask) != set_bits) return error.InvalidAmdRegisterMask;
+    return (try amdSnapshotValue(snapshot, offset) & ~clear_mask) | set_bits;
+}
+
+pub fn buildAmdGmc11GartBootstrapWrites(
+    registers: AmdGmc11GartRegisters,
+    aperture: AmdGmc11GartApertureValues,
+    system: AmdGmc11SystemApertureValues,
+    snapshot: *const AmdGmc11GartSnapshot,
+) !AmdRegisterWriteSet {
+    if (snapshot.count != 141) return error.InvalidAmdGartSnapshot;
+    var writes = AmdRegisterWriteSet{};
+    try writes.add(.{ .offset = registers.page_table_base_low, .value = aperture.page_table_base_low });
+    try writes.add(.{ .offset = registers.page_table_base_high, .value = aperture.page_table_base_high });
+    try writes.add(.{ .offset = registers.page_table_start_low, .value = aperture.page_table_start_low });
+    try writes.add(.{ .offset = registers.page_table_start_high, .value = aperture.page_table_start_high });
+    try writes.add(.{ .offset = registers.page_table_end_low, .value = aperture.page_table_end_low });
+    try writes.add(.{ .offset = registers.page_table_end_high, .value = aperture.page_table_end_high });
+    try writes.add(.{ .offset = registers.agp_base, .value = system.agp_base });
+    try writes.add(.{ .offset = registers.agp_bottom, .value = system.agp_bottom });
+    try writes.add(.{ .offset = registers.agp_top, .value = system.agp_top });
+    try writes.add(.{ .offset = registers.system_aperture_low, .value = system.aperture_low });
+    try writes.add(.{ .offset = registers.system_aperture_high, .value = system.aperture_high });
+    try writes.add(.{ .offset = registers.system_default_low, .value = system.default_low });
+    try writes.add(.{ .offset = registers.system_default_high, .value = system.default_high });
+    try writes.add(.{ .offset = registers.fault_default_low, .value = system.fault_default_low });
+    try writes.add(.{ .offset = registers.fault_default_high, .value = system.fault_default_high });
+    try writes.add(.{ .offset = registers.fault_control2, .value = try amdRmw(snapshot, registers.fault_control2, 0x00040000, 0x00040000) });
+    try writes.add(.{ .offset = registers.l1_tlb_control, .value = try amdRmw(snapshot, registers.l1_tlb_control, 0x00003ff9, 0x00000059) });
+    try writes.add(.{ .offset = registers.l2_control, .value = try amdRmw(snapshot, registers.l2_control, 0x03fc0913, 0x00080801) });
+    try writes.add(.{ .offset = registers.l2_control2, .value = try amdRmw(snapshot, registers.l2_control2, 0x00000003, 0x00000003), .verify_mask = 0xfffffffc });
+    try writes.add(.{ .offset = registers.l2_control3, .value = (0x80100007 & ~@as(u32, 0x000f803f)) | 9 | (6 << 15) });
+    try writes.add(.{ .offset = registers.l2_control4, .value = 0x000000c1 & ~@as(u32, 0x000000c0) });
+    try writes.add(.{ .offset = registers.l2_control5, .value = 0x00003fe0 & ~@as(u32, 0x0000001f) });
+    try writes.add(.{ .offset = registers.context_control, .value = try amdRmw(snapshot, registers.context_control, 0x00000087, 0x00000001) });
+    try writes.add(.{ .offset = registers.identity_low_low, .value = 0xffffffff });
+    try writes.add(.{ .offset = registers.identity_low_high, .value = 0x0000000f });
+    try writes.add(.{ .offset = registers.identity_high_low, .value = 0 });
+    try writes.add(.{ .offset = registers.identity_high_high, .value = 0 });
+    try writes.add(.{ .offset = registers.identity_offset_low, .value = 0 });
+    try writes.add(.{ .offset = registers.identity_offset_high, .value = 0 });
+    // Process VMIDs remain disabled until their page-directory manager exists.
+    for (0..15) |index| try writes.add(.{
+        .offset = registers.context1_control + @as(u32, @intCast(index * registers.context_control_stride)),
+        .value = 0,
+    });
+    for (0..18) |index| {
+        const delta: u32 = @intCast(index * registers.invalidate_range_stride);
+        try writes.add(.{ .offset = registers.invalidate_range_low + delta, .value = 0xffffffff });
+        try writes.add(.{ .offset = registers.invalidate_range_high + delta, .value = 0x0000001f });
+    }
+    if (writes.count != 80) return error.InvalidAmdGartBootstrapWriteCount;
+    return writes;
+}
+
 const AmdGartRegisterTestBank = struct {
     offsets: [144]u32 = .{0} ** 144,
     values: [144]u32 = .{0} ** 144,
@@ -1168,6 +1261,13 @@ const AmdGartRegisterTestBank = struct {
         return .{ .context = self, .read = &read, .write = &write };
     }
 };
+
+// Boot-time validation runs before scheduler stacks exist, so keep its large
+// synthetic register state out of the firmware-provided entry stack.
+var amd_bootstrap_test_bank = AmdGartRegisterTestBank{};
+var amd_bootstrap_test_snapshot = AmdGmc11GartSnapshot{};
+var amd_bootstrap_test_writes = AmdRegisterWriteSet{};
+var amd_bootstrap_test_transaction = AmdGmc11RegisterTransaction{ .snapshot = .{}, .writes_applied = 0 };
 
 pub fn validateAmdGmc11GartRollback(registers: AmdGmc11GartRegisterSet) !void {
     if (registers.count != 141) return error.InvalidAmdGartRegisterSet;
@@ -1218,6 +1318,72 @@ pub fn validateAmdGmc11GartRollbackSelfTest() !void {
     var registers = AmdGmc11GartRegisterSet{ .count = 141 };
     for (registers.offsets[0..registers.count], 0..) |*offset, index| offset.* = 0x1000 + @as(u32, @intCast(index)) * 4;
     try validateAmdGmc11GartRollback(registers);
+}
+
+pub fn validateAmdGmc11BootstrapWrites(
+    registers: AmdGmc11GartRegisters,
+    aperture: AmdGmc11GartApertureValues,
+    system: AmdGmc11SystemApertureValues,
+) !void {
+    const register_set = try amdGmc11GartMutableRegisters(registers);
+    amd_bootstrap_test_bank = AmdGartRegisterTestBank{ .count = register_set.count };
+    const bank = &amd_bootstrap_test_bank;
+    for (register_set.offsets[0..register_set.count], 0..) |offset, index| {
+        bank.offsets[index] = offset;
+        bank.values[index] = 0x5a000000 | @as(u32, @intCast(index));
+    }
+    amd_bootstrap_test_snapshot = try captureAmdGmc11GartSnapshot(register_set, bank.io());
+    const snapshot = &amd_bootstrap_test_snapshot;
+    amd_bootstrap_test_writes = try buildAmdGmc11GartBootstrapWrites(registers, aperture, system, snapshot);
+    try applyAmdGmc11RegisterTransactionInPlace(&register_set, &amd_bootstrap_test_writes, bank.io(), &amd_bootstrap_test_transaction);
+    const transaction = &amd_bootstrap_test_transaction;
+    if (transaction.writes_applied != 80 or bank.values[bank.position(registers.page_table_base_low).?] != aperture.page_table_base_low or
+        bank.values[bank.position(registers.system_default_low).?] != system.default_low or
+        (bank.values[bank.position(registers.context_control).?] & 0x87) != 1 or
+        (bank.values[bank.position(registers.l1_tlb_control).?] & 0x3ff9) != 0x59 or
+        (bank.values[bank.position(registers.l2_control).?] & 0x03fc0913) != 0x00080801)
+        return error.AmdGartBootstrapWriteMismatch;
+    for (0..15) |index| if (bank.values[bank.position(registers.context1_control + @as(u32, @intCast(index * registers.context_control_stride))).?] != 0)
+        return error.AmdGartProcessVmidEnabledEarly;
+    for (0..18) |index| {
+        const delta: u32 = @intCast(index * registers.invalidate_range_stride);
+        if (bank.values[bank.position(registers.invalidate_range_low + delta).?] != 0xffffffff or
+            bank.values[bank.position(registers.invalidate_range_high + delta).?] != 0x1f)
+            return error.AmdGartInvalidateRangeMismatch;
+    }
+    try restoreAmdGmc11GartSnapshot(transaction.snapshot, bank.io());
+    for (snapshot.values[0..snapshot.count], bank.values[0..bank.count]) |expected, observed|
+        if (expected != observed) return error.AmdGartBootstrapRestoreMismatch;
+}
+
+pub fn validateAmdGmc11BootstrapWritesSelfTest() !void {
+    const plan = AmdGartPlan{
+        .family = .v11_0,
+        .gfxhub_base = null,
+        .mmhub_base = 0x300,
+        .table_cpu_address = 0x800000,
+        .entries = 512,
+        .window_bytes = 2 * 1024 * 1024,
+    };
+    const registers = try resolveAmdGmc11GartRegisters(plan, 0x4000);
+    try validateAmdGmc11BootstrapWrites(registers, .{
+        .page_table_base_low = 0x01000001,
+        .page_table_base_high = 0,
+        .page_table_start_low = 0x2000,
+        .page_table_start_high = 0,
+        .page_table_end_low = 0x21ff,
+        .page_table_end_high = 0,
+    }, .{
+        .agp_base = 0,
+        .agp_bottom = 0x00ffffff,
+        .agp_top = 0,
+        .aperture_low = 0x1000,
+        .aperture_high = 0x1fff,
+        .default_low = 0x4000,
+        .default_high = 0,
+        .fault_default_low = 0x5000,
+        .fault_default_high = 0,
+    });
 }
 
 pub fn resolveAmdGmc11GartRegisters(plan: AmdGartPlan, register_bar_bytes: u64) !AmdGmc11GartRegisters {

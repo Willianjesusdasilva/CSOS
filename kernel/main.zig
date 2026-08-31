@@ -624,6 +624,8 @@ pub fn start(info: BootInfo) noreturn {
         gpu_gmc11_system_pages = system_pages;
         gpu_gmc11_system_aperture = gpu.prepareAmdGmc11SystemAperture(gpu_gmc11_memory.?, system_pages) catch
             panic("AMDGPU system aperture values invalid");
+        gpu.validateAmdGmc11BootstrapWrites(gpu_gart_registers.?, gpu_gart_aperture.?, gpu_gmc11_system_aperture.?) catch
+            panic("AMDGPU GART bootstrap write-set validation failed");
     }
     var gpu_psp_mailbox_snapshot: ?gpu.AmdPspMailboxSnapshot = null;
     var gpu_psp_mmio_transport: ?gpu.AmdPspMmioTransport = null;

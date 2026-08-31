@@ -906,6 +906,14 @@ exercita sucesso, restauração explícita, falha transitória com rollback auto
 falha persistente no meio do conjunto e falha de captura. O transporte usado no
 teste é inteiramente em memória; o transporte MMIO real permanece desarmado.
 
+O write-set de bootstrap contém 80 operações ordenadas. Ele programa a page
+table e a janela GART, system aperture, páginas default/fault, TLB L1, cache L2,
+VMID0, fechamento da identity aperture e os 18 ranges de invalidação. Campos
+RMW são calculados a partir do snapshot. Os VMIDs 1–15 são explicitamente
+mantidos desabilitados até existir o gerenciador de page directories de
+processos; registradores com bits de invalidação auto-limpáveis usam máscara de
+readback apropriada. O self-test aplica e restaura o write-set inteiro sem MMIO.
+
 Com a faixa real conhecida, o candidato `gart-window-start/end` segue a política
 `AMDGPU_GART_PLACEMENT_HIGH`: limita o espaço MC antes do VA hole de 48 bits,
 posiciona a janela no topo e alinha sua base a 4 GiB. Overflow, faixa VRAM
