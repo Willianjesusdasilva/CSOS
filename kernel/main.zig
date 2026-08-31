@@ -549,7 +549,24 @@ pub fn start(info: BootInfo) noreturn {
         if (gpu_psp_mmio_transport) |*transport| {
             gpu_psp_preflight = gpu.preflightAmdPspHandoff(&gpu_psp_handoff, transport, gpu_psp_mailbox_snapshot.?) catch
                 panic("AMDGPU PSP handoff preflight failed");
-            _ = transport.transport();
+            switch (gpu_psp_preflight.?) {
+                .ready => {
+                    transport.arm(gpu_psp_mailbox_snapshot.?) catch panic("AMDGPU PSP transport arming failed");
+                    _ = gpu.runAmdPspHandoff(&gpu_psp_handoff, transport.transport(), .{
+                        .context = &gpu_psp_handoff,
+                        .now = &pspTimerTicks,
+                    }, 100, 1_000_000_000) catch {
+                        transport.disarm();
+                        panic("AMDGPU PSP host boot failed");
+                    };
+                    transport.disarm();
+                },
+                .already_running => {
+                    gpu_psp_handoff.current = gpu_psp_handoff.count;
+                    gpu_psp_handoff.state = .finished;
+                },
+                .blocked_uncached, .blocked_unauthorized, .mailbox_busy => {},
+            }
         }
     }
     const gpu_identity = gpu_adapter.identifyChip() catch panic("GPU chipset identification failed");
@@ -1211,6 +1228,10 @@ fn containsBytes(haystack: []const u8, needle: []const u8) bool {
     while (offset + needle.len <= haystack.len) : (offset += 1)
         if (equalBytes(haystack[offset .. offset + needle.len], needle)) return true;
     return false;
+}
+
+fn pspTimerTicks(_: *anyopaque) u64 {
+    return idt.timerTicks();
 }
 
 fn timestamp(supported: bool) u64 {

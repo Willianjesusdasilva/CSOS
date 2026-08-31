@@ -724,6 +724,10 @@ pub const AmdPspTransport = struct {
     submit: *const fn (*anyopaque, AmdPspPreparedCommand) bool,
     status: *const fn (*anyopaque, AmdPspBootCommand) AmdPspTransportStatus,
 };
+pub const AmdPspClock = struct {
+    context: *anyopaque,
+    now: *const fn (*anyopaque) u64,
+};
 pub const AmdPspMmioTransport = struct {
     adapter: *const Adapter,
     profile: AmdPspMailboxProfile,
@@ -921,6 +925,24 @@ pub fn advanceAmdPspHandoff(handoff: *AmdPspHandoff, transport: AmdPspTransport,
         },
     }
 }
+
+pub fn runAmdPspHandoff(handoff: *AmdPspHandoff, transport: AmdPspTransport, clock: AmdPspClock, timeout: u64, spin_limit: usize) !AmdPspHandoffState {
+    if (timeout == 0 or spin_limit == 0) return error.InvalidAmdPspExecutionLimit;
+    var spins: usize = 0;
+    while (handoff.state != .finished) : (spins += 1) {
+        if (spins == spin_limit) {
+            handoff.fail();
+            return error.AmdPspHandoffSpinLimit;
+        }
+        _ = advanceAmdPspHandoff(handoff, transport, clock.now(clock.context), timeout) catch |err| {
+            handoff.fail();
+            return err;
+        };
+        if (handoff.state == .failed) return error.AmdPspHandoffFailed;
+        asm volatile ("pause");
+    }
+    return handoff.state;
+}
 pub const PspFamily = enum { v3_1, v10_0, v11_0, v11_0_8, v12_0, v13_0, v13_0_4, v14_0, v15_0, v15_0_8 };
 pub const GmcFamily = enum { v9_0, v10_0, v11_0, v12_0 };
 pub const GfxFamily = enum { v9_0, v9_4_3, v10_0, v11_0, v12_0, v12_1 };
@@ -1074,6 +1096,7 @@ pub fn validateAmdPspHandoff(pages: *physical.Allocator) !void {
         accepts: bool = true,
         submissions: usize = 0,
         completion: AmdPspTransportStatus = .pending,
+        complete_on_submit: bool = false,
         last: ?AmdPspPreparedCommand = null,
 
         fn sosAlive(context: *anyopaque) bool {
@@ -1084,13 +1107,21 @@ pub fn validateAmdPspHandoff(pages: *physical.Allocator) !void {
             const self: *@This() = @ptrCast(@alignCast(context));
             self.submissions += 1;
             self.last = command;
-            self.completion = .pending;
+            self.completion = if (self.complete_on_submit) .complete else .pending;
             return self.accepts;
         }
         fn status(context: *anyopaque, command: AmdPspBootCommand) AmdPspTransportStatus {
             const self: *@This() = @ptrCast(@alignCast(context));
             if (self.last == null or self.last.?.command != command) return .failed;
             return self.completion;
+        }
+    };
+    const MockClock = struct {
+        tick: u64 = 0,
+        fn now(context: *anyopaque) u64 {
+            const self: *@This() = @ptrCast(@alignCast(context));
+            self.tick += 1;
+            return self.tick;
         }
     };
     const source_address = pages.allocate(1) orelse return error.OutOfMemory;
@@ -1136,6 +1167,22 @@ pub fn validateAmdPspHandoff(pages: *physical.Allocator) !void {
     mock.accepts = false;
     if (advanceAmdPspHandoff(&handoff, transport, 400, 50)) |_| return error.AmdPspTransportFailureAccepted else |err| {
         if (err != error.AmdPspTransportSubmitFailed or handoff.state != .failed) return error.AmdPspTransportFailureStateInvalid;
+    }
+    handoff.current = 0;
+    handoff.state = .ready;
+    mock.accepts = true;
+    mock.complete_on_submit = true;
+    var clock = MockClock{};
+    if (try runAmdPspHandoff(&handoff, transport, .{ .context = &clock, .now = &MockClock.now }, 10, 20) != .finished)
+        return error.AmdPspHandoffRunnerValidationFailed;
+    handoff.current = 0;
+    handoff.state = .ready;
+    mock.complete_on_submit = false;
+    clock.tick = 0;
+    if (runAmdPspHandoff(&handoff, transport, .{ .context = &clock, .now = &MockClock.now }, 2, 20)) |_| {
+        return error.AmdPspHandoffTimeoutAccepted;
+    } else |err| if (err != error.AmdPspHandoffTimeout or handoff.state != .failed) {
+        return error.AmdPspHandoffRunnerTimeoutInvalid;
     }
 }
 

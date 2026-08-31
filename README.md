@@ -708,8 +708,8 @@ O handoff PSP é mantido declarativo: KDB, SPL, SYS_DRV e SOS são ordenados com
 no fluxo upstream e apontam para suas fontes físicas validadas. Uma única área
 de transferência é reservada com alinhamento de 1 MiB, necessário para o
 endereço comunicado ao bootloader. A preparação não copia nem envia comandos
-ao mailbox; execução permanece desativada até existir backend MMIO e validação
-em Radeon real suportada.
+ao mailbox; qualquer execução depende separadamente do backend MMIO, preflight
+e autorização exata do hardware no manifesto.
 
 Uma máquina de estados controla esse handoff: apenas uma imagem pode estar
 preparada ou submetida, cada submissão recebe deadline explícito e timeout torna
@@ -745,8 +745,8 @@ Existe agora um backend MMIO para a interface de transporte PSP, mas ele nasce
 desarmado. O arming exige um snapshot `bootloader_ready`; a submissão revalida o
 estado, escreve primeiro o endereço, aplica uma barreira de memória e só então
 escreve o comando. Falha de leitura, status de erro ou comando divergente
-desarma o transporte. O boot normal apenas constrói a interface e mantém
-`psp-write-armed: 0`, portanto nenhuma escrita foi habilitada.
+desarma o transporte. Mapeamentos sem autorização apenas constroem a interface
+e mantêm `psp-write-armed: 0`, sem habilitar qualquer escrita.
 O arming também exige que o BAR tenha sido explicitamente marcado como
 uncached; apenas o caminho de mapeamento MMIO validado pode abrir esse gate.
 
@@ -768,15 +768,21 @@ exemplo:
 1002:744c:cc@1da2:e471=amdgpu/navi31/|security,graphics,dma,discovery,psp-host-boot
 ```
 
-Mapeamentos genéricos, NVIDIA ou sem os blocos necessários são rejeitados. A
-autorização apenas abre o segundo gate do transporte; não arma nem executa o
-handoff automaticamente.
+Mapeamentos genéricos, NVIDIA ou sem os blocos necessários são rejeitados. Sem
+essa autorização o boot permanece somente leitura. Com ela, um mailbox pronto
+pode armar e executar o handoff limitado descrito abaixo; portanto o marcador
+só deve ser incluído para uma identidade Radeon deliberadamente habilitada.
 
 Antes do arming, um preflight sem efeitos colaterais valida em conjunto a área
 de transferência alinhada, a ordem SYS/SOS, todos os comandos exigidos pela
 família, o estado inicial do mailbox e os gates de MMIO/autorização. O resultado
 é exposto como `psp-preflight`; estados bloqueados continuam sem copiar payload
 para a área de transferência e sem escrever registradores.
+
+Quando o preflight retorna `ready`, o executor copia e submete uma imagem por
+vez, espera a conclusão antes da próxima e usa tanto deadline do timer APIC como
+limite de spins. Sucesso e falha desarmam o transporte; sOS já ativo encerra o
+handoff sem submissão. O arquivo padrão usado no QEMU não autoriza host boot.
 
 As capacidades PSP são tratadas separadamente: `autoload_supported`, TMR de
 boot e presença de callbacks host para carregar SYS/SOS não são sinônimos. O
