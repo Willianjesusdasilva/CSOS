@@ -724,6 +724,12 @@ ativo e recusa de submissão. Adaptadores de mailbox por família ainda não est
 habilitados; portanto essa interface não é evidência de aceleração ou boot PSP
 em hardware real.
 
+As capacidades PSP são tratadas separadamente: `autoload_supported`, TMR de
+boot e presença de callbacks host para carregar SYS/SOS não são sinônimos. O
+handoff host só é construído para as famílias em que o `psp_funcs` upstream
+expõe `bootloader_load_*`. PSP v10, v11.0.8 e v15 seguem o caminho já iniciado
+pela plataforma e não são rejeitados por ausência de um pacote SOS combinado.
+
 Os próximos incrementos de GPU devem privilegiar adaptação e reutilização do
 AMDGPU/RADV e, depois, Nouveau/NVK compatíveis. O código Zig existente serve de
 ponte de kernel, DRM e plataforma; ele não autoriza reimplementar integralmente

@@ -507,10 +507,12 @@ pub fn start(info: BootInfo) noreturn {
         const firmware = gpu_firmware orelse panic("AMDGPU firmware archive missing");
         const selection = gpu_selection orelse panic("AMDGPU firmware selection missing");
         gpu_firmware_staging = firmware.stageAmdSecurity(selection, &pages) catch panic("AMDGPU security firmware staging failed");
-        gpu_psp_boot_images = gpu.selectAmdPspBootImages(&gpu_firmware_staging, gpu_backend_plan.?.psp, .unknown) catch
-            panic("AMDGPU PSP boot image selection failed");
-        gpu_psp_handoff = gpu.prepareAmdPspHandoff(gpu_psp_boot_images.?, &pages) catch
-            panic("AMDGPU PSP handoff preparation failed");
+        if (gpu_backend_plan.?.psp.host_boot_components) {
+            gpu_psp_boot_images = gpu.selectAmdPspBootImages(&gpu_firmware_staging, gpu_backend_plan.?.psp, .unknown) catch
+                panic("AMDGPU PSP boot image selection failed");
+            gpu_psp_handoff = gpu.prepareAmdPspHandoff(gpu_psp_boot_images.?, &pages) catch
+                panic("AMDGPU PSP handoff preparation failed");
+        }
     }
     const gpu_psp_major = if (gpu_ip_discovery) |discovery| if (discovery.find(gpu.amd_hw_id.psp, 0)) |ip| ip.major else 0 else 0;
     const gpu_gfx_major = if (gpu_ip_discovery) |discovery| if (discovery.find(gpu.amd_hw_id.gfx, 0)) |ip| ip.major else 0 else 0;
@@ -557,6 +559,7 @@ pub fn start(info: BootInfo) noreturn {
     serial.write(" psp-version: "); serial.writeDecimal(if (gpu_backend_plan) |plan| plan.psp.ip_version else 0);
     serial.write(" psp-autoload: "); serial.writeDecimal(if (gpu_backend_plan) |plan| @intFromBool(plan.psp.autoload_supported) else 0);
     serial.write(" psp-boot-tmr: "); serial.writeDecimal(if (gpu_backend_plan) |plan| @intFromBool(plan.psp.boot_time_tmr) else 0);
+    serial.write(" psp-host-boot: "); serial.writeDecimal(if (gpu_backend_plan) |plan| @intFromBool(plan.psp.host_boot_components) else 0);
     serial.write(" staged: "); serial.writeDecimal(gpu_firmware_staging.count);
     serial.write(" staged-bytes: "); serial.writeDecimal(gpu_firmware_staging.image_bytes);
     serial.write(" staged-payload: "); serial.writeDecimal(gpu_firmware_staging.payload_bytes);
