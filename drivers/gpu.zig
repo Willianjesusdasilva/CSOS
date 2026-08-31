@@ -4,6 +4,7 @@ const physical = @import("physical");
 
 const firmware_name: [11]u8 = "GPUFW   BIN".*;
 const maximum_firmware_bytes = 56 * 1024 * 1024;
+var interrupt_count: u64 = 0;
 
 pub const Driver = enum {
     unsupported,
@@ -238,3 +239,6 @@ pub fn driverFor(vendor: u16, device: u16) Driver {
         else => .unsupported,
     };
 }
+
+pub fn handleInterrupt() callconv(.c) void { _ = @atomicRmw(u64, &interrupt_count, .Add, 1, .monotonic); }
+pub fn interrupts() u64 { return @atomicLoad(u64, &interrupt_count, .acquire); }

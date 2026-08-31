@@ -462,6 +462,9 @@ pub fn start(info: BootInfo) noreturn {
     serial.write("IPv4 ICMP ready\n");
     const gpu_adapter = gpu.Adapter.discover(display_device) catch panic("GPU discovery failed");
     if (gpu_adapter.bar_count == 0) panic("GPU BAR discovery failed");
+    idt.setGpuHook(&gpu.handleInterrupt);
+    asm volatile ("int $50");
+    if (gpu.interrupts() != 1) panic("GPU interrupt route failed");
     const gpu_firmware = gpu.loadFirmware(&volume, &pages) catch panic("GPU firmware load failed");
     if ((gpu_adapter.driver == .amdgpu or gpu_adapter.driver == .nouveau) and gpu_firmware == null) panic("GPU firmware archive missing");
     const gpu_firmware_entries = if (gpu_firmware) |firmware| firmware.entryCount() catch panic("GPU firmware archive invalid") else 0;

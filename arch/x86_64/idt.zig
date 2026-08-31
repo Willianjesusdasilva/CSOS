@@ -7,6 +7,7 @@ pub export var lapic_ticks: u64 = 0;
 var timer_hook: ?*const fn () callconv(.c) void = null;
 var external_hook: ?*const fn () callconv(.c) void = null;
 var usb_hook: ?*const fn () callconv(.c) void = null;
+var gpu_hook: ?*const fn () callconv(.c) void = null;
 var page_fault_hook: ?*const fn (u64, u64, u64) callconv(.c) bool = null;
 
 const Entry = packed struct {
@@ -45,6 +46,7 @@ pub fn install() void {
     entries[32] = Entry.from(@ptrCast(&timer));
     entries[48] = Entry.from(@ptrCast(&external));
     entries[49] = Entry.from(@ptrCast(&usbInterrupt));
+    entries[50] = Entry.from(@ptrCast(&gpuInterrupt));
     entries[128] = Entry.from(@ptrCast(&syscall));
     entries[128].attributes = 0xee;
     entries[255] = Entry.from(@ptrCast(&spurious));
@@ -83,6 +85,8 @@ pub fn setExternalHook(hook: ?*const fn () callconv(.c) void) void {
 pub fn setUsbHook(hook: ?*const fn () callconv(.c) void) void {
     usb_hook = hook;
 }
+
+pub fn setGpuHook(hook: ?*const fn () callconv(.c) void) void { gpu_hook = hook; }
 
 pub fn setPageFaultHook(hook: ?*const fn (u64, u64, u64) callconv(.c) bool) void {
     page_fault_hook = hook;
@@ -251,6 +255,38 @@ fn usbInterrupt() callconv(.naked) void {
 
 export fn usb_interrupt_dispatch() callconv(.c) void {
     if (usb_hook) |hook| hook();
+}
+
+fn gpuInterrupt() callconv(.naked) void {
+    asm volatile (
+        \\pushq %%rax
+        \\pushq %%rcx
+        \\pushq %%rdx
+        \\pushq %%r8
+        \\pushq %%r9
+        \\pushq %%r10
+        \\pushq %%r11
+        \\movq %%rsp, %%rax
+        \\andq $-16, %%rsp
+        \\subq $48, %%rsp
+        \\movq %%rax, 32(%%rsp)
+        \\callq gpu_interrupt_dispatch
+        \\movq 32(%%rsp), %%rsp
+        \\movabsq $0xfee000b0, %%rax
+        \\movl $0, (%%rax)
+        \\popq %%r11
+        \\popq %%r10
+        \\popq %%r9
+        \\popq %%r8
+        \\popq %%rdx
+        \\popq %%rcx
+        \\popq %%rax
+        \\iretq
+    );
+}
+
+export fn gpu_interrupt_dispatch() callconv(.c) void {
+    if (gpu_hook) |hook| hook();
 }
 
 fn spurious() callconv(.naked) void {
