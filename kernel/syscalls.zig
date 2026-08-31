@@ -1,6 +1,7 @@
 const serial = @import("serial");
 const vfs = @import("vfs");
 const net = @import("net");
+const physical = @import("physical");
 
 var user_base: u64 = 0;
 var user_size: u64 = 0;
@@ -29,10 +30,15 @@ pub var framebuffer_ioctls: u64 = 0;
 pub var framebuffer_mmaps: u64 = 0;
 pub var drm_ioctls: u64 = 0;
 pub var drm_mmaps: u64 = 0;
+pub var drm_allocations: u64 = 0;
+pub var drm_releases: u64 = 0;
 var network_stack: ?*net.Stack = null;
 var framebuffer = Framebuffer{};
 var drm_dumb_created = false;
 var drm_dumb_size: u64 = 0;
+var drm_dumb_physical: u64 = 0;
+var drm_dumb_pages: u64 = 0;
+var drm_pages: ?*physical.Allocator = null;
 var drm_framebuffer_created = false;
 var drm_scanout_framebuffer: u32 = 0;
 var drm_driver: DrmDriver = .csos;
@@ -93,7 +99,9 @@ pub fn configure(base: u64, size: u64, stack: u64, stack_length: u64, initial_br
     framebuffer_mmaps = 0;
     drm_ioctls = 0;
     drm_mmaps = 0;
-    drm_dumb_created = false;
+    drm_allocations = 0;
+    drm_releases = 0;
+    releaseDrmDumb();
     drm_dumb_size = 0;
     drm_framebuffer_created = false;
     drm_scanout_framebuffer = 0;
@@ -114,6 +122,7 @@ pub fn configureFramebuffer(info: Framebuffer) void {
 }
 
 pub fn configureDrm(driver: DrmDriver) void { drm_driver = driver; }
+pub fn configureDrmMemory(pages: *physical.Allocator) void { drm_pages = pages; }
 
 pub fn configureMmap(protect_hook: ?*const fn (u64, u64, bool, bool) callconv(.c) bool, unmap_hook: ?*const fn (u64, u64) callconv(.c) bool, device_hook: ?*const fn (u64, u64, u64, bool) callconv(.c) bool) void {
     mmap_protect_hook = protect_hook;
@@ -374,11 +383,19 @@ fn drmCreateDumb(address: u64) u64 {
     const pitch = @as(u64, width) * 4;
     const size = pitch * height;
     if (size > framebuffer.size) return errno(12);
+    const page_count = (size + 4095) / 4096;
+    const pages = drm_pages orelse return errno(19);
+    const allocation = pages.allocate(page_count) orelse return errno(12);
+    const memory: [*]u8 = @ptrFromInt(allocation);
+    @memset(memory[0..@intCast(page_count * 4096)], 0);
     put32(output + 16, 1);
     put32(output + 20, @intCast(pitch));
     put64(output + 24, size);
     drm_dumb_created = true;
     drm_dumb_size = size;
+    drm_dumb_physical = allocation;
+    drm_dumb_pages = page_count;
+    drm_allocations += 1;
     return 0;
 }
 
@@ -395,9 +412,19 @@ fn drmDestroyDumb(address: u64) u64 {
     const input: [*]const u8 = @ptrFromInt(address);
     if (!drm_dumb_created or read32(input) != 1) return errno(2);
     if (drm_framebuffer_created) return errno(16);
+    releaseDrmDumb();
+    return 0;
+}
+
+fn releaseDrmDumb() void {
+    if (drm_dumb_created and drm_dumb_physical != 0 and drm_dumb_pages != 0) {
+        if (drm_pages) |pages| pages.release(drm_dumb_physical, drm_dumb_pages) catch {};
+        drm_releases += 1;
+    }
     drm_dumb_created = false;
     drm_dumb_size = 0;
-    return 0;
+    drm_dumb_physical = 0;
+    drm_dumb_pages = 0;
 }
 
 fn drmGetResources(address: u64) u64 {
@@ -775,7 +802,8 @@ fn mmap(requested: u64, length: u64, protection: u64, flags: u64, fd: u64, file_
         const address = if (requested != 0) requested else (device_mmap_next + 4095) & ~@as(u64, 4095);
         if (address < mmap_limit or address > device_mmap_limit or aligned_length > device_mmap_limit - address) return errno(12);
         const hook = device_mmap_hook orelse return errno(19);
-        if (!hook(address, framebuffer.base + file_offset, aligned_length, (protection & 2) != 0)) return errno(12);
+        const physical_base = if (drm_device) drm_dumb_physical else framebuffer.base;
+        if (!hook(address, physical_base + file_offset, aligned_length, (protection & 2) != 0)) return errno(12);
         device_mmap_next = address + aligned_length;
         if (drm_device) drm_mmaps += 1 else framebuffer_mmaps += 1;
         return address;

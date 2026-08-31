@@ -88,6 +88,7 @@ pub fn start(info: BootInfo) noreturn {
     serial.write("APIC timer ready\n");
     if (info.memory_map_len == 0 or info.memory_descriptor_size == 0) panic("empty memory map");
     var pages = physical.Allocator.init(info.memory_map, info.memory_map_len, info.memory_descriptor_size);
+    syscalls.configureDrmMemory(&pages);
     serial.write("physical allocator ready\n");
 
     var mapper = paging.Mapper.init(&pages, info.framebuffer.base, info.framebuffer.size) catch panic("paging setup failed");
@@ -226,9 +227,13 @@ pub fn start(info: BootInfo) noreturn {
     if (syscalls.framebuffer_mmaps != 1) panic("Linux framebuffer mmap coverage failed");
     serial.write("CSOS M14 userspace framebuffer ioctl ready\n");
     serial.write("CSOS M14 userspace framebuffer mmap ready\n");
+    const drm_guard: *volatile const u32 = @ptrFromInt(info.framebuffer.base + 16380);
+    const drm_guard_before = drm_guard.*;
     process.runDrmTest(mapper.root, &pages) catch panic("Linux DRM core userspace failed");
     mapper.activate();
     if (syscalls.drm_ioctls != 19 or syscalls.drm_mmaps != 1) panic("Linux DRM ioctl coverage failed");
+    if (syscalls.drm_allocations != 2 or syscalls.drm_releases != 2) panic("DRM backing memory lifecycle failed");
+    if (drm_guard.* != drm_guard_before) panic("DRM buffer aliased firmware framebuffer");
     serial.write("CSOS M14 userspace DRM core ready\n");
     const echo_arguments = [_][]const u8{ "/bin/busybox", "echo", "BusyBox userspace ready" };
     process.runBusyBox(mapper.root, &pages, &echo_arguments) catch panic("BusyBox echo failed");

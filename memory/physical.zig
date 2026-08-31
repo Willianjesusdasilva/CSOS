@@ -78,6 +78,22 @@ pub const Allocator = struct {
         const bytes = count * page_size;
         const end = address +% bytes;
         if (end <= address) return error.InvalidRelease;
+        for (self.ranges[0..self.range_count]) |*range| {
+            if (range.next != end) continue;
+            range.next = address;
+            var returned_index: usize = 0;
+            while (returned_index < self.returned_count) : (returned_index += 1) {
+                if (self.returned[returned_index].end != range.next) continue;
+                range.next = self.returned[returned_index].next;
+                var shift = returned_index;
+                while (shift + 1 < self.returned_count) : (shift += 1) self.returned[shift] = self.returned[shift + 1];
+                self.returned_count -= 1;
+                break;
+            }
+            self.free_pages += count;
+            self.reclaimed_pages += count;
+            return;
+        }
         var index: usize = 0;
         while (index < self.returned_count and self.returned[index].next < address) : (index += 1) {}
         if (index > 0 and self.returned[index - 1].end > address) return error.OverlappingRelease;
