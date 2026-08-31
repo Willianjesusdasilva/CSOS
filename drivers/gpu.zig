@@ -147,15 +147,25 @@ pub const Firmware = struct {
         const manifest = try self.find("csos-gpu.conf") orelse return null;
         const backend = switch (driver) { .amdgpu => "amdgpu/", .nouveau => "nouveau/", else => return null };
         var iterator = ManifestIterator{ .manifest = manifest };
+        var best: ?Mapping = null;
+        var best_specificity: u8 = 0;
         while (try iterator.next()) |mapping| {
             if (!startsWith(mapping.prefix, backend)) continue;
-            if (mapping.vendor == device.vendor and mapping.device == device.device and (mapping.revision == null or mapping.revision.? == device.revision)) {
-                const count = try self.countPrefix(mapping.prefix);
-                if (count == 0) return error.FirmwareSelectionEmpty;
-                return .{ .prefix = mapping.prefix, .entries = count };
+            if (mapping.vendor == device.vendor and mapping.device == device.device and
+                (mapping.revision == null or mapping.revision.? == device.revision) and
+                (mapping.subsystem_vendor == null or (mapping.subsystem_vendor.? == device.subsystem_vendor and mapping.subsystem_device.? == device.subsystem_device)))
+            {
+                const specificity: u8 = @intFromBool(mapping.revision != null) + 2 * @as(u8, @intFromBool(mapping.subsystem_vendor != null));
+                if (best == null or specificity > best_specificity) {
+                    best = mapping;
+                    best_specificity = specificity;
+                }
             }
         }
-        return null;
+        const mapping = best orelse return null;
+        const count = try self.countPrefix(mapping.prefix);
+        if (count == 0) return error.FirmwareSelectionEmpty;
+        return .{ .prefix = mapping.prefix, .entries = count };
     }
 
     pub fn mappingCount(self: Firmware) !usize {
@@ -181,7 +191,7 @@ pub const Firmware = struct {
 };
 
 pub const Selection = struct { prefix: []const u8, entries: usize };
-const Mapping = struct { vendor: u16, device: u16, revision: ?u8, prefix: []const u8 };
+const Mapping = struct { vendor: u16, device: u16, revision: ?u8, subsystem_vendor: ?u16, subsystem_device: ?u16, prefix: []const u8 };
 
 const ManifestIterator = struct {
     manifest: []const u8,
@@ -199,18 +209,34 @@ const ManifestIterator = struct {
             const identity = line[0..separator];
             const prefix = line[separator + 1 ..];
             if ((!startsWith(prefix, "amdgpu/") and !startsWith(prefix, "nouveau/")) or prefix[prefix.len - 1] != '/') return error.InvalidFirmwareManifest;
-            if (identity.len != 9 and identity.len != 12) return error.InvalidFirmwareManifest;
-            if (identity[4] != ':' or (identity.len == 12 and identity[9] != ':')) return error.InvalidFirmwareManifest;
+            const subsystem_separator = findByte(identity, '@');
+            const pci_identity = if (subsystem_separator) |index| identity[0..index] else identity;
+            const subsystem: ?[]const u8 = if (subsystem_separator) |index| identity[index + 1 ..] else null;
+            if (pci_identity.len != 9 and pci_identity.len != 12) return error.InvalidFirmwareManifest;
+            if (pci_identity[4] != ':' or (pci_identity.len == 12 and pci_identity[9] != ':')) return error.InvalidFirmwareManifest;
+            if (subsystem) |value| if (value.len != 9 or value[4] != ':') return error.InvalidFirmwareManifest;
             return .{
-                .vendor = try readHexValue(identity[0..4]),
-                .device = try readHexValue(identity[5..9]),
-                .revision = if (identity.len == 12) @intCast(try readHexValue(identity[10..12])) else null,
+                .vendor = try readHexValue(pci_identity[0..4]),
+                .device = try readHexValue(pci_identity[5..9]),
+                .revision = if (pci_identity.len == 12) @intCast(try readHexValue(pci_identity[10..12])) else null,
+                .subsystem_vendor = if (subsystem) |value| try readHexValue(value[0..4]) else null,
+                .subsystem_device = if (subsystem) |value| try readHexValue(value[5..9]) else null,
                 .prefix = prefix,
             };
         }
         return null;
     }
 };
+
+comptime {
+    var mappings = ManifestIterator{ .manifest = "1002:744c:cc@1da2:e471=amdgpu/navi31/\n10de:2684=nouveau/ad102/\n" };
+    const amd = mappings.next() catch @compileError("GPU subsystem firmware mapping was rejected");
+    if (amd == null or amd.?.revision != 0xcc or amd.?.subsystem_vendor != 0x1da2 or amd.?.subsystem_device != 0xe471)
+        @compileError("GPU subsystem firmware mapping decoded incorrectly");
+    const nvidia = mappings.next() catch @compileError("GPU firmware mapping compatibility was rejected");
+    if (nvidia == null or nvidia.?.revision != null or nvidia.?.subsystem_vendor != null)
+        @compileError("legacy GPU firmware mapping decoded incorrectly");
+}
 
 const CpioEntry = struct { name: []const u8, data: []const u8 };
 
