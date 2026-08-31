@@ -540,6 +540,7 @@ pub fn start(info: BootInfo) noreturn {
     var gpu_psp_mailbox_snapshot: ?gpu.AmdPspMailboxSnapshot = null;
     var gpu_psp_mmio_transport: ?gpu.AmdPspMmioTransport = null;
     var gpu_psp_preflight: ?gpu.AmdPspPreflight = null;
+    var gpu_psp_mailbox_waited = false;
     if (gpu_psp_mailbox_registers) |registers| {
         const command = gpu_adapter.readRegister(registers.command_offset) catch panic("AMDGPU PSP command read failed");
         const sos = gpu_adapter.readRegister(registers.sos_offset) catch panic("AMDGPU PSP sOS read failed");
@@ -547,6 +548,13 @@ pub fn start(info: BootInfo) noreturn {
             panic("AMDGPU PSP mailbox unavailable");
         gpu_psp_mmio_transport = .{ .adapter = &gpu_adapter, .profile = gpu_psp_mailbox_profile.?, .registers = registers, .uncached = true, .authorized = gpu_selection.?.psp_host_boot };
         if (gpu_psp_mmio_transport) |*transport| {
+            if (transport.authorized and gpu_psp_mailbox_snapshot.?.state == .bootloader_busy) {
+                gpu_psp_mailbox_waited = true;
+                gpu_psp_mailbox_snapshot = gpu.waitAmdPspMailbox(transport.observer(), .{
+                    .context = &gpu_psp_handoff,
+                    .now = &pspTimerTicks,
+                }, 100, 1_000_000_000) catch panic("AMDGPU PSP mailbox readiness failed");
+            }
             gpu_psp_preflight = gpu.preflightAmdPspHandoff(&gpu_psp_handoff, transport, gpu_psp_mailbox_snapshot.?) catch
                 panic("AMDGPU PSP handoff preflight failed");
             switch (gpu_psp_preflight.?) {
@@ -611,6 +619,7 @@ pub fn start(info: BootInfo) noreturn {
     serial.write(" psp-command-reg: "); serial.writeDecimal(if (gpu_psp_mailbox_registers) |registers| registers.command_offset else 0);
     serial.write(" psp-observed: "); serial.writeDecimal(if (gpu_psp_mailbox_snapshot) |_| 1 else 0);
     serial.write(" psp-mailbox-state: "); serial.writeDecimal(if (gpu_psp_mailbox_snapshot) |snapshot| @intFromEnum(snapshot.state) else 0);
+    serial.write(" psp-mailbox-waited: "); serial.writeDecimal(@intFromBool(gpu_psp_mailbox_waited));
     serial.write(" psp-mmio-transport: "); serial.writeDecimal(if (gpu_psp_mmio_transport) |_| 1 else 0);
     serial.write(" psp-write-armed: "); serial.writeDecimal(if (gpu_psp_mmio_transport) |transport| @intFromBool(transport.armed) else 0);
     serial.write(" psp-write-authorized: "); serial.writeDecimal(if (gpu_psp_mmio_transport) |transport| @intFromBool(transport.authorized) else 0);

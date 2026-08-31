@@ -783,6 +783,10 @@ Quando o preflight retorna `ready`, o executor copia e submete uma imagem por
 vez, espera a conclusão antes da próxima e usa tanto deadline do timer APIC como
 limite de spins. Sucesso e falha desarmam o transporte; sOS já ativo encerra o
 handoff sem submissão. O arquivo padrão usado no QEMU não autoriza host boot.
+Se o primeiro snapshot autorizado encontrar o bootloader ocupado, o kernel faz
+polling estritamente somente leitura, também limitado pelo timer APIC e por
+spins, até observar `ready`, sOS ativo, erro ou timeout. O diagnóstico registra
+essa passagem em `psp-mailbox-waited`.
 
 As capacidades PSP são tratadas separadamente: `autoload_supported`, TMR de
 boot e presença de callbacks host para carregar SYS/SOS não são sinônimos. O

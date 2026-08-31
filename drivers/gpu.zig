@@ -728,6 +728,10 @@ pub const AmdPspClock = struct {
     context: *anyopaque,
     now: *const fn (*anyopaque) u64,
 };
+pub const AmdPspMailboxObserver = struct {
+    context: *anyopaque,
+    snapshot: *const fn (*anyopaque) anyerror!AmdPspMailboxSnapshot,
+};
 pub const AmdPspMmioTransport = struct {
     adapter: *const Adapter,
     profile: AmdPspMailboxProfile,
@@ -754,10 +758,19 @@ pub const AmdPspMmioTransport = struct {
         return .{ .context = self, .sosAlive = &sosAlive, .submit = &submit, .status = &status };
     }
 
+    pub fn observer(self: *AmdPspMmioTransport) AmdPspMailboxObserver {
+        return .{ .context = self, .snapshot = &observeSnapshot };
+    }
+
     fn snapshot(self: *AmdPspMmioTransport) !AmdPspMailboxSnapshot {
         const command = try self.adapter.readRegister(self.registers.command_offset);
         const sos = try self.adapter.readRegister(self.registers.sos_offset);
         return classifyAmdPspMailbox(self.profile, command, sos);
+    }
+
+    fn observeSnapshot(context: *anyopaque) !AmdPspMailboxSnapshot {
+        const self: *AmdPspMmioTransport = @ptrCast(@alignCast(context));
+        return self.snapshot();
     }
 
     fn sosAlive(context: *anyopaque) bool {
@@ -889,6 +902,24 @@ pub fn preflightAmdPspHandoff(handoff: *const AmdPspHandoff, transport: *const A
         .bootloader_busy => .mailbox_busy,
         .failed => error.AmdPspMailboxFailed,
     };
+}
+
+pub fn waitAmdPspMailbox(observer: AmdPspMailboxObserver, clock: AmdPspClock, timeout: u64, spin_limit: usize) !AmdPspMailboxSnapshot {
+    if (timeout == 0 or spin_limit == 0) return error.InvalidAmdPspExecutionLimit;
+    const started = clock.now(clock.context);
+    const deadline = std.math.add(u64, started, timeout) catch return error.InvalidAmdPspExecutionLimit;
+    var spins: usize = 0;
+    while (spins < spin_limit) : (spins += 1) {
+        const observed = try observer.snapshot(observer.context);
+        switch (observed.state) {
+            .bootloader_ready, .sos_alive => return observed,
+            .failed => return error.AmdPspMailboxFailed,
+            .bootloader_busy => {},
+        }
+        if (clock.now(clock.context) >= deadline) return error.AmdPspMailboxTimeout;
+        asm volatile ("pause");
+    }
+    return error.AmdPspMailboxSpinLimit;
 }
 
 pub fn advanceAmdPspHandoff(handoff: *AmdPspHandoff, transport: AmdPspTransport, now: u64, timeout: u64) !AmdPspHandoffState {
@@ -1124,6 +1155,16 @@ pub fn validateAmdPspHandoff(pages: *physical.Allocator) !void {
             return self.tick;
         }
     };
+    const MockMailbox = struct {
+        reads: usize = 0,
+        busy_reads: usize = 0,
+        terminal: AmdPspMailboxState = .bootloader_ready,
+        fn snapshot(context: *anyopaque) !AmdPspMailboxSnapshot {
+            const self: *@This() = @ptrCast(@alignCast(context));
+            self.reads += 1;
+            return .{ .command = 0, .sos = 0, .state = if (self.reads <= self.busy_reads) .bootloader_busy else self.terminal };
+        }
+    };
     const source_address = pages.allocate(1) orelse return error.OutOfMemory;
     defer pages.release(source_address, 1) catch {};
     const source: [*]u8 = @ptrFromInt(source_address);
@@ -1183,6 +1224,33 @@ pub fn validateAmdPspHandoff(pages: *physical.Allocator) !void {
         return error.AmdPspHandoffTimeoutAccepted;
     } else |err| if (err != error.AmdPspHandoffTimeout or handoff.state != .failed) {
         return error.AmdPspHandoffRunnerTimeoutInvalid;
+    }
+    var mailbox = MockMailbox{ .busy_reads = 2 };
+    clock.tick = 0;
+    const waited = try waitAmdPspMailbox(.{ .context = &mailbox, .snapshot = &MockMailbox.snapshot }, .{
+        .context = &clock,
+        .now = &MockClock.now,
+    }, 10, 20);
+    if (waited.state != .bootloader_ready or mailbox.reads != 3) return error.AmdPspMailboxWaitValidationFailed;
+    mailbox = .{ .busy_reads = 20 };
+    clock.tick = 0;
+    if (waitAmdPspMailbox(.{ .context = &mailbox, .snapshot = &MockMailbox.snapshot }, .{
+        .context = &clock,
+        .now = &MockClock.now,
+    }, 2, 20)) |_| {
+        return error.AmdPspMailboxTimeoutAccepted;
+    } else |err| if (err != error.AmdPspMailboxTimeout) {
+        return error.AmdPspMailboxWaitTimeoutInvalid;
+    }
+    mailbox = .{ .terminal = .failed };
+    clock.tick = 0;
+    if (waitAmdPspMailbox(.{ .context = &mailbox, .snapshot = &MockMailbox.snapshot }, .{
+        .context = &clock,
+        .now = &MockClock.now,
+    }, 2, 20)) |_| {
+        return error.AmdPspMailboxFailureAccepted;
+    } else |err| if (err != error.AmdPspMailboxFailed) {
+        return error.AmdPspMailboxWaitFailureInvalid;
     }
 }
 
