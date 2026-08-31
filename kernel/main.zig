@@ -553,7 +553,27 @@ pub fn start(info: BootInfo) noreturn {
         mapper.mapIdentityUncached(plan.doorbell_bar.address, plan.doorbell_bar.size) catch panic("AMDGPU doorbell mapping failed");
         if (!mapper.identityIsUncached(plan.doorbell_bar.address)) panic("AMDGPU doorbell cache policy failed");
     }
+    if (gpu_adapter.rom_bar) |rom| {
+        if (rom.size == 0 or rom.size > 1024 * 1024) panic("GPU expansion ROM size invalid");
+        mapper.mapIdentityUncached(rom.address, rom.size) catch panic("GPU expansion ROM mapping failed");
+        if (!mapper.identityIsUncached(rom.address)) panic("GPU expansion ROM cache policy failed");
+    }
     mapper.activate();
+    var gpu_atom_vram_usage: ?gpu.AmdAtomVramUsage = null;
+    var gpu_rom_read = false;
+    var gpu_rom_restored = false;
+    if (gpu_adapter.rom_bar) |rom| {
+        const rom_pages = (rom.size + 4095) / 4096;
+        const rom_copy = pages.allocate(rom_pages) orelse panic("GPU expansion ROM buffer failed");
+        const bytes: [*]u8 = @ptrFromInt(rom_copy);
+        pci.copyExpansionRom(gpu_adapter.device, rom, bytes[0..rom.size]) catch panic("GPU expansion ROM read failed");
+        gpu_rom_read = true;
+        if (gpu_adapter.isAmd()) gpu_atom_vram_usage = gpu.parseAmdAtomVramUsage(bytes[0..rom.size]) catch null;
+        pages.release(rom_copy, rom_pages) catch panic("GPU expansion ROM buffer release failed");
+        const restored = pci.romInfo(gpu_adapter.device, false) orelse panic("GPU expansion ROM restore missing");
+        gpu_rom_restored = restored.address == rom.address and restored.enabled == rom.enabled;
+        if (!gpu_rom_restored) panic("GPU expansion ROM state not restored");
+    }
     const gpu_gmc11_memory = if (gpu_gart_registers) |registers| gpu.decodeAmdGmc11MemorySnapshot(
         gpu_adapter.readRegister(registers.fb_location_base) catch panic("AMDGPU VRAM MC base read failed"),
         gpu_adapter.readRegister(registers.fb_offset) catch panic("AMDGPU VRAM MC offset read failed"),
@@ -622,6 +642,11 @@ pub fn start(info: BootInfo) noreturn {
     serial.write(" registers: "); serial.writeDecimal(gpu_registers.size);
     serial.write(" rom-bytes: "); serial.writeDecimal(if (gpu_adapter.rom_bar) |rom| rom.size else 0);
     serial.write(" rom-enabled: "); serial.writeDecimal(if (gpu_adapter.rom_bar) |rom| @intFromBool(rom.enabled) else 0);
+    serial.write(" rom-read: "); serial.writeDecimal(@intFromBool(gpu_rom_read));
+    serial.write(" rom-restored: "); serial.writeDecimal(@intFromBool(gpu_rom_restored));
+    serial.write(" atom-vram-usage: "); serial.writeDecimal(if (gpu_atom_vram_usage) |_| 1 else 0);
+    serial.write(" atom-fw-kib: "); serial.writeDecimal(if (gpu_atom_vram_usage) |usage| usage.firmware_kib else 0);
+    serial.write(" atom-driver-kib: "); serial.writeDecimal(if (gpu_atom_vram_usage) |usage| usage.driver_kib else 0);
     serial.write(" probe: "); serial.writeDecimal(gpu_register_probe);
     serial.write(" chipset: "); serial.writeDecimal(gpu_identity.chipset orelse 0);
     serial.write(" chiprev: "); serial.writeDecimal(gpu_identity.chip_revision orelse 0);

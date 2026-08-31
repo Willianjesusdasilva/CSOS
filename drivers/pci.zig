@@ -184,6 +184,24 @@ pub fn romInfo(device: Device, probe_size: bool) ?RomBar {
     return .{ .address = address, .size = size, .enabled = (original & 1) != 0 };
 }
 
+pub fn copyExpansionRom(device: Device, rom: RomBar, destination: []u8) !void {
+    if (device.header_type != 0 or rom.address == 0 or destination.len == 0 or destination.len > rom.size)
+        return error.InvalidExpansionRomRead;
+    const offset: u8 = 0x30;
+    const original_rom = read32(device.bus, device.slot, device.function, offset);
+    const original_command = read16(device.bus, device.slot, device.function, 4);
+    if ((original_rom & 0xfffff800) != rom.address) return error.ExpansionRomMoved;
+    defer {
+        write16(device.bus, device.slot, device.function, 4, original_command & ~@as(u16, 2));
+        write32(device.bus, device.slot, device.function, offset, original_rom);
+        write16(device.bus, device.slot, device.function, 4, original_command);
+    }
+    write32(device.bus, device.slot, device.function, offset, original_rom | 1);
+    write16(device.bus, device.slot, device.function, 4, original_command | 2);
+    const source: [*]align(1) volatile const u8 = @ptrFromInt(rom.address);
+    for (destination, 0..) |*byte, index| byte.* = source[index];
+}
+
 pub fn barInfo(device: Device, index: u3, probe_size: bool) ?Bar {
     if (index >= 6) return null;
     if (index != 0) {

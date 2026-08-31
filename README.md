@@ -854,11 +854,19 @@ IP discovery usa TMR, os últimos 64 KiB da VRAM real também são reservados se
 caírem na janela CPU-visível; caudas fora do BAR já são inalocáveis por este
 allocator. O selo continua fechado até conhecer a reserva firmware completa.
 
-Como pré-requisito para importar `vram_usagebyfirmware`, a descoberta PCI agora
-sonda também o Expansion ROM BAR de dispositivos display header type 0. A sonda
-preserva command register e ROM BAR originais e expõe `rom-bytes` e
-`rom-enabled`; ela não habilita nem executa a imagem. A leitura do VBIOS e o
-parser ATOM ainda precisam de um fluxo temporário com restauração garantida.
+Como pré-requisito para importar `vram_usagebyfirmware`, a descoberta PCI sonda
+também o Expansion ROM BAR de dispositivos display header type 0. O kernel mapeia
+essa janela sem cache, habilita o decode somente durante uma cópia para RAM e
+restaura tanto o command register quanto o ROM BAR antes de interpretar qualquer
+byte. O boot confirma a restauração e libera o buffer temporário imediatamente;
+em QEMU, `rom-read: 1` e `rom-restored: 1` validam esse ciclo sem executar a ROM.
+
+O parser ATOM puro valida a assinatura PCI, o tamanho declarado da imagem, todos
+os limites dos headers ROM/master/data e decodifica
+`vram_usagebyfirmware` 2.1 e 2.2+. Por enquanto esses campos são apenas
+diagnóstico (`atom-fw-kib`/`atom-driver-kib`): a semântica upstream reserva as
+faixas estáticas sobretudo para SR-IOV, então o allocator bare-metal não deve
+tratar esses números indiscriminadamente como VRAM ocupada.
 
 Com a faixa real conhecida, o candidato `gart-window-start/end` segue a política
 `AMDGPU_GART_PLACEMENT_HIGH`: limita o espaço MC antes do VA hole de 48 bits,

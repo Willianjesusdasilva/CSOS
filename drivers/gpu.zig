@@ -2085,6 +2085,64 @@ pub fn parseAmdgpuFirmware(bytes: []const u8) !AmdgpuFirmware {
 
 pub fn validateAmdgpuFirmware(bytes: []const u8) !void { _ = try parseAmdgpuFirmware(bytes); }
 
+pub const AmdAtomVramUsage = struct {
+    format_revision: u8,
+    content_revision: u8,
+    firmware_start_kib: u32,
+    firmware_kib: u32,
+    driver_start_kib: ?u32,
+    driver_kib: u32,
+};
+
+// ATOM offsets are relative to the beginning of the PCI ROM image. Keep this
+// parser independent of PCI/MMIO so an untrusted VBIOS can be checked before
+// any reservation is added to the VRAM allocator.
+pub fn parseAmdAtomVramUsage(bytes: []const u8) !AmdAtomVramUsage {
+    if (bytes.len < 0x4a or bytes[0] != 0x55 or bytes[1] != 0xaa) return error.InvalidPciRom;
+    const image_bytes = @as(usize, bytes[2]) * 512;
+    if (image_bytes == 0 or image_bytes > bytes.len) return error.TruncatedPciRom;
+    const image = bytes[0..image_bytes];
+
+    const rom_header = @as(usize, readLittle16(image, 0x48));
+    const rom = try atomTable(image, rom_header, 34);
+    if (!equal(rom[4..8], "ATOM")) return error.NotAtomBios;
+
+    const master_offset = @as(usize, readLittle16(rom, 32));
+    const master = try atomTable(image, master_offset, 28);
+    const usage_offset = @as(usize, readLittle16(master, 26));
+    if (usage_offset == 0) return error.AtomVramUsageMissing;
+    const usage = try atomTable(image, usage_offset, 12);
+    const format = usage[2];
+    const content = usage[3];
+    if (format == 2 and content == 1) return .{
+        .format_revision = format,
+        .content_revision = content,
+        .firmware_start_kib = @intCast(readLittle32(usage, 4)),
+        .firmware_kib = readLittle16(usage, 8),
+        .driver_start_kib = null,
+        .driver_kib = readLittle16(usage, 10),
+    };
+    if (format >= 2 and content >= 2) {
+        if (usage.len < 20) return error.TruncatedAtomTable;
+        return .{
+            .format_revision = format,
+            .content_revision = content,
+            .firmware_start_kib = @intCast(readLittle32(usage, 4)),
+            .firmware_kib = readLittle16(usage, 8),
+            .driver_start_kib = @intCast(readLittle32(usage, 12)),
+            .driver_kib = @intCast(readLittle32(usage, 16)),
+        };
+    }
+    return error.UnsupportedAtomVramUsage;
+}
+
+fn atomTable(image: []const u8, offset: usize, minimum_bytes: usize) ![]const u8 {
+    if (offset > image.len or image.len - offset < 4) return error.TruncatedAtomTable;
+    const table_bytes = @as(usize, readLittle16(image, offset));
+    if (table_bytes < minimum_bytes or table_bytes > image.len - offset) return error.TruncatedAtomTable;
+    return image[offset .. offset + table_bytes];
+}
+
 fn readLittle16(bytes: []const u8, offset: usize) u16 {
     return @as(u16, bytes[offset]) | (@as(u16, bytes[offset + 1]) << 8);
 }
@@ -2094,6 +2152,33 @@ fn readLittle32(bytes: []const u8, offset: usize) usize {
         (@as(usize, bytes[offset + 1]) << 8) |
         (@as(usize, bytes[offset + 2]) << 16) |
         (@as(usize, bytes[offset + 3]) << 24);
+}
+
+comptime {
+    var atom = [_]u8{0} ** 512;
+    atom[0] = 0x55;
+    atom[1] = 0xaa;
+    atom[2] = 1;
+    writeLittle16(&atom, 0x48, 0x80);
+    writeLittle16(&atom, 0x80, 38);
+    atom[0x82] = 2;
+    atom[0x83] = 2;
+    @memcpy(atom[0x84..0x88], "ATOM");
+    writeLittle16(&atom, 0xa0, 0xc0);
+    writeLittle16(&atom, 0xc0, 74);
+    atom[0xc2] = 2;
+    atom[0xc3] = 1;
+    writeLittle16(&atom, 0xda, 0x120);
+    writeLittle16(&atom, 0x120, 12);
+    atom[0x122] = 2;
+    atom[0x123] = 1;
+    writeLittle32(&atom, 0x124, 0x12340);
+    writeLittle16(&atom, 0x128, 64);
+    writeLittle16(&atom, 0x12a, 20);
+    const usage = parseAmdAtomVramUsage(&atom) catch @compileError("ATOM VRAM usage sample was rejected");
+    if (usage.format_revision != 2 or usage.content_revision != 1 or usage.firmware_start_kib != 0x12340 or
+        usage.firmware_kib != 64 or usage.driver_start_kib != null or usage.driver_kib != 20)
+        @compileError("ATOM VRAM usage sample decoded incorrectly");
 }
 
 comptime {
