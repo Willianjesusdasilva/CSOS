@@ -836,6 +836,13 @@ pub const AmdRegisterWriteSet = struct {
 };
 pub const AmdGmc11RegisterTransaction = struct { snapshot: AmdGmc11GartSnapshot, writes_applied: usize };
 pub const AmdGmc11InvalidateResult = struct { engine: u5, vmid: u4, polls: u32 };
+pub const AmdGmc11ActivationWorkspace = struct {
+    register_set: AmdGmc11GartRegisterSet = .{},
+    writes: AmdRegisterWriteSet = .{},
+    transaction: AmdGmc11RegisterTransaction = .{ .snapshot = .{}, .writes_applied = 0 },
+    prepared: bool = false,
+    active: bool = false,
+};
 pub const AmdGmc11VisibleVram = struct {
     cpu_start: u64,
     cpu_end: u64,
@@ -1136,13 +1143,18 @@ pub fn amdGmc11GartMutableRegisters(registers: AmdGmc11GartRegisters) !AmdGmc11G
     return result;
 }
 
-pub fn captureAmdGmc11GartSnapshot(registers: AmdGmc11GartRegisterSet, io: AmdRegisterIo) !AmdGmc11GartSnapshot {
+fn captureAmdGmc11GartSnapshotInPlace(registers: *const AmdGmc11GartRegisterSet, io: AmdRegisterIo, snapshot: *AmdGmc11GartSnapshot) !void {
     if (registers.count == 0 or registers.count > registers.offsets.len) return error.InvalidAmdGartRegisterSet;
-    var snapshot = AmdGmc11GartSnapshot{ .count = registers.count };
+    snapshot.* = AmdGmc11GartSnapshot{ .count = registers.count };
     for (registers.offsets[0..registers.count], 0..) |offset, index| {
         snapshot.offsets[index] = offset;
         snapshot.values[index] = try io.read(io.context, offset);
     }
+}
+
+pub fn captureAmdGmc11GartSnapshot(registers: AmdGmc11GartRegisterSet, io: AmdRegisterIo) !AmdGmc11GartSnapshot {
+    var snapshot = AmdGmc11GartSnapshot{};
+    try captureAmdGmc11GartSnapshotInPlace(&registers, io, &snapshot);
     return snapshot;
 }
 
@@ -1375,12 +1387,55 @@ pub fn activateAmdGmc11Gart(
     };
 }
 
+pub fn prepareAmdGmc11Activation(
+    workspace: *AmdGmc11ActivationWorkspace,
+    registers: AmdGmc11GartRegisters,
+    aperture: AmdGmc11GartApertureValues,
+    system: AmdGmc11SystemApertureValues,
+    io: AmdRegisterIo,
+) !void {
+    if (workspace.prepared or workspace.active) return error.AmdGartActivationWorkspaceBusy;
+    workspace.register_set = try amdGmc11GartMutableRegisters(registers);
+    try captureAmdGmc11GartSnapshotInPlace(&workspace.register_set, io, &workspace.transaction.snapshot);
+    try buildAmdGmc11GartBootstrapWritesInPlace(registers, aperture, system, &workspace.transaction.snapshot, &workspace.writes);
+    workspace.transaction.writes_applied = 0;
+    workspace.prepared = true;
+}
+
+pub fn commitAmdGmc11Activation(
+    workspace: *AmdGmc11ActivationWorkspace,
+    registers: AmdGmc11GartRegisters,
+    timeout_polls: u32,
+    io: AmdRegisterIo,
+) !AmdGmc11InvalidateResult {
+    if (!workspace.prepared or workspace.active) return error.AmdGartActivationWorkspaceNotReady;
+    const result = activateAmdGmc11Gart(
+        &workspace.register_set,
+        registers,
+        &workspace.writes,
+        timeout_polls,
+        io,
+        &workspace.transaction,
+    ) catch |err| {
+        workspace.prepared = false;
+        return err;
+    };
+    workspace.prepared = false;
+    workspace.active = true;
+    return result;
+}
+
+pub fn rollbackAmdGmc11Activation(workspace: *AmdGmc11ActivationWorkspace, io: AmdRegisterIo) !void {
+    if (!workspace.active) return error.AmdGartActivationWorkspaceNotActive;
+    try restoreAmdGmc11GartSnapshot(workspace.transaction.snapshot, io);
+    workspace.transaction.writes_applied = 0;
+    workspace.active = false;
+}
+
 // Boot-time validation runs before scheduler stacks exist, so keep its large
 // synthetic register state out of the firmware-provided entry stack.
 var amd_bootstrap_test_bank = AmdGartRegisterTestBank{};
-var amd_bootstrap_test_snapshot = AmdGmc11GartSnapshot{};
-var amd_bootstrap_test_writes = AmdRegisterWriteSet{};
-var amd_bootstrap_test_transaction = AmdGmc11RegisterTransaction{ .snapshot = .{}, .writes_applied = 0 };
+var amd_bootstrap_test_workspace = AmdGmc11ActivationWorkspace{};
 
 pub fn validateAmdGmc11GartRollback(registers: AmdGmc11GartRegisterSet) !void {
     if (registers.count != 141) return error.InvalidAmdGartRegisterSet;
@@ -1450,19 +1505,12 @@ pub fn validateAmdGmc11BootstrapWrites(
     bank.invalidate_request = registers.invalidate_request;
     bank.invalidate_ack = registers.invalidate_ack;
     bank.values[bank.position(registers.invalidate_ack).?] = 0;
-    amd_bootstrap_test_snapshot = try captureAmdGmc11GartSnapshot(register_set, bank.io());
-    const snapshot = &amd_bootstrap_test_snapshot;
-    try buildAmdGmc11GartBootstrapWritesInPlace(registers, aperture, system, snapshot, &amd_bootstrap_test_writes);
+    amd_bootstrap_test_workspace = AmdGmc11ActivationWorkspace{};
+    const workspace = &amd_bootstrap_test_workspace;
+    try prepareAmdGmc11Activation(workspace, registers, aperture, system, bank.io());
     bank.acknowledge_after_reads = 3;
-    const invalidation = try activateAmdGmc11Gart(
-        &register_set,
-        registers,
-        &amd_bootstrap_test_writes,
-        8,
-        bank.io(),
-        &amd_bootstrap_test_transaction,
-    );
-    const transaction = &amd_bootstrap_test_transaction;
+    const invalidation = try commitAmdGmc11Activation(workspace, registers, 8, bank.io());
+    const transaction = &workspace.transaction;
     if (transaction.writes_applied != 80 or bank.values[bank.position(registers.page_table_base_low).?] != aperture.page_table_base_low or
         bank.values[bank.position(registers.system_default_low).?] != system.default_low or
         (bank.values[bank.position(registers.context_control).?] & 0x87) != 1 or
@@ -1479,17 +1527,18 @@ pub fn validateAmdGmc11BootstrapWrites(
     }
     if (invalidation.polls != 3 or bank.values[bank.position(registers.invalidate_request).?] != 0x00f80001)
         return error.AmdGartInvalidateHandshakeMismatch;
-    try restoreAmdGmc11GartSnapshot(transaction.snapshot, bank.io());
-    for (snapshot.values[0..snapshot.count], bank.values[0..snapshot.count]) |expected, observed|
+    try rollbackAmdGmc11Activation(workspace, bank.io());
+    for (transaction.snapshot.values[0..transaction.snapshot.count], bank.values[0..transaction.snapshot.count]) |expected, observed|
         if (expected != observed) return error.AmdGartBootstrapRestoreMismatch;
 
     bank.acknowledge_after_reads = null;
     bank.values[bank.position(registers.invalidate_ack).?] = 0;
-    if (activateAmdGmc11Gart(&register_set, registers, &amd_bootstrap_test_writes, 2, bank.io(), transaction)) |_| return error.AmdGartInvalidateTimeoutNotDetected else |err|
+    try prepareAmdGmc11Activation(workspace, registers, aperture, system, bank.io());
+    if (commitAmdGmc11Activation(workspace, registers, 2, bank.io())) |_| return error.AmdGartInvalidateTimeoutNotDetected else |err|
         if (err != error.AmdGartInvalidateTimeout) return err;
-    for (snapshot.values[0..snapshot.count], bank.values[0..snapshot.count]) |expected, observed|
+    for (transaction.snapshot.values[0..transaction.snapshot.count], bank.values[0..transaction.snapshot.count]) |expected, observed|
         if (expected != observed) return error.AmdGartInvalidateTimeoutRollbackMismatch;
-    if (transaction.writes_applied != 0) return error.AmdGartInvalidateTimeoutTransactionStillActive;
+    if (transaction.writes_applied != 0 or workspace.prepared or workspace.active) return error.AmdGartInvalidateTimeoutTransactionStillActive;
 }
 
 pub fn validateAmdGmc11BootstrapWritesSelfTest() !void {

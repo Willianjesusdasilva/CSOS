@@ -932,6 +932,15 @@ registradores de rollback enumerados. Em Radeon elegível o boot concede essa
 autorização, mas mantém `gart-write-armed=0`; o teste nativo prova que firmware
 parcial, acessos antes de armar e tentativas sem autorização são rejeitados.
 
+Snapshot, conjunto de escritas e estado da transação vivem agora em um
+`AmdGmc11ActivationWorkspace` persistente, fora da stack de boot. A API separa
+`prepare`, `commit` e `rollback`: prepare captura os 141 registradores e monta
+as 80 escritas; commit só marca ativo depois do ACK; rollback restaura o
+snapshot. Timeout limpa `prepared/active` e não deixa uma transação fantasma.
+O workspace real nasce com `gart-activation-prepared=0` e
+`gart-activation-committed=0` até o gate de hardware real ser explicitamente
+armado.
+
 Com a faixa real conhecida, o candidato `gart-window-start/end` segue a política
 `AMDGPU_GART_PLACEMENT_HIGH`: limita o espaço MC antes do VA hole de 48 bits,
 posiciona a janela no topo e alinha sua base a 4 GiB. Overflow, faixa VRAM

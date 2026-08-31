@@ -41,6 +41,7 @@ var console_hid: ?*xhci.HidDevices = null;
 var console_last_key: u8 = 0;
 var console_input_irq_apic: u32 = 0;
 var audio_reported = false;
+var gpu_gmc11_activation_workspace = gpu.AmdGmc11ActivationWorkspace{};
 
 pub const BootInfo = struct {
     framebuffer: Framebuffer,
@@ -758,6 +759,8 @@ pub fn start(info: BootInfo) noreturn {
     serial.write(" gart-mmio-transport: "); serial.writeDecimal(if (gpu_gart_mmio_transport) |_| 1 else 0);
     serial.write(" gart-write-authorized: "); serial.writeDecimal(if (gpu_gart_mmio_transport) |transport| @intFromBool(transport.authorized) else 0);
     serial.write(" gart-write-armed: "); serial.writeDecimal(if (gpu_gart_mmio_transport) |transport| @intFromBool(transport.armed) else 0);
+    serial.write(" gart-activation-prepared: "); serial.writeDecimal(@intFromBool(gpu_gmc11_activation_workspace.prepared));
+    serial.write(" gart-activation-committed: "); serial.writeDecimal(@intFromBool(gpu_gmc11_activation_workspace.active));
     serial.write(" psp-version: "); serial.writeDecimal(if (gpu_backend_plan) |plan| plan.psp.ip_version else 0);
     serial.write(" psp-autoload: "); serial.writeDecimal(if (gpu_backend_plan) |plan| @intFromBool(plan.psp.autoload_supported) else 0);
     serial.write(" psp-boot-tmr: "); serial.writeDecimal(if (gpu_backend_plan) |plan| @intFromBool(plan.psp.boot_time_tmr) else 0);
