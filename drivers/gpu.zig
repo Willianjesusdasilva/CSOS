@@ -847,6 +847,69 @@ pub const AmdGmc11ActivationWorkspace = struct {
     write_digest: u64 = 0,
     invalidate_polls: u32 = 0,
 };
+pub const AmdGpuVaMapping = struct {
+    active: bool = false,
+    handle: u32 = 0,
+    address: u64 = 0,
+    size: u64 = 0,
+    bo_offset: u64 = 0,
+    flags: u32 = 0,
+};
+pub const AmdGpuVm = struct {
+    allocated: bool = false,
+    vmid: u4 = 0,
+    mappings: [32]AmdGpuVaMapping = .{AmdGpuVaMapping{}} ** 32,
+};
+pub const AmdGpuVmManager = struct {
+    vms: [15]AmdGpuVm = .{AmdGpuVm{}} ** 15,
+
+    pub fn allocate(self: *AmdGpuVmManager) !*AmdGpuVm {
+        for (&self.vms, 1..) |*vm, vmid| if (!vm.allocated) {
+            vm.* = .{ .allocated = true, .vmid = @intCast(vmid) };
+            return vm;
+        };
+        return error.AmdGpuVmidsExhausted;
+    }
+
+    pub fn release(self: *AmdGpuVmManager, vmid: u4) !void {
+        const vm = try self.get(vmid);
+        vm.* = .{};
+    }
+
+    pub fn map(self: *AmdGpuVmManager, vmid: u4, handle: u32, address: u64, size: u64, bo_offset: u64, bo_size: u64, flags: u32) !void {
+        const vm = try self.get(vmid);
+        const allowed_flags: u32 = (1 << 1) | (1 << 2) | (1 << 3);
+        if (handle == 0 or size == 0 or (address & 4095) != 0 or (size & 4095) != 0 or (bo_offset & 4095) != 0 or
+            flags == 0 or (flags & ~allowed_flags) != 0 or bo_offset > bo_size or size > bo_size - bo_offset)
+            return error.InvalidAmdGpuVaMapping;
+        const end = std.math.add(u64, address, size - 1) catch return error.InvalidAmdGpuVaMapping;
+        if (end >= 0x0000800000000000) return error.InvalidAmdGpuVaMapping;
+        for (vm.mappings) |mapping| if (mapping.active) {
+            const mapping_end = mapping.address + mapping.size - 1;
+            if (!(end < mapping.address or address > mapping_end)) return error.AmdGpuVaOverlap;
+        };
+        for (&vm.mappings) |*mapping| if (!mapping.active) {
+            mapping.* = .{ .active = true, .handle = handle, .address = address, .size = size, .bo_offset = bo_offset, .flags = flags };
+            return;
+        };
+        return error.AmdGpuVaMappingsExhausted;
+    }
+
+    pub fn unmap(self: *AmdGpuVmManager, vmid: u4, address: u64, size: u64) !void {
+        const vm = try self.get(vmid);
+        for (&vm.mappings) |*mapping| if (mapping.active and mapping.address == address and mapping.size == size) {
+            mapping.* = .{};
+            return;
+        };
+        return error.AmdGpuVaMappingNotFound;
+    }
+
+    fn get(self: *AmdGpuVmManager, vmid: u4) !*AmdGpuVm {
+        if (vmid == 0 or vmid > 15) return error.InvalidAmdGpuVmid;
+        const vm = &self.vms[vmid - 1];
+        return if (vm.allocated) vm else error.AmdGpuVmidNotAllocated;
+    }
+};
 
 fn amdGartDigest(seed: u64, value: u32) u64 {
     var digest = seed;
@@ -1653,6 +1716,27 @@ pub fn validateAmdGmc11MmioTransportSelfTest() !void {
     transport.disarm();
     if (transport.io().write(transport.io().context, 8, 0)) return error.AmdGmc11DisarmedWriteAllowed else |err|
         if (err != error.AmdGmc11MmioTransportDisarmed) return err;
+}
+
+pub fn validateAmdGpuVmManagerSelfTest() !void {
+    var manager = AmdGpuVmManager{};
+    const first = try manager.allocate();
+    const second = try manager.allocate();
+    if (first.vmid != 1 or second.vmid != 2) return error.AmdGpuVmidAllocationMismatch;
+    try manager.map(1, 7, 0x100000000, 0x4000, 0, 0x8000, (1 << 1) | (1 << 2));
+    try manager.map(1, 8, 0x100004000, 0x2000, 0x2000, 0x8000, 1 << 1);
+    try manager.map(2, 9, 0x100000000, 0x1000, 0, 0x1000, 1 << 3);
+    if (manager.map(1, 10, 0x100003000, 0x2000, 0, 0x2000, 1 << 1)) return error.AmdGpuVaOverlapAccepted else |err|
+        if (err != error.AmdGpuVaOverlap) return err;
+    if (manager.map(1, 10, 0x200000000, 0x2000, 0x1000, 0x2000, 1 << 1)) return error.AmdGpuVaBoOverflowAccepted else |err|
+        if (err != error.InvalidAmdGpuVaMapping) return err;
+    try manager.unmap(1, 0x100004000, 0x2000);
+    if (manager.unmap(1, 0x100004000, 0x2000)) return error.AmdGpuVaMissingUnmapAccepted else |err|
+        if (err != error.AmdGpuVaMappingNotFound) return err;
+    try manager.release(1);
+    const recycled = try manager.allocate();
+    if (recycled.vmid != 1) return error.AmdGpuVmidNotRecycled;
+    for (recycled.mappings) |mapping| if (mapping.active) return error.AmdGpuVmReleaseLeakedMapping;
 }
 
 pub fn resolveAmdGmc11GartRegisters(plan: AmdGartPlan, register_bar_bytes: u64) !AmdGmc11GartRegisters {

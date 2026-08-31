@@ -7,3 +7,7 @@ test "GMC 11 bootstrap activation rolls back on invalidate timeout" {
 test "GMC 11 MMIO transport requires explicit authorization and arming" {
     try gpu.validateAmdGmc11MmioTransportSelfTest();
 }
+
+test "AMDGPU VMIDs isolate mappings and reject overlap" {
+    try gpu.validateAmdGpuVmManagerSelfTest();
+}

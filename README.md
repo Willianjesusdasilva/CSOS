@@ -714,6 +714,14 @@ ponteiro de usuário validado, e `AMDGPU_GEM_LIST_HANDLES` enumera tamanho,
 domínio, flags e alinhamento dos BOs ainda abertos. Operações de placement e
 mapping continuam recusadas até GPUVM existir.
 
+O núcleo do GPUVM agora possui um allocator para VMIDs 1–15 (VMID0 permanece
+reservado ao sistema) e até 32 intervalos por VM. Map valida alinhamento de
+4 KiB, limites do BO, flags R/W/X, overflow e o VA hole de 48 bits; overlap é
+rejeitado dentro da VM, enquanto o mesmo VA pode existir isoladamente em outra
+VM. Release remove todos os mappings antes de reciclar o VMID. Ainda não há
+ioctl `GEM_VA`: os context registers continuam desabilitados até page tables
+por VM serem materializadas.
+
 O handoff PSP é mantido declarativo: KDB, SPL, SYS_DRV e SOS são ordenados como
 no fluxo upstream e apontam para suas fontes físicas validadas. Uma única área
 de transferência é reservada com alinhamento de 1 MiB, necessário para o
