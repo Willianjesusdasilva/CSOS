@@ -1,10 +1,10 @@
 param(
-    [Parameter(Mandatory = $true)][string]$InputDirectory,
+    [string]$AmdDirectory,
+    [string]$NvidiaDirectory,
     [Parameter(Mandatory = $true)][string]$Output
 )
 
-$root = [IO.Path]::GetFullPath($InputDirectory).TrimEnd([IO.Path]::DirectorySeparatorChar)
-if (-not (Test-Path -LiteralPath $root -PathType Container)) { throw 'GPU firmware input directory was not found' }
+if (-not $AmdDirectory -and -not $NvidiaDirectory) { throw 'At least one GPU firmware directory is required' }
 $stream = [IO.File]::Open($Output, [IO.FileMode]::Create, [IO.FileAccess]::Write)
 try {
     $writeEntry = {
@@ -20,10 +20,17 @@ try {
         while (($stream.Position % 4) -ne 0) { $stream.WriteByte(0) }
     }
     $inode = 1
-    Get-ChildItem -LiteralPath $root -File -Recurse | Sort-Object FullName | ForEach-Object {
-        $relative = [IO.Path]::GetRelativePath($root, $_.FullName).Replace('\', '/')
-        & $writeEntry $relative ([IO.File]::ReadAllBytes($_.FullName)) $inode
-        $inode += 1
+    $sources = @()
+    if ($AmdDirectory) { $sources += [pscustomobject]@{ Path = $AmdDirectory; Prefix = 'amdgpu' } }
+    if ($NvidiaDirectory) { $sources += [pscustomobject]@{ Path = $NvidiaDirectory; Prefix = 'nouveau' } }
+    foreach ($source in $sources) {
+        $root = [IO.Path]::GetFullPath($source.Path).TrimEnd([IO.Path]::DirectorySeparatorChar)
+        if (-not (Test-Path -LiteralPath $root -PathType Container)) { throw "GPU firmware directory was not found: $root" }
+        Get-ChildItem -LiteralPath $root -File -Recurse | Sort-Object FullName | ForEach-Object {
+            $relative = [IO.Path]::GetRelativePath($root, $_.FullName).Replace('\', '/')
+            & $writeEntry ($source.Prefix + '/' + $relative) ([IO.File]::ReadAllBytes($_.FullName)) $inode
+            $inode += 1
+        }
     }
     & $writeEntry 'TRAILER!!!' ([byte[]]::new(0)) $inode
 } finally {

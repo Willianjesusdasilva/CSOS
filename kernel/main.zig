@@ -465,6 +465,16 @@ pub fn start(info: BootInfo) noreturn {
     const gpu_firmware = gpu.loadFirmware(&volume, &pages) catch panic("GPU firmware load failed");
     if ((gpu_adapter.driver == .amdgpu or gpu_adapter.driver == .nouveau) and gpu_firmware == null) panic("GPU firmware archive missing");
     const gpu_firmware_entries = if (gpu_firmware) |firmware| firmware.entryCount() catch panic("GPU firmware archive invalid") else 0;
+    const gpu_catalog_entries = if (gpu_firmware) |firmware|
+        (firmware.countPrefix("amdgpu/") catch panic("AMDGPU firmware index invalid")) +
+        (firmware.countPrefix("nouveau/") catch panic("Nouveau firmware index invalid"))
+    else 0;
+    const gpu_backend_entries = if (gpu_firmware) |firmware| switch (gpu_adapter.driver) {
+        .amdgpu => firmware.countPrefix("amdgpu/") catch panic("AMDGPU firmware index invalid"),
+        .nouveau => firmware.countPrefix("nouveau/") catch panic("Nouveau firmware index invalid"),
+        else => 0,
+    } else 0;
+    if ((gpu_adapter.driver == .amdgpu or gpu_adapter.driver == .nouveau) and gpu_backend_entries == 0) panic("GPU backend firmware missing");
     const gpu_registers = gpu_adapter.register_bar orelse panic("GPU register BAR missing");
     if (gpu_registers.size > 16 * 1024 * 1024) panic("GPU register BAR unexpectedly large");
     mapper.mapIdentity(gpu_registers.address, @intCast(gpu_registers.size)) catch panic("GPU register MMIO mapping failed");
@@ -481,6 +491,8 @@ pub fn start(info: BootInfo) noreturn {
     serial.write(" registers: "); serial.writeDecimal(gpu_registers.size);
     serial.write(" firmware: "); serial.writeDecimal(if (gpu_firmware) |firmware| firmware.size else 0);
     serial.write(" entries: "); serial.writeDecimal(gpu_firmware_entries);
+    serial.write(" catalog: "); serial.writeDecimal(gpu_catalog_entries);
+    serial.write(" selected: "); serial.writeDecimal(gpu_backend_entries);
     serial.write(" driver: ");
     serial.write(switch (gpu_adapter.driver) {
         .amdgpu => "amdgpu",

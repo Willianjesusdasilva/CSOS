@@ -72,6 +72,15 @@ pub const Firmware = struct {
         while (try iterator.next()) |entry| if (equal(entry.name, wanted)) return entry.data;
         return null;
     }
+
+    pub fn countPrefix(self: Firmware, prefix: []const u8) !usize {
+        var iterator = CpioIterator{ .archive = self.bytes() };
+        var count: usize = 0;
+        while (try iterator.next()) |entry| {
+            if (startsWith(entry.name, prefix)) count += 1;
+        }
+        return count;
+    }
 };
 
 const CpioEntry = struct { name: []const u8, data: []const u8 };
@@ -123,6 +132,9 @@ fn equal(left: []const u8, right: []const u8) bool {
     if (left.len != right.len) return false;
     for (left, right) |a, b| if (a != b) return false;
     return true;
+}
+fn startsWith(value: []const u8, prefix: []const u8) bool {
+    return value.len >= prefix.len and equal(value[0..prefix.len], prefix);
 }
 
 pub fn loadFirmware(volume: *fat16.Volume, pages: *physical.Allocator) !?Firmware {
