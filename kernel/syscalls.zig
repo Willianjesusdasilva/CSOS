@@ -298,6 +298,10 @@ fn ioctl(fd: u64, request: u64, address: u64) u64 {
             0xc02064b2 => drmCreateDumb(address),
             0xc01064b3 => drmMapDumb(address),
             0xc00464b4 => drmDestroyDumb(address),
+            0xc04064a0 => drmGetResources(address),
+            0xc06864a1 => drmGetCrtc(address),
+            0xc01464a6 => drmGetEncoder(address),
+            0xc05064a7 => drmGetConnector(address),
             else => errno(25),
         };
         if (result == 0) drm_ioctls += 1;
@@ -379,6 +383,105 @@ fn drmDestroyDumb(address: u64) u64 {
     drm_dumb_created = false;
     drm_dumb_size = 0;
     return 0;
+}
+
+fn drmGetResources(address: u64) u64 {
+    if (!validUserSlice(address, 64)) return errno(14);
+    const output: [*]u8 = @ptrFromInt(address);
+    const crtc_pointer = read64(output + 8);
+    const connector_pointer = read64(output + 16);
+    const encoder_pointer = read64(output + 24);
+    const crtc_capacity = read32(output + 36);
+    const connector_capacity = read32(output + 40);
+    const encoder_capacity = read32(output + 44);
+    if (!putDrmId(crtc_pointer, crtc_capacity, 1) or !putDrmId(connector_pointer, connector_capacity, 2) or !putDrmId(encoder_pointer, encoder_capacity, 3)) return errno(14);
+    put32(output + 32, 0);
+    put32(output + 36, 1); put32(output + 40, 1); put32(output + 44, 1);
+    put32(output + 48, 1); put32(output + 52, framebuffer.width);
+    put32(output + 56, 1); put32(output + 60, framebuffer.height);
+    return 0;
+}
+
+fn putDrmId(address: u64, capacity: u32, id: u32) bool {
+    if (capacity == 0) return true;
+    if (address == 0 or !validUserSlice(address, 4)) return false;
+    const output: [*]u8 = @ptrFromInt(address);
+    put32(output, id);
+    return true;
+}
+
+fn drmGetEncoder(address: u64) u64 {
+    if (!validUserSlice(address, 20)) return errno(14);
+    const output: [*]u8 = @ptrFromInt(address);
+    if (read32(output) != 3) return errno(2);
+    put32(output + 4, 5);
+    put32(output + 8, 1);
+    put32(output + 12, 1);
+    put32(output + 16, 0);
+    return 0;
+}
+
+fn drmGetConnector(address: u64) u64 {
+    if (!validUserSlice(address, 80)) return errno(14);
+    const output: [*]u8 = @ptrFromInt(address);
+    if (read32(output + 48) != 2) return errno(2);
+    const encoder_pointer = read64(output + 0);
+    const mode_pointer = read64(output + 8);
+    const mode_capacity = read32(output + 32);
+    const encoder_capacity = read32(output + 40);
+    if (!putDrmId(encoder_pointer, encoder_capacity, 3)) return errno(14);
+    if (mode_capacity != 0) {
+        if (mode_pointer == 0 or !validUserSlice(mode_pointer, 68)) return errno(14);
+        const mode: [*]u8 = @ptrFromInt(mode_pointer);
+        writeDrmMode(mode);
+    }
+    put32(output + 32, 1); put32(output + 36, 0); put32(output + 40, 1);
+    put32(output + 44, 3); put32(output + 48, 2);
+    put32(output + 52, 15); put32(output + 56, 1); put32(output + 60, 1);
+    put32(output + 64, 0); put32(output + 68, 0); put32(output + 72, 0); put32(output + 76, 0);
+    return 0;
+}
+
+fn drmGetCrtc(address: u64) u64 {
+    if (!validUserSlice(address, 104)) return errno(14);
+    const output: [*]u8 = @ptrFromInt(address);
+    if (read32(output + 12) != 1) return errno(2);
+    put64(output + 0, 0); put32(output + 8, 0); put32(output + 12, 1);
+    put32(output + 16, 0); put32(output + 20, 0); put32(output + 24, 0);
+    put32(output + 28, 0); put32(output + 32, 1);
+    writeDrmMode(output + 36);
+    return 0;
+}
+
+fn writeDrmMode(output: [*]u8) void {
+    @memset(output[0..68], 0);
+    const clock: u32 = @intCast((@as(u64, framebuffer.width) * framebuffer.height * 60) / 1000);
+    put32(output + 0, clock);
+    put16(output + 4, @intCast(framebuffer.width)); put16(output + 6, @intCast(framebuffer.width));
+    put16(output + 8, @intCast(framebuffer.width)); put16(output + 10, @intCast(framebuffer.width));
+    put16(output + 14, @intCast(framebuffer.height)); put16(output + 16, @intCast(framebuffer.height));
+    put16(output + 18, @intCast(framebuffer.height)); put16(output + 20, @intCast(framebuffer.height));
+    put32(output + 24, 60); put32(output + 28, 0); put32(output + 32, 0x48);
+    writeModeName(output + 36, framebuffer.width, framebuffer.height);
+}
+
+fn writeModeName(output: [*]u8, width: u32, height: u32) void {
+    var index = writeDecimal(output, width);
+    output[index] = 'x'; index += 1;
+    _ = writeDecimal(output + index, height);
+}
+
+fn writeDecimal(output: [*]u8, value: u32) usize {
+    var divisor: u32 = 1;
+    while (value / divisor >= 10) divisor *= 10;
+    var remaining = value;
+    var count: usize = 0;
+    while (divisor != 0) : (divisor /= 10) {
+        output[count] = @intCast('0' + remaining / divisor);
+        remaining %= divisor;
+        count += 1;
+    }
+    return count;
 }
 
 fn framebufferVariable(address: u64) u64 {
@@ -506,6 +609,7 @@ fn vfsError(err: anyerror) u64 {
 }
 
 fn put32(target: [*]u8, value: u32) void { var i: usize = 0; while (i < 4) : (i += 1) target[i] = @truncate(value >> @intCast(i * 8)); }
+fn put16(target: [*]u8, value: u16) void { target[0] = @truncate(value); target[1] = @truncate(value >> 8); }
 fn put64(target: [*]u8, value: u64) void { var i: usize = 0; while (i < 8) : (i += 1) target[i] = @truncate(value >> @intCast(i * 8)); }
 fn read32(source: [*]const u8) u32 { var value: u32 = 0; var i: usize = 0; while (i < 4) : (i += 1) value |= @as(u32, source[i]) << @intCast(i * 8); return value; }
 fn read64(source: [*]const u8) u64 { var value: u64 = 0; var i: usize = 0; while (i < 8) : (i += 1) value |= @as(u64, source[i]) << @intCast(i * 8); return value; }

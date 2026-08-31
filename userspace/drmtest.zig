@@ -5,6 +5,13 @@ pub export var capability: [16]u8 = .{0} ** 16;
 pub export var dumb_create: [32]u8 = .{0} ** 32;
 pub export var dumb_map: [16]u8 = .{0} ** 16;
 pub export var dumb_destroy: [4]u8 = .{0} ** 4;
+pub export var resources: [64]u8 = .{0} ** 64;
+pub export var resource_ids: [3]u32 = .{ 0, 0, 0 };
+pub export var connector: [80]u8 = .{0} ** 80;
+pub export var mode: [68]u8 = .{0} ** 68;
+pub export var connector_encoder: u32 = 0;
+pub export var encoder: [20]u8 = .{0} ** 20;
+pub export var crtc: [104]u8 = .{0} ** 104;
 pub export const success: [31]u8 = "Linux DRM core userspace ready\n".*;
 
 pub export fn _start() callconv(.naked) noreturn {
@@ -108,6 +115,91 @@ pub export fn _start() callconv(.naked) noreturn {
         \\syscall
         \\testq %%rax, %%rax
         \\jne 1f
+        \\movq $16, %%rax
+        \\movq %%r12, %%rdi
+        \\movq $0xc04064a0, %%rsi
+        \\leaq resources(%%rip), %%rdx
+        \\syscall
+        \\testq %%rax, %%rax
+        \\jne 1f
+        \\cmpl $1, resources+36(%%rip)
+        \\jne 1f
+        \\cmpl $1, resources+40(%%rip)
+        \\jne 1f
+        \\cmpl $1, resources+44(%%rip)
+        \\jne 1f
+        \\leaq resource_ids(%%rip), %%rax
+        \\movq %%rax, resources+8(%%rip)
+        \\leaq resource_ids+4(%%rip), %%rax
+        \\movq %%rax, resources+16(%%rip)
+        \\leaq resource_ids+8(%%rip), %%rax
+        \\movq %%rax, resources+24(%%rip)
+        \\movq $16, %%rax
+        \\movq %%r12, %%rdi
+        \\movq $0xc04064a0, %%rsi
+        \\leaq resources(%%rip), %%rdx
+        \\syscall
+        \\testq %%rax, %%rax
+        \\jne 1f
+        \\cmpl $1, resource_ids(%%rip)
+        \\jne 1f
+        \\cmpl $2, resource_ids+4(%%rip)
+        \\jne 1f
+        \\cmpl $3, resource_ids+8(%%rip)
+        \\jne 1f
+        \\movl $2, connector+48(%%rip)
+        \\movq $16, %%rax
+        \\movq %%r12, %%rdi
+        \\movq $0xc05064a7, %%rsi
+        \\leaq connector(%%rip), %%rdx
+        \\syscall
+        \\testq %%rax, %%rax
+        \\jne 1f
+        \\cmpl $1, connector+32(%%rip)
+        \\jne 1f
+        \\cmpl $1, connector+40(%%rip)
+        \\jne 1f
+        \\leaq connector_encoder(%%rip), %%rax
+        \\movq %%rax, connector(%%rip)
+        \\leaq mode(%%rip), %%rax
+        \\movq %%rax, connector+8(%%rip)
+        \\movq $16, %%rax
+        \\movq %%r12, %%rdi
+        \\movq $0xc05064a7, %%rsi
+        \\leaq connector(%%rip), %%rdx
+        \\syscall
+        \\testq %%rax, %%rax
+        \\jne 1f
+        \\cmpl $3, connector_encoder(%%rip)
+        \\jne 1f
+        \\cmpl $3, connector+44(%%rip)
+        \\jne 1f
+        \\cmpl $1, connector+60(%%rip)
+        \\jne 1f
+        \\cmpw $0, mode+4(%%rip)
+        \\je 1f
+        \\movl $3, encoder(%%rip)
+        \\movq $16, %%rax
+        \\movq %%r12, %%rdi
+        \\movq $0xc01464a6, %%rsi
+        \\leaq encoder(%%rip), %%rdx
+        \\syscall
+        \\testq %%rax, %%rax
+        \\jne 1f
+        \\cmpl $1, encoder+8(%%rip)
+        \\jne 1f
+        \\movl $1, crtc+12(%%rip)
+        \\movq $16, %%rax
+        \\movq %%r12, %%rdi
+        \\movq $0xc06864a1, %%rsi
+        \\leaq crtc(%%rip), %%rdx
+        \\syscall
+        \\testq %%rax, %%rax
+        \\jne 1f
+        \\cmpl $1, crtc+32(%%rip)
+        \\jne 1f
+        \\cmpw $0, crtc+40(%%rip)
+        \\je 1f
         \\movq $3, %%rax
         \\movq %%r12, %%rdi
         \\syscall
