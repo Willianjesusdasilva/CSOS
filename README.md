@@ -739,6 +739,14 @@ PDB1→PDB0 usa `TRANSLATE_FURTHER`, PDB0→PTB usa PDE base e a PTE final conve
 R/W/X da UAPI nos bits GFX11. Todos os níveis em RAM carregam
 VALID|SYSTEM|SNOOPED; endereços fora da máscara física, desalinhamento e
 colisão com entrada diferente são rejeitados antes de alterar a hierarquia.
+`mapSystemPage` coordena o intervalo lógico e a PTE como uma única operação:
+se path/PTE falhar, remove o mapping recém-criado. `unmapSystemPage` confirma
+flags e PTE esperada, zera a folha e só então remove o intervalo; uma PTE de
+outro BO nunca é apagada por engano.
+Enquanto o allocator dinâmico de branches ainda não existe, o conjunto de
+quatro páginas fica vinculado aos índices PDB2/PDB1/PDB0 do primeiro mapping;
+outro PTB dentro desse branch pode ser usado, mas um VA fora dele é rejeitado e
+revertido, evitando aliasar a mesma tabela filha em diretórios diferentes.
 
 O handoff PSP é mantido declarativo: KDB, SPL, SYS_DRV e SOS são ordenados como
 no fluxo upstream e apontam para suas fontes físicas validadas. Uma única área
