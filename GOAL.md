@@ -1297,36 +1297,7 @@ Somente GPUs e geraÃ§Ãµes explicitamente validadas entram como suportadas.
 
 VÃ­deo + input + Ã¡udio.
 
-## M16 â€” Steam Runtime
-
-Corrigir ABI conforme erros reais.
-
-## M17 â€” Steam
-
-```text
-abre
-login
-biblioteca
-download
-```
-
-## M18 â€” CS2 funcional
-
-```text
-processo inicia
-â†“
-menu
-â†“
-mapa offline
-â†“
-servidor online
-â†“
-partida completa
-```
-
-Neste ponto existe uma baseline funcional obrigatÃ³ria.
-
-## M19 â€” Hardware discovery + installer autotune
+## M16 â€” Hardware discovery + installer autotune
 
 Finalizar instalaÃ§Ã£o autoconfigurÃ¡vel:
 
@@ -1342,7 +1313,7 @@ hardware.csc
 
 Validar assinatura no boot e retunar apenas componentes alterados.
 
-## M20 â€” Gaming optimization
+## M17 â€” Gaming optimization
 
 Implementar e medir:
 
@@ -1360,7 +1331,7 @@ MATCH
 
 Toda otimizaÃ§Ã£o precisa ser comparada com baseline.
 
-## M21 â€” Process lifecycle
+## M18 â€” Process lifecycle
 
 Implementar:
 
@@ -1383,7 +1354,7 @@ Freeze deve remover threads das run queues e pausar timers normais.
 
 Integrar com GAME/MATCH.
 
-## M22 â€” Standby + memory reclaim
+## M19 â€” Standby + memory reclaim
 
 Adicionar:
 
@@ -1399,7 +1370,7 @@ Adicionar polÃ­tica `STANDBY`.
 
 NÃ£o implementar snapshot completo de processo nesta milestone.
 
-## M23 â€” HTML UI runtime
+## M20 â€” HTML UI runtime
 
 Implementar:
 
@@ -1423,7 +1394,7 @@ resolver um provider real e aparecer na interface.
 
 NÃ£o usar servidor web desnecessÃ¡rio.
 
-## M24 â€” UI actions
+## M21 â€” UI actions
 
 Implementar `/system/ui/scripts/` e `data-action`.
 
@@ -1441,7 +1412,7 @@ resultado
 
 Nunca executar shell arbitrÃ¡rio vindo da UI.
 
-## M25 â€” Alt+Tab / application UI
+## M22 â€” Alt+Tab / application UI
 
 Integrar HTML UI ao lifecycle manager.
 
@@ -1455,7 +1426,7 @@ STANDBY
 
 Selecionar app deve realizar resume quando necessÃ¡rio.
 
-## M26 â€” Dynamic UI
+## M23 â€” Dynamic UI
 
 Adicionar atualizaÃ§Ãµes de alta frequÃªncia sem rerender completo:
 
@@ -1473,7 +1444,7 @@ Usar para FPS, frametime e mÃ©tricas que realmente precisam disso.
 
 Quando necessÃ¡rio, adicionar providers `sys:` residentes.
 
-## M27 â€” GPU accelerated shell
+## M24 â€” GPU accelerated shell
 
 Acelerar renderer/composiÃ§Ã£o da UI via GPU.
 
@@ -1481,7 +1452,7 @@ Quando UI nÃ£o estiver visÃ­vel, seu trabalho deve tender a zero.
 
 MATCH deve reduzir animaÃ§Ãµes, timers e telemetria visual.
 
-## M28 â€” GPU system worker
+## M25 â€” GPU system worker
 
 Criar `userspace/gpu_worker`.
 
@@ -1499,7 +1470,7 @@ incluindo transferÃªncia e sincronizaÃ§Ã£o.
 
 SÃ³ manter GPU path se houver ganho mensurÃ¡vel.
 
-## M29 â€” GPU autotune
+## M26 â€” GPU autotune
 
 Integrar decisÃµes de GPU compute ao autotuner/hardware.csc.
 
@@ -1522,6 +1493,35 @@ system GPU compute = OFF
 ```
 
 por padrÃ£o.
+
+## M27 â€” Steam Runtime
+
+Corrigir ABI conforme erros reais somente depois de o sistema operacional estar funcional e validado nas etapas anteriores.
+
+## M28 â€” Steam
+
+```text
+abre
+login
+biblioteca
+download
+```
+
+## M29 â€” CS2 funcional
+
+```text
+processo inicia
+â†“
+menu
+â†“
+mapa offline
+â†“
+servidor online
+â†“
+partida completa
+```
+
+Neste ponto existe uma baseline funcional obrigatÃ³ria.
 
 ## M30 â€” Final integration
 
@@ -1793,13 +1793,14 @@ Steam or CS2:
 
 ```text
 M13 audio
-M14 display/GPU baseline
-M15 shell and service lifecycle
-M16 installer and hardware profile
-M17 standby/resume
-M18 optimization and profiling
-M19 Steam
-M20 CS2
+M14 GPU AMD/NVIDIA + Vulkan
+M15 SDL
+M16-M19 hardware discovery, optimization, lifecycle and standby
+M20-M26 UI, accelerated shell and optional GPU system work
+M27 Steam Runtime
+M28 Steam
+M29 CS2
+M30 final integration
 ```
 
 Steam and CS2 are intentionally last. They must not be used as acceptance

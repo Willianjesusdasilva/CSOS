@@ -549,22 +549,24 @@ M12  Network
 M13  Audio
 M14  GPU AMD/NVIDIA + Vulkan
 M15  SDL
-M16  Steam Runtime
-M17  Steam
-M18  CS2
-M19  Hardware Discovery / Autotune
-M20  Gaming Optimization
-M21  Process Lifecycle
-M22  Standby / Memory Reclaim
-M23  HTML UI Runtime
-M24  UI Actions
-M25  Alt+Tab / Application UI
-M26  Dynamic UI
-M27  GPU Accelerated Shell
-M28  GPU System Worker
-M29  GPU Autotune
+M16  Hardware Discovery / Autotune
+M17  Gaming Optimization
+M18  Process Lifecycle
+M19  Standby / Memory Reclaim
+M20  HTML UI Runtime
+M21  UI Actions
+M22  Alt+Tab / Application UI
+M23  Dynamic UI
+M24  GPU Accelerated Shell
+M25  GPU System Worker
+M26  GPU Autotune
+M27  Steam Runtime
+M28  Steam
+M29  CS2
 M30  Final Integration
 ```
+
+Steam Runtime, Steam e CS2 são deliberadamente as últimas etapas funcionais. Antes delas, o sistema deve estar utilizável, estável e validado com display, GPU AMD/NVIDIA, SDL, hardware discovery, ciclo de processos, standby, UI e otimizações mensuráveis.
 
 O arquivo `GOAL.md` é a fonte de verdade técnica do roadmap e das prioridades de implementação.
 
