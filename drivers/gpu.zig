@@ -360,6 +360,37 @@ pub const AmdGfx11RingContract = struct {
     uses_64bit_pointers: bool = true,
     requires_doorbell: bool = true,
 };
+pub const AmdGfx11RingResources = struct {
+    ring: u64 = 0,
+    mqd: u64 = 0,
+    eop: u64 = 0,
+    pointers: u64 = 0,
+    allocator: ?AmdGpuVmPageAllocator = null,
+
+    pub fn release(self: *AmdGfx11RingResources) !void {
+        const allocator = self.allocator orelse return error.AmdGfxRingResourcesNotAllocated;
+        var failed = false;
+        inline for (.{ "pointers", "eop", "mqd", "ring" }) |field| {
+            const address = @field(self, field);
+            if (address != 0) allocator.release(allocator.context, address) catch { failed = true; };
+        }
+        self.* = .{};
+        if (failed) return error.AmdGfxRingResourceReleaseFailed;
+    }
+};
+
+pub fn allocateAmdGfx11RingResources(allocator: AmdGpuVmPageAllocator) !AmdGfx11RingResources {
+    var result = AmdGfx11RingResources{ .allocator = allocator };
+    errdefer {
+        if (result.allocator != null) result.release() catch {};
+    }
+    inline for (.{ "ring", "mqd", "eop", "pointers" }) |field| {
+        const address = try allocateCheckedAmdGpuVmPage(allocator);
+        @field(result, field) = address;
+        try allocator.zero(allocator.context, address);
+    }
+    return result;
+}
 
 pub const AmdGfx11PreflightEvidence = struct {
     firmware: bool = false,
@@ -2570,6 +2601,22 @@ pub fn validateAmdGpuVmBranchPlannerSelfTest() !void {
         return error.AmdGpuVmBranchPruneMismatch;
     if (planner.release(first)) return error.AmdGpuVmMissingBranchReleaseAccepted else |err|
         if (err != error.AmdGpuVmBranchNotFound) return err;
+}
+
+pub fn validateAmdGfx11RingResourceSelfTest() !void {
+    var pool = AmdGpuVmPageTestPool{};
+    var resources = try allocateAmdGfx11RingResources(pool.pageAllocator());
+    if (resources.ring == 0 or resources.mqd == 0 or resources.eop == 0 or resources.pointers == 0)
+        return error.AmdGfxRingResourceMissing;
+    for (pool.allocated, 0..) |allocated, index| if (allocated)
+        for (pool.storage[index]) |byte| if (byte != 0) return error.AmdGfxRingResourceNotZeroed;
+    try resources.release();
+    for (pool.allocated) |allocated| if (allocated) return error.AmdGfxRingResourceReleaseLeak;
+
+    var failing = AmdGpuVmPageTestPool{ .fail_after = 2 };
+    if (allocateAmdGfx11RingResources(failing.pageAllocator())) |_| return error.AmdGfxRingResourceFailureNotDetected else |err|
+        if (err != error.InjectedAmdGpuVmAllocationFailure) return err;
+    for (failing.allocated) |allocated| if (allocated) return error.AmdGfxRingResourceRollbackLeak;
 }
 
 const AmdGpuVmPageTestPool = struct {

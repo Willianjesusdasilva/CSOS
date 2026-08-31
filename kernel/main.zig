@@ -552,6 +552,10 @@ pub fn start(info: BootInfo) noreturn {
             plan.gfx,
         ) catch panic("AMDGPU GFX11 firmware set incomplete")
     else null else null;
+    const gpu_gfx_ring_resources = if (gpu_gfx_firmware != null)
+        gpu.allocateAmdGfx11RingResources(gpu.physicalAmdGpuVmPageAllocator(&pages)) catch
+            panic("AMDGPU GFX11 ring resource allocation failed")
+    else gpu.AmdGfx11RingResources{};
     const gpu_memory_plan = if (gpu_backend_plan) |plan| gpu.planAmdMemory(gpu_adapter.bars, gpu_adapter.register_bar, plan.gmc) catch
         panic("AMDGPU memory apertures invalid") else null;
     const gpu_psp_gtt = if (gpu_memory_plan != null) gpu.prepareAmdPspGtt(&pages) catch panic("AMDGPU PSP GTT staging failed") else gpu.AmdPspGttStaging{};
@@ -876,6 +880,10 @@ pub fn start(info: BootInfo) noreturn {
         .psp = gpu_psp_handoff.state == .finished,
         .gart = gpu_gmc11_activation_workspace.active,
         .gpuvm = gpu_vm_runtime.active,
+        .ring = gpu_gfx_ring_resources.ring != 0,
+        .mqd = gpu_gfx_ring_resources.mqd != 0,
+        .eop = gpu_gfx_ring_resources.eop != 0,
+        .pointers = gpu_gfx_ring_resources.pointers != 0,
     })));
     serial.write(" driver: ");
     serial.write(switch (gpu_adapter.driver) {

@@ -1830,8 +1830,9 @@ MMHUB 3.0 VMID bind/unbind register transaction: implemented and host-tested
 gate-controlled GEM_VA bind/invalidate/unbind lifecycle: implemented and host-tested
 typed GFX11 firmware roles and MES payload validation: implemented and host-tested
 GFX11 ring resource contract and fail-closed preflight: implemented and host-tested
+transactional ring/MQD/EOP/pointer physical allocation: implemented and host-tested
 real Radeon MMIO lifecycle validation: pending
-ring/MQD/EOP/pointer allocation and command submission: pending
+doorbell assignment, MQD encoding, ring activation and command submission: pending
 AMD RADV triangle on real hardware: pending
 NVIDIA NVK/compatible-stack triangle on real hardware: pending
 ```
