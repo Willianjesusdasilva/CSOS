@@ -2,6 +2,7 @@ const std = @import("std");
 
 pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
+    const gpu_firmware = b.option([]const u8, "gpu-firmware", "Firmware archive copied to GPUFW.BIN on the CSOS disk");
     const target = b.resolveTargetQuery(.{
         .cpu_arch = .x86_64,
         .os_tag = .uefi,
@@ -226,6 +227,10 @@ pub fn build(b: *std.Build) void {
     qemu.addFileArg(boot.getEmittedBin());
     qemu.addFileArg(shared.getEmittedBin());
     qemu.addFileArg(extra.getEmittedBin());
+    if (gpu_firmware) |path| {
+        qemu.addArg("-GpuFirmware");
+        qemu.addArg(path);
+    }
     if (b.args) |args| qemu.addArgs(args);
     run.dependOn(&qemu.step);
 }

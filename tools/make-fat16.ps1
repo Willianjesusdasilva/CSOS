@@ -1,7 +1,8 @@
 param(
     [Parameter(Mandatory = $true)][string]$Path,
     [string]$SharedLibrary,
-    [string]$ExtraLibrary
+    [string]$ExtraLibrary,
+    [string]$GpuFirmware
 )
 
 $sectorSize = 512
@@ -89,6 +90,32 @@ try {
         $writer.Write([uint32]$library.Length)
         $stream.Position = $dataStart * $sectorSize + ($nextFreeCluster - 2) * $clusterBytes
         $writer.Write($library)
+        $nextFreeCluster += $clusterCount
+    }
+    if ($GpuFirmware) {
+        $firmware = [IO.File]::ReadAllBytes($GpuFirmware)
+        $clusterBytes = $sectorSize * $sectorsPerCluster
+        $clusterCount = [int][Math]::Ceiling($firmware.Length / $clusterBytes)
+        if ($clusterCount -eq 0) { throw 'GPU firmware archive is empty' }
+        $lastCluster = $nextFreeCluster + $clusterCount - 1
+        $availableLastCluster = [Math]::Min(0xFFEF, [int](($sectorCount - $dataStart) / $sectorsPerCluster) + 1)
+        if ($lastCluster -gt $availableLastCluster) { throw 'GPU firmware archive does not fit on the CSOS disk' }
+        foreach ($fatStart in @(1, 1 + $fatSectors)) {
+            for ($index = 0; $index -lt $clusterCount; $index++) {
+                $cluster = $nextFreeCluster + $index
+                $next = if ($index + 1 -eq $clusterCount) { 0xFFFF } else { $cluster + 1 }
+                $stream.Position = $fatStart * $sectorSize + $cluster * 2
+                $writer.Write([uint16]$next)
+            }
+        }
+        $stream.Position = $rootStart * $sectorSize + 96
+        $writer.Write([Text.Encoding]::ASCII.GetBytes('GPUFW   BIN'))
+        $writer.Write([byte]0x20)
+        $writer.Write([byte[]]::new(14))
+        $writer.Write([uint16]$nextFreeCluster)
+        $writer.Write([uint32]$firmware.Length)
+        $stream.Position = $dataStart * $sectorSize + ($nextFreeCluster - 2) * $clusterBytes
+        $writer.Write($firmware)
     }
 } finally {
     $stream.Dispose()
