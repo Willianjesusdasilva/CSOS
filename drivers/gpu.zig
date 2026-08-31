@@ -862,9 +862,9 @@ pub const AmdGpuVmPagePath = struct {
     ptb: u9,
     page_offset: u12,
 };
-const AmdGpuVmPdb1Node = struct { active: bool = false, pdb2: u9 = 0, child_count: u16 = 0 };
-const AmdGpuVmPdb0Node = struct { active: bool = false, pdb2: u9 = 0, pdb1: u9 = 0, child_count: u16 = 0 };
-const AmdGpuVmPtbNode = struct { active: bool = false, pdb2: u9 = 0, pdb1: u9 = 0, pdb0: u9 = 0, page_count: u16 = 0 };
+const AmdGpuVmPdb1Node = struct { active: bool = false, pdb2: u9 = 0, child_count: u16 = 0, page: u64 = 0 };
+const AmdGpuVmPdb0Node = struct { active: bool = false, pdb2: u9 = 0, pdb1: u9 = 0, child_count: u16 = 0, page: u64 = 0 };
+const AmdGpuVmPtbNode = struct { active: bool = false, pdb2: u9 = 0, pdb1: u9 = 0, pdb0: u9 = 0, page_count: u16 = 0, page: u64 = 0 };
 pub const AmdGpuVmBranchCounts = struct { pdb1: u16, pdb0: u16, ptb: u16, mapped_pages: u32 };
 pub const AmdGpuVmBranchPlanner = struct {
     pdb1_nodes: [32]AmdGpuVmPdb1Node = .{AmdGpuVmPdb1Node{}} ** 32,
@@ -935,6 +935,15 @@ pub const AmdGpuVmPageAllocator = struct {
     release: *const fn (*anyopaque, u64) anyerror!void,
     zero: *const fn (*anyopaque, u64) anyerror!void,
 };
+pub const AmdGpuVmPageTree = struct {
+    root_page: u64 = 0,
+    allocator: ?AmdGpuVmPageAllocator = null,
+    branches: AmdGpuVmBranchPlanner = .{},
+
+    pub fn root(self: *const AmdGpuVmPageTree) ?u64 {
+        return if (self.root_page != 0) self.root_page else null;
+    }
+};
 pub const AmdGpuVmPageTables = struct {
     pages: [4]u64 = .{0} ** 4,
     count: u3 = 0,
@@ -947,6 +956,33 @@ pub const AmdGpuVmPageTables = struct {
         return if (self.count == 4) self.pages[0] else null;
     }
 };
+
+fn allocateCheckedAmdGpuVmPage(allocator: AmdGpuVmPageAllocator) !u64 {
+    const page = try allocator.allocate(allocator.context);
+    if (page == 0 or (page & 4095) != 0 or (page & ~amd_gpu_page_address_mask) != 0) {
+        if (page != 0) allocator.release(allocator.context, page) catch {};
+        return error.InvalidAmdGpuVmPage;
+    }
+    return page;
+}
+
+pub fn materializeAmdGpuVmPageTree(tree: *AmdGpuVmPageTree, allocator: AmdGpuVmPageAllocator) !void {
+    if (tree.root_page != 0) return error.AmdGpuVmPageTablesAlreadyAllocated;
+    const root_page = try allocateCheckedAmdGpuVmPage(allocator);
+    errdefer allocator.release(allocator.context, root_page) catch {};
+    try allocator.zero(allocator.context, root_page);
+    tree.* = .{ .root_page = root_page, .allocator = allocator };
+}
+
+pub fn dematerializeAmdGpuVmPageTree(tree: *AmdGpuVmPageTree) !void {
+    if (tree.root_page == 0 or tree.allocator == null) return error.AmdGpuVmPageTablesNotAllocated;
+    const counts = tree.branches.counts();
+    if (counts.mapped_pages != 0 or counts.pdb1 != 0 or counts.pdb0 != 0 or counts.ptb != 0)
+        return error.AmdGpuVmMappingsStillActive;
+    const allocator = tree.allocator.?;
+    try allocator.release(allocator.context, tree.root_page);
+    tree.* = .{};
+}
 
 pub fn allocateAmdGpuVmPageTables(allocator: AmdGpuVmPageAllocator) !AmdGpuVmPageTables {
     var tables = AmdGpuVmPageTables{};
@@ -1039,6 +1075,108 @@ pub fn amdGpuVmSystemPte(address: u64, mapping_flags: u32) !u64 {
     return value;
 }
 
+fn allocateAmdGpuVmTreeChild(tree: *const AmdGpuVmPageTree, prior: []const u64) !u64 {
+    const allocator = tree.allocator orelse return error.AmdGpuVmPageTablesNotAllocated;
+    const page = try allocateCheckedAmdGpuVmPage(allocator);
+    if (page == tree.root_page) return error.DuplicateAmdGpuVmPage;
+    for (prior) |existing| if (page == existing) return error.DuplicateAmdGpuVmPage;
+    for (tree.branches.pdb1_nodes) |node| if (node.active and node.page == page) return error.DuplicateAmdGpuVmPage;
+    for (tree.branches.pdb0_nodes) |node| if (node.active and node.page == page) return error.DuplicateAmdGpuVmPage;
+    for (tree.branches.ptb_nodes) |node| if (node.active and node.page == page) return error.DuplicateAmdGpuVmPage;
+    allocator.zero(allocator.context, page) catch |err| {
+        allocator.release(allocator.context, page) catch {};
+        return err;
+    };
+    return page;
+}
+
+pub fn linkAmdGpuVmPageTree(tree: *AmdGpuVmPageTree, path: AmdGpuVmPagePath, physical_page: u64, mapping_flags: u32) !void {
+    if (tree.root_page == 0 or tree.allocator == null) return error.AmdGpuVmPageTablesNotAllocated;
+    const pte_value = try amdGpuVmSystemPte(physical_page, mapping_flags);
+    const old_pdb1 = tree.branches.findPdb1(path);
+    const old_pdb0 = tree.branches.findPdb0(path);
+    const old_ptb = tree.branches.findPtb(path);
+    if (old_pdb0 != null and old_pdb1 == null or old_ptb != null and old_pdb0 == null)
+        return error.CorruptAmdGpuVmBranchPlan;
+
+    var allocated = [_]u64{0} ** 3;
+    var allocated_count: usize = 0;
+    var keep_allocated = false;
+    defer if (!keep_allocated) {
+        const allocator = tree.allocator.?;
+        while (allocated_count != 0) {
+            allocated_count -= 1;
+            allocator.release(allocator.context, allocated[allocated_count]) catch {};
+        }
+    };
+    const pdb1_page = if (old_pdb1) |index| tree.branches.pdb1_nodes[index].page else blk: {
+        allocated[allocated_count] = try allocateAmdGpuVmTreeChild(tree, allocated[0..allocated_count]);
+        allocated_count += 1;
+        break :blk allocated[allocated_count - 1];
+    };
+    const pdb0_page = if (old_pdb0) |index| tree.branches.pdb0_nodes[index].page else blk: {
+        allocated[allocated_count] = try allocateAmdGpuVmTreeChild(tree, allocated[0..allocated_count]);
+        allocated_count += 1;
+        break :blk allocated[allocated_count - 1];
+    };
+    const ptb_page = if (old_ptb) |index| tree.branches.ptb_nodes[index].page else blk: {
+        allocated[allocated_count] = try allocateAmdGpuVmTreeChild(tree, allocated[0..allocated_count]);
+        allocated_count += 1;
+        break :blk allocated[allocated_count - 1];
+    };
+    const root: [*]u64 = @ptrFromInt(tree.root_page);
+    const pdb1: [*]u64 = @ptrFromInt(pdb1_page);
+    const pdb0: [*]u64 = @ptrFromInt(pdb0_page);
+    const ptb: [*]u64 = @ptrFromInt(ptb_page);
+    const links = [_]struct { slot: *u64, value: u64 }{
+        .{ .slot = &root[path.pdb2], .value = try amdGpuVmSystemPde(pdb1_page, amd_gpu_pde_bfs_9) },
+        .{ .slot = &pdb1[path.pdb1], .value = try amdGpuVmSystemPde(pdb0_page, amd_gpu_pte_translate_further) },
+        .{ .slot = &pdb0[path.pdb0], .value = try amdGpuVmSystemPde(ptb_page, 0) },
+        .{ .slot = &ptb[path.ptb], .value = pte_value },
+    };
+    for (links[0..3]) |link| if (link.slot.* != 0 and link.slot.* != link.value) return error.AmdGpuVmPagePathCollision;
+    if (links[3].slot.* != 0) return error.AmdGpuVmPagePathCollision;
+    try tree.branches.acquire(path);
+    const pdb1_index = tree.branches.findPdb1(path).?;
+    const pdb0_index = tree.branches.findPdb0(path).?;
+    const ptb_index = tree.branches.findPtb(path).?;
+    if (old_pdb1 == null) tree.branches.pdb1_nodes[pdb1_index].page = pdb1_page;
+    if (old_pdb0 == null) tree.branches.pdb0_nodes[pdb0_index].page = pdb0_page;
+    if (old_ptb == null) tree.branches.ptb_nodes[ptb_index].page = ptb_page;
+    for (links) |link| link.slot.* = link.value;
+    keep_allocated = true;
+}
+
+pub fn unlinkAmdGpuVmPageTree(tree: *AmdGpuVmPageTree, path: AmdGpuVmPagePath, expected_pte: u64) !void {
+    if (tree.root_page == 0 or tree.allocator == null) return error.AmdGpuVmPageTablesNotAllocated;
+    const pdb1_index = tree.branches.findPdb1(path) orelse return error.AmdGpuVmBranchNotFound;
+    const pdb0_index = tree.branches.findPdb0(path) orelse return error.AmdGpuVmBranchNotFound;
+    const ptb_index = tree.branches.findPtb(path) orelse return error.AmdGpuVmBranchNotFound;
+    const pdb1_node = tree.branches.pdb1_nodes[pdb1_index];
+    const pdb0_node = tree.branches.pdb0_nodes[pdb0_index];
+    const ptb_node = tree.branches.ptb_nodes[ptb_index];
+    const root: [*]u64 = @ptrFromInt(tree.root_page);
+    const pdb1: [*]u64 = @ptrFromInt(pdb1_node.page);
+    const pdb0: [*]u64 = @ptrFromInt(pdb0_node.page);
+    const ptb: [*]u64 = @ptrFromInt(ptb_node.page);
+    if (ptb[path.ptb] == 0) return error.AmdGpuVmPteNotMapped;
+    if (ptb[path.ptb] != expected_pte) return error.AmdGpuVmPteMismatch;
+    const prune_ptb = ptb_node.page_count == 1;
+    const prune_pdb0 = prune_ptb and pdb0_node.child_count == 1;
+    const prune_pdb1 = prune_pdb0 and pdb1_node.child_count == 1;
+    ptb[path.ptb] = 0;
+    if (prune_ptb) pdb0[path.pdb0] = 0;
+    if (prune_pdb0) pdb1[path.pdb1] = 0;
+    if (prune_pdb1) root[path.pdb2] = 0;
+    try tree.branches.release(path);
+    const allocator = tree.allocator.?;
+    var release_failed = false;
+    if (prune_ptb) allocator.release(allocator.context, ptb_node.page) catch { release_failed = true; };
+    if (prune_pdb0) allocator.release(allocator.context, pdb0_node.page) catch { release_failed = true; };
+    if (prune_pdb1) allocator.release(allocator.context, pdb1_node.page) catch { release_failed = true; };
+    if (release_failed) return error.AmdGpuVmPageReleaseFailed;
+}
+
 pub fn linkAmdGpuVmPagePath(tables: *AmdGpuVmPageTables, path: AmdGpuVmPagePath, physical_page: u64, mapping_flags: u32) !void {
     if (tables.count != 4) return error.AmdGpuVmPageTablesNotAllocated;
     if (tables.path_bound and (tables.pdb2_index != path.pdb2 or tables.pdb1_index != path.pdb1 or tables.pdb0_index != path.pdb0))
@@ -1072,7 +1210,7 @@ pub const AmdGpuVm = struct {
     allocated: bool = false,
     vmid: u4 = 0,
     mappings: [32]AmdGpuVaMapping = .{AmdGpuVaMapping{}} ** 32,
-    page_tables: AmdGpuVmPageTables = .{},
+    page_tree: AmdGpuVmPageTree = .{},
 };
 pub const AmdGpuVmManager = struct {
     vms: [15]AmdGpuVm = .{AmdGpuVm{}} ** 15,
@@ -1087,21 +1225,19 @@ pub const AmdGpuVmManager = struct {
 
     pub fn release(self: *AmdGpuVmManager, vmid: u4) !void {
         const vm = try self.get(vmid);
-        if (vm.page_tables.count != 0) return error.AmdGpuVmPageTablesStillAllocated;
+        if (vm.page_tree.root_page != 0) return error.AmdGpuVmPageTablesStillAllocated;
         vm.* = .{};
     }
 
     pub fn materialize(self: *AmdGpuVmManager, vmid: u4, allocator: AmdGpuVmPageAllocator) !void {
         const vm = try self.get(vmid);
-        if (vm.page_tables.count != 0) return error.AmdGpuVmPageTablesAlreadyAllocated;
-        vm.page_tables = try allocateAmdGpuVmPageTables(allocator);
+        try materializeAmdGpuVmPageTree(&vm.page_tree, allocator);
     }
 
-    pub fn dematerialize(self: *AmdGpuVmManager, vmid: u4, allocator: AmdGpuVmPageAllocator) !void {
+    pub fn dematerialize(self: *AmdGpuVmManager, vmid: u4) !void {
         const vm = try self.get(vmid);
         for (vm.mappings) |mapping| if (mapping.active) return error.AmdGpuVmMappingsStillActive;
-        if (vm.page_tables.count == 0) return error.AmdGpuVmPageTablesNotAllocated;
-        try releaseAmdGpuVmPageTables(&vm.page_tables, allocator);
+        try dematerializeAmdGpuVmPageTree(&vm.page_tree);
     }
 
     pub fn map(self: *AmdGpuVmManager, vmid: u4, handle: u32, address: u64, size: u64, bo_offset: u64, bo_size: u64, flags: u32) !void {
@@ -1134,13 +1270,13 @@ pub const AmdGpuVmManager = struct {
 
     pub fn mapSystemPage(self: *AmdGpuVmManager, vmid: u4, handle: u32, address: u64, bo_offset: u64, bo_size: u64, physical_page: u64, flags: u32) !void {
         const vm = try self.get(vmid);
-        if (vm.page_tables.count != 4) return error.AmdGpuVmPageTablesNotAllocated;
+        if (vm.page_tree.root_page == 0) return error.AmdGpuVmPageTablesNotAllocated;
         try self.map(vmid, handle, address, 4096, bo_offset, bo_size, flags);
         const path = amdGpuVmPagePath(address) catch |err| {
             self.unmap(vmid, address, 4096) catch {};
             return err;
         };
-        linkAmdGpuVmPagePath(&vm.page_tables, path, physical_page, flags) catch |err| {
+        linkAmdGpuVmPageTree(&vm.page_tree, path, physical_page, flags) catch |err| {
             self.unmap(vmid, address, 4096) catch {};
             return err;
         };
@@ -1156,7 +1292,7 @@ pub const AmdGpuVmManager = struct {
         };
         if (!found) return error.AmdGpuVaMappingNotFound;
         const path = try amdGpuVmPagePath(address);
-        try unlinkAmdGpuVmPage(&vm.page_tables, path, try amdGpuVmSystemPte(physical_page, flags));
+        try unlinkAmdGpuVmPageTree(&vm.page_tree, path, try amdGpuVmSystemPte(physical_page, flags));
         try self.unmap(vmid, address, 4096);
     }
 
@@ -2037,10 +2173,11 @@ pub fn validateAmdGpuVmBranchPlannerSelfTest() !void {
 }
 
 const AmdGpuVmPageTestPool = struct {
-    storage: [5][4096]u8 align(4096) = .{.{0xaa} ** 4096} ** 5,
-    allocated: [5]bool = .{false} ** 5,
-    fail_after: ?u3 = null,
-    allocations: u3 = 0,
+    storage: [12][4096]u8 align(4096) = .{.{0xaa} ** 4096} ** 12,
+    data_page: [4096]u8 align(4096) = .{0x5a} ** 4096,
+    allocated: [12]bool = .{false} ** 12,
+    fail_after: ?u4 = null,
+    allocations: u4 = 0,
 
     fn pageAllocator(self: *AmdGpuVmPageTestPool) AmdGpuVmPageAllocator {
         return .{ .context = self, .allocate = &allocate, .release = &release, .zero = &zero };
@@ -2111,22 +2248,51 @@ pub fn validateAmdGpuVmPageTablesSelfTest() !void {
     try manager.materialize(vm.vmid, pool.pageAllocator());
     if (manager.release(vm.vmid)) return error.AmdGpuVmReleasedWithPageTables else |err|
         if (err != error.AmdGpuVmPageTablesStillAllocated) return err;
-    const vm_data_page = @intFromPtr(&pool.storage[4]);
+    const vm_data_page = @intFromPtr(&pool.data_page);
     try manager.mapSystemPage(vm.vmid, 1, 0x200000000, 0, 0x1000, vm_data_page, 1 << 1);
-    if (manager.mapSystemPage(vm.vmid, 2, 0x10000000000, 0, 0x1000, vm_data_page, 1 << 1)) return error.AmdGpuVmOutsideBranchMappingAccepted else |err|
-        if (err != error.AmdGpuVmPagePathOutsideMaterializedBranch) return err;
+    try manager.mapSystemPage(vm.vmid, 2, 0x10000000000, 0, 0x1000, vm_data_page, 1 << 1);
+    try manager.mapSystemPage(vm.vmid, 3, 0x200001000, 0, 0x1000, vm_data_page, 1 << 1);
+    var branch_counts = vm.page_tree.branches.counts();
+    if (branch_counts.pdb1 != 2 or branch_counts.pdb0 != 2 or branch_counts.ptb != 2 or branch_counts.mapped_pages != 3)
+        return error.AmdGpuVmDynamicBranchMaterializationMismatch;
     var active_mappings: usize = 0;
     for (vm.mappings) |mapping| if (mapping.active) { active_mappings += 1; };
-    if (active_mappings != 1) return error.AmdGpuVmFailedMappingRollbackMismatch;
-    if (manager.dematerialize(vm.vmid, pool.pageAllocator())) return error.AmdGpuVmDematerializedWithMappings else |err|
+    if (active_mappings != 3) return error.AmdGpuVmDynamicMappingCountMismatch;
+    if (manager.dematerialize(vm.vmid)) return error.AmdGpuVmDematerializedWithMappings else |err|
         if (err != error.AmdGpuVmMappingsStillActive) return err;
     try manager.unmapSystemPage(vm.vmid, 0x200000000, vm_data_page, 1 << 1);
     const vm_path = try amdGpuVmPagePath(0x200000000);
-    const vm_ptb: [*]const u64 = @ptrFromInt(vm.page_tables.pages[3]);
+    const vm_ptb_index = vm.page_tree.branches.findPtb(vm_path) orelse return error.AmdGpuVmSharedPtbPrunedEarly;
+    const vm_ptb: [*]const u64 = @ptrFromInt(vm.page_tree.branches.ptb_nodes[vm_ptb_index].page);
     if (vm_ptb[vm_path.ptb] != 0) return error.AmdGpuVmPteUnmapFailed;
-    try manager.dematerialize(vm.vmid, pool.pageAllocator());
+    try manager.unmapSystemPage(vm.vmid, 0x200001000, vm_data_page, 1 << 1);
+    try manager.unmapSystemPage(vm.vmid, 0x10000000000, vm_data_page, 1 << 1);
+    branch_counts = vm.page_tree.branches.counts();
+    if (branch_counts.pdb1 != 0 or branch_counts.pdb0 != 0 or branch_counts.ptb != 0 or branch_counts.mapped_pages != 0)
+        return error.AmdGpuVmDynamicBranchPruneMismatch;
+    try manager.dematerialize(vm.vmid);
     try manager.release(vm.vmid);
     for (pool.allocated) |allocated| if (allocated) return error.AmdGpuVmLifecyclePageLeak;
+
+    pool = AmdGpuVmPageTestPool{ .fail_after = 2 };
+    manager = AmdGpuVmManager{};
+    const failing_vm = try manager.allocate();
+    try manager.materialize(failing_vm.vmid, pool.pageAllocator());
+    if (manager.mapSystemPage(failing_vm.vmid, 1, 0x400000000, 0, 0x1000, @intFromPtr(&pool.data_page), 1 << 1))
+        return error.AmdGpuVmDynamicAllocationFailureNotDetected
+    else |err| if (err != error.InjectedAmdGpuVmAllocationFailure) return err;
+    branch_counts = failing_vm.page_tree.branches.counts();
+    if (branch_counts.pdb1 != 0 or branch_counts.pdb0 != 0 or branch_counts.ptb != 0 or branch_counts.mapped_pages != 0)
+        return error.AmdGpuVmDynamicAllocationRollbackMismatch;
+    active_mappings = 0;
+    for (failing_vm.mappings) |mapping| if (mapping.active) { active_mappings += 1; };
+    if (active_mappings != 0) return error.AmdGpuVmDynamicLogicalRollbackMismatch;
+    var allocated_pages: usize = 0;
+    for (pool.allocated) |allocated| if (allocated) { allocated_pages += 1; };
+    if (allocated_pages != 1) return error.AmdGpuVmDynamicPhysicalRollbackLeak;
+    try manager.dematerialize(failing_vm.vmid);
+    try manager.release(failing_vm.vmid);
+    for (pool.allocated) |allocated| if (allocated) return error.AmdGpuVmDynamicRootReleaseLeak;
 }
 
 pub fn resolveAmdGmc11GartRegisters(plan: AmdGartPlan, register_bar_bytes: u64) !AmdGmc11GartRegisters {

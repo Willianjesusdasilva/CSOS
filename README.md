@@ -747,9 +747,13 @@ O planejamento dinâmico de branches agora compartilha PDB1/PDB0/PTB quando os
 índices superiores coincidem, mantém referências por página mapeada e poda
 PTB, PDB0 e PDB1 vazios durante unmap. A capacidade atual é explicitamente
 limitada a 32 PDB1, 64 PDB0 e 128 PTB por planejador, com erro em vez de
-sobrescrita ao esgotar. O materializador físico ainda usa o conjunto inicial de
-quatro páginas vinculado ao primeiro branch; o próximo passo é conectar o
-planejador ao allocator para criar e liberar páginas de tabela sob demanda.
+sobrescrita ao esgotar. O manager agora materializa somente a raiz PDB2 e
+aloca as páginas PDB1, PDB0 e PTB sob demanda. Antes de publicar qualquer PDE,
+valida todos os links e a PTE; falha de alocação libera em ordem reversa as
+páginas novas e também desfaz o intervalo lógico. No último unmap de um nó, os
+links pais são zerados e as páginas vazias são devolvidas ao allocator. Testes
+host atravessam dois ramos PDB2, comprovam compartilhamento dentro do mesmo PTB
+e injetam falha durante a expansão sem deixar página ou mapping residual.
 
 O handoff PSP é mantido declarativo: KDB, SPL, SYS_DRV e SOS são ordenados como
 no fluxo upstream e apontam para suas fontes físicas validadas. Uma única área
