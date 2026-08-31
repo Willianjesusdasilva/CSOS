@@ -461,6 +461,10 @@ pub fn start(info: BootInfo) noreturn {
     serial.write("IPv4 ICMP ready\n");
     const gpu_adapter = gpu.Adapter.discover(display_device) catch panic("GPU discovery failed");
     if (gpu_adapter.bar_count == 0) panic("GPU BAR discovery failed");
+    const gpu_registers = gpu_adapter.register_bar orelse panic("GPU register BAR missing");
+    if (gpu_registers.size > 16 * 1024 * 1024) panic("GPU register BAR unexpectedly large");
+    mapper.mapIdentity(gpu_registers.address, @intCast(gpu_registers.size)) catch panic("GPU register MMIO mapping failed");
+    mapper.activate();
     var screen = display.Context.init(info.framebuffer, display_device, &pages) catch panic("display initialization failed");
     screen.drawBaseline(@as(usize, hid.keyboards) + hid.mice, audio_info.playback_endpoints);
     const initial_pixels = screen.present();
@@ -469,6 +473,7 @@ pub fn start(info: BootInfo) noreturn {
     serial.write(" device: "); serial.writeDecimal(screen.adapter.device);
     serial.write(" bars: "); serial.writeDecimal(gpu_adapter.bar_count);
     serial.write(" bytes: "); serial.writeDecimal(gpu_adapter.mmio_bytes);
+    serial.write(" registers: "); serial.writeDecimal(gpu_registers.size);
     serial.write(" driver: ");
     serial.write(switch (gpu_adapter.driver) {
         .amdgpu => "amdgpu",
