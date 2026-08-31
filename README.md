@@ -711,16 +711,21 @@ ainda é recusado; `AMDGPU_INFO_ACCEL_WORKING` continua zero. VM e CS não são
 simulados antes de existir page table por processo e ring verificado.
 `AMDGPU_GEM_OP_GET_GEM_CREATE_INFO` devolve o descritor de criação original por
 ponteiro de usuário validado, e `AMDGPU_GEM_LIST_HANDLES` enumera tamanho,
-domínio, flags e alinhamento dos BOs ainda abertos. Operações de placement e
-mapping continuam recusadas até GPUVM existir.
+domínio, flags e alinhamento dos BOs ainda abertos. Placement em VRAM continua
+recusado; somente BO page-backed no domínio GTT pode entrar no GPUVM atual.
 
 O núcleo do GPUVM agora possui um allocator para VMIDs 1–15 (VMID0 permanece
 reservado ao sistema) e até 32 intervalos por VM. Map valida alinhamento de
 4 KiB, limites do BO, flags R/W/X, overflow e o VA hole de 48 bits; overlap é
 rejeitado dentro da VM, enquanto o mesmo VA pode existir isoladamente em outra
-VM. Release remove todos os mappings antes de reciclar o VMID. Ainda não há
-ioctl `GEM_VA`: os context registers continuam desabilitados até page tables
-por VM serem materializadas.
+VM. Release remove todos os mappings antes de reciclar o VMID.
+`AMDGPU_GEM_VA` aceita as estruturas UAPI atual (64 bytes) e legada (40 bytes)
+para MAP/UNMAP imediato de páginas GTT. MAP é transacional entre todas as
+páginas pedidas e aceita apenas R/W/X já codificados pelo GFX11; timeline,
+delayed update, PRT, MTYPE e operações CLEAR/REPLACE retornam erro enquanto não
+forem reais. UNMAP pré-valida o intervalo inteiro, e fechar um BO ainda mapeado
+retorna busy. Os context registers permanecem desabilitados até o vínculo do
+PDB2 por VM ser programado e invalidado em hardware.
 Para VA de 48 bits, o walker segue `PDB2[47:39] → PDB1[38:30] →
 PDB0[29:21] → PTB[20:12]`, com offset `[11:0]`. Cada nível possui até 512
 entradas de 64 bits e ocupa uma página de 4 KiB, conforme a geometria do

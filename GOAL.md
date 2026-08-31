@@ -1825,7 +1825,9 @@ AMDGPU VMID isolation and logical GPUVA mapping: implemented and host-tested
 GFX11 48-bit page-path and PDE/PTE encoding: implemented and host-tested
 dynamic branch sharing/reference/prune plan: implemented and host-tested
 dynamic physical page-table allocation/link/prune: implemented and host-tested
-GEM_VA, rings and command submission: pending
+GEM_VA immediate GTT MAP/UNMAP software path: implemented; Radeon validation pending
+GPUVM context-register programming and TLB invalidation: pending
+rings and command submission: pending
 AMD RADV triangle on real hardware: pending
 NVIDIA NVK/compatible-stack triangle on real hardware: pending
 ```

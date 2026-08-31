@@ -37,6 +37,7 @@ pub export var amd_create_info: [32]u8 = .{0} ** 32;
 pub export var amd_gem_op: [24]u8 = .{0} ** 24;
 pub export var amd_handle_list: [16]u8 = .{0} ** 16;
 pub export var amd_handle_entry: [40]u8 = .{0} ** 40;
+pub export var amd_va: [64]u8 = .{0} ** 64;
 pub export var amd_wait_idle: [16]u8 = .{0} ** 16;
 pub export var amd_close: [8]u8 = .{0} ** 8;
 pub export const success: [31]u8 = "Linux DRM core userspace ready\n".*;
@@ -443,6 +444,38 @@ pub export fn _start() callconv(.naked) noreturn {
         \\cmpl %%eax, amd_handle_entry(%%rip)
         \\jne 1f
         \\cmpq $4096, amd_handle_entry+8(%%rip)
+        \\jne 1f
+        \\movl amd_create(%%rip), %%eax
+        \\movl %%eax, amd_va(%%rip)
+        \\movl $1, amd_va+8(%%rip)
+        \\movl $6, amd_va+12(%%rip)
+        \\movabsq $0x400000000, %%rax
+        \\movq %%rax, amd_va+16(%%rip)
+        \\movq $4096, amd_va+32(%%rip)
+        \\movq $16, %%rax
+        \\movq %%r12, %%rdi
+        \\movq $0x40406448, %%rsi
+        \\leaq amd_va(%%rip), %%rdx
+        \\syscall
+        \\testq %%rax, %%rax
+        \\jne 1f
+        \\movl amd_create(%%rip), %%eax
+        \\movl %%eax, amd_close(%%rip)
+        \\movq $16, %%rax
+        \\movq %%r12, %%rdi
+        \\movq $0x40086409, %%rsi
+        \\leaq amd_close(%%rip), %%rdx
+        \\syscall
+        \\cmpq $-16, %%rax
+        \\jne 1f
+        \\movl $2, amd_va+8(%%rip)
+        \\movl $0, amd_va+12(%%rip)
+        \\movq $16, %%rax
+        \\movq %%r12, %%rdi
+        \\movq $0x40406448, %%rsi
+        \\leaq amd_va(%%rip), %%rdx
+        \\syscall
+        \\testq %%rax, %%rax
         \\jne 1f
         \\movl amd_create(%%rip), %%eax
         \\movl %%eax, amd_wait_idle(%%rip)

@@ -1296,6 +1296,23 @@ pub const AmdGpuVmManager = struct {
         try self.unmap(vmid, address, 4096);
     }
 
+    pub fn validateSystemPageMapping(self: *AmdGpuVmManager, vmid: u4, handle: u32, address: u64, bo_offset: u64, physical_page: u64) !u32 {
+        const vm = try self.get(vmid);
+        var flags: ?u32 = null;
+        for (vm.mappings) |mapping| if (mapping.active and mapping.handle == handle and mapping.address == address and
+            mapping.size == 4096 and mapping.bo_offset == bo_offset)
+        {
+            flags = mapping.flags;
+            break;
+        };
+        const mapping_flags = flags orelse return error.AmdGpuVaMappingNotFound;
+        const path = try amdGpuVmPagePath(address);
+        const ptb_index = vm.page_tree.branches.findPtb(path) orelse return error.AmdGpuVmBranchNotFound;
+        const ptb: [*]const u64 = @ptrFromInt(vm.page_tree.branches.ptb_nodes[ptb_index].page);
+        if (ptb[path.ptb] != try amdGpuVmSystemPte(physical_page, mapping_flags)) return error.AmdGpuVmPteMismatch;
+        return mapping_flags;
+    }
+
     fn get(self: *AmdGpuVmManager, vmid: u4) !*AmdGpuVm {
         if (vmid == 0 or vmid > 15) return error.InvalidAmdGpuVmid;
         const vm = &self.vms[vmid - 1];
@@ -2260,6 +2277,12 @@ pub fn validateAmdGpuVmPageTablesSelfTest() !void {
     if (active_mappings != 3) return error.AmdGpuVmDynamicMappingCountMismatch;
     if (manager.dematerialize(vm.vmid)) return error.AmdGpuVmDematerializedWithMappings else |err|
         if (err != error.AmdGpuVmMappingsStillActive) return err;
+    if (try manager.validateSystemPageMapping(vm.vmid, 1, 0x200000000, 0, vm_data_page) != 1 << 1)
+        return error.AmdGpuVmMappingValidationFlagsMismatch;
+    if (manager.validateSystemPageMapping(vm.vmid, 99, 0x200000000, 0, vm_data_page)) |_| return error.AmdGpuVmWrongHandleValidated else |err|
+        if (err != error.AmdGpuVaMappingNotFound) return err;
+    if (manager.validateSystemPageMapping(vm.vmid, 1, 0x200000000, 0, vm_data_page + 4096)) |_| return error.AmdGpuVmWrongPhysicalPageValidated else |err|
+        if (err != error.AmdGpuVmPteMismatch) return err;
     try manager.unmapSystemPage(vm.vmid, 0x200000000, vm_data_page, 1 << 1);
     const vm_path = try amdGpuVmPagePath(0x200000000);
     const vm_ptb_index = vm.page_tree.branches.findPtb(vm_path) orelse return error.AmdGpuVmSharedPtbPrunedEarly;

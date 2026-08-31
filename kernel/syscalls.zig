@@ -2,6 +2,7 @@ const serial = @import("serial");
 const vfs = @import("vfs");
 const net = @import("net");
 const physical = @import("physical");
+const gpu = @import("gpu");
 
 var user_base: u64 = 0;
 var user_size: u64 = 0;
@@ -61,6 +62,8 @@ var drm_framebuffer_created = false;
 var drm_framebuffer_handle: u32 = 0;
 var drm_scanout_framebuffer: u32 = 0;
 var drm_driver: DrmDriver = .csos;
+var drm_vm_manager = gpu.AmdGpuVmManager{};
+var drm_vm_vmid: u4 = 0;
 const max_drm_syncobjs = 16;
 const DrmSyncobj = struct { allocated: bool = false, point: u64 = 0 };
 var drm_syncobjs: [max_drm_syncobjs]DrmSyncobj = .{DrmSyncobj{}} ** max_drm_syncobjs;
@@ -121,6 +124,7 @@ pub fn configure(base: u64, size: u64, stack: u64, stack_length: u64, initial_br
     framebuffer_mmaps = 0;
     drm_ioctls = 0;
     drm_mmaps = 0;
+    resetDrmVm();
     releaseAllDrmObjects();
     drm_allocations = 0;
     drm_releases = 0;
@@ -360,6 +364,8 @@ fn ioctl(fd: u64, request: u64, address: u64) u64 {
             0x40206445 => if (drm_driver == .amdgpu) amdgpuInfo(address) else errno(25),
             0xc1206446 => if (drm_driver == .amdgpu) amdgpuGemMetadata(address) else errno(25),
             0xc0106447 => if (drm_driver == .amdgpu) amdgpuGemWaitIdle(address) else errno(25),
+            0x40286448 => if (drm_driver == .amdgpu) amdgpuGemVa(address, false) else errno(25),
+            0x40406448 => if (drm_driver == .amdgpu) amdgpuGemVa(address, true) else errno(25),
             0xc0186450 => if (drm_driver == .amdgpu) amdgpuGemOp(address) else errno(25),
             0xc0106459 => if (drm_driver == .amdgpu) amdgpuGemListHandles(address) else errno(25),
             else => errno(25),
@@ -639,6 +645,79 @@ fn amdgpuGemWaitIdle(address: u64) u64 {
     return 0;
 }
 
+fn ensureAmdGpuVm() !*gpu.AmdGpuVm {
+    if (drm_vm_vmid != 0) return &drm_vm_manager.vms[drm_vm_vmid - 1];
+    const pages = drm_pages orelse return error.AmdGpuVmMemoryUnavailable;
+    const vm = try drm_vm_manager.allocate();
+    errdefer drm_vm_manager.release(vm.vmid) catch {};
+    try drm_vm_manager.materialize(vm.vmid, gpu.physicalAmdGpuVmPageAllocator(pages));
+    drm_vm_vmid = vm.vmid;
+    return vm;
+}
+
+fn amdgpuGemVa(address: u64, extended: bool) u64 {
+    const input_size: u64 = if (extended) 64 else 40;
+    if (!validUserSlice(address, input_size)) return errno(14);
+    const io: [*]const u8 = @ptrFromInt(address);
+    const handle = read32(io);
+    if (read32(io + 4) != 0) return errno(22);
+    const operation = read32(io + 8);
+    const flags = read32(io + 12);
+    const va_address = read64(io + 16);
+    const bo_offset = read64(io + 24);
+    const map_size = read64(io + 32);
+    if (extended and (read64(io + 40) != 0 or read32(io + 48) != 0 or read32(io + 52) != 0 or read64(io + 56) != 0))
+        return errno(95);
+    if (map_size == 0 or (va_address & 4095) != 0 or (bo_offset & 4095) != 0 or (map_size & 4095) != 0)
+        return errno(22);
+    const object = drmObjectForHandle(handle) orelse return errno(2);
+    if ((object.domains & 0x2) == 0 or bo_offset > object.size or map_size > object.size - bo_offset) return errno(22);
+
+    if (operation == 1) {
+        if (flags == 0 or (flags & ~@as(u32, 0x0e)) != 0) return errno(95);
+        _ = ensureAmdGpuVm() catch |err| return amdGpuVmErrno(err);
+        var mapped: u64 = 0;
+        while (mapped < map_size) : (mapped += 4096) {
+            drm_vm_manager.mapSystemPage(drm_vm_vmid, handle, va_address + mapped, bo_offset + mapped, object.size, object.physical_address + bo_offset + mapped, flags) catch |err| {
+                var rollback = mapped;
+                while (rollback != 0) {
+                    rollback -= 4096;
+                    drm_vm_manager.unmapSystemPage(drm_vm_vmid, va_address + rollback, object.physical_address + bo_offset + rollback, flags) catch {};
+                }
+                return amdGpuVmErrno(err);
+            };
+        }
+        return 0;
+    }
+    if (operation != 2 or flags != 0) return errno(95);
+    if (drm_vm_vmid == 0) return errno(2);
+    var checked: u64 = 0;
+    while (checked < map_size) : (checked += 4096) {
+        _ = drm_vm_manager.validateSystemPageMapping(drm_vm_vmid, handle, va_address + checked, bo_offset + checked,
+            object.physical_address + bo_offset + checked) catch |err| return amdGpuVmErrno(err);
+    }
+    var unmapped: u64 = 0;
+    while (unmapped < map_size) : (unmapped += 4096) {
+        const mapping_flags = drm_vm_manager.validateSystemPageMapping(drm_vm_vmid, handle, va_address + unmapped, bo_offset + unmapped,
+            object.physical_address + bo_offset + unmapped) catch |err| return amdGpuVmErrno(err);
+        drm_vm_manager.unmapSystemPage(drm_vm_vmid, va_address + unmapped, object.physical_address + bo_offset + unmapped, mapping_flags) catch |err|
+            return amdGpuVmErrno(err);
+    }
+    return 0;
+}
+
+fn amdGpuVmErrno(err: anyerror) u64 {
+    return switch (err) {
+        error.OutOfMemory, error.AmdGpuVmidsExhausted, error.AmdGpuVmPdb1NodesExhausted,
+        error.AmdGpuVmPdb0NodesExhausted, error.AmdGpuVmPtbNodesExhausted => errno(12),
+        error.AmdGpuVaMappingsExhausted => errno(28),
+        error.AmdGpuVaMappingNotFound, error.AmdGpuVmBranchNotFound, error.AmdGpuVmPteNotMapped => errno(2),
+        error.AmdGpuVaOverlap, error.AmdGpuVmPagePathCollision => errno(17),
+        error.AmdGpuVmMemoryUnavailable => errno(19),
+        else => errno(22),
+    };
+}
+
 fn amdgpuGemOp(address: u64) u64 {
     if (!validUserSlice(address, 24)) return errno(14);
     const io: [*]u8 = @ptrFromInt(address);
@@ -722,6 +801,8 @@ fn drmGemClose(address: u64) u64 {
 
 fn drmCloseHandle(handle: u32) u64 {
     const object = drmObjectForHandle(handle) orelse return errno(2);
+    if (drm_vm_vmid != 0) for (drm_vm_manager.vms[drm_vm_vmid - 1].mappings) |mapping|
+        if (mapping.active and mapping.handle == handle) return errno(16);
     object.handle_open = false;
     if (!object.framebuffer_reference) releaseDrmObject(object);
     return 0;
@@ -736,6 +817,29 @@ fn releaseDrmObject(object: *DrmObject) void {
 }
 
 fn releaseAllDrmObjects() void { for (&drm_objects) |*object| releaseDrmObject(object); }
+
+fn resetDrmVm() void {
+    if (drm_vm_vmid == 0) return;
+    const vm = &drm_vm_manager.vms[drm_vm_vmid - 1];
+    while (true) {
+        var active: ?gpu.AmdGpuVaMapping = null;
+        for (vm.mappings) |mapping| if (mapping.active) {
+            active = mapping;
+            break;
+        };
+        const mapping = active orelse break;
+        var object: ?*DrmObject = null;
+        for (&drm_objects) |*candidate| if (candidate.allocated and candidate.handle == mapping.handle) {
+            object = candidate;
+            break;
+        };
+        const bo = object orelse break;
+        drm_vm_manager.unmapSystemPage(drm_vm_vmid, mapping.address, bo.physical_address + mapping.bo_offset, mapping.flags) catch break;
+    }
+    drm_vm_manager.dematerialize(drm_vm_vmid) catch return;
+    drm_vm_manager.release(drm_vm_vmid) catch return;
+    drm_vm_vmid = 0;
+}
 fn drmObjectForHandle(handle: u32) ?*DrmObject {
     if (handle == 0 or handle > drm_objects.len) return null;
     const object = &drm_objects[handle - 1];

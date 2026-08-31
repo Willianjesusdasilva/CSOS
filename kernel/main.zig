@@ -241,8 +241,10 @@ pub fn start(info: BootInfo) noreturn {
         panic("Linux DRM core userspace failed");
     };
     mapper.activate();
-    if (syscalls.drm_ioctls != 35 or syscalls.drm_mmaps != 2) panic("Linux DRM ioctl coverage failed");
-    if (syscalls.drm_allocations != 3 or syscalls.drm_releases != 3) panic("DRM backing memory lifecycle failed");
+    const expected_drm_ioctls: u64 = if (display_device.vendor == 0x1002) 44 else 35;
+    const expected_drm_objects: u64 = if (display_device.vendor == 0x1002) 4 else 3;
+    if (syscalls.drm_ioctls != expected_drm_ioctls or syscalls.drm_mmaps != 2) panic("Linux DRM ioctl coverage failed");
+    if (syscalls.drm_allocations != expected_drm_objects or syscalls.drm_releases != expected_drm_objects) panic("DRM backing memory lifecycle failed");
     if (drm_guard.* != drm_guard_before) panic("DRM buffer aliased firmware framebuffer");
     serial.write("CSOS M14 userspace DRM core ready\n");
     const echo_arguments = [_][]const u8{ "/bin/busybox", "echo", "BusyBox userspace ready" };

@@ -187,6 +187,7 @@ pub fn build(b: *std.Build) void {
     syscalls_module.addImport("vfs", vfs_module);
     syscalls_module.addImport("net", net_module);
     syscalls_module.addImport("physical", physical_module);
+    syscalls_module.addImport("gpu", gpu_module);
     const process_module = b.createModule(.{ .root_source_file = b.path("kernel/process.zig") });
     process_module.addImport("paging", paging_module);
     process_module.addImport("physical", physical_module);
