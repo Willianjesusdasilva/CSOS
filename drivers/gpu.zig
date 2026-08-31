@@ -655,13 +655,70 @@ pub const AmdPspBootImages = struct {
 };
 pub const AmdPspBootCommand = enum { load_kdb, load_spl, load_sysdrv, load_sos };
 pub const AmdPspHandoffStep = struct { command: AmdPspBootCommand = .load_sysdrv, source_address: u64 = 0, bytes: u32 = 0 };
+pub const AmdPspHandoffState = enum { empty, ready, staged, submitted, finished, failed };
+pub const AmdPspPreparedCommand = struct {
+    command: AmdPspBootCommand,
+    transfer_address: u64,
+    transfer_address_1m: u64,
+    bytes: u32,
+    index: usize,
+};
 pub const AmdPspHandoff = struct {
     reservation_address: u64 = 0,
     reservation_pages: u64 = 0,
     transfer_address: u64 = 0,
     transfer_pages: u64 = 0,
     count: usize = 0,
+    current: usize = 0,
+    deadline: u64 = 0,
+    state: AmdPspHandoffState = .empty,
     steps: [4]AmdPspHandoffStep = .{AmdPspHandoffStep{}} ** 4,
+
+    pub fn stageNext(self: *AmdPspHandoff) !AmdPspPreparedCommand {
+        if (self.state != .ready or self.current >= self.count) return error.InvalidAmdPspHandoffState;
+        const step = self.steps[self.current];
+        const capacity = self.transfer_pages * 4096;
+        if (step.source_address == 0 or step.bytes == 0 or step.bytes > capacity or (self.transfer_address & (1024 * 1024 - 1)) != 0)
+            return error.InvalidAmdPspTransfer;
+        const source: [*]const u8 = @ptrFromInt(step.source_address);
+        const target: [*]u8 = @ptrFromInt(self.transfer_address);
+        @memset(target[0..capacity], 0);
+        @memcpy(target[0..step.bytes], source[0..step.bytes]);
+        asm volatile ("" ::: .{ .memory = true });
+        self.state = .staged;
+        return .{
+            .command = step.command,
+            .transfer_address = self.transfer_address,
+            .transfer_address_1m = self.transfer_address >> 20,
+            .bytes = step.bytes,
+            .index = self.current,
+        };
+    }
+
+    pub fn markSubmitted(self: *AmdPspHandoff, now: u64, timeout: u64) !void {
+        if (self.state != .staged or timeout == 0 or now > ~@as(u64, 0) - timeout) return error.InvalidAmdPspHandoffState;
+        self.deadline = now + timeout;
+        self.state = .submitted;
+    }
+
+    pub fn observe(self: *AmdPspHandoff, completed: bool, now: u64) !AmdPspHandoffState {
+        if (self.state != .submitted) return error.InvalidAmdPspHandoffState;
+        if (completed) {
+            self.current += 1;
+            self.deadline = 0;
+            self.state = if (self.current == self.count) .finished else .ready;
+            return self.state;
+        }
+        if (now >= self.deadline) {
+            self.state = .failed;
+            return error.AmdPspHandoffTimeout;
+        }
+        return self.state;
+    }
+
+    pub fn fail(self: *AmdPspHandoff) void {
+        if (self.state != .empty and self.state != .finished) self.state = .failed;
+    }
 
     pub fn release(self: *AmdPspHandoff, pages: *physical.Allocator) void {
         if (self.reservation_pages != 0) pages.release(self.reservation_address, self.reservation_pages) catch {};
@@ -735,9 +792,40 @@ pub fn prepareAmdPspHandoff(images: AmdPspBootImages, pages: *physical.Allocator
         return error.InvalidAmdPspTransferReservation;
     result.transfer_address = transfer;
     result.transfer_pages = transfer_pages;
+    result.state = .ready;
     const target: [*]u8 = @ptrFromInt(transfer);
     @memset(target[0 .. transfer_pages * 4096], 0);
     return result;
+}
+
+pub fn validateAmdPspHandoff(pages: *physical.Allocator) !void {
+    const source_address = pages.allocate(1) orelse return error.OutOfMemory;
+    defer pages.release(source_address, 1) catch {};
+    const source: [*]u8 = @ptrFromInt(source_address);
+    for (source[0..256], 0..) |*byte, index| byte.* = @truncate(index ^ 0x5a);
+    const images = AmdPspBootImages{
+        .sys = .{ .kind = 2, .address = source_address, .bytes = 128 },
+        .sos = .{ .kind = 1, .address = source_address + 128, .bytes = 128 },
+        .toc = null,
+        .kdb = null,
+        .spl = null,
+        .rl = null,
+        .auxiliary = false,
+    };
+    var handoff = try prepareAmdPspHandoff(images, pages);
+    defer handoff.release(pages);
+    const sys = try handoff.stageNext();
+    if (sys.command != .load_sysdrv or sys.index != 0 or sys.transfer_address_1m != sys.transfer_address >> 20)
+        return error.AmdPspHandoffValidationFailed;
+    const transfer: [*]const u8 = @ptrFromInt(sys.transfer_address);
+    if (!equal(transfer[0..sys.bytes], source[0..sys.bytes])) return error.AmdPspHandoffCopyFailed;
+    try handoff.markSubmitted(100, 50);
+    if (try handoff.observe(true, 120) != .ready) return error.AmdPspHandoffValidationFailed;
+    const sos = try handoff.stageNext();
+    if (sos.command != .load_sos or !equal(transfer[0..sos.bytes], source[128 .. 128 + sos.bytes]))
+        return error.AmdPspHandoffCopyFailed;
+    try handoff.markSubmitted(200, 50);
+    if (try handoff.observe(true, 220) != .finished or handoff.current != 2) return error.AmdPspHandoffValidationFailed;
 }
 
 pub fn planAmdBackend(discovery: *const AmdIpDiscovery) !AmdBackendPlan {
@@ -876,6 +964,17 @@ comptime {
     appendPspHandoffStep(&handoff, .load_sos, normal_images.sos) catch @compileError("valid AMD PSP SOS handoff was rejected");
     if (handoff.count != 3 or handoff.steps[0].command != .load_kdb or handoff.steps[1].command != .load_sysdrv or handoff.steps[2].command != .load_sos)
         @compileError("AMD PSP handoff order is incorrect");
+    handoff.state = .staged;
+    handoff.markSubmitted(100, 50) catch @compileError("staged AMD PSP handoff could not be submitted");
+    const pending = handoff.observe(false, 149) catch @compileError("pending AMD PSP handoff was rejected");
+    if (pending != .submitted or handoff.deadline != 150) @compileError("AMD PSP handoff deadline is incorrect");
+    const advanced = handoff.observe(true, 149) catch @compileError("completed AMD PSP handoff was rejected");
+    if (advanced != .ready or handoff.current != 1) @compileError("AMD PSP handoff did not advance correctly");
+    var timed_out = AmdPspHandoff{ .state = .staged };
+    timed_out.markSubmitted(5, 5) catch @compileError("AMD PSP timeout sample could not be submitted");
+    if (timed_out.observe(false, 10)) |_| @compileError("expired AMD PSP handoff was accepted") else |err| {
+        if (err != error.AmdPspHandoffTimeout or timed_out.state != .failed) @compileError("AMD PSP timeout state is incorrect");
+    }
 }
 
 pub fn parseAmdIpDiscovery(bytes: []const u8) !AmdIpDiscovery {

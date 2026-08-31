@@ -711,6 +711,12 @@ endereço comunicado ao bootloader. A preparação não copia nem envia comandos
 ao mailbox; execução permanece desativada até existir backend MMIO e validação
 em Radeon real suportada.
 
+Uma máquina de estados controla esse handoff: apenas uma imagem pode estar
+preparada ou submetida, cada submissão recebe deadline explícito e timeout torna
+o fluxo terminal. A conclusão é necessária para liberar a próxima imagem. O
+boot executa um autoteste com páginas físicas reais, compara as cópias SYS/SOS
+e valida a progressão completa sem acessar registradores da GPU.
+
 Os próximos incrementos de GPU devem privilegiar adaptação e reutilização do
 AMDGPU/RADV e, depois, Nouveau/NVK compatíveis. O código Zig existente serve de
 ponte de kernel, DRM e plataforma; ele não autoriza reimplementar integralmente

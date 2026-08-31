@@ -89,6 +89,8 @@ pub fn start(info: BootInfo) noreturn {
     if (info.memory_map_len == 0 or info.memory_descriptor_size == 0) panic("empty memory map");
     var pages = physical.Allocator.init(info.memory_map, info.memory_map_len, info.memory_descriptor_size);
     syscalls.configureDrmMemory(&pages);
+    gpu.validateAmdPspHandoff(&pages) catch panic("AMDGPU PSP handoff self-test failed");
+    serial.write("CSOS M14 PSP handoff state machine ready\n");
     serial.write("physical allocator ready\n");
 
     var mapper = paging.Mapper.init(&pages, info.framebuffer.base, info.framebuffer.size) catch panic("paging setup failed");
@@ -563,6 +565,7 @@ pub fn start(info: BootInfo) noreturn {
     serial.write(" psp-aux: "); serial.writeDecimal(if (gpu_psp_boot_images) |images| @intFromBool(images.auxiliary) else 0);
     serial.write(" psp-steps: "); serial.writeDecimal(gpu_psp_handoff.count);
     serial.write(" psp-transfer: "); serial.writeDecimal(gpu_psp_handoff.transfer_address);
+    serial.write(" psp-state: "); serial.writeDecimal(@intFromEnum(gpu_psp_handoff.state));
     serial.write(" driver: ");
     serial.write(switch (gpu_adapter.driver) {
         .amdgpu => "amdgpu",
