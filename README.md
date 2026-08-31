@@ -833,6 +833,13 @@ segment do IP discovery e convertem o valor em MiB para `vram-bytes`. Versão,
 base ausente, tamanho zero e MMIO indisponível são terminais. Mesmo com esse
 snapshot, o binding aguarda reservar uma tabela dentro de VRAM visível.
 
+A janela visível agora preserva a tradução usada pelo TTM upstream: offset zero
+do BAR 0 corresponde ao início MC da VRAM e `visible = min(BAR, VRAM real)`.
+O framebuffer entregue pelo firmware precisa caber integralmente nessa janela;
+se couber, sua faixa CPU é convertida e registrada como `framebuffer-mc`, nunca
+tratada como espaço livre. Isso ainda não escolhe uma página para a tabela: o
+AMDGPU original faz essa reserva por BO/TTM antes de copiar e piná-la.
+
 Com a faixa real conhecida, o candidato `gart-window-start/end` segue a política
 `AMDGPU_GART_PLACEMENT_HIGH`: limita o espaço MC antes do VA hole de 48 bits,
 posiciona a janela no topo e alinha sua base a 4 GiB. Overflow, faixa VRAM

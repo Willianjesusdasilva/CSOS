@@ -696,6 +696,15 @@ pub const AmdGmc11MemorySnapshot = struct {
 };
 pub const AmdGmc11NbioRegisters = struct { memsize: u32 };
 pub const AmdGmc11GartWindow = struct { start: u64, end: u64 };
+pub const AmdGmc11VisibleVram = struct {
+    cpu_start: u64,
+    cpu_end: u64,
+    mc_start: u64,
+    mc_end: u64,
+    bytes: u64,
+    framebuffer_mc_start: u64,
+    framebuffer_mc_end: u64,
+};
 pub const AmdPspGttStaging = struct {
     page_table_address: u64 = 0,
     page_table_pages: u64 = 0,
@@ -801,6 +810,26 @@ pub fn planAmdGmc11HighGartWindow(memory: AmdGmc11MemorySnapshot, window_bytes: 
     const end = std.math.add(u64, start, window_bytes - 1) catch return error.AmdGartWindowOverflow;
     if (!(end < memory.vram_mc_base or start > vram_end)) return error.AmdGartOverlapsVram;
     return .{ .start = start, .end = end };
+}
+
+pub fn mapAmdGmc11VisibleVram(memory: AmdGmc11MemorySnapshot, bar: pci.Bar, framebuffer_cpu: u64, framebuffer_bytes: u64) !AmdGmc11VisibleVram {
+    const visible_bytes = @min(bar.size, memory.vram_bytes);
+    if (bar.address == 0 or visible_bytes < 4096 or framebuffer_bytes == 0) return error.InvalidAmdVisibleVram;
+    const cpu_end = std.math.add(u64, bar.address, visible_bytes - 1) catch return error.InvalidAmdVisibleVram;
+    const mc_end = std.math.add(u64, memory.vram_mc_base, visible_bytes - 1) catch return error.InvalidAmdVisibleVram;
+    const framebuffer_cpu_end = std.math.add(u64, framebuffer_cpu, framebuffer_bytes - 1) catch return error.InvalidAmdFramebufferRange;
+    if (framebuffer_cpu < bar.address or framebuffer_cpu_end > cpu_end) return error.AmdFramebufferOutsideVisibleVram;
+    const framebuffer_offset = framebuffer_cpu - bar.address;
+    const framebuffer_mc_start = memory.vram_mc_base + framebuffer_offset;
+    return .{
+        .cpu_start = bar.address,
+        .cpu_end = cpu_end,
+        .mc_start = memory.vram_mc_base,
+        .mc_end = mc_end,
+        .bytes = visible_bytes,
+        .framebuffer_mc_start = framebuffer_mc_start,
+        .framebuffer_mc_end = framebuffer_mc_start + framebuffer_bytes - 1,
+    };
 }
 
 fn resolveAmdRegister(base: u64, register_dword: u64, bar_bytes: u64) !u32 {
@@ -935,6 +964,12 @@ comptime {
         @compileError("valid GMC 11 high GART window was rejected");
     if (high_window.start != 0x7fff00000000 or high_window.end != 0x7fff001fffff)
         @compileError("GMC 11 high GART window was placed incorrectly");
+    const visible_vram = mapAmdGmc11VisibleVram(memory_snapshot, .{ .address = 0x800000000, .size = 256 * 1024 * 1024, .is_64_bit = true, .prefetchable = true }, 0x801000000, 8 * 1024 * 1024) catch
+        @compileError("valid GMC 11 visible VRAM mapping was rejected");
+    if (visible_vram.bytes != 256 * 1024 * 1024 or visible_vram.mc_start != memory_snapshot.vram_mc_base or
+        visible_vram.framebuffer_mc_start != memory_snapshot.vram_mc_base + 16 * 1024 * 1024 or
+        visible_vram.framebuffer_mc_end != memory_snapshot.vram_mc_base + 24 * 1024 * 1024 - 1)
+        @compileError("GMC 11 visible VRAM mapping was translated incorrectly");
     if (decodeAmdGmc11MemorySnapshot(0xffffffff, 0, 1)) |_|
         @compileError("unavailable GMC 11 memory MMIO was accepted")
     else |err| if (err != error.AmdGmc11MemoryMmioUnavailable)
