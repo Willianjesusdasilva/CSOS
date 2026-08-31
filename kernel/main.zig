@@ -476,6 +476,9 @@ pub fn start(info: BootInfo) noreturn {
     const gpu_selection = if (gpu_firmware) |firmware| firmware.select(display_device, gpu_adapter.driver) catch panic("GPU firmware selection invalid") else null;
     const gpu_backend_entries = if (gpu_selection) |selection| selection.entries else 0;
     if ((gpu_adapter.driver == .amdgpu or gpu_adapter.driver == .nouveau) and gpu_selection == null) panic("GPU model firmware mapping missing");
+    const gpu_validated_entries = if (gpu_firmware) |firmware|
+        if (gpu_selection) |selection| firmware.validateSelection(selection, gpu_adapter.driver) catch panic("GPU firmware validation failed") else 0
+    else 0;
     const gpu_registers = gpu_adapter.register_bar orelse panic("GPU register BAR missing");
     if (gpu_registers.size > 16 * 1024 * 1024) panic("GPU register BAR unexpectedly large");
     mapper.mapIdentity(gpu_registers.address, @intCast(gpu_registers.size)) catch panic("GPU register MMIO mapping failed");
@@ -500,6 +503,7 @@ pub fn start(info: BootInfo) noreturn {
     serial.write(" catalog: "); serial.writeDecimal(gpu_catalog_entries);
     serial.write(" mappings: "); serial.writeDecimal(gpu_firmware_mappings);
     serial.write(" selected: "); serial.writeDecimal(gpu_backend_entries);
+    serial.write(" validated: "); serial.writeDecimal(gpu_validated_entries);
     serial.write(" driver: ");
     serial.write(switch (gpu_adapter.driver) {
         .amdgpu => "amdgpu",

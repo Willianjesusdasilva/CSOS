@@ -165,6 +165,19 @@ pub const Firmware = struct {
         while (try iterator.next()) |_| count += 1;
         return count;
     }
+
+    pub fn validateSelection(self: Firmware, selection: Selection, driver: Driver) !usize {
+        if (driver != .amdgpu) return selection.entries;
+        var iterator = CpioIterator{ .archive = self.bytes() };
+        var validated: usize = 0;
+        while (try iterator.next()) |entry| {
+            if (!startsWith(entry.name, selection.prefix) or entry.data.len == 0) continue;
+            try validateAmdgpuFirmware(entry.data);
+            validated += 1;
+        }
+        if (validated != selection.entries) return error.FirmwareSelectionIncomplete;
+        return validated;
+    }
 };
 
 pub const Selection = struct { prefix: []const u8, entries: usize };
@@ -253,6 +266,26 @@ fn equal(left: []const u8, right: []const u8) bool {
 }
 fn startsWith(value: []const u8, prefix: []const u8) bool {
     return value.len >= prefix.len and equal(value[0..prefix.len], prefix);
+}
+
+pub fn validateAmdgpuFirmware(bytes: []const u8) !void {
+    const common_header_bytes = 32;
+    if (bytes.len < common_header_bytes) return error.AmdgpuFirmwareHeaderTruncated;
+    const total_size = readLittle32(bytes, 0);
+    const header_size = readLittle32(bytes, 4);
+    const ucode_size = readLittle32(bytes, 20);
+    const ucode_offset = readLittle32(bytes, 24);
+    if (total_size != bytes.len) return error.AmdgpuFirmwareSizeMismatch;
+    if (header_size < common_header_bytes or header_size > bytes.len) return error.InvalidAmdgpuFirmwareHeaderSize;
+    if (ucode_offset < header_size or ucode_offset > bytes.len or ucode_size > bytes.len - ucode_offset)
+        return error.InvalidAmdgpuFirmwarePayload;
+}
+
+fn readLittle32(bytes: []const u8, offset: usize) usize {
+    return @as(usize, bytes[offset]) |
+        (@as(usize, bytes[offset + 1]) << 8) |
+        (@as(usize, bytes[offset + 2]) << 16) |
+        (@as(usize, bytes[offset + 3]) << 24);
 }
 
 pub fn loadFirmware(volume: *fat16.Volume, pages: *physical.Allocator) !?Firmware {
