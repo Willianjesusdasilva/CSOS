@@ -272,7 +272,9 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
     if (!entry_permissions.executable or entry_permissions.writable) return error.InvalidEntryPermissions;
     if (stack_permissions.executable or !stack_permissions.writable) return error.InvalidStackPermissions;
     const break_base = (image_end + page_size - 1) & ~(page_size - 1);
-    const arena_pages = 64;
+    // Keep enough committed userspace for an interactive BusyBox shell.
+    // Demand-paged arena growth will replace this fixed baseline before Mesa.
+    const arena_pages = 1024;
     try mapAnonymous(&address_space, pages, &owned, &owned_count, break_base, arena_pages);
     try mapAnonymous(&address_space, pages, &owned, &owned_count, mmap_address, arena_pages);
     const stack_pointer = try buildInitialStack(stack_pages, initial_stack_size, entry, interpreter_base, load_bias, program_offset, program_entry_size, program_count, arguments);
