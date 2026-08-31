@@ -9,22 +9,29 @@ pub const Driver = enum {
 pub const Adapter = struct {
     device: pci.Device,
     driver: Driver,
-    bars: [6]?u64,
+    bars: [6]?pci.Bar,
     bar_count: u8,
+    mmio_bytes: u64,
 
     pub fn discover(device: pci.Device) !Adapter {
         if (device.class != 0x03) return error.NotDisplayController;
-        var bars: [6]?u64 = .{null} ** 6;
+        var bars: [6]?pci.Bar = .{null} ** 6;
         var count: u8 = 0;
+        var bytes: u64 = 0;
         for (0..bars.len) |index| {
-            bars[index] = pci.barAddress(device, @intCast(index));
-            if (bars[index] != null) count += 1;
+            bars[index] = pci.barInfo(device, @intCast(index), true);
+            if (bars[index]) |bar| {
+                count += 1;
+                bytes +|= bar.size;
+            }
         }
+        pci.enableMemoryAndBusMaster(device);
         return .{
             .device = device,
             .driver = driverFor(device.vendor, device.device),
             .bars = bars,
             .bar_count = count,
+            .mmio_bytes = bytes,
         };
     }
 

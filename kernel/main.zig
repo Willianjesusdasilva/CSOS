@@ -468,6 +468,7 @@ pub fn start(info: BootInfo) noreturn {
     serial.write("GPU PCI vendor: "); serial.writeDecimal(screen.adapter.vendor);
     serial.write(" device: "); serial.writeDecimal(screen.adapter.device);
     serial.write(" bars: "); serial.writeDecimal(gpu_adapter.bar_count);
+    serial.write(" bytes: "); serial.writeDecimal(gpu_adapter.mmio_bytes);
     serial.write(" driver: ");
     serial.write(switch (gpu_adapter.driver) {
         .amdgpu => "amdgpu",

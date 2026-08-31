@@ -145,12 +145,48 @@ pub fn enableMemoryAndBusMaster(device: Device) void {
 }
 
 pub fn barAddress(device: Device, index: u3) ?u64 {
+    return if (barInfo(device, index, false)) |bar| bar.address else null;
+}
+
+pub const Bar = struct {
+    address: u64,
+    size: u64,
+    is_64_bit: bool,
+    prefetchable: bool,
+};
+
+pub fn barInfo(device: Device, index: u3, probe_size: bool) ?Bar {
+    if (index >= 6) return null;
+    if (index != 0) {
+        const previous = read32(device.bus, device.slot, device.function, 0x10 + (@as(u8, index) - 1) * 4);
+        if ((previous & 1) == 0 and ((previous >> 1) & 3) == 2) return null;
+    }
     const offset: u8 = 0x10 + @as(u8, index) * 4;
     const low = read32(device.bus, device.slot, device.function, offset);
     if ((low & 1) != 0) return null;
+    const is_64_bit = ((low >> 1) & 3) == 2;
+    if (is_64_bit and index == 5) return null;
     var address: u64 = low & 0xfffffff0;
-    if (((low >> 1) & 3) == 2) address |= @as(u64, read32(device.bus, device.slot, device.function, offset + 4)) << 32;
-    return if (address == 0) null else address;
+    const high = if (is_64_bit) read32(device.bus, device.slot, device.function, offset + 4) else 0;
+    address |= @as(u64, high) << 32;
+    if (address == 0) return null;
+    var size: u64 = 0;
+    if (probe_size) {
+        const command = read16(device.bus, device.slot, device.function, 4);
+        write16(device.bus, device.slot, device.function, 4, command & ~@as(u16, 3));
+        write32(device.bus, device.slot, device.function, offset, 0xffffffff);
+        const size_low = read32(device.bus, device.slot, device.function, offset) & 0xfffffff0;
+        var mask: u64 = size_low;
+        if (is_64_bit) {
+            write32(device.bus, device.slot, device.function, offset + 4, 0xffffffff);
+            mask |= @as(u64, read32(device.bus, device.slot, device.function, offset + 4)) << 32;
+            write32(device.bus, device.slot, device.function, offset + 4, high);
+        }
+        write32(device.bus, device.slot, device.function, offset, low);
+        write16(device.bus, device.slot, device.function, 4, command);
+        if (mask != 0) size = if (is_64_bit) (~mask) +% 1 else @as(u64, (~@as(u32, @truncate(mask))) +% 1);
+    }
+    return .{ .address = address, .size = size, .is_64_bit = is_64_bit, .prefetchable = (low & 8) != 0 };
 }
 
 pub fn read16(bus: u8, slot: u5, function: u3, offset: u8) u16 {
