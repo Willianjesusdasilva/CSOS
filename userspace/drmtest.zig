@@ -41,11 +41,13 @@ pub export fn _start() callconv(.naked) noreturn {
         \\jne 1f
         \\cmpl $1, version(%%rip)
         \\jne 1f
+        \\cmpq $6, version+16(%%rip)
+        \\je 2f
         \\cmpq $7, version+16(%%rip)
         \\jne 1f
-        \\movabsq $0x6d7264736f7363, %%rax
-        \\cmpq %%rax, name(%%rip)
-        \\jne 1f
+        \\2:
+        \\cmpb $0, name(%%rip)
+        \\je 1f
         \\movq $6, capability(%%rip)
         \\movq $16, %%rax
         \\movq %%r12, %%rdi

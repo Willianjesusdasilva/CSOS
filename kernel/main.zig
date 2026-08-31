@@ -93,6 +93,12 @@ pub fn start(info: BootInfo) noreturn {
     var mapper = paging.Mapper.init(&pages, info.framebuffer.base, info.framebuffer.size) catch panic("paging setup failed");
     mapper.activate();
     serial.write("paging ready\n");
+    const inventory = pci.Inventory.scan();
+    if (inventory.count == 0) panic("PCI enumeration failed");
+    if (inventory.findClass(0x06, 0x01) == null) panic("PCI ISA bridge missing");
+    const display_device = inventory.findClass(0x03, 0x00) orelse
+        inventory.findClass(0x03, 0x80) orelse panic("display adapter missing");
+    syscalls.configureDrm(display_device.vendor == 0x1002);
 
     smp.prepare(mapper.root) catch panic("SMP trampoline failed");
     const bsp_id = apic.id();
@@ -242,11 +248,6 @@ pub fn start(info: BootInfo) noreturn {
     serial.write("\nCSOS M17 process reclaim ready\n");
     serial.write("BusyBox applets returned\n");
 
-    const inventory = pci.Inventory.scan();
-    if (inventory.count == 0) panic("PCI enumeration failed");
-    if (inventory.findClass(0x06, 0x01) == null) panic("PCI ISA bridge missing");
-    const display_device = inventory.findClass(0x03, 0x00) orelse
-        inventory.findClass(0x03, 0x80) orelse panic("display adapter missing");
     serial.write("PCI devices: ");
     serial.writeDecimal(inventory.count);
     serial.write("\n");

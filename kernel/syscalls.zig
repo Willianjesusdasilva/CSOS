@@ -35,6 +35,7 @@ var drm_dumb_created = false;
 var drm_dumb_size: u64 = 0;
 var drm_framebuffer_created = false;
 var drm_scanout_framebuffer: u32 = 0;
+var drm_amdgpu = false;
 var sockets: [4]Socket = .{Socket{}} ** 4;
 var unknown_seen: [512]bool = .{false} ** 512;
 pub export var syscall_kernel_rsp: u64 = 0;
@@ -110,6 +111,8 @@ pub fn configureNetwork(stack: *net.Stack) void {
 pub fn configureFramebuffer(info: Framebuffer) void {
     framebuffer = info;
 }
+
+pub fn configureDrm(amdgpu: bool) void { drm_amdgpu = amdgpu; }
 
 pub fn configureMmap(protect_hook: ?*const fn (u64, u64, bool, bool) callconv(.c) bool, unmap_hook: ?*const fn (u64, u64) callconv(.c) bool, device_hook: ?*const fn (u64, u64, u64, bool) callconv(.c) bool) void {
     mmap_protect_hook = protect_hook;
@@ -328,10 +331,12 @@ fn drmVersion(address: u64) u64 {
     const description_length = read64(output + 48);
     const description_address = read64(output + 56);
     put32(output + 0, 1); put32(output + 4, 0); put32(output + 8, 0);
-    if (!copyDrmString(name_address, name_length, "csosdrm")) return errno(14);
+    const driver_name = if (drm_amdgpu) "amdgpu" else "csosdrm";
+    const driver_description = if (drm_amdgpu) "AMD GPU" else "CSOS display DRM";
+    if (!copyDrmString(name_address, name_length, driver_name)) return errno(14);
     if (!copyDrmString(date_address, date_length, "20260830")) return errno(14);
-    if (!copyDrmString(description_address, description_length, "CSOS display DRM")) return errno(14);
-    put64(output + 16, 7); put64(output + 32, 8); put64(output + 48, 16);
+    if (!copyDrmString(description_address, description_length, driver_description)) return errno(14);
+    put64(output + 16, driver_name.len); put64(output + 32, 8); put64(output + 48, driver_description.len);
     return 0;
 }
 
