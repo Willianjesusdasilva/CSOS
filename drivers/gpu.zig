@@ -666,7 +666,10 @@ pub const AmdGartPlan = struct {
     family: GmcFamily,
     gfxhub_base: ?u64,
     mmhub_base: u64,
-    table_address: u64,
+    table_cpu_address: u64,
+    table_mc_address: ?u64 = null,
+    window_start: ?u64 = null,
+    window_end: ?u64 = null,
     entries: u16,
     window_bytes: u64,
     active: bool = false,
@@ -713,10 +716,27 @@ pub fn planAmdGart(discovery: *const AmdIpDiscovery, memory: AmdMemoryPlan, stag
         .family = memory.family,
         .gfxhub_base = if (gfxhub) |ip| ip.bases[0] else null,
         .mmhub_base = mmhub.bases[0],
-        .table_address = staging.page_table_address,
+        .table_cpu_address = staging.page_table_address,
         .entries = 512,
         .window_bytes = 512 * 4096,
     };
+}
+
+pub fn bindAmdGmc11GartAddressSpace(plan: AmdGartPlan, table_mc_address: u64, window_start: u64) !AmdGartPlan {
+    if (plan.family != .v11_0) return error.UnsupportedAmdGartAddressSpace;
+    if (plan.table_mc_address != null or plan.window_start != null or plan.window_end != null or plan.active)
+        return error.AmdGartAlreadyBound;
+    if (table_mc_address == 0 or (table_mc_address & 4095) != 0) return error.InvalidAmdGartTableMcAddress;
+    if ((window_start & 4095) != 0 or plan.window_bytes == 0 or (plan.window_bytes & 4095) != 0)
+        return error.InvalidAmdGartWindow;
+    const window_end = std.math.add(u64, window_start, plan.window_bytes - 1) catch return error.AmdGartWindowOverflow;
+    const max_gpu_address: u64 = 0x0000ffffffffffff;
+    if (table_mc_address > max_gpu_address or window_end > max_gpu_address) return error.AmdGartAddressOutsideGmc11Range;
+    var bound = plan;
+    bound.table_mc_address = table_mc_address;
+    bound.window_start = window_start;
+    bound.window_end = window_end;
+    return bound;
 }
 
 pub fn resolveAmdGmc11GartRegisters(plan: AmdGartPlan, register_bar_bytes: u64) !AmdGmc11GartRegisters {
@@ -845,6 +865,15 @@ comptime {
         @compileError("out-of-BAR GMC 11 GART registers were accepted")
     else |err| if (err != error.AmdRegistersOutsideBar)
         @compileError("out-of-BAR GMC 11 GART registers returned the wrong error");
+    const bound_gart = bindAmdGmc11GartAddressSpace(mmhub_only, 0x1000000, 0x2000000) catch
+        @compileError("valid GMC 11 GART address space was rejected");
+    if (bound_gart.table_cpu_address != 0x800000 or bound_gart.table_mc_address.? != 0x1000000 or
+        bound_gart.window_start.? != 0x2000000 or bound_gart.window_end.? != 0x21fffff or bound_gart.active)
+        @compileError("GMC 11 GART address space was bound incorrectly");
+    if (bindAmdGmc11GartAddressSpace(mmhub_only, 0x800001, 0x2000000)) |_|
+        @compileError("unaligned GMC 11 GART table MC address was accepted")
+    else |err| if (err != error.InvalidAmdGartTableMcAddress)
+        @compileError("unaligned GMC 11 GART table MC address returned the wrong error");
 }
 
 pub const AmdPspPlan = struct {

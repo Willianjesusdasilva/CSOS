@@ -631,6 +631,8 @@ pub fn start(info: BootInfo) noreturn {
     serial.write(" gtt-pages: "); serial.writeDecimal(gpu_psp_gtt.buffer_pages);
     serial.write(" gtt-ready: "); serial.writeDecimal(@intFromBool(gpu_psp_gtt.active));
     serial.write(" gart-plan: "); serial.writeDecimal(if (gpu_gart_plan) |_| 1 else 0);
+    serial.write(" gart-bound: "); serial.writeDecimal(if (gpu_gart_plan) |plan| @intFromBool(plan.table_mc_address != null) else 0);
+    serial.write(" gart-table-mc: "); serial.writeDecimal(if (gpu_gart_plan) |plan| plan.table_mc_address orelse 0 else 0);
     serial.write(" gart-window: "); serial.writeDecimal(if (gpu_gart_plan) |plan| plan.window_bytes else 0);
     serial.write(" gart-gfxhub: "); serial.writeDecimal(if (gpu_gart_plan) |plan| @intFromBool(plan.gfxhub_base != null) else 0);
     serial.write(" gart-registers: "); serial.writeDecimal(if (gpu_gart_registers) |_| 1 else 0);

@@ -815,6 +815,13 @@ engine 17 request/ack. Os índices em dwords são somados à base MMHUB descober
 convertidos para offsets em bytes e rejeitados se excederem o BAR. A existência
 de `gart-registers` comprova somente o mapa; não ativa o contexto.
 
+O plano também distingue explicitamente o endereço físico da tabela na CPU do
+endereço MC que o MMHUB consumirá. O binding exige endereços alinhados a 4 KiB,
+uma janela sem overflow dentro dos 48 bits representáveis pelos registradores
+GMC 11 e rejeita rebinding. Enquanto nenhum mecanismo de VRAM/GTT fornecer um
+endereço MC comprovado, `gart-bound` e `gart-table-mc` permanecem zero; o kernel
+não reutiliza silenciosamente o endereço físico da CPU.
+
 As capacidades PSP são tratadas separadamente: `autoload_supported`, TMR de
 boot e presença de callbacks host para carregar SYS/SOS não são sinônimos. O
 handoff host só é construído para as famílias em que o `psp_funcs` upstream
