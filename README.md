@@ -913,6 +913,11 @@ RMW são calculados a partir do snapshot. Os VMIDs 1–15 são explicitamente
 mantidos desabilitados até existir o gerenciador de page directories de
 processos; registradores com bits de invalidação auto-limpáveis usam máscara de
 readback apropriada. O self-test aplica e restaura o write-set inteiro sem MMIO.
+Depois da programação, o handshake de invalidação usa o engine 0 e VMID0:
+publica `0x00f80001` (PTE, PDE0/1/2 e L1), espera o bit de ACK com limite de
+polls e retorna timeout explícito. O banco sintético cobre ACK tardio e timeout;
+o snapshot integral continua sendo a origem do rollback antes de qualquer
+ativação real.
 
 Com a faixa real conhecida, o candidato `gart-window-start/end` segue a política
 `AMDGPU_GART_PLACEMENT_HIGH`: limita o espaço MC antes do VA hole de 48 bits,

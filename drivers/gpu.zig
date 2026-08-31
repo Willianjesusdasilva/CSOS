@@ -782,6 +782,7 @@ pub const AmdRegisterWriteSet = struct {
     }
 };
 pub const AmdGmc11RegisterTransaction = struct { snapshot: AmdGmc11GartSnapshot, writes_applied: usize };
+pub const AmdGmc11InvalidateResult = struct { engine: u5, vmid: u4, polls: u32 };
 pub const AmdGmc11VisibleVram = struct {
     cpu_start: u64,
     cpu_end: u64,
@@ -1238,6 +1239,10 @@ const AmdGartRegisterTestBank = struct {
     fail_read: ?u32 = null,
     fail_write: ?u32 = null,
     fail_write_once: ?u32 = null,
+    invalidate_request: ?u32 = null,
+    invalidate_ack: ?u32 = null,
+    acknowledge_after_reads: ?u32 = null,
+    acknowledge_reads: u32 = 0,
 
     fn position(self: *const AmdGartRegisterTestBank, offset: u32) ?usize {
         for (self.offsets[0..self.count], 0..) |candidate, index| if (candidate == offset) return index;
@@ -1246,6 +1251,11 @@ const AmdGartRegisterTestBank = struct {
     fn read(context: *anyopaque, offset: u32) !u32 {
         const self: *AmdGartRegisterTestBank = @ptrCast(@alignCast(context));
         if (self.fail_read != null and self.fail_read.? == offset) return error.InjectedAmdRegisterReadFailure;
+        if (self.invalidate_ack != null and self.invalidate_ack.? == offset and self.acknowledge_after_reads != null) {
+            self.acknowledge_reads += 1;
+            if (self.acknowledge_reads >= self.acknowledge_after_reads.?)
+                self.values[self.position(offset) orelse return error.UnknownAmdRegister] |= 1;
+        }
         return self.values[self.position(offset) orelse return error.UnknownAmdRegister];
     }
     fn write(context: *anyopaque, offset: u32, value: u32) !void {
@@ -1256,11 +1266,34 @@ const AmdGartRegisterTestBank = struct {
             return error.InjectedAmdRegisterWriteFailure;
         }
         self.values[self.position(offset) orelse return error.UnknownAmdRegister] = value;
+        if (self.invalidate_request != null and self.invalidate_request.? == offset) self.acknowledge_reads = 0;
     }
     fn io(self: *AmdGartRegisterTestBank) AmdRegisterIo {
         return .{ .context = self, .read = &read, .write = &write };
     }
 };
+
+pub fn invalidateAmdGmc11Gart(
+    registers: AmdGmc11GartRegisters,
+    engine: u5,
+    vmid: u4,
+    timeout_polls: u32,
+    io: AmdRegisterIo,
+) !AmdGmc11InvalidateResult {
+    if (engine >= 18 or timeout_polls == 0) return error.InvalidAmdGartInvalidateRequest;
+    const request_offset = registers.invalidate_request + @as(u32, engine) * registers.invalidate_engine_stride;
+    const ack_offset = registers.invalidate_ack + @as(u32, engine) * registers.invalidate_engine_stride;
+    const vmid_mask = @as(u32, 1) << vmid;
+    // Invalidate L2 PTE/PDE0/PDE1/PDE2 and L1 for the selected VMID.
+    try io.write(io.context, request_offset, 0x00f80000 | vmid_mask);
+    var polls: u32 = 0;
+    while (polls < timeout_polls) {
+        polls += 1;
+        if ((try io.read(io.context, ack_offset) & vmid_mask) != 0)
+            return .{ .engine = engine, .vmid = vmid, .polls = polls };
+    }
+    return error.AmdGartInvalidateTimeout;
+}
 
 // Boot-time validation runs before scheduler stacks exist, so keep its large
 // synthetic register state out of the firmware-provided entry stack.
@@ -1351,6 +1384,17 @@ pub fn validateAmdGmc11BootstrapWrites(
             bank.values[bank.position(registers.invalidate_range_high + delta).?] != 0x1f)
             return error.AmdGartInvalidateRangeMismatch;
     }
+    bank.invalidate_request = registers.invalidate_request;
+    bank.invalidate_ack = registers.invalidate_ack;
+    bank.acknowledge_after_reads = 3;
+    bank.values[bank.position(registers.invalidate_ack).?] = 0;
+    const invalidation = try invalidateAmdGmc11Gart(registers, 0, 0, 8, bank.io());
+    if (invalidation.polls != 3 or bank.values[bank.position(registers.invalidate_request).?] != 0x00f80001)
+        return error.AmdGartInvalidateHandshakeMismatch;
+    bank.acknowledge_after_reads = null;
+    bank.values[bank.position(registers.invalidate_ack).?] = 0;
+    if (invalidateAmdGmc11Gart(registers, 0, 0, 2, bank.io())) |_| return error.AmdGartInvalidateTimeoutNotDetected else |err|
+        if (err != error.AmdGartInvalidateTimeout) return err;
     try restoreAmdGmc11GartSnapshot(transaction.snapshot, bank.io());
     for (snapshot.values[0..snapshot.count], bank.values[0..bank.count]) |expected, observed|
         if (expected != observed) return error.AmdGartBootstrapRestoreMismatch;
