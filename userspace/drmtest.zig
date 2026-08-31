@@ -12,6 +12,9 @@ pub export var mode: [68]u8 = .{0} ** 68;
 pub export var connector_encoder: u32 = 0;
 pub export var encoder: [20]u8 = .{0} ** 20;
 pub export var crtc: [104]u8 = .{0} ** 104;
+pub export var scanout_create: [32]u8 = .{0} ** 32;
+pub export var framebuffer_command: [28]u8 = .{0} ** 28;
+pub export var scanout_connector: u32 = 2;
 pub export const success: [31]u8 = "Linux DRM core userspace ready\n".*;
 
 pub export fn _start() callconv(.naked) noreturn {
@@ -200,6 +203,78 @@ pub export fn _start() callconv(.naked) noreturn {
         \\jne 1f
         \\cmpw $0, crtc+40(%%rip)
         \\je 1f
+        \\movl resources+60(%%rip), %%eax
+        \\movl %%eax, scanout_create(%%rip)
+        \\movl resources+52(%%rip), %%eax
+        \\movl %%eax, scanout_create+4(%%rip)
+        \\movl $32, scanout_create+8(%%rip)
+        \\movq $16, %%rax
+        \\movq %%r12, %%rdi
+        \\movq $0xc02064b2, %%rsi
+        \\leaq scanout_create(%%rip), %%rdx
+        \\syscall
+        \\testq %%rax, %%rax
+        \\jne 1f
+        \\movl scanout_create+4(%%rip), %%eax
+        \\movl %%eax, framebuffer_command+4(%%rip)
+        \\movl scanout_create(%%rip), %%eax
+        \\movl %%eax, framebuffer_command+8(%%rip)
+        \\movl scanout_create+20(%%rip), %%eax
+        \\movl %%eax, framebuffer_command+12(%%rip)
+        \\movl $32, framebuffer_command+16(%%rip)
+        \\movl $24, framebuffer_command+20(%%rip)
+        \\movl $1, framebuffer_command+24(%%rip)
+        \\movq $16, %%rax
+        \\movq %%r12, %%rdi
+        \\movq $0xc01c64ae, %%rsi
+        \\leaq framebuffer_command(%%rip), %%rdx
+        \\syscall
+        \\testq %%rax, %%rax
+        \\jne 1f
+        \\cmpl $4, framebuffer_command(%%rip)
+        \\jne 1f
+        \\leaq scanout_connector(%%rip), %%rax
+        \\movq %%rax, crtc(%%rip)
+        \\movl $1, crtc+8(%%rip)
+        \\movl $1, crtc+12(%%rip)
+        \\movl $4, crtc+16(%%rip)
+        \\movl $1, crtc+32(%%rip)
+        \\leaq mode(%%rip), %%rsi
+        \\leaq crtc+36(%%rip), %%rdi
+        \\movq $68, %%rcx
+        \\rep movsb
+        \\movq $16, %%rax
+        \\movq %%r12, %%rdi
+        \\movq $0xc06864a2, %%rsi
+        \\leaq crtc(%%rip), %%rdx
+        \\syscall
+        \\testq %%rax, %%rax
+        \\jne 1f
+        \\movl $1, crtc+12(%%rip)
+        \\movq $16, %%rax
+        \\movq %%r12, %%rdi
+        \\movq $0xc06864a1, %%rsi
+        \\leaq crtc(%%rip), %%rdx
+        \\syscall
+        \\testq %%rax, %%rax
+        \\jne 1f
+        \\cmpl $4, crtc+16(%%rip)
+        \\jne 1f
+        \\movq $16, %%rax
+        \\movq %%r12, %%rdi
+        \\movq $0xc00464af, %%rsi
+        \\leaq framebuffer_command(%%rip), %%rdx
+        \\syscall
+        \\testq %%rax, %%rax
+        \\jne 1f
+        \\movl $1, dumb_destroy(%%rip)
+        \\movq $16, %%rax
+        \\movq %%r12, %%rdi
+        \\movq $0xc00464b4, %%rsi
+        \\leaq dumb_destroy(%%rip), %%rdx
+        \\syscall
+        \\testq %%rax, %%rax
+        \\jne 1f
         \\movq $3, %%rax
         \\movq %%r12, %%rdi
         \\syscall

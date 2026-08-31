@@ -33,6 +33,8 @@ var network_stack: ?*net.Stack = null;
 var framebuffer = Framebuffer{};
 var drm_dumb_created = false;
 var drm_dumb_size: u64 = 0;
+var drm_framebuffer_created = false;
+var drm_scanout_framebuffer: u32 = 0;
 var sockets: [4]Socket = .{Socket{}} ** 4;
 var unknown_seen: [512]bool = .{false} ** 512;
 pub export var syscall_kernel_rsp: u64 = 0;
@@ -91,6 +93,8 @@ pub fn configure(base: u64, size: u64, stack: u64, stack_length: u64, initial_br
     drm_mmaps = 0;
     drm_dumb_created = false;
     drm_dumb_size = 0;
+    drm_framebuffer_created = false;
+    drm_scanout_framebuffer = 0;
     sockets = .{Socket{}} ** sockets.len;
     vfs.reset();
 }
@@ -300,8 +304,11 @@ fn ioctl(fd: u64, request: u64, address: u64) u64 {
             0xc00464b4 => drmDestroyDumb(address),
             0xc04064a0 => drmGetResources(address),
             0xc06864a1 => drmGetCrtc(address),
+            0xc06864a2 => drmSetCrtc(address),
             0xc01464a6 => drmGetEncoder(address),
             0xc05064a7 => drmGetConnector(address),
+            0xc01c64ae => drmAddFramebuffer(address),
+            0xc00464af => drmRemoveFramebuffer(address),
             else => errno(25),
         };
         if (result == 0) drm_ioctls += 1;
@@ -380,6 +387,7 @@ fn drmDestroyDumb(address: u64) u64 {
     if (!validUserSlice(address, 4)) return errno(14);
     const input: [*]const u8 = @ptrFromInt(address);
     if (!drm_dumb_created or read32(input) != 1) return errno(2);
+    if (drm_framebuffer_created) return errno(16);
     drm_dumb_created = false;
     drm_dumb_size = 0;
     return 0;
@@ -388,14 +396,17 @@ fn drmDestroyDumb(address: u64) u64 {
 fn drmGetResources(address: u64) u64 {
     if (!validUserSlice(address, 64)) return errno(14);
     const output: [*]u8 = @ptrFromInt(address);
+    const framebuffer_pointer = read64(output + 0);
     const crtc_pointer = read64(output + 8);
     const connector_pointer = read64(output + 16);
     const encoder_pointer = read64(output + 24);
     const crtc_capacity = read32(output + 36);
     const connector_capacity = read32(output + 40);
     const encoder_capacity = read32(output + 44);
+    const framebuffer_capacity = read32(output + 32);
+    if (drm_framebuffer_created and !putDrmId(framebuffer_pointer, framebuffer_capacity, 4)) return errno(14);
     if (!putDrmId(crtc_pointer, crtc_capacity, 1) or !putDrmId(connector_pointer, connector_capacity, 2) or !putDrmId(encoder_pointer, encoder_capacity, 3)) return errno(14);
-    put32(output + 32, 0);
+    put32(output + 32, if (drm_framebuffer_created) 1 else 0);
     put32(output + 36, 1); put32(output + 40, 1); put32(output + 44, 1);
     put32(output + 48, 1); put32(output + 52, framebuffer.width);
     put32(output + 56, 1); put32(output + 60, framebuffer.height);
@@ -447,9 +458,46 @@ fn drmGetCrtc(address: u64) u64 {
     const output: [*]u8 = @ptrFromInt(address);
     if (read32(output + 12) != 1) return errno(2);
     put64(output + 0, 0); put32(output + 8, 0); put32(output + 12, 1);
-    put32(output + 16, 0); put32(output + 20, 0); put32(output + 24, 0);
+    put32(output + 16, drm_scanout_framebuffer); put32(output + 20, 0); put32(output + 24, 0);
     put32(output + 28, 0); put32(output + 32, 1);
     writeDrmMode(output + 36);
+    return 0;
+}
+
+fn drmAddFramebuffer(address: u64) u64 {
+    if (!validUserSlice(address, 28)) return errno(14);
+    if (!drm_dumb_created or drm_framebuffer_created) return errno(16);
+    const output: [*]u8 = @ptrFromInt(address);
+    const width = read32(output + 4);
+    const height = read32(output + 8);
+    const pitch = read32(output + 12);
+    if (width == 0 or height == 0 or width > framebuffer.width or height > framebuffer.height) return errno(22);
+    if (pitch != width * 4 or read32(output + 16) != 32 or read32(output + 20) != 24 or read32(output + 24) != 1) return errno(22);
+    if (@as(u64, pitch) * height > drm_dumb_size) return errno(22);
+    put32(output, 4);
+    drm_framebuffer_created = true;
+    return 0;
+}
+
+fn drmSetCrtc(address: u64) u64 {
+    if (!validUserSlice(address, 104)) return errno(14);
+    const input: [*]const u8 = @ptrFromInt(address);
+    if (read32(input + 12) != 1 or read32(input + 16) != 4 or !drm_framebuffer_created) return errno(2);
+    if (read32(input + 20) != 0 or read32(input + 24) != 0 or read32(input + 28) != 0 or read32(input + 32) != 1) return errno(22);
+    const connectors = read64(input);
+    if (connectors == 0 or !validUserSlice(connectors, 4)) return errno(14);
+    const connector: [*]const u8 = @ptrFromInt(connectors);
+    if (read32(connector) != 2 or read16(input + 40) != framebuffer.width or read16(input + 50) != framebuffer.height) return errno(22);
+    drm_scanout_framebuffer = 4;
+    return 0;
+}
+
+fn drmRemoveFramebuffer(address: u64) u64 {
+    if (!validUserSlice(address, 4)) return errno(14);
+    const input: [*]const u8 = @ptrFromInt(address);
+    if (!drm_framebuffer_created or read32(input) != 4) return errno(2);
+    drm_scanout_framebuffer = 0;
+    drm_framebuffer_created = false;
     return 0;
 }
 
@@ -612,6 +660,7 @@ fn put32(target: [*]u8, value: u32) void { var i: usize = 0; while (i < 4) : (i 
 fn put16(target: [*]u8, value: u16) void { target[0] = @truncate(value); target[1] = @truncate(value >> 8); }
 fn put64(target: [*]u8, value: u64) void { var i: usize = 0; while (i < 8) : (i += 1) target[i] = @truncate(value >> @intCast(i * 8)); }
 fn read32(source: [*]const u8) u32 { var value: u32 = 0; var i: usize = 0; while (i < 4) : (i += 1) value |= @as(u32, source[i]) << @intCast(i * 8); return value; }
+fn read16(source: [*]const u8) u16 { return @as(u16, source[0]) | (@as(u16, source[1]) << 8); }
 fn read64(source: [*]const u8) u64 { var value: u64 = 0; var i: usize = 0; while (i < 8) : (i += 1) value |= @as(u64, source[i]) << @intCast(i * 8); return value; }
 fn copyZ(target: [*]u8, text: []const u8) void { @memcpy(target[0..text.len], text); target[text.len] = 0; }
 

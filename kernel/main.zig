@@ -222,7 +222,7 @@ pub fn start(info: BootInfo) noreturn {
     serial.write("CSOS M14 userspace framebuffer mmap ready\n");
     process.runDrmTest(mapper.root, &pages) catch panic("Linux DRM core userspace failed");
     mapper.activate();
-    if (syscalls.drm_ioctls != 12 or syscalls.drm_mmaps != 1) panic("Linux DRM ioctl coverage failed");
+    if (syscalls.drm_ioctls != 18 or syscalls.drm_mmaps != 1) panic("Linux DRM ioctl coverage failed");
     serial.write("CSOS M14 userspace DRM core ready\n");
     const echo_arguments = [_][]const u8{ "/bin/busybox", "echo", "BusyBox userspace ready" };
     process.runBusyBox(mapper.root, &pages, &echo_arguments) catch panic("BusyBox echo failed");
