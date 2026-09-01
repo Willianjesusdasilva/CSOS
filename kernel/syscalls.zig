@@ -70,6 +70,12 @@ pub const AmdGpuCsEndpoint = struct {
     submit: *const fn (*anyopaque, u4, u64, u32) anyerror!u64,
 };
 var amdgpu_cs_endpoint: ?AmdGpuCsEndpoint = null;
+var amdgpu_abi_test_dispatches: u32 = 0;
+fn amdgpuAbiTestSubmit(_: *anyopaque, vmid: u4, address: u64, dwords: u32) !u64 {
+    if (vmid != 1 or address != 0x4000 or dwords != 4) return error.InvalidAmdGpuAbiTestSubmission;
+    amdgpu_abi_test_dispatches += 1;
+    return 0x100 + amdgpu_abi_test_dispatches;
+}
 const max_amdgpu_contexts = 8;
 const AmdGpuContext = struct {
     allocated: bool = false,
@@ -876,6 +882,90 @@ fn amdgpuWaitCs(address: u64) u64 {
     // every published context handle has already passed the physical 64-bit fence.
     @memset(io[0..32], 0);
     return 0;
+}
+
+pub fn validateAmdGpuDrmAbiSelfTest() !void {
+    var memory: [1024]u8 align(8) = .{0} ** 1024;
+    configure(@intFromPtr(&memory), memory.len, 0, 0, @intFromPtr(&memory) + memory.len, @intFromPtr(&memory) + memory.len, @intFromPtr(&memory), @intFromPtr(&memory) + memory.len);
+    configureDrm(.amdgpu);
+    defer {
+        amdgpu_cs_endpoint = null;
+        amdgpu_contexts = .{AmdGpuContext{}} ** max_amdgpu_contexts;
+        amdgpu_bo_lists = .{AmdGpuBoList{}} ** max_amdgpu_bo_lists;
+        drm_syncobjs = .{DrmSyncobj{}} ** max_drm_syncobjs;
+        drm_objects = .{DrmObject{}} ** max_drm_objects;
+        drm_vm_manager = .{};
+        drm_vm_vmid = 0;
+    }
+    const base: [*]u8 = &memory;
+    put32(base, 1);
+    if (amdgpuCtx(@intFromPtr(base)) != 0 or read32(base) != 1) return error.AmdGpuCtxAllocateAbiMismatch;
+    drm_objects[0] = .{ .allocated = true, .handle_open = true, .handle = 1, .size = 4096, .domains = 2 };
+    put32(base + 32, 1);
+    put32(base + 36, 0);
+    put32(base + 48, 0);
+    put32(base + 52, 0);
+    put32(base + 56, 1);
+    put32(base + 60, 8);
+    put64(base + 64, @intFromPtr(base + 32));
+    if (amdgpuBoList(@intFromPtr(base + 48)) != 0 or read32(base + 48) != 1) return error.AmdGpuBoListCreateAbiMismatch;
+    drm_vm_vmid = 1;
+    drm_vm_manager.vms[0] = .{ .allocated = true, .vmid = 1 };
+    drm_vm_manager.vms[0].mappings[0] = .{ .active = true, .handle = 1, .address = 0x4000, .size = 4096, .flags = 2 };
+    put64(base + 96, 0);
+    put64(base + 104, 0x4000);
+    put32(base + 112, 16);
+    put32(base + 116, 0);
+    put32(base + 120, 0);
+    put32(base + 124, 0);
+    put32(base + 128, 1);
+    put32(base + 132, 8);
+    put64(base + 136, @intFromPtr(base + 96));
+    put64(base + 144, @intFromPtr(base + 128));
+    put32(base + 160, 1);
+    put32(base + 164, 1);
+    put32(base + 168, 1);
+    put32(base + 172, 0);
+    put64(base + 176, @intFromPtr(base + 144));
+    amdgpu_abi_test_dispatches = 0;
+    var endpoint_cookie: u8 = 0;
+    configureAmdGpuCsEndpoint(.{ .context = &endpoint_cookie, .submit = &amdgpuAbiTestSubmit });
+    if (amdgpuCs(@intFromPtr(base + 160)) != 0 or read64(base + 160) != 1 or amdgpu_abi_test_dispatches != 1)
+        return error.AmdGpuCsDispatchAbiMismatch;
+    put64(base + 192, 1);
+    put64(base + 200, 0);
+    put32(base + 208, 0);
+    put32(base + 212, 0);
+    put32(base + 216, 0);
+    put32(base + 220, 1);
+    if (amdgpuWaitCs(@intFromPtr(base + 192)) != 0 or read64(base + 192) != 0) return error.AmdGpuWaitCsAbiMismatch;
+    put32(base + 224, 0);
+    put32(base + 228, 0);
+    if (drmSyncobjCreate(@intFromPtr(base + 224)) != 0 or read32(base + 224) != 1) return error.AmdGpuSyncobjCreateAbiMismatch;
+    put32(base + 312, 4);
+    put32(base + 316, 1);
+    put64(base + 320, @intFromPtr(base + 224));
+    put64(base + 328, @intFromPtr(base + 128));
+    put64(base + 336, @intFromPtr(base + 312));
+    put32(base + 344, 1);
+    put32(base + 348, 1);
+    put32(base + 352, 2);
+    put32(base + 356, 0);
+    put64(base + 360, @intFromPtr(base + 328));
+    if (amdgpuCs(@intFromPtr(base + 344)) != errno(62) or amdgpu_abi_test_dispatches != 1 or drm_syncobjs[0].point != 0)
+        return error.AmdGpuSyncobjDependencyDispatchedEarly;
+    put32(base + 240, 5);
+    put32(base + 244, 1);
+    put64(base + 248, @intFromPtr(base + 224));
+    put64(base + 256, @intFromPtr(base + 128));
+    put64(base + 264, @intFromPtr(base + 240));
+    put32(base + 280, 1);
+    put32(base + 284, 1);
+    put32(base + 288, 2);
+    put32(base + 292, 0);
+    put64(base + 296, @intFromPtr(base + 256));
+    if (amdgpuCs(@intFromPtr(base + 280)) != 0 or drm_syncobjs[0].point != 1 or amdgpu_abi_test_dispatches != 2)
+        return error.AmdGpuSyncobjSignalOrderingMismatch;
 }
 
 fn amdgpuBoListCoversGpuVa(list: *const AmdGpuBoList, address: u64, size: u32) bool {

@@ -754,6 +754,12 @@ ocioso no WPTR confirmado, grava os 12 dwords com wrap em 1024 slots, publica
 WPTR somente após `mfence`, toca o doorbell autorizado e espera simultaneamente
 RPTR e fence de 64 bits. Sequence só avança após ambas as confirmações; falha de
 doorbell ou timeout marca a fila como parada e desativa o CP.
+
+`zig build test` agora inclui um artefato host específico para a ABI DRM AMDGPU.
+Ele executa os handlers reais de CTX, BO_LIST, CS, WAIT_CS e syncobj em buffers
+UAPI montados byte a byte, usa um endpoint contador e comprova tanto o caminho
+de fence concluído quanto a rejeição de dependência não sinalizada sem dispatch
+ou efeito colateral. Isso complementa — sem substituir — a validação em Radeon.
 `AMDGPU_GEM_OP_GET_GEM_CREATE_INFO` devolve o descritor de criação original por
 ponteiro de usuário validado, e `AMDGPU_GEM_LIST_HANDLES` enumera tamanho,
 domínio, flags e alinhamento dos BOs ainda abertos. Placement em VRAM continua

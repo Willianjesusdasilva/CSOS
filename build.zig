@@ -208,6 +208,15 @@ pub fn build(b: *std.Build) void {
     syscalls_module.addImport("net", net_module);
     syscalls_module.addImport("physical", physical_module);
     syscalls_module.addImport("gpu", gpu_module);
+    const drm_abi_test_module = b.createModule(.{
+        .root_source_file = b.path("tests/drm_abi.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+    });
+    drm_abi_test_module.addImport("syscalls", syscalls_module);
+    const drm_abi_tests = b.addTest(.{ .root_module = drm_abi_test_module });
+    const run_drm_abi_tests = b.addRunArtifact(drm_abi_tests);
+    test_step.dependOn(&run_drm_abi_tests.step);
     const process_module = b.createModule(.{ .root_source_file = b.path("kernel/process.zig") });
     process_module.addImport("paging", paging_module);
     process_module.addImport("physical", physical_module);

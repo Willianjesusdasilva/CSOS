@@ -1875,6 +1875,7 @@ per-context CS handles plus AMDGPU_WAIT_CS for synchronous completed GFX fences:
 AMDGPU_CS binary SYNCOBJ_IN/OUT dependencies with validate-before-submit and signal-after-fence ordering: implemented; integration validation pending
 AMDGPU_CS timeline WAIT/SIGNAL chunks with monotonic points and point-zero binary semantics: implemented; wait-for-submit flags pending
 AMDGPU_CS DEPENDENCIES/SCHEDULED_DEPENDENCIES cross-context validation: implemented for completed synchronous GFX handles; async scheduled state pending
+direct host ABI test for AMDGPU CTX/BO_LIST/CS/WAIT_CS/syncobj success and pre-dispatch rejection: implemented
 GFX11 ring resource contract and fail-closed preflight: implemented and host-tested
 transactional ring/MQD/EOP/pointer physical allocation: implemented and host-tested
 dual MES scheduler/KIQ GART layout and GFX11 MQD encoding: implemented and host-tested
