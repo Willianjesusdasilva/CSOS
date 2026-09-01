@@ -1448,6 +1448,201 @@ pub fn executeAmdGfx11RlcResume(plan: AmdGfx11RlcResumePlan, io: AmdRegisterIo) 
     return transaction;
 }
 
+pub const AmdGfx11CpGfxRegisters = struct {
+    grbm_gfx_control: u32,
+    me_control: u32,
+    status: u32,
+    wptr_delay: u32,
+    rb_vmid: u32,
+    rb_control: u32,
+    rb_wptr: u32,
+    rb_wptr_high: u32,
+    rb_rptr_address: u32,
+    rb_rptr_address_high: u32,
+    wptr_poll_address: u32,
+    wptr_poll_address_high: u32,
+    rb_base: u32,
+    rb_base_high: u32,
+    rb_active: u32,
+    doorbell_control: u32,
+    gfx_doorbell_lower: u32,
+    gfx_doorbell_upper: u32,
+    mec_doorbell_lower: u32,
+    mec_doorbell_upper: u32,
+    max_context: u32,
+    device_id: u32,
+};
+
+pub fn resolveAmdGfx11CpGfxRegisters(ip: *const AmdIp, register_bar_bytes: u64) !AmdGfx11CpGfxRegisters {
+    if (ip.hw_id != amd_hw_id.gfx or ip.instance != 0 or ip.major != 11 or ip.base_count <= 1 or ip.bases[1] == 0)
+        return error.AmdGfx11CpRegisterBaseMissing;
+    const base = ip.bases[1];
+    return .{
+        .grbm_gfx_control = try resolveAmdRegister(base, 0x0900, register_bar_bytes),
+        .me_control = try resolveAmdRegister(base, 0x0803, register_bar_bytes),
+        .status = try resolveAmdRegister(base, 0x0f40, register_bar_bytes),
+        .wptr_delay = try resolveAmdRegister(base, 0x0f61, register_bar_bytes),
+        .rb_vmid = try resolveAmdRegister(base, 0x1df1, register_bar_bytes),
+        .rb_control = try resolveAmdRegister(base, 0x1de1, register_bar_bytes),
+        .rb_wptr = try resolveAmdRegister(base, 0x1df4, register_bar_bytes),
+        .rb_wptr_high = try resolveAmdRegister(base, 0x1df5, register_bar_bytes),
+        .rb_rptr_address = try resolveAmdRegister(base, 0x1de3, register_bar_bytes),
+        .rb_rptr_address_high = try resolveAmdRegister(base, 0x1de4, register_bar_bytes),
+        .wptr_poll_address = try resolveAmdRegister(base, 0x1e8b, register_bar_bytes),
+        .wptr_poll_address_high = try resolveAmdRegister(base, 0x1e8c, register_bar_bytes),
+        .rb_base = try resolveAmdRegister(base, 0x1de0, register_bar_bytes),
+        .rb_base_high = try resolveAmdRegister(base, 0x1e51, register_bar_bytes),
+        .rb_active = try resolveAmdRegister(base, 0x1f40, register_bar_bytes),
+        .doorbell_control = try resolveAmdRegister(base, 0x1e8d, register_bar_bytes),
+        .gfx_doorbell_lower = try resolveAmdRegister(base, 0x1dfa, register_bar_bytes),
+        .gfx_doorbell_upper = try resolveAmdRegister(base, 0x1dfb, register_bar_bytes),
+        .mec_doorbell_lower = try resolveAmdRegister(base, 0x1dfc, register_bar_bytes),
+        .mec_doorbell_upper = try resolveAmdRegister(base, 0x1dfd, register_bar_bytes),
+        .max_context = try resolveAmdRegister(base, 0x1e4e, register_bar_bytes),
+        .device_id = try resolveAmdRegister(base, 0x1deb, register_bar_bytes),
+    };
+}
+
+pub fn prepareAmdGfx11GfxRingClearState(command: AmdGfx11GfxRingResources, rlc: AmdGfx11RlcResources) !void {
+    if (command.allocator == null or rlc.allocator == null or command.ring == 0 or command.pointers == 0 or rlc.page == 0)
+        return error.InvalidAmdGfx11GfxRingResources;
+    const source: *const [1024]u32 = @ptrFromInt(rlc.page);
+    const ring: *[1024]u32 = @ptrFromInt(command.ring);
+    const pointers: *[512]u64 = @ptrFromInt(command.pointers);
+    @memcpy(ring[0..960], source[0..960]);
+    @memset(ring[960..], 0);
+    @memset(pointers, 0);
+    asm volatile ("mfence" ::: .{ .memory = true });
+}
+
+pub const AmdGfx11CpGfxPlan = struct {
+    registers: AmdGfx11CpGfxRegisters,
+    layout: AmdGfx11GfxRingLayout,
+    doorbell: AmdGfx11Doorbell,
+};
+
+pub fn planAmdGfx11CpGfxResume(registers: AmdGfx11CpGfxRegisters, layout: AmdGfx11GfxRingLayout) !AmdGfx11CpGfxPlan {
+    if (layout.ring == 0 or layout.rptr == 0 or layout.wptr == 0 or layout.ring_dwords != 1024 or
+        (layout.ring & 255) != 0 or (layout.rptr & 7) != 0 or layout.wptr != layout.rptr + 8 or
+        layout.doorbell_index != 0x116 or layout.doorbell_byte_offset != 0x458)
+        return error.InvalidAmdGfx11CpGfxPlan;
+    return .{
+        .registers = registers,
+        .layout = layout,
+        .doorbell = .{ .assignment = 0x08b, .register_index = 0x116, .byte_offset = 0x458 },
+    };
+}
+
+pub const AmdGfx11CpGfxTransaction = struct {
+    offsets: [20]u32 = .{0} ** 20,
+    values: [20]u32 = .{0} ** 20,
+    count: u5 = 0,
+};
+
+fn rollbackAmdGfx11CpGfx(plan: AmdGfx11CpGfxPlan, transaction: *const AmdGfx11CpGfxTransaction, io: AmdRegisterIo) !void {
+    var failed = false;
+    const current = io.read(io.context, plan.registers.me_control) catch 0;
+    io.write(io.context, plan.registers.me_control, current | 0x14000000) catch {
+        failed = true;
+    };
+    var index: usize = transaction.count;
+    while (index != 0) {
+        index -= 1;
+        if (transaction.offsets[index] == plan.registers.me_control) continue;
+        io.write(io.context, transaction.offsets[index], transaction.values[index]) catch {
+            failed = true;
+        };
+    }
+    io.write(io.context, plan.registers.grbm_gfx_control, 0) catch {
+        failed = true;
+    };
+    if (failed) return error.AmdCpGfxRollbackFailed;
+}
+
+pub fn activateAmdGfx11CpGfx(
+    plan: AmdGfx11CpGfxPlan,
+    pointers: *[512]u64,
+    poll_limit: u32,
+    io: AmdRegisterIo,
+    doorbells: AmdDoorbellIo,
+) !u32 {
+    if (poll_limit == 0 or @atomicLoad(u64, &pointers[0], .seq_cst) != 0 or @atomicLoad(u64, &pointers[1], .seq_cst) != 0)
+        return error.InvalidAmdCpGfxActivation;
+    const initial_me = io.read(io.context, plan.registers.me_control) catch return error.AmdCpGfxRegisterReadFailed;
+    if ((initial_me & 0x14000000) != 0x14000000 or try io.read(io.context, plan.registers.grbm_gfx_control) != 0)
+        return error.AmdCpGfxNotHalted;
+    const rb_base = plan.layout.ring >> 8;
+    const writes = [_]AmdRegisterWrite{
+        .{ .offset = plan.registers.gfx_doorbell_lower, .value = 0x458 },
+        .{ .offset = plan.registers.gfx_doorbell_upper, .value = 0x7f8 },
+        .{ .offset = plan.registers.mec_doorbell_lower, .value = 0 },
+        .{ .offset = plan.registers.mec_doorbell_upper, .value = 0x450 },
+        .{ .offset = plan.registers.wptr_delay, .value = 0 },
+        .{ .offset = plan.registers.rb_vmid, .value = 0 },
+        .{ .offset = plan.registers.rb_control, .value = 0x00000709 },
+        .{ .offset = plan.registers.rb_wptr, .value = 0 },
+        .{ .offset = plan.registers.rb_wptr_high, .value = 0 },
+        .{ .offset = plan.registers.rb_rptr_address, .value = @truncate(plan.layout.rptr) },
+        .{ .offset = plan.registers.rb_rptr_address_high, .value = @truncate((plan.layout.rptr >> 32) & 0xffff) },
+        .{ .offset = plan.registers.wptr_poll_address, .value = @truncate(plan.layout.wptr) },
+        .{ .offset = plan.registers.wptr_poll_address_high, .value = @truncate(plan.layout.wptr >> 32) },
+        .{ .offset = plan.registers.rb_base, .value = @truncate(rb_base) },
+        .{ .offset = plan.registers.rb_base_high, .value = @truncate(rb_base >> 32) },
+        .{ .offset = plan.registers.rb_active, .value = 1 },
+        .{ .offset = plan.registers.doorbell_control, .value = 0x40000458 },
+        .{ .offset = plan.registers.max_context, .value = 7 },
+        .{ .offset = plan.registers.device_id, .value = 1 },
+        .{ .offset = plan.registers.me_control, .value = initial_me & ~@as(u32, 0x14000000) },
+    };
+    var transaction = AmdGfx11CpGfxTransaction{};
+    for (writes) |write| {
+        transaction.offsets[transaction.count] = write.offset;
+        transaction.values[transaction.count] = io.read(io.context, write.offset) catch {
+            rollbackAmdGfx11CpGfx(plan, &transaction, io) catch return error.AmdCpGfxRollbackFailed;
+            return error.AmdCpGfxRegisterReadFailed;
+        };
+        transaction.count += 1;
+        io.write(io.context, write.offset, write.value) catch {
+            rollbackAmdGfx11CpGfx(plan, &transaction, io) catch return error.AmdCpGfxRollbackFailed;
+            return error.AmdCpGfxRegisterWriteFailed;
+        };
+        const observed = io.read(io.context, write.offset) catch {
+            rollbackAmdGfx11CpGfx(plan, &transaction, io) catch return error.AmdCpGfxRollbackFailed;
+            return error.AmdCpGfxRegisterReadFailed;
+        };
+        if (observed != write.value) {
+            rollbackAmdGfx11CpGfx(plan, &transaction, io) catch return error.AmdCpGfxRollbackFailed;
+            return error.AmdCpGfxRegisterReadbackMismatch;
+        }
+    }
+    var idle_polls: u32 = 0;
+    while (idle_polls < poll_limit) : (idle_polls += 1) {
+        const status = io.read(io.context, plan.registers.status) catch {
+            rollbackAmdGfx11CpGfx(plan, &transaction, io) catch return error.AmdCpGfxRollbackFailed;
+            return error.AmdCpGfxRegisterReadFailed;
+        };
+        if (status == 0) break;
+        asm volatile ("pause");
+    }
+    if (idle_polls == poll_limit) {
+        rollbackAmdGfx11CpGfx(plan, &transaction, io) catch return error.AmdCpGfxRollbackFailed;
+        return error.AmdCpGfxIdleTimeout;
+    }
+    @atomicStore(u64, &pointers[1], 960, .seq_cst);
+    asm volatile ("mfence" ::: .{ .memory = true });
+    doorbells.write64(doorbells.context, plan.doorbell.byte_offset, 960) catch {
+        rollbackAmdGfx11CpGfx(plan, &transaction, io) catch return error.AmdCpGfxRollbackFailed;
+        return error.AmdCpGfxDoorbellWriteFailed;
+    };
+    var polls: u32 = 0;
+    while (polls < poll_limit) : (polls += 1) {
+        if (@atomicLoad(u64, &pointers[0], .seq_cst) == 960) return polls + 1;
+        asm volatile ("pause");
+    }
+    rollbackAmdGfx11CpGfx(plan, &transaction, io) catch return error.AmdCpGfxRollbackFailed;
+    return error.AmdCpGfxClearStateTimeout;
+}
+
 pub fn amdGfx11MesIsHalted(control: u32) bool {
     const reset = control & 0x00030000;
     const active = control & 0x0c000000;
@@ -4103,6 +4298,63 @@ pub fn validateAmdGfx11RlcResumeSelfTest() !void {
         return error.AmdRlcResumeAutomaticRollbackMismatch;
 }
 
+pub fn validateAmdGfx11CpGfxResumeSelfTest() !void {
+    const gfx_ip = AmdIp{ .hw_id = amd_hw_id.gfx, .major = 11, .instance = 0, .base_count = 2, .bases = .{ 0, 0x100 } ++ .{0} ** 6 };
+    const registers = try resolveAmdGfx11CpGfxRegisters(&gfx_ip, 0x20000);
+    const layout = AmdGfx11GfxRingLayout{
+        .ring = 0x20015000,
+        .rptr = 0x20016000,
+        .wptr = 0x20016008,
+        .first_gart_page = 21,
+    };
+    const plan = try planAmdGfx11CpGfxResume(registers, layout);
+    if (plan.doorbell.assignment != 0x08b or plan.doorbell.register_index != 0x116 or plan.doorbell.byte_offset != 0x458)
+        return error.AmdCpGfxDoorbellIdentityMismatch;
+    const offsets = [_]u32{
+        registers.grbm_gfx_control, registers.me_control, registers.status, registers.wptr_delay,
+        registers.rb_vmid, registers.rb_control, registers.rb_wptr, registers.rb_wptr_high,
+        registers.rb_rptr_address, registers.rb_rptr_address_high, registers.wptr_poll_address,
+        registers.wptr_poll_address_high, registers.rb_base, registers.rb_base_high,
+        registers.rb_active, registers.doorbell_control, registers.gfx_doorbell_lower,
+        registers.gfx_doorbell_upper, registers.mec_doorbell_lower, registers.mec_doorbell_upper,
+        registers.max_context, registers.device_id,
+    };
+    var bank = AmdGartRegisterTestBank{ .count = offsets.len };
+    @memcpy(bank.offsets[0..offsets.len], &offsets);
+    for (bank.values[0..offsets.len], 0..) |*value, index| value.* = 0xa5000000 | @as(u32, @intCast(index));
+    bank.values[bank.position(registers.grbm_gfx_control).?] = 0;
+    bank.values[bank.position(registers.me_control).?] = 0x14000000;
+    bank.values[bank.position(registers.status).?] = 0;
+    var original: [offsets.len]u32 = undefined;
+    @memcpy(&original, bank.values[0..offsets.len]);
+    var pointers = [_]u64{0} ** 512;
+    var doorbell = AmdCpGfxDoorbellTestBank{ .pointers = &pointers };
+    const polls = try activateAmdGfx11CpGfx(plan, &pointers, 4, bank.io(), doorbell.io());
+    if (polls != 1 or doorbell.writes != 1 or pointers[0] != 960 or pointers[1] != 960 or
+        bank.values[bank.position(registers.rb_control).?] != 0x709 or
+        bank.values[bank.position(registers.rb_base).?] != 0x200150 or
+        bank.values[bank.position(registers.doorbell_control).?] != 0x40000458 or
+        (bank.values[bank.position(registers.me_control).?] & 0x14000000) != 0)
+        return error.AmdCpGfxActivationMismatch;
+
+    @memcpy(bank.values[0..offsets.len], &original);
+    pointers = .{0} ** 512;
+    doorbell.complete = false;
+    doorbell.writes = 0;
+    if (activateAmdGfx11CpGfx(plan, &pointers, 2, bank.io(), doorbell.io())) |_| return error.AmdCpGfxTimeoutNotDetected else |err| if (err != error.AmdCpGfxClearStateTimeout) return err;
+    if ((bank.values[bank.position(registers.me_control).?] & 0x14000000) != 0x14000000 or
+        bank.values[bank.position(registers.rb_active).?] != original[bank.position(registers.rb_active).?])
+        return error.AmdCpGfxTimeoutRollbackMismatch;
+
+    @memcpy(bank.values[0..offsets.len], &original);
+    pointers = .{0} ** 512;
+    doorbell.complete = true;
+    bank.fail_write_once = registers.rb_base;
+    if (activateAmdGfx11CpGfx(plan, &pointers, 2, bank.io(), doorbell.io())) |_| return error.AmdCpGfxWriteFailureNotDetected else |err| if (err != error.AmdCpGfxRegisterWriteFailed) return err;
+    if ((bank.values[bank.position(registers.me_control).?] & 0x14000000) != 0x14000000)
+        return error.AmdCpGfxWriteFailureDidNotHalt;
+}
+
 pub fn validateAmdGmc11BootstrapWrites(
     registers: AmdGmc11GartRegisters,
     aperture: AmdGmc11GartApertureValues,
@@ -4333,6 +4585,26 @@ const AmdMesSchedulerDoorbellTestBank = struct {
     }
 
     fn io(self: *AmdMesSchedulerDoorbellTestBank) AmdDoorbellIo {
+        return .{ .context = self, .write64 = &write64 };
+    }
+};
+
+const AmdCpGfxDoorbellTestBank = struct {
+    expected_offset: u32 = 0x458,
+    pointers: *[512]u64,
+    complete: bool = true,
+    fail: bool = false,
+    writes: u32 = 0,
+
+    fn write64(context: *anyopaque, offset: u32, value: u64) !void {
+        const self: *AmdCpGfxDoorbellTestBank = @ptrCast(@alignCast(context));
+        if (self.fail) return error.InjectedAmdDoorbellFailure;
+        if (offset != self.expected_offset or value != 960) return error.UnexpectedAmdDoorbellWrite;
+        self.writes += 1;
+        if (self.complete) @atomicStore(u64, &self.pointers[0], value, .seq_cst);
+    }
+
+    fn io(self: *AmdCpGfxDoorbellTestBank) AmdDoorbellIo {
         return .{ .context = self, .write64 = &write64 };
     }
 };

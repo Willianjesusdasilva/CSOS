@@ -13,6 +13,7 @@ pub fn build(b: *std.Build) void {
     const amd_mes_scheduler_map = b.option(bool, "amd-mes-scheduler-map", "Explicitly map and verify the GFX11 MES scheduler queue through KIQ") orelse false;
     const amd_mes_scheduler_init = b.option(bool, "amd-mes-scheduler-init", "Explicitly submit and verify GFX11 MES SET_HW_RSRC") orelse false;
     const amd_mes_scheduler_resource1 = b.option(bool, "amd-mes-scheduler-resource1", "Explicitly submit revision-required GFX11 MES SET_HW_RSRC_1") orelse false;
+    const amd_cp_gfx = b.option(bool, "amd-cp-gfx", "Explicitly activate GFX11 CP graphics ring0 and verify the clear-state preamble") orelse false;
     const amd_gart_device_text = b.option([]const u8, "amd-gart-device", "Required AMD PCI device ID for real GART MMIO activation (for example 0x744c)") orelse "0";
     const amd_gart_device = std.fmt.parseInt(u16, amd_gart_device_text, 0) catch @panic("invalid -Damd-gart-device PCI ID");
     const build_options = b.addOptions();
@@ -26,6 +27,7 @@ pub fn build(b: *std.Build) void {
     build_options.addOption(bool, "amd_mes_scheduler_map", amd_mes_scheduler_map);
     build_options.addOption(bool, "amd_mes_scheduler_init", amd_mes_scheduler_init);
     build_options.addOption(bool, "amd_mes_scheduler_resource1", amd_mes_scheduler_resource1);
+    build_options.addOption(bool, "amd_cp_gfx", amd_cp_gfx);
     build_options.addOption(u16, "amd_gart_device", amd_gart_device);
     const target = b.resolveTargetQuery(.{
         .cpu_arch = .x86_64,

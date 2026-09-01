@@ -108,6 +108,8 @@ pub fn start(info: BootInfo) noreturn {
         panic("AMDGPU MES scheduler init gate requires scheduler map gate");
     if (build_options.amd_mes_scheduler_resource1 and !build_options.amd_mes_scheduler_init)
         panic("AMDGPU MES scheduler resource1 gate requires scheduler init gate");
+    if (build_options.amd_cp_gfx and !build_options.amd_mes_scheduler_resource1)
+        panic("AMDGPU CP graphics gate requires complete MES scheduler resources");
     serial.write("kernel entry\n");
     syscalls.configureFramebuffer(.{
         .base = info.framebuffer.base,
@@ -635,6 +637,9 @@ pub fn start(info: BootInfo) noreturn {
             panic("AMDGPU GFX11 graphics command ring allocation failed")
     else
         gpu.AmdGfx11GfxRingResources{};
+    if (gpu_gfx_firmware != null)
+        gpu.prepareAmdGfx11GfxRingClearState(gpu_gfx_command_ring_resources, gpu_rlc_resources) catch
+            panic("AMDGPU graphics clear-state ring preparation failed");
     const gpu_memory_plan = if (gpu_backend_plan) |plan| gpu.planAmdMemory(gpu_adapter.bars, gpu_adapter.register_bar, plan.gmc) catch
         panic("AMDGPU memory apertures invalid") else null;
     const gpu_psp_gtt = if (gpu_memory_plan != null) gpu.prepareAmdPspGtt(&pages) catch panic("AMDGPU PSP GTT staging failed") else gpu.AmdPspGttStaging{};
@@ -679,6 +684,10 @@ pub fn start(info: BootInfo) noreturn {
     const gpu_rlc_registers = if (gpu_backend_plan) |plan| if (plan.gfx == .v11_0) blk: {
         const gfx_ip = gpu_ip_discovery.?.find(gpu.amd_hw_id.gfx, 0) orelse panic("AMDGPU GFX IP missing");
         break :blk gpu.resolveAmdGfx11RlcRegisters(gfx_ip, gpu_registers.size) catch panic("AMDGPU RLC registers invalid");
+    } else null else null;
+    const gpu_cp_gfx_registers = if (gpu_backend_plan) |plan| if (plan.gfx == .v11_0) blk: {
+        const gfx_ip = gpu_ip_discovery.?.find(gpu.amd_hw_id.gfx, 0) orelse panic("AMDGPU GFX IP missing");
+        break :blk gpu.resolveAmdGfx11CpGfxRegisters(gfx_ip, gpu_registers.size) catch panic("AMDGPU CP graphics registers invalid");
     } else null else null;
     if (gpu_backend_plan) |plan| if (plan.psp.host_boot_components) {
         const psp_ip = if (gpu_ip_discovery) |*discovery| discovery.find(gpu.amd_hw_id.psp, 0) orelse
@@ -789,7 +798,10 @@ pub fn start(info: BootInfo) noreturn {
         gpu.planAmdGfx11RlcResume(gpu_rlc_registers.?, layout) catch panic("AMDGPU RLC resume plan invalid")
     else
         null;
-    _ = gpu_gfx_command_ring;
+    const gpu_cp_gfx_plan = if (gpu_gfx_command_ring) |layout|
+        gpu.planAmdGfx11CpGfxResume(gpu_cp_gfx_registers.?, layout) catch panic("AMDGPU CP graphics resume plan invalid")
+    else
+        null;
     const gpu_mes_hw_resources = if (gpu_mes_control_gpu) |control|
         gpu.planAmdGfx11MesHwResources(
             &gpu_ip_discovery.?,
@@ -919,6 +931,8 @@ pub fn start(info: BootInfo) noreturn {
     var gpu_mes_scheduler_init_polls: u32 = 0;
     var gpu_mes_scheduler_resource1_polls: u32 = 0;
     var gpu_mes_scheduler_ready = false;
+    var gpu_cp_gfx_ready = false;
+    var gpu_cp_gfx_polls: u32 = 0;
     var gpu_psp_ring_activation: ?gpu.AmdPspRingActivation = null;
     var gpu_psp_firmware_load: ?gpu.AmdPspFirmwareLoadResult = null;
     var gpu_rlc_resumed = false;
@@ -1227,6 +1241,40 @@ pub fn start(info: BootInfo) noreturn {
                 }
             }
         }
+        if (build_options.amd_cp_gfx) {
+            if (!build_options.amd_gart_mmio or !build_options.amd_psp_ring or !build_options.amd_rlc_resume or
+                !build_options.amd_mes_scheduler_resource1 or !gpu_gmc11_activation_workspace.active or !gpu_rlc_resumed or
+                !gpu_mes_scheduler_ready or build_options.amd_gart_device == 0 or
+                build_options.amd_gart_device != gpu_adapter.device.device)
+                panic("AMDGPU CP graphics gate requires matching GART, RLC and MES scheduler");
+            const plan = gpu_cp_gfx_plan orelse panic("AMDGPU CP graphics resume plan unavailable");
+            var cp_doorbell_transport = gpu.AmdGfx11DoorbellTransport{
+                .aperture = gpu_memory_plan.?.doorbell_bar,
+                .expected_offset = plan.doorbell.byte_offset,
+                .uncached = true,
+            };
+            cp_doorbell_transport.authorize(plan.doorbell) catch panic("AMDGPU CP graphics doorbell authorization rejected");
+            transport.arm() catch panic("AMDGPU CP graphics MMIO arming failed");
+            cp_doorbell_transport.arm() catch {
+                transport.disarm();
+                panic("AMDGPU CP graphics doorbell arming failed");
+            };
+            const pointers: *[512]u64 = @ptrFromInt(gpu_gfx_command_ring_resources.pointers);
+            gpu_cp_gfx_polls = gpu.activateAmdGfx11CpGfx(
+                plan,
+                pointers,
+                2_100_000,
+                transport.io(),
+                cp_doorbell_transport.io(),
+            ) catch {
+                cp_doorbell_transport.disarm();
+                transport.disarm();
+                panic("AMDGPU CP graphics clear-state activation failed and returned to halt");
+            };
+            cp_doorbell_transport.disarm();
+            transport.disarm();
+            gpu_cp_gfx_ready = true;
+        }
     }
     const gpu_identity = gpu_adapter.identifyChip() catch panic("GPU chipset identification failed");
     const gpu_register_probe = gpu_identity.boot0 orelse gpu_adapter.readRegister(0) catch panic("GPU register MMIO read failed");
@@ -1500,6 +1548,10 @@ pub fn start(info: BootInfo) noreturn {
     serial.writeDecimal(gpu_mes_scheduler_resource1_polls);
     serial.write(" mes-scheduler-ready: ");
     serial.writeDecimal(@intFromBool(gpu_mes_scheduler_ready));
+    serial.write(" cp-gfx-ready: ");
+    serial.writeDecimal(@intFromBool(gpu_cp_gfx_ready));
+    serial.write(" cp-gfx-polls: ");
+    serial.writeDecimal(gpu_cp_gfx_polls);
     serial.write(" driver: ");
     serial.write(switch (gpu_adapter.driver) {
         .amdgpu => "amdgpu",
