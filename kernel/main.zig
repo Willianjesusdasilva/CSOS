@@ -50,6 +50,36 @@ const GpuVmRuntime = struct {
     active: bool = false,
 };
 var gpu_vm_runtime = GpuVmRuntime{};
+const GpuCsRuntime = struct {
+    mmio: ?gpu.AmdGmc11MmioTransport = null,
+    doorbell: ?gpu.AmdGfx11DoorbellTransport = null,
+    plan: ?gpu.AmdGfx11CpGfxPlan = null,
+    ring: ?*[1024]u32 = null,
+    pointers: ?*[512]u64 = null,
+    fence: ?*u64 = null,
+    fence_gpu: u64 = 0,
+    queue: gpu.AmdGfx11SubmissionQueue = .{},
+    active: bool = false,
+};
+var gpu_cs_runtime = GpuCsRuntime{};
+
+fn submitDrmAmdGpuCs(raw: *anyopaque, vmid: u4, ib_address: u64, ib_dwords: u32) !u64 {
+    const runtime: *GpuCsRuntime = @ptrCast(@alignCast(raw));
+    if (!runtime.active or !gpu_vm_runtime.active or !gpu_vm_runtime.context.bound or
+        gpu_vm_runtime.context.vmid != vmid)
+        return error.AmdGpuVmContextNotBound;
+    const mmio = if (runtime.mmio) |*value| value else return error.AmdGpuVmHardwareUnavailable;
+    const doorbell = if (runtime.doorbell) |*value| value else return error.AmdGpuVmHardwareUnavailable;
+    try mmio.arm();
+    defer mmio.disarm();
+    try doorbell.arm();
+    defer doorbell.disarm();
+    const result = try gpu.submitAmdGfx11IndirectBuffer(
+        runtime.plan.?, &runtime.queue, runtime.ring.?, runtime.pointers.?, runtime.fence.?,
+        runtime.fence_gpu, vmid, ib_address, ib_dwords, 2_100_000, mmio.io(), doorbell.io(),
+    );
+    return result.sequence;
+}
 
 fn bindDrmGpuVm(raw: *anyopaque, vmid: u4, root: u64) !void {
     const runtime: *GpuVmRuntime = @ptrCast(@alignCast(raw));
@@ -1293,6 +1323,19 @@ pub fn start(info: BootInfo) noreturn {
             };
             cp_doorbell_transport.disarm();
             transport.disarm();
+            @atomicStore(u64, &pointers[2], 0, .seq_cst);
+            gpu_cs_runtime = .{
+                .mmio = transport.*,
+                .doorbell = cp_doorbell_transport,
+                .plan = plan,
+                .ring = ring,
+                .pointers = pointers,
+                .fence = &pointers[2],
+                .fence_gpu = plan.layout.rptr + 16,
+                .queue = .{ .committed_wptr = 963 },
+                .active = true,
+            };
+            syscalls.configureAmdGpuCsEndpoint(.{ .context = &gpu_cs_runtime, .submit = &submitDrmAmdGpuCs });
             gpu_cp_gfx_ready = true;
         }
     }

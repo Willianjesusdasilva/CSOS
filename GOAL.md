@@ -1841,7 +1841,7 @@ restante:  aproximadamente 60%
 
 M0–M13 possuem fundações implementadas, mas ainda demandam integração e
 validação no sistema completo. M14 está parcial: a preparação AMD GFX11/MES é
-majoritariamente host-tested; o frame de IB/fence existe, mas dispatcher/ioctl,
+majoritariamente host-tested; frame, dispatcher e ioctl restrito existem, mas
 execução real e o triângulo RADV ainda faltam. O caminho NVIDIA/NVK começa
 depois desse primeiro triângulo AMD.
 M15–M30 permanecem majoritariamente pendentes. Esta estimativa deve ser
@@ -1869,7 +1869,8 @@ GFX11 graphics PM4 SET_UCONFIG_REG scratch test with RPTR=963 and timeout-to-hal
 GFX11 direct-VMID INDIRECT_BUFFER + 64-bit RELEASE_MEM fence frame: implemented and host-tested; ioctl wiring and Radeon validation pending
 GFX11 internal IB dispatcher with 1024-dword wrap, ordered WPTR, monotonic fence and timeout-to-stop: implemented and host-tested; ioctl wiring pending
 AMDGPU_CTX lifecycle and AMDGPU_BO_LIST residency ownership: implemented; integration validation pending
-AMDGPU_CS single-GFX-IB parser with context/list/GPUVA fail-closed validation: implemented; dispatch deliberately returns EOPNOTSUPP
+AMDGPU_CS single-GFX-IB parser with context/list/GPUVA fail-closed validation: implemented; returns EOPNOTSUPP unless a verified CP endpoint is installed
+verified-CP AMDGPU_CS endpoint with bound-VMID check and real 64-bit fence sequence: implemented; Radeon validation pending
 GFX11 ring resource contract and fail-closed preflight: implemented and host-tested
 transactional ring/MQD/EOP/pointer physical allocation: implemented and host-tested
 dual MES scheduler/KIQ GART layout and GFX11 MQD encoding: implemented and host-tested
@@ -1898,10 +1899,11 @@ and releases them transactionally. GEM_VA and the gate-controlled hardware
 context lifecycle now exist, but require real Radeon validation. The GFX11
 IB/fence frame and its internal ring transaction are host-tested; CTX and BO_LIST
 state exist, and the AMDGPU_CS entry point validates a single GFX IB against its
-resident GPUVA pages
-before deliberately returning EOPNOTSUPP. Per-process fence provisioning, ioctl
-wiring and hardware execution are still absent. M14 remains incomplete, and
-neither AMD nor NVIDIA acceleration may be advertised from this checkpoint.
+resident GPUVA pages. It returns EOPNOTSUPP without a verified CP endpoint; with
+the full explicit hardware gate, it submits only on the matching bound VMID and
+returns the real 64-bit fence sequence. Radeon hardware execution remains
+unvalidated. M14 remains incomplete, and neither AMD nor NVIDIA acceleration may
+be advertised from this checkpoint.
 
 CSOS completo quando:
 

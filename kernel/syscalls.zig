@@ -65,6 +65,11 @@ var drm_driver: DrmDriver = .csos;
 var drm_vm_manager = gpu.AmdGpuVmManager{};
 var drm_vm_vmid: u4 = 0;
 var drm_vm_hardware: ?gpu.AmdGpuVmHardwareSession = null;
+pub const AmdGpuCsEndpoint = struct {
+    context: *anyopaque,
+    submit: *const fn (*anyopaque, u4, u64, u32) anyerror!u64,
+};
+var amdgpu_cs_endpoint: ?AmdGpuCsEndpoint = null;
 const max_amdgpu_contexts = 8;
 const AmdGpuContext = struct { allocated: bool = false, id: u32 = 0, priority: i32 = 0 };
 var amdgpu_contexts: [max_amdgpu_contexts]AmdGpuContext = .{AmdGpuContext{}} ** max_amdgpu_contexts;
@@ -169,6 +174,7 @@ pub fn configureDrmGpuVmHardware(hardware: ?gpu.AmdGpuVmHardware) void {
     if (drm_vm_hardware != null and drm_vm_hardware.?.bound_vmid != 0) return;
     drm_vm_hardware = if (hardware) |value| .{ .hardware = value } else null;
 }
+pub fn configureAmdGpuCsEndpoint(endpoint: ?AmdGpuCsEndpoint) void { amdgpu_cs_endpoint = endpoint; }
 
 pub fn configureMmap(protect_hook: ?*const fn (u64, u64, bool, bool) callconv(.c) bool, unmap_hook: ?*const fn (u64, u64) callconv(.c) bool, device_hook: ?*const fn (u64, u64, u64, bool) callconv(.c) bool) void {
     mmap_protect_hook = protect_hook;
@@ -757,9 +763,17 @@ fn amdgpuCs(address: u64) u64 {
         read32(ib + 20) != 0 or read32(ib + 24) != 0 or read32(ib + 28) != 0)
         return errno(95);
     if (drm_vm_vmid == 0 or !amdgpuBoListCoversGpuVa(list, gpu_va, ib_bytes)) return errno(22);
-    // Parsing and residency validation are intentionally separated from the
-    // hardware dispatcher. Never return a fake sequence number or mark a BO busy.
-    return errno(95);
+    const endpoint = amdgpu_cs_endpoint orelse return errno(95);
+    const sequence = endpoint.submit(endpoint.context, drm_vm_vmid, gpu_va, ib_bytes / 4) catch |err| return switch (err) {
+        error.AmdGfxSubmissionQueueStopped, error.AmdGfxSubmissionRingNotIdle => errno(16),
+        error.AmdGfxSubmissionTimeout, error.AmdGfxSubmissionDoorbellFailed,
+        error.AmdCpGfxStopFailed => errno(5),
+        error.AmdGpuVmContextNotBound, error.AmdGpuVmHardwareUnavailable => errno(19),
+        else => errno(22),
+    };
+    const output: [*]u8 = @ptrFromInt(address);
+    put64(output, sequence);
+    return 0;
 }
 
 fn amdgpuBoListCoversGpuVa(list: *const AmdGpuBoList, address: u64, size: u32) bool {

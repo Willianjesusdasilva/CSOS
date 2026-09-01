@@ -577,10 +577,10 @@ O arquivo `GOAL.md` é a fonte de verdade técnica do roadmap e das prioridades 
 
 Estimativa de progresso em 2026-09-01: **aproximadamente 40% concluído e 60% a
 fazer**. É uma estimativa ponderada por funcionalidade, não uma simples contagem
-de milestones: M0–M13 possuem fundações implementadas, mas M14 ainda não tem o
-dispatcher/ioctl de command submission nem triângulo Vulkan validado em AMD ou
-NVIDIA, e M15–M30 continuam majoritariamente pendentes. O frame GFX11 de IB e
-fence já é codificado e testado no host; isso não conta como validação de
+de milestones: M0–M13 possuem fundações implementadas, mas M14 ainda não tem
+command submission nem triângulo Vulkan validados em AMD ou NVIDIA, e M15–M30
+continuam majoritariamente pendentes. O frame, dispatcher e caminho restrito do
+ioctl GFX11 já existem e são testados no host; isso não conta como validação de
 hardware.
 
 ---
@@ -728,8 +728,11 @@ passa o teste PM4 privado. O encoder de submissão produz o pacote GFX11
 `AMDGPU_BO_LIST` cria, atualiza e destrói listas validadas, mantendo os BOs vivos.
 O parser inicial de `AMDGPU_CS` aceita como formato somente um IB GFX simples e
 prova contexto, lista, flags, limites e cobertura GPUVA legível página a página.
-Ele ainda termina em `EOPNOTSUPP`: ligação ao dispatcher e execução em Radeon
-real faltam, portanto nenhum sequence number ou estado busy é inventado. O
+Sem backend CP verificado ele termina em `EOPNOTSUPP`, sem inventar sequence
+number ou estado busy. Quando o gate completo de GART/PSP/RLC/MES/CP e o teste
+PM4 passam, o kernel instala um endpoint tipado que também exige o mesmo VMID
+ligado no MMHUB; somente então o ioctl pode devolver o sequence escrito pelo
+fence real. O
 backend do ring já possui uma transação interna separada do ioctl: exige o ring
 ocioso no WPTR confirmado, grava os 12 dwords com wrap em 1024 slots, publica
 WPTR somente após `mfence`, toca o doorbell autorizado e espera simultaneamente
@@ -800,9 +803,9 @@ mapeia essa página após os payloads CP/RLC e programa `RLC_CSIB_ADDR_HI/LO`,
 `RLC_CSIB_LENGTH` e `RLC_SRM_CNTL`. Cada escrita tem readback; falha restaura
 os quatro registradores. O gate exige GART ativo, PCI ID exato e todos os
 payloads PSP carregados. MES também exige esse resume concluído. A transação
-está testada no host, mas ainda não foi validada em Radeon real; `cp_resume`
-e command submission continuam ausentes, portanto isso não constitui
-aceleração 3D.
+está testada no host, mas ainda não foi validada em Radeon real. Os estágios
+posteriores de CP e submissão descritos abaixo também dependem dessa validação;
+portanto isso não constitui aceleração 3D.
 O caminho de `cp_resume` também deixou de reutilizar incorretamente as filas
 MES: o ring gráfico 0 recebe uma página própria de 1024 dwords e outra para
 RPTR/WPTR, ambas zeradas, transacionais e mapeadas no GART após o CSB. O layout
@@ -815,7 +818,8 @@ do upstream: um pacote `SET_UCONFIG_REG` no mesmo ring deve alterar
 `SCRATCH_REG0` de `0xCAFEDEAD` para `0xDEADBEEF` e avançar RPTR até 963. Falha
 MMIO, doorbell ou timeout restaura os registradores ou desativa o ring e força
 ME/PFP de volta a halt. O fluxo está host-tested, mas ainda requer validação
-Radeon; ele não expõe command submission à ABI.
+Radeon; somente após esse teste o endpoint restrito de command submission pode
+ser instalado na ABI.
 As duas filas exigidas pelo bootstrap — scheduler MES ring0 e KIQ ring1 — agora
 recebem, cada uma, páginas físicas separadas para ring, MQD, EOP e ponteiros.
 As oito páginas nascem zeradas abaixo da máscara DMA de 44 bits e são liberadas
