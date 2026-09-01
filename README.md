@@ -748,7 +748,7 @@ e mais de 16 outputs também falham.
 de 24 bytes entre contextos. Cada referência precisa ser GFX/instance0/ring0 e
 apontar para handle já concluído; no executor síncrono atual, “scheduled” é
 deliberadamente tão estrito quanto “completed”, pois não há estado pendente
-intermediário confiável. User-fence continua recusado. O
+intermediário confiável. O
 backend do ring já possui uma transação interna separada do ioctl: exige o ring
 ocioso no WPTR confirmado, grava os 12 dwords com wrap em 1024 slots, publica
 WPTR somente após `mfence`, toca o doorbell autorizado e espera simultaneamente
@@ -760,6 +760,13 @@ Ele executa os handlers reais de CTX, BO_LIST, CS, WAIT_CS e syncobj em buffers
 UAPI montados byte a byte, usa um endpoint contador e comprova tanto o caminho
 de fence concluído quanto a rejeição de dependência não sinalizada sem dispatch
 ou efeito colateral. Isso complementa — sem substituir — a validação em Radeon.
+
+O chunk `AMDGPU_CHUNK_ID_FENCE` também é aceito no caminho GFX síncrono. O BO
+de user-fence deve ter exatamente 4 KiB, estar em GTT, constar na BO_LIST e ter
+offset de 64 bits alinhado dentro da página. O ponteiro é resolvido antes do
+dispatch, mas o handle contextual só é gravado atomicamente depois do fence
+físico; falhas anteriores não alteram a memória do usuário. O teste direto da
+ABI verifica a ordem conjunta de user-fence e `SYNCOBJ_OUT`.
 `AMDGPU_GEM_OP_GET_GEM_CREATE_INFO` devolve o descritor de criação original por
 ponteiro de usuário validado, e `AMDGPU_GEM_LIST_HANDLES` enumera tamanho,
 domínio, flags e alinhamento dos BOs ainda abertos. Placement em VRAM continua

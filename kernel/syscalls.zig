@@ -757,7 +757,7 @@ fn amdgpuCs(address: u64) u64 {
     const context = amdgpuContextForId(read32(io)) orelse return errno(2);
     const list = amdgpuBoListForHandle(read32(io + 4)) orelse return errno(2);
     const chunk_count = read32(io + 8);
-    if (chunk_count == 0 or chunk_count > 6 or read32(io + 12) != 0) return errno(95);
+    if (chunk_count == 0 or chunk_count > 7 or read32(io + 12) != 0) return errno(95);
     const chunk_pointers_address = read64(io + 16);
     if (!validUserSlice(chunk_pointers_address, @as(u64, chunk_count) * 8)) return errno(14);
     const chunk_pointers: [*]const u8 = @ptrFromInt(chunk_pointers_address);
@@ -770,6 +770,7 @@ fn amdgpuCs(address: u64) u64 {
     var saw_dependencies = false;
     var saw_scheduled_dependencies = false;
     var dependency_count: usize = 0;
+    var user_fence: ?*u64 = null;
     var output_syncobjs: [max_drm_syncobjs]*DrmSyncobj = undefined;
     var output_points: [max_drm_syncobjs]u64 = .{0} ** max_drm_syncobjs;
     var output_count: usize = 0;
@@ -792,6 +793,18 @@ fn amdgpuCs(address: u64) u64 {
                 read32(ib + 20) != 0 or read32(ib + 24) != 0 or read32(ib + 28) != 0)
                 return errno(95);
             saw_ib = true;
+            continue;
+        }
+        if (chunk_id == 2) {
+            if (user_fence != null or length_dw != 2 or !validUserSlice(data_address, 8)) return errno(95);
+            const fence_data: [*]const u8 = @ptrFromInt(data_address);
+            const fence_handle = read32(fence_data);
+            const fence_offset = read32(fence_data + 4);
+            const fence_object = drmObjectForHandle(fence_handle) orelse return errno(2);
+            if (fence_object.size != 4096 or (fence_object.domains & 2) == 0 or fence_object.physical_address == 0 or
+                (fence_offset & 7) != 0 or fence_offset > 4096 - 8 or !amdgpuBoListContains(list, fence_handle))
+                return errno(22);
+            user_fence = @ptrFromInt(fence_object.physical_address + fence_offset);
             continue;
         }
         if (chunk_id == 3 or chunk_id == 7) {
@@ -859,12 +872,19 @@ fn amdgpuCs(address: u64) u64 {
     context.next_handle += 1;
     context.completed_handle = handle;
     context.hardware_sequence = hardware_sequence;
+    if (user_fence) |fence| @atomicStore(u64, fence, handle, .seq_cst);
     var output_index: usize = 0;
     while (output_index < output_count) : (output_index += 1)
         output_syncobjs[output_index].point = if (output_points[output_index] == 0) 1 else output_points[output_index];
     const output: [*]u8 = @ptrFromInt(address);
     put64(output, handle);
     return 0;
+}
+
+fn amdgpuBoListContains(list: *const AmdGpuBoList, handle: u32) bool {
+    var index: usize = 0;
+    while (index < list.count) : (index += 1) if (list.handles[index] == handle) return true;
+    return false;
 }
 
 fn amdgpuWaitCs(address: u64) u64 {
@@ -900,7 +920,7 @@ pub fn validateAmdGpuDrmAbiSelfTest() !void {
     const base: [*]u8 = &memory;
     put32(base, 1);
     if (amdgpuCtx(@intFromPtr(base)) != 0 or read32(base) != 1) return error.AmdGpuCtxAllocateAbiMismatch;
-    drm_objects[0] = .{ .allocated = true, .handle_open = true, .handle = 1, .size = 4096, .domains = 2 };
+    drm_objects[0] = .{ .allocated = true, .handle_open = true, .handle = 1, .size = 4096, .physical_address = @intFromPtr(base + 512), .domains = 2 };
     put32(base + 32, 1);
     put32(base + 36, 0);
     put32(base + 48, 0);
@@ -959,12 +979,18 @@ pub fn validateAmdGpuDrmAbiSelfTest() !void {
     put64(base + 248, @intFromPtr(base + 224));
     put64(base + 256, @intFromPtr(base + 128));
     put64(base + 264, @intFromPtr(base + 240));
+    put32(base + 384, 2);
+    put32(base + 388, 2);
+    put64(base + 392, @intFromPtr(base + 400));
+    put32(base + 400, 1);
+    put32(base + 404, 0);
+    put64(base + 272, @intFromPtr(base + 384));
     put32(base + 280, 1);
     put32(base + 284, 1);
-    put32(base + 288, 2);
+    put32(base + 288, 3);
     put32(base + 292, 0);
     put64(base + 296, @intFromPtr(base + 256));
-    if (amdgpuCs(@intFromPtr(base + 280)) != 0 or drm_syncobjs[0].point != 1 or amdgpu_abi_test_dispatches != 2)
+    if (amdgpuCs(@intFromPtr(base + 280)) != 0 or drm_syncobjs[0].point != 1 or read64(base + 512) != 2 or amdgpu_abi_test_dispatches != 2)
         return error.AmdGpuSyncobjSignalOrderingMismatch;
 }
 
