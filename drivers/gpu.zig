@@ -7701,9 +7701,33 @@ pub const AmdAtomVramUsage = struct {
 pub const AmdAtomFirmwareInfo = struct {
     format_revision: u8,
     content_revision: u8,
+    boot_sclk_10khz: u32,
+    boot_mclk_10khz: u32,
+    core_refclk_10khz: ?u32,
     capability: u32,
     reserved_kib: u32,
 };
+
+pub const AmdGpuClockInfo = struct {
+    counter_khz: u32,
+    min_engine_khz: u64,
+    max_engine_khz: u64,
+    min_memory_khz: u64,
+    max_memory_khz: u64,
+};
+
+pub fn amdGpuClockInfo(atom: AmdAtomFirmwareInfo) !AmdGpuClockInfo {
+    const reference = atom.core_refclk_10khz orelse return error.AtomSmuInfoMissing;
+    if (reference == 0 or atom.boot_sclk_10khz == 0 or atom.boot_mclk_10khz == 0)
+        return error.InvalidAmdAtomClock;
+    return .{
+        .counter_khz = std.math.mul(u32, reference, 10) catch return error.InvalidAmdAtomClock,
+        .min_engine_khz = std.math.mul(u64, atom.boot_sclk_10khz, 10) catch return error.InvalidAmdAtomClock,
+        .max_engine_khz = std.math.mul(u64, atom.boot_sclk_10khz, 10) catch return error.InvalidAmdAtomClock,
+        .min_memory_khz = std.math.mul(u64, atom.boot_mclk_10khz, 10) catch return error.InvalidAmdAtomClock,
+        .max_memory_khz = std.math.mul(u64, atom.boot_mclk_10khz, 10) catch return error.InvalidAmdAtomClock,
+    };
+}
 
 const AmdAtomTables = struct { image: []const u8, master: []const u8 };
 
@@ -7748,9 +7772,19 @@ pub fn parseAmdAtomFirmwareInfo(bytes: []const u8) !AmdAtomFirmwareInfo {
     const content = firmware[3];
     if (format != 3 or (content != 4 and content != 5)) return error.UnsupportedAtomFirmwareInfo;
     if (firmware.len < 88) return error.TruncatedAtomTable;
+    const smu_offset = @as(usize, readLittle16(tables.master, 20));
+    const core_refclk: ?u32 = if (smu_offset != 0) blk: {
+        const smu = try atomTable(tables.image, smu_offset, 20);
+        if (smu[2] != 3 and smu[2] != 4) return error.UnsupportedAtomSmuInfo;
+        const value: u32 = @intCast(readLittle32(smu, 16));
+        break :blk if (value == 0) null else value;
+    } else null;
     return .{
         .format_revision = format,
         .content_revision = content,
+        .boot_sclk_10khz = @intCast(readLittle32(firmware, 8)),
+        .boot_mclk_10khz = @intCast(readLittle32(firmware, 12)),
+        .core_refclk_10khz = core_refclk,
         .capability = @intCast(readLittle32(firmware, 16)),
         .reserved_kib = @intCast(readLittle32(firmware, 84)),
     };
@@ -7805,6 +7839,7 @@ comptime {
     atom[0xc3] = 1;
     writeLittle16(&atom, 0xda, 0x120);
     writeLittle16(&atom, 0xcc, 0x160);
+    writeLittle16(&atom, 0xd4, 0x1c0);
     writeLittle16(&atom, 0x120, 12);
     atom[0x122] = 2;
     atom[0x123] = 1;
@@ -7814,15 +7849,27 @@ comptime {
     writeLittle16(&atom, 0x160, 88);
     atom[0x162] = 3;
     atom[0x163] = 4;
+    writeLittle32(&atom, 0x168, 250000);
+    writeLittle32(&atom, 0x16c, 120000);
     writeLittle32(&atom, 0x170, 0x401);
     writeLittle32(&atom, 0x1b4, 3072);
+    writeLittle16(&atom, 0x1c0, 20);
+    atom[0x1c2] = 4;
+    atom[0x1c3] = 0;
+    writeLittle32(&atom, 0x1d0, 10000);
     const usage = parseAmdAtomVramUsage(&atom) catch @compileError("ATOM VRAM usage sample was rejected");
     if (usage.format_revision != 2 or usage.content_revision != 1 or usage.firmware_start_kib != 0x12340 or
         usage.firmware_kib != 64 or usage.driver_start_kib != null or usage.driver_kib != 20)
         @compileError("ATOM VRAM usage sample decoded incorrectly");
     const firmware = parseAmdAtomFirmwareInfo(&atom) catch @compileError("ATOM firmware info sample was rejected");
-    if (firmware.format_revision != 3 or firmware.content_revision != 4 or firmware.capability != 0x401 or firmware.reserved_kib != 3072)
+    if (firmware.format_revision != 3 or firmware.content_revision != 4 or firmware.boot_sclk_10khz != 250000 or
+        firmware.boot_mclk_10khz != 120000 or firmware.core_refclk_10khz != 10000 or
+        firmware.capability != 0x401 or firmware.reserved_kib != 3072)
         @compileError("ATOM firmware info sample decoded incorrectly");
+    const clocks = amdGpuClockInfo(firmware) catch @compileError("ATOM clock sample was rejected");
+    if (clocks.counter_khz != 100000 or clocks.min_engine_khz != 2500000 or clocks.max_engine_khz != 2500000 or
+        clocks.min_memory_khz != 1200000 or clocks.max_memory_khz != 1200000)
+        @compileError("ATOM clocks decoded incorrectly");
 }
 
 comptime {

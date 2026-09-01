@@ -750,24 +750,6 @@ pub fn start(info: BootInfo) noreturn {
         gpu.probeAmdGfx11CuInfo(&gpu_adapter, gpu_cu_registers.?, gpu_ip_discovery.?.gc_info.?) catch panic("AMDGPU active CU probe failed")
     else
         null;
-    if (gpu_adapter.driver == .amdgpu and gpu_gmc11_nbio_registers != null and gpu_ip_discovery.?.gc_info != null and gpu_cu_info != null) {
-        const gfx_ip = gpu_ip_discovery.?.find(gpu.amd_hw_id.gfx, 0) orelse panic("AMDGPU GFX IP missing");
-        const strap = gpu_adapter.readRegister(gpu_gmc11_nbio_registers.?.revision_strap) catch panic("AMDGPU revision strap read failed");
-        const identity = gpu.decodeAmdGfx11AsicIdentity(gfx_ip, strap) catch panic("AMDGPU ASIC identity unsupported");
-        if (identity.device_id != display_device.device) panic("AMDGPU revision strap PCI identity mismatch");
-        syscalls.configureAmdGpuInfoProfile(.{
-            .pci_device = identity.device_id,
-            .pci_revision = display_device.revision,
-            .chip_revision = identity.chip_rev,
-            .external_revision = identity.external_rev,
-            .family = identity.family,
-            .gfx_major = gfx_ip.major,
-            .gfx_minor = gfx_ip.minor,
-            .gfx_revision = gfx_ip.revision,
-            .topology = gpu_ip_discovery.?.gc_info.?,
-            .cu_info = gpu_cu_info.?,
-        });
-    } else syscalls.configureAmdGpuInfoProfile(null);
     const gpu_mes_control = if (gpu_mes_registers) |registers|
         gpu_adapter.readRegister(registers.mes_control) catch panic("AMDGPU MES control read failed")
     else
@@ -792,6 +774,26 @@ pub fn start(info: BootInfo) noreturn {
         gpu_rom_restored = restored.address == rom.address and restored.enabled == rom.enabled;
         if (!gpu_rom_restored) panic("GPU expansion ROM state not restored");
     }
+    const gpu_clock_info = if (gpu_atom_firmware_info) |atom| gpu.amdGpuClockInfo(atom) catch null else null;
+    if (gpu_adapter.driver == .amdgpu and gpu_gmc11_nbio_registers != null and gpu_ip_discovery.?.gc_info != null and gpu_cu_info != null and gpu_clock_info != null) {
+        const gfx_ip = gpu_ip_discovery.?.find(gpu.amd_hw_id.gfx, 0) orelse panic("AMDGPU GFX IP missing");
+        const strap = gpu_adapter.readRegister(gpu_gmc11_nbio_registers.?.revision_strap) catch panic("AMDGPU revision strap read failed");
+        const identity = gpu.decodeAmdGfx11AsicIdentity(gfx_ip, strap) catch panic("AMDGPU ASIC identity unsupported");
+        if (identity.device_id != display_device.device) panic("AMDGPU revision strap PCI identity mismatch");
+        syscalls.configureAmdGpuInfoProfile(.{
+            .pci_device = identity.device_id,
+            .pci_revision = display_device.revision,
+            .chip_revision = identity.chip_rev,
+            .external_revision = identity.external_rev,
+            .family = identity.family,
+            .gfx_major = gfx_ip.major,
+            .gfx_minor = gfx_ip.minor,
+            .gfx_revision = gfx_ip.revision,
+            .topology = gpu_ip_discovery.?.gc_info.?,
+            .cu_info = gpu_cu_info.?,
+            .clocks = gpu_clock_info.?,
+        });
+    } else syscalls.configureAmdGpuInfoProfile(null);
     const gpu_gmc11_memory = if (gpu_gart_registers) |registers| gpu.decodeAmdGmc11MemorySnapshot(
         gpu_adapter.readRegister(registers.fb_location_base) catch panic("AMDGPU VRAM MC base read failed"),
         gpu_adapter.readRegister(registers.fb_offset) catch panic("AMDGPU VRAM MC offset read failed"),

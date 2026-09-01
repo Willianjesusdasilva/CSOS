@@ -780,14 +780,18 @@ GFX instance 0/ring 0 é anunciado, usando major, minor, revision e
 4 bytes e nenhuma capability adicional. O perfil agora lê o revision strap do
 NBIO, exige que seu device ID coincida com o PCI e deriva `chip_rev`,
 `external_rev` e a família UAPI pelas mesmas regras de GFX11 usadas pelo Linux.
-`AMDGPU_INFO_DEV_INFO` aceita somente o prefixo físico de 20 bytes com esses
-cinco campos; pedidos maiores falham com `EOPNOTSUPP` para impedir que Mesa veja
-topologia, clocks ou memória zerados como dados reais. Compute, SDMA e demais IPs
-continuam com count zero. O caminho GFX11 agora resolve os registradores oficiais
+`AMDGPU_INFO_DEV_INFO` mantém o prefixo físico de identidade de 20 bytes e agora
+também aceita o prefixo oficial de 120 bytes até `cu_bitmap`. A tabela ATOM
+`firmwareinfo` fornece os clocks de boot e a tabela `smu_info` fornece o
+`core_refclk`; como DPM ainda não está ativo, mínimo e máximo seguem o clock de
+boot, como no fallback upstream. Tabela ausente, valor zero ou overflow fecha o
+perfil em vez de publicar clocks inventados. Pedidos de outros tamanhos ainda
+falham com `EOPNOTSUPP` para impedir que Mesa veja memória ou VA zerados como
+dados reais. Compute, SDMA e demais IPs continuam com count zero. O caminho GFX11 agora resolve os registradores oficiais
 de harvesting, seleciona cada SE/SA, combina as máscaras de fábrica e usuário e
 publica internamente a contagem e o bitmap de CUs realmente ativos; o seletor é
 sempre restaurado ao modo broadcast. A `DEV_INFO` completa permanece pendente de
-clocks e memória físicos. O parser do IP discovery também valida
+memória, VA e demais campos físicos. O parser do IP discovery também valida
 e consome agora a tabela GC v1.0–v1.3: assinatura, tamanho, checksum, SE, SA,
 WGP/CU máximo, RB, TCC, wave size, profundidades GS e caches. Esses máximos já
 fazem parte do perfil DRM e são obrigatórios para publicar GFX, mas não são
