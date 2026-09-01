@@ -73,6 +73,9 @@ var amdgpu_cs_endpoint: ?AmdGpuCsEndpoint = null;
 pub const AmdGpuInfoProfile = struct {
     pci_device: u16,
     pci_revision: u8,
+    chip_revision: u8,
+    external_revision: u8,
+    family: u32,
     gfx_major: u8,
     gfx_minor: u8,
     gfx_revision: u8,
@@ -967,9 +970,9 @@ pub fn validateAmdGpuDrmAbiSelfTest() !void {
     if (amdgpuInfo(@intFromPtr(base + 560)) != 0 or read32(base + 608) != 0) return error.AmdGpuHwIpLeakedBeforeGate;
     configureAmdGpuCsEndpoint(.{ .context = &endpoint_cookie, .submit = &amdgpuAbiTestSubmit });
     if (amdgpuInfo(@intFromPtr(base + 560)) != 0 or read32(base + 608) != 0) return error.AmdGpuHwIpLeakedWithoutPhysicalProfile;
-    configureAmdGpuInfoProfile(.{ .pci_device = 0, .pci_revision = 0, .gfx_major = 11, .gfx_minor = 0, .gfx_revision = 2 });
+    configureAmdGpuInfoProfile(.{ .pci_device = 0, .pci_revision = 0, .chip_revision = 0, .external_revision = 0, .family = 145, .gfx_major = 11, .gfx_minor = 0, .gfx_revision = 2 });
     if (amdgpuInfo(@intFromPtr(base + 560)) != 0 or read32(base + 608) != 0) return error.AmdGpuHwIpAcceptedInvalidPhysicalProfile;
-    configureAmdGpuInfoProfile(.{ .pci_device = 0x744c, .pci_revision = 0xc8, .gfx_major = 11, .gfx_minor = 0, .gfx_revision = 2 });
+    configureAmdGpuInfoProfile(.{ .pci_device = 0x744c, .pci_revision = 0xc8, .chip_revision = 3, .external_revision = 0x13, .family = 145, .gfx_major = 11, .gfx_minor = 0, .gfx_revision = 2 });
     if (amdgpuInfo(@intFromPtr(base + 560)) != 0 or read32(base + 608) != 1) return error.AmdGpuHwIpCountAbiMismatch;
     put32(base + 568, 40);
     put32(base + 572, 2);
@@ -978,6 +981,13 @@ pub fn validateAmdGpuDrmAbiSelfTest() !void {
         read32(base + 624) != 4 or read32(base + 628) != 4 or read32(base + 632) != 1)
         return error.AmdGpuHwIpInfoAbiMismatch;
     if (read32(base + 636) != 0x0b0002) return error.AmdGpuHwIpDiscoveryVersionAbiMismatch;
+    put32(base + 568, 20);
+    put32(base + 572, 0x16);
+    if (amdgpuInfo(@intFromPtr(base + 560)) != 0 or read32(base + 608) != 0x744c or read32(base + 612) != 3 or
+        read32(base + 616) != 0x13 or read32(base + 620) != 0xc8 or read32(base + 624) != 145)
+        return error.AmdGpuDevInfoIdentityAbiMismatch;
+    put32(base + 568, 21);
+    if (amdgpuInfo(@intFromPtr(base + 560)) != errno(95)) return error.AmdGpuDevInfoTopologyLeaked;
     if (amdgpuCs(@intFromPtr(base + 160)) != 0 or read64(base + 160) != 1 or amdgpu_abi_test_dispatches != 1)
         return error.AmdGpuCsDispatchAbiMismatch;
     put64(base + 192, 1);
@@ -1281,6 +1291,21 @@ fn amdgpuInfo(address: u64) u64 {
         if (count >= 24) put32(output + 20, 4);
         if (count >= 28) put32(output + 24, 1);
         if (count >= 32) put32(output + 28, (@as(u32, gfx.gfx_major) << 16) | (@as(u32, gfx.gfx_minor) << 8) | gfx.gfx_revision);
+        return 0;
+    }
+    if (query == 0x16) {
+        if (!gfx_available) return errno(19);
+        // The first five fields are complete physical identity. Refuse larger
+        // requests until topology, clocks and memory are also physically known.
+        if (return_size != 20) return errno(95);
+        if (!validUserSlice(return_address, 20)) return errno(14);
+        const gfx = profile.?;
+        const output: [*]u8 = @ptrFromInt(return_address);
+        put32(output, gfx.pci_device);
+        put32(output + 4, gfx.chip_revision);
+        put32(output + 8, gfx.external_revision);
+        put32(output + 12, gfx.pci_revision);
+        put32(output + 16, gfx.family);
         return 0;
     }
     return errno(22);

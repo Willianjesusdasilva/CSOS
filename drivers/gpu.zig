@@ -2952,7 +2952,8 @@ pub const AmdGmc11MemorySnapshot = struct {
     vram_mc_offset: u64,
     vram_bytes: u64,
 };
-pub const AmdGmc11NbioRegisters = struct { memsize: u32 };
+pub const AmdGmc11NbioRegisters = struct { memsize: u32, revision_strap: u32 };
+pub const AmdGfx11AsicIdentity = struct { device_id: u16, chip_rev: u8, external_rev: u8, family: u32 };
 pub const AmdGmc11GartWindow = struct { start: u64, end: u64 };
 pub const AmdGmc11GartApertureValues = struct {
     page_table_base_low: u32,
@@ -5683,7 +5684,29 @@ pub fn resolveAmdGmc11NbioRegisters(ip: *const AmdIp, register_bar_bytes: u64) !
         => {},
         else => return error.UnsupportedAmdGmc11NbioVersion,
     }
-    return .{ .memsize = try resolveAmdRegister(ip.bases[2], 0x00c3, register_bar_bytes) };
+    return .{
+        .memsize = try resolveAmdRegister(ip.bases[2], 0x00c3, register_bar_bytes),
+        .revision_strap = try resolveAmdRegister(ip.bases[2], 0x0015, register_bar_bytes),
+    };
+}
+
+pub fn decodeAmdGfx11AsicIdentity(gfx: *const AmdIp, revision_strap: u32) !AmdGfx11AsicIdentity {
+    if (gfx.hw_id != amd_hw_id.gfx or gfx.instance != 0 or gfx.major != 11 or gfx.minor != 0)
+        return error.UnsupportedAmdGfx11AsicIdentity;
+    const chip_rev: u8 = @truncate((revision_strap >> 24) & 0x0f);
+    const external_rev: u8 = switch (gfx.revision) {
+        0, 1 => chip_rev + 0x01,
+        2 => chip_rev + 0x10,
+        3 => chip_rev + 0x20,
+        4 => chip_rev + 0x80,
+        else => return error.UnsupportedAmdGfx11AsicIdentity,
+    };
+    const family: u32 = switch (gfx.revision) {
+        0, 2, 3 => 145,
+        1, 4 => 148,
+        else => unreachable,
+    };
+    return .{ .device_id = @truncate(revision_strap), .chip_rev = chip_rev, .external_rev = external_rev, .family = family };
 }
 
 pub fn decodeAmdGmc11MemorySnapshot(fb_location_base: u32, fb_offset: u32, memsize_mb: u32) !AmdGmc11MemorySnapshot {
@@ -6007,7 +6030,16 @@ comptime {
     const nbio_ip = AmdIp{ .hw_id = amd_hw_id.nbif, .major = 7, .minor = 11, .base_count = 3, .bases = .{ 0, 0, 0x500 } ++ .{0} ** 5 };
     const nbio_registers = resolveAmdGmc11NbioRegisters(&nbio_ip, 0x4000) catch
         @compileError("valid GMC 11 NBIO registers were rejected");
-    if (nbio_registers.memsize != 0x170c) @compileError("GMC 11 NBIO memsize register resolved incorrectly");
+    if (nbio_registers.memsize != 0x170c or nbio_registers.revision_strap != 0x1454)
+        @compileError("GMC 11 NBIO registers resolved incorrectly");
+    const navi31_identity = decodeAmdGfx11AsicIdentity(&AmdIp{ .hw_id = amd_hw_id.gfx, .major = 11, .minor = 0, .revision = 0 }, 0x0300744c) catch
+        @compileError("GFX11 ASIC identity decoding failed");
+    if (navi31_identity.device_id != 0x744c or navi31_identity.chip_rev != 3 or navi31_identity.external_rev != 4 or navi31_identity.family != 145)
+        @compileError("GFX11 ASIC identity decoded incorrectly");
+    const gc_11_0_1_identity = decodeAmdGfx11AsicIdentity(&AmdIp{ .hw_id = amd_hw_id.gfx, .major = 11, .minor = 0, .revision = 4 }, 0x02007480) catch
+        @compileError("GC 11.0.1 ASIC identity decoding failed");
+    if (gc_11_0_1_identity.external_rev != 0x82 or gc_11_0_1_identity.family != 148)
+        @compileError("GC 11.0.1 ASIC identity decoded incorrectly");
     const memory_snapshot = decodeAmdGmc11MemorySnapshot(0xab123456, 0x42, 12288) catch
         @compileError("valid GMC 11 memory snapshot was rejected");
     if (memory_snapshot.vram_mc_base != 0x123456000000 or memory_snapshot.vram_mc_offset != 0x42000000 or

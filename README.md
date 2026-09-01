@@ -773,10 +773,14 @@ somente o backend realmente exposto: sem endpoint CP verificado, GFX tem count
 zero; o endpoint sozinho também não basta sem o perfil físico. Com ambos, apenas
 GFX instance 0/ring 0 é anunciado, usando major, minor, revision e
 `ip_discovery_version` obtidos do IP discovery validado, com alinhamento de IB de
-4 bytes e nenhuma capability adicional. O perfil preserva ainda device ID e PCI
-revision para a futura `DEV_INFO`. Compute, SDMA e demais IPs
-continuam com count zero. `DEV_INFO`, CU topology, clocks e memória não são
-inventados e permanecem pendentes de dados físicos completos do probe.
+4 bytes e nenhuma capability adicional. O perfil agora lê o revision strap do
+NBIO, exige que seu device ID coincida com o PCI e deriva `chip_rev`,
+`external_rev` e a família UAPI pelas mesmas regras de GFX11 usadas pelo Linux.
+`AMDGPU_INFO_DEV_INFO` aceita somente o prefixo físico de 20 bytes com esses
+cinco campos; pedidos maiores falham com `EOPNOTSUPP` para impedir que Mesa veja
+topologia, clocks ou memória zerados como dados reais. Compute, SDMA e demais IPs
+continuam com count zero. A `DEV_INFO` completa permanece pendente do probe
+físico de CU topology, clocks e memória.
 `AMDGPU_GEM_OP_GET_GEM_CREATE_INFO` devolve o descritor de criação original por
 ponteiro de usuário validado, e `AMDGPU_GEM_LIST_HANDLES` enumera tamanho,
 domínio, flags e alinhamento dos BOs ainda abertos. Placement em VRAM continua
