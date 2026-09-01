@@ -96,6 +96,8 @@ pub fn start(info: BootInfo) noreturn {
         panic("AMDGPU MES activation gate requires MES load gate");
     if (build_options.amd_mes_kiq and !build_options.amd_mes_activate)
         panic("AMDGPU MES KIQ gate requires MES activation gate");
+    if (build_options.amd_mes_kiq_test and !build_options.amd_mes_kiq)
+        panic("AMDGPU MES KIQ test gate requires KIQ activation gate");
     serial.write("kernel entry\n");
     syscalls.configureFramebuffer(.{
         .base = info.framebuffer.base,
@@ -767,6 +769,7 @@ pub fn start(info: BootInfo) noreturn {
     var gpu_mes_loads: u8 = 0;
     var gpu_mes_activation: ?gpu.AmdGfx11MesActivation = null;
     var gpu_mes_kiq_active = false;
+    var gpu_mes_kiq_test_polls: u32 = 0;
     if (gpu_gart_mmio_transport) |*transport| {
         const psp_ready = (gpu_psp_mailbox_snapshot != null and gpu_psp_mailbox_snapshot.?.state == .sos_alive) or
             gpu_psp_handoff.state == .finished;
@@ -855,7 +858,7 @@ pub fn start(info: BootInfo) noreturn {
                 if (build_options.amd_mes_kiq) {
                     const kiq_hqd_plan = gpu_mes_kiq_plan orelse panic("AMDGPU MES KIQ HQD plan unavailable");
                     transport.arm() catch panic("AMDGPU MES KIQ MMIO arming failed");
-                    _ = gpu.activateAmdGfx11Kiq(kiq_hqd_plan, transport.io()) catch {
+                    const kiq_transaction = gpu.activateAmdGfx11Kiq(kiq_hqd_plan, transport.io()) catch {
                         gpu.haltAmdGfx11Mes(gpu_mes_registers.?, transport.io()) catch {
                             transport.disarm();
                             panic("AMDGPU MES KIQ failure could not halt MES");
@@ -865,6 +868,39 @@ pub fn start(info: BootInfo) noreturn {
                         panic("AMDGPU MES KIQ activation failed and rolled back");
                     };
                     gpu_mes_kiq_active = true;
+                    if (build_options.amd_mes_kiq_test) {
+                        const bootstrap = gpu_gfx_mes_bootstrap orelse panic("AMDGPU MES KIQ bootstrap unavailable");
+                        const test_plan = gpu.planAmdGfx11KiqTest(gpu_mes_registers.?, bootstrap.kiq_doorbell) catch
+                            panic("AMDGPU MES KIQ test plan invalid");
+                        var doorbell_transport = gpu.AmdGfx11DoorbellTransport{
+                            .aperture = gpu_memory_plan.?.doorbell_bar,
+                            .expected_offset = bootstrap.kiq_doorbell.byte_offset,
+                            .uncached = true,
+                        };
+                        doorbell_transport.authorize(bootstrap.kiq_doorbell) catch
+                            panic("AMDGPU MES KIQ doorbell authorization rejected");
+                        doorbell_transport.arm() catch panic("AMDGPU MES KIQ doorbell arming failed");
+                        const ring: *[1024]u32 = @ptrFromInt(gpu_gfx_ring_resources.kiq.ring);
+                        const pointers: *[2]u64 = @ptrFromInt(gpu_gfx_ring_resources.kiq.pointers);
+                        gpu_mes_kiq_test_polls = gpu.testAmdGfx11Kiq(
+                            test_plan, ring, pointers, 100_000, transport.io(), doorbell_transport.io(),
+                        ) catch {
+                            doorbell_transport.disarm();
+                            gpu.restoreAmdGfx11Kiq(kiq_hqd_plan, &kiq_transaction, transport.io()) catch {
+                                transport.disarm();
+                                panic("AMDGPU MES KIQ test rollback failed");
+                            };
+                            gpu.haltAmdGfx11Mes(gpu_mes_registers.?, transport.io()) catch {
+                                transport.disarm();
+                                panic("AMDGPU MES KIQ test failure could not halt MES");
+                            };
+                            gpu_mes_kiq_active = false;
+                            gpu_mes_activation = null;
+                            transport.disarm();
+                            panic("AMDGPU MES KIQ ring test failed and rolled back");
+                        };
+                        doorbell_transport.disarm();
+                    }
                     transport.disarm();
                 }
             }
@@ -1000,6 +1036,7 @@ pub fn start(info: BootInfo) noreturn {
     serial.write(" mes-kiq-version: "); serial.writeDecimal(if (gpu_mes_activation) |activation| activation.kiq_version else 0);
     serial.write(" mes-handshake-polls: "); serial.writeDecimal(if (gpu_mes_activation) |activation| activation.polls else 0);
     serial.write(" mes-kiq-active: "); serial.writeDecimal(@intFromBool(gpu_mes_kiq_active));
+    serial.write(" mes-kiq-test-polls: "); serial.writeDecimal(gpu_mes_kiq_test_polls);
     serial.write(" driver: ");
     serial.write(switch (gpu_adapter.driver) {
         .amdgpu => "amdgpu",

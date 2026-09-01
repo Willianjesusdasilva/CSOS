@@ -1845,8 +1845,9 @@ GFX11 MES register resolution, halted-state classification and load write-set: i
 dual-pipe MES load transaction with readback/rollback and explicit gate: implemented and host-tested
 dual-pipe MES unhalt/version handshake with timeout-to-halt rollback: implemented and host-tested
 ME3/pipe1 KIQ HQD activation transaction with doorbell-last/active-last ordering: implemented and host-tested
+private GFX11 KIQ WRITE_DATA ring test with 64-bit doorbell, timeout and rollback: implemented and host-tested
 real Radeon MMIO lifecycle validation: pending
-real MES load/handshake/KIQ validation, KIQ packet test and command submission: pending
+real MES load/handshake/KIQ packet validation and command submission: pending
 AMD RADV triangle on real hardware: pending
 NVIDIA NVK/compatible-stack triangle on real hardware: pending
 ```

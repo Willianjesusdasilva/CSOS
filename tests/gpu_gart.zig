@@ -34,4 +34,5 @@ test "GFX11 firmware roles and ring resources remain fail-closed" {
     try gpu.validateAmdGfx11MesLoadTransactionSelfTest();
     try gpu.validateAmdGfx11MesActivationSelfTest();
     try gpu.validateAmdGfx11KiqActivationSelfTest();
+    try gpu.validateAmdGfx11KiqRingTestSelfTest();
 }

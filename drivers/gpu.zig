@@ -655,6 +655,7 @@ pub const AmdGfx11MesRegisters = struct {
     hqd_wptr_poll_high: u32,
     hqd_persistent_state: u32,
     hqd_active: u32,
+    scratch0: u32,
 };
 
 pub fn resolveAmdGfx11MesRegisters(ip: *const AmdIp, register_bar_bytes: u64) !AmdGfx11MesRegisters {
@@ -688,6 +689,7 @@ pub fn resolveAmdGfx11MesRegisters(ip: *const AmdIp, register_bar_bytes: u64) !A
         .hqd_wptr_poll_high = try resolveAmdRegister(base, 0x1fb7, register_bar_bytes),
         .hqd_persistent_state = try resolveAmdRegister(base, 0x1fad, register_bar_bytes),
         .hqd_active = try resolveAmdRegister(base, 0x1fab, register_bar_bytes),
+        .scratch0 = try resolveAmdRegister(base, 0x2040, register_bar_bytes),
     };
 }
 
@@ -981,6 +983,99 @@ pub fn activateAmdGfx11Kiq(plan: AmdGfx11KiqPlan, io: AmdRegisterIo) !AmdGfx11Ki
         return error.AmdKiqRegisterReadbackMismatch;
     }
     return transaction;
+}
+
+pub const AmdDoorbellIo = struct {
+    context: *anyopaque,
+    write64: *const fn (*anyopaque, u32, u64) anyerror!void,
+};
+
+pub const AmdGfx11DoorbellTransport = struct {
+    aperture: pci.Bar,
+    expected_offset: u32,
+    uncached: bool = false,
+    authorized: bool = false,
+    armed: bool = false,
+
+    pub fn authorize(self: *AmdGfx11DoorbellTransport, doorbell: AmdGfx11Doorbell) !void {
+        if (self.authorized or self.armed or !self.uncached or self.aperture.address == 0 or
+            (self.aperture.address & 4095) != 0 or self.aperture.size < 8 or
+            doorbell.byte_offset != self.expected_offset or (doorbell.byte_offset & 7) != 0 or
+            @as(u64, doorbell.byte_offset) > self.aperture.size - 8)
+            return error.AmdDoorbellAuthorizationRejected;
+        self.authorized = true;
+    }
+
+    pub fn arm(self: *AmdGfx11DoorbellTransport) !void {
+        if (!self.authorized or !self.uncached or self.armed) return error.AmdDoorbellTransportNotReady;
+        self.armed = true;
+    }
+
+    pub fn disarm(self: *AmdGfx11DoorbellTransport) void {
+        self.armed = false;
+    }
+
+    pub fn io(self: *AmdGfx11DoorbellTransport) AmdDoorbellIo {
+        return .{ .context = self, .write64 = &write64 };
+    }
+
+    fn write64(context: *anyopaque, offset: u32, value: u64) !void {
+        const self: *AmdGfx11DoorbellTransport = @ptrCast(@alignCast(context));
+        if (!self.armed or offset != self.expected_offset or @as(u64, offset) > self.aperture.size - 8)
+            return error.AmdDoorbellTransportDisarmed;
+        const target: *volatile u64 = @ptrFromInt(self.aperture.address + offset);
+        target.* = value;
+    }
+};
+
+pub const AmdGfx11KiqTestPlan = struct {
+    packet: [5]u32,
+    scratch_offset: u32,
+    doorbell_offset: u32,
+    initial_value: u32 = 0xcafedead,
+    completion_value: u32 = 0xdeadbeef,
+};
+
+pub fn planAmdGfx11KiqTest(registers: AmdGfx11MesRegisters, doorbell: AmdGfx11Doorbell) !AmdGfx11KiqTestPlan {
+    if ((registers.scratch0 & 3) != 0 or (doorbell.byte_offset & 7) != 0)
+        return error.InvalidAmdKiqTestAddress;
+    // Linux gfx_v11_0_ring_emit_wreg() for KIQ: PACKET3 WRITE_DATA,
+    // no address increment, register address low/high, then the value.
+    return .{
+        .packet = .{ 0xc0033700, 1 << 16, registers.scratch0 >> 2, 0, 0xdeadbeef },
+        .scratch_offset = registers.scratch0,
+        .doorbell_offset = doorbell.byte_offset,
+    };
+}
+
+pub fn testAmdGfx11Kiq(
+    plan: AmdGfx11KiqTestPlan,
+    ring: *[1024]u32,
+    pointers: *[2]u64,
+    poll_limit: u32,
+    registers: AmdRegisterIo,
+    doorbells: AmdDoorbellIo,
+) !u32 {
+    if (poll_limit == 0 or plan.packet[0] != 0xc0033700 or plan.packet[1] != 1 << 16 or
+        plan.packet[2] != plan.scratch_offset >> 2 or plan.packet[3] != 0 or
+        plan.packet[4] != plan.completion_value)
+        return error.InvalidAmdKiqTestPlan;
+    try registers.write(registers.context, plan.scratch_offset, plan.initial_value);
+    if (try registers.read(registers.context, plan.scratch_offset) != plan.initial_value)
+        return error.AmdKiqScratchReadbackMismatch;
+    @memset(ring, 0);
+    @memcpy(ring[0..plan.packet.len], &plan.packet);
+    pointers[0] = 0;
+    @atomicStore(u64, &pointers[1], plan.packet.len, .seq_cst);
+    doorbells.write64(doorbells.context, plan.doorbell_offset, plan.packet.len) catch
+        return error.AmdKiqDoorbellWriteFailed;
+    var polls: u32 = 0;
+    while (polls < poll_limit) {
+        polls += 1;
+        if (try registers.read(registers.context, plan.scratch_offset) == plan.completion_value) return polls;
+        asm volatile ("pause");
+    }
+    return error.AmdKiqTestTimeout;
 }
 
 pub const AmdGfx11PreflightEvidence = struct {
@@ -3082,6 +3177,63 @@ pub fn validateAmdGfx11KiqActivationSelfTest() !void {
     if (activateAmdGfx11Kiq(plan, bank.io())) |_| return error.AmdKiqFailureNotDetected else |err|
         if (err != error.AmdKiqRegisterWriteFailed) return err;
     for (original, bank.values[0..15]) |expected, observed| if (expected != observed) return error.AmdKiqFailureRollbackMismatch;
+}
+
+const AmdKiqDoorbellTestBank = struct {
+    registers: *AmdGartRegisterTestBank,
+    scratch_offset: u32,
+    expected_offset: u32,
+    expected_wptr: u64,
+    writes: u32 = 0,
+    fail: bool = false,
+    complete: bool = true,
+
+    fn write64(context: *anyopaque, offset: u32, value: u64) !void {
+        const self: *AmdKiqDoorbellTestBank = @ptrCast(@alignCast(context));
+        if (self.fail) return error.InjectedAmdDoorbellFailure;
+        if (offset != self.expected_offset or value != self.expected_wptr) return error.UnexpectedAmdDoorbellWrite;
+        self.writes += 1;
+        if (self.complete)
+            self.registers.values[self.registers.position(self.scratch_offset) orelse return error.UnknownAmdRegister] = 0xdeadbeef;
+    }
+
+    fn io(self: *AmdKiqDoorbellTestBank) AmdDoorbellIo {
+        return .{ .context = self, .write64 = &write64 };
+    }
+};
+
+pub fn validateAmdGfx11KiqRingTestSelfTest() !void {
+    const gfx_ip = AmdIp{ .hw_id = amd_hw_id.gfx, .major = 11, .instance = 0, .base_count = 2, .bases = .{ 0, 0x100 } ++ .{0} ** 6 };
+    const registers = try resolveAmdGfx11MesRegisters(&gfx_ip, 0x20000);
+    const doorbell = try planAmdGfx11MesDoorbell(.kiq, 0x200000);
+    const plan = try planAmdGfx11KiqTest(registers, doorbell);
+    const expected_packet = [5]u32{ 0xc0033700, 0x00010000, registers.scratch0 >> 2, 0, 0xdeadbeef };
+    if (!std.mem.eql(u32, &plan.packet, &expected_packet))
+        return error.AmdKiqTestPacketMismatch;
+    var ring = [_]u32{0xa5a5a5a5} ** 1024;
+    var pointers = [2]u64{ 9, 9 };
+    var bank = AmdGartRegisterTestBank{ .count = 1 };
+    bank.offsets[0] = registers.scratch0;
+    var doorbell_bank = AmdKiqDoorbellTestBank{
+        .registers = &bank,
+        .scratch_offset = registers.scratch0,
+        .expected_offset = doorbell.byte_offset,
+        .expected_wptr = 5,
+    };
+    const polls = try testAmdGfx11Kiq(plan, &ring, &pointers, 2, bank.io(), doorbell_bank.io());
+    if (polls != 1 or doorbell_bank.writes != 1 or pointers[0] != 0 or pointers[1] != 5 or
+        !std.mem.eql(u32, ring[0..5], &plan.packet))
+        return error.AmdKiqRingTestMismatch;
+
+    bank.values[0] = 0;
+    doorbell_bank.fail = true;
+    if (testAmdGfx11Kiq(plan, &ring, &pointers, 2, bank.io(), doorbell_bank.io())) |_| return error.AmdKiqDoorbellFailureNotDetected else |err|
+        if (err != error.AmdKiqDoorbellWriteFailed) return err;
+
+    doorbell_bank.fail = false;
+    doorbell_bank.complete = false;
+    if (testAmdGfx11Kiq(plan, &ring, &pointers, 2, bank.io(), doorbell_bank.io())) |_| return error.AmdKiqTimeoutNotDetected else |err|
+        if (err != error.AmdKiqTestTimeout) return err;
 }
 
 pub fn validateAmdGmc11VmContextSelfTest() !void {

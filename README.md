@@ -795,7 +795,15 @@ estado persistente, reabilita o doorbell e grava `HQD_ACTIVE=1` por último.
 Quatorze registradores distintos são capturados antes das escritas; cada valor
 tem readback e qualquer falha restaura tudo em ordem reversa. Se a ativação da
 KIQ falhar, os dois pipes MES também retornam a reset+halt. Este estágio ainda
-não envia pacotes à KIQ nem considera o scheduler pronto.
+não considera o scheduler pronto.
+Um gate ainda mais restrito, `-Damd-mes-kiq-test=true`, envia somente o teste
+privado de ring usado pelo upstream GFX11: cinco dwords `WRITE_DATA` escrevem
+`0xDEADBEEF` em `SCRATCH_REG0`. O kernel zera ring/RPTR, publica WPTR=5 com
+ordenação atômica, toca apenas o doorbell 64-bit da KIQ e espera a scratch com
+timeout. A abertura do doorbell valida aperture e offset exatos. Falha de
+escrita ou timeout restaura a transação HQD e força MES para reset+halt. O
+teste está coberto no host, mas ainda precisa ser executado em Radeon real;
+ele não expõe command submission à ABI e não torna aceleração disponível.
 Para VA de 48 bits, o walker segue `PDB2[47:39] → PDB1[38:30] →
 PDB0[29:21] → PTB[20:12]`, com offset `[11:0]`. Cada nível possui até 512
 entradas de 64 bits e ocupa uma página de 4 KiB, conforme a geometria do
