@@ -141,9 +141,13 @@ AMD Radeon
 NVIDIA GeForce
 ```
 
-AMD Radeon continua como o primeiro backend de referência devido ao ecossistema aberto de AMDGPU, Mesa e RADV. NVIDIA GeForce também faz parte do escopo suportado, reutilizando a stack madura disponível — driver aberto/Nouveau, NVK ou componentes oficiais redistribuíveis quando tecnicamente necessários e compatíveis com o projeto.
+AMD Radeon continua como o primeiro backend de referência devido ao ecossistema aberto de AMDGPU, Mesa e RADV. NVIDIA GeForce é igualmente um requisito oficial do produto, reutilizando a stack madura disponível — driver aberto/Nouveau, NVK ou componentes oficiais redistribuíveis quando tecnicamente necessários e compatíveis com o projeto.
 
 O trabalho compartilhado de DRM/KMS, memória, sincronização e ABI deve ser reutilizado pelos dois backends. O segundo backend não deve atrasar a construção do primeiro caminho Vulkan funcional, mas M14 só estará completo após validar hardware AMD e NVIDIA suportado.
+
+Ordem de implementação: primeiro obter um triângulo AMD/RADV em hardware real;
+depois adaptar e validar NVIDIA/NVK ou stack compatível. Essa ordem define
+sequenciamento, não prioridade de produto: o suporte NVIDIA não é opcional.
 
 O alvo não é apenas detectar uma placa NVIDIA ou obter framebuffer. Suporte
 NVIDIA significa inicialização, gerenciamento de memória, filas, sincronização
@@ -779,8 +783,11 @@ NBIO, exige que seu device ID coincida com o PCI e deriva `chip_rev`,
 `AMDGPU_INFO_DEV_INFO` aceita somente o prefixo físico de 20 bytes com esses
 cinco campos; pedidos maiores falham com `EOPNOTSUPP` para impedir que Mesa veja
 topologia, clocks ou memória zerados como dados reais. Compute, SDMA e demais IPs
-continuam com count zero. A `DEV_INFO` completa permanece pendente do probe
-físico de CU topology, clocks e memória. O parser do IP discovery também valida
+continuam com count zero. O caminho GFX11 agora resolve os registradores oficiais
+de harvesting, seleciona cada SE/SA, combina as máscaras de fábrica e usuário e
+publica internamente a contagem e o bitmap de CUs realmente ativos; o seletor é
+sempre restaurado ao modo broadcast. A `DEV_INFO` completa permanece pendente de
+clocks e memória físicos. O parser do IP discovery também valida
 e consome agora a tabela GC v1.0–v1.3: assinatura, tamanho, checksum, SE, SA,
 WGP/CU máximo, RB, TCC, wave size, profundidades GS e caches. Esses máximos já
 fazem parte do perfil DRM e são obrigatórios para publicar GFX, mas não são

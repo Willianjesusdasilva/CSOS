@@ -80,6 +80,7 @@ pub const AmdGpuInfoProfile = struct {
     gfx_minor: u8,
     gfx_revision: u8,
     topology: gpu.AmdGcInfo,
+    cu_info: gpu.AmdGfx11CuInfo,
 };
 var amdgpu_info_profile: ?AmdGpuInfoProfile = null;
 var amdgpu_abi_test_dispatches: u32 = 0;
@@ -972,9 +973,10 @@ pub fn validateAmdGpuDrmAbiSelfTest() !void {
     configureAmdGpuCsEndpoint(.{ .context = &endpoint_cookie, .submit = &amdgpuAbiTestSubmit });
     if (amdgpuInfo(@intFromPtr(base + 560)) != 0 or read32(base + 608) != 0) return error.AmdGpuHwIpLeakedWithoutPhysicalProfile;
     const test_topology = gpu.AmdGcInfo{ .version_minor = 2, .num_shader_engines = 6, .num_wgp0_per_sa = 4, .num_wgp1_per_sa = 4, .num_rb_per_se = 2, .num_tcc_blocks = 16, .gs_vgt_table_depth = 32, .gs_prim_buffer_depth = 64, .double_offchip_lds_buf = 512, .wave_front_size = 32, .num_shader_arrays_per_engine = 2 };
-    configureAmdGpuInfoProfile(.{ .pci_device = 0, .pci_revision = 0, .chip_revision = 0, .external_revision = 0, .family = 145, .gfx_major = 11, .gfx_minor = 0, .gfx_revision = 2, .topology = test_topology });
+    const test_cu_info = gpu.AmdGfx11CuInfo{ .active_count = 172, .active_sa_mask = 0x07ff, .bitmap = .{.{0} ** 4} ** 4 };
+    configureAmdGpuInfoProfile(.{ .pci_device = 0, .pci_revision = 0, .chip_revision = 0, .external_revision = 0, .family = 145, .gfx_major = 11, .gfx_minor = 0, .gfx_revision = 2, .topology = test_topology, .cu_info = test_cu_info });
     if (amdgpuInfo(@intFromPtr(base + 560)) != 0 or read32(base + 608) != 0) return error.AmdGpuHwIpAcceptedInvalidPhysicalProfile;
-    configureAmdGpuInfoProfile(.{ .pci_device = 0x744c, .pci_revision = 0xc8, .chip_revision = 3, .external_revision = 0x13, .family = 145, .gfx_major = 11, .gfx_minor = 0, .gfx_revision = 2, .topology = test_topology });
+    configureAmdGpuInfoProfile(.{ .pci_device = 0x744c, .pci_revision = 0xc8, .chip_revision = 3, .external_revision = 0x13, .family = 145, .gfx_major = 11, .gfx_minor = 0, .gfx_revision = 2, .topology = test_topology, .cu_info = test_cu_info });
     if (amdgpuInfo(@intFromPtr(base + 560)) != 0 or read32(base + 608) != 1) return error.AmdGpuHwIpCountAbiMismatch;
     put32(base + 568, 40);
     put32(base + 572, 2);
@@ -1272,7 +1274,7 @@ fn amdgpuInfo(address: u64) u64 {
     const ip_type = read32(input + 16);
     const ip_instance = read32(input + 20);
     const profile = amdgpu_info_profile;
-    const gfx_available = amdgpu_cs_endpoint != null and profile != null and
+    const gfx_available = amdgpu_cs_endpoint != null and profile != null and profile.?.cu_info.active_count != 0 and
         profile.?.pci_device != 0 and profile.?.pci_device != 0xffff and profile.?.gfx_major == 11 and
         profile.?.topology.num_shader_engines != 0 and profile.?.topology.num_shader_arrays_per_engine != 0 and
         profile.?.topology.maxCuPerShaderArray() != 0;

@@ -719,6 +719,10 @@ pub fn start(info: BootInfo) noreturn {
         const gfx_ip = gpu_ip_discovery.?.find(gpu.amd_hw_id.gfx, 0) orelse panic("AMDGPU GFX IP missing");
         break :blk gpu.resolveAmdGfx11CpGfxRegisters(gfx_ip, gpu_registers.size) catch panic("AMDGPU CP graphics registers invalid");
     } else null else null;
+    const gpu_cu_registers = if (gpu_backend_plan) |plan| if (plan.gfx == .v11_0) blk: {
+        const gfx_ip = gpu_ip_discovery.?.find(gpu.amd_hw_id.gfx, 0) orelse panic("AMDGPU GFX IP missing");
+        break :blk gpu.resolveAmdGfx11CuRegisters(gfx_ip, gpu_registers.size) catch panic("AMDGPU CU registers invalid");
+    } else null else null;
     if (gpu_backend_plan) |plan| if (plan.psp.host_boot_components) {
         const psp_ip = if (gpu_ip_discovery) |*discovery| discovery.find(gpu.amd_hw_id.psp, 0) orelse
             panic("AMDGPU PSP IP missing") else panic("AMDGPU IP discovery missing");
@@ -742,7 +746,11 @@ pub fn start(info: BootInfo) noreturn {
         if (!mapper.identityIsUncached(rom.address)) panic("GPU expansion ROM cache policy failed");
     }
     mapper.activate();
-    if (gpu_adapter.driver == .amdgpu and gpu_gmc11_nbio_registers != null and gpu_ip_discovery.?.gc_info != null) {
+    const gpu_cu_info = if (gpu_cu_registers != null and gpu_ip_discovery.?.gc_info != null)
+        gpu.probeAmdGfx11CuInfo(&gpu_adapter, gpu_cu_registers.?, gpu_ip_discovery.?.gc_info.?) catch panic("AMDGPU active CU probe failed")
+    else
+        null;
+    if (gpu_adapter.driver == .amdgpu and gpu_gmc11_nbio_registers != null and gpu_ip_discovery.?.gc_info != null and gpu_cu_info != null) {
         const gfx_ip = gpu_ip_discovery.?.find(gpu.amd_hw_id.gfx, 0) orelse panic("AMDGPU GFX IP missing");
         const strap = gpu_adapter.readRegister(gpu_gmc11_nbio_registers.?.revision_strap) catch panic("AMDGPU revision strap read failed");
         const identity = gpu.decodeAmdGfx11AsicIdentity(gfx_ip, strap) catch panic("AMDGPU ASIC identity unsupported");
@@ -757,6 +765,7 @@ pub fn start(info: BootInfo) noreturn {
             .gfx_minor = gfx_ip.minor,
             .gfx_revision = gfx_ip.revision,
             .topology = gpu_ip_discovery.?.gc_info.?,
+            .cu_info = gpu_cu_info.?,
         });
     } else syscalls.configureAmdGpuInfoProfile(null);
     const gpu_mes_control = if (gpu_mes_registers) |registers|

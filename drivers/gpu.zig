@@ -1474,6 +1474,120 @@ pub const AmdGfx11CpGfxRegisters = struct {
     scratch0: u32,
 };
 
+pub const AmdGfx11CuRegisters = struct {
+    selector: u32,
+    sa_disable: u32,
+    user_sa_disable: u32,
+    shader_array_config: u32,
+    user_shader_array_config: u32,
+};
+pub const AmdGfx11CuInfo = struct {
+    active_count: u32,
+    active_sa_mask: u16,
+    bitmap: [4][4]u32,
+};
+
+pub fn resolveAmdGfx11CuRegisters(ip: *const AmdIp, register_bar_bytes: u64) !AmdGfx11CuRegisters {
+    if (ip.hw_id != amd_hw_id.gfx or ip.instance != 0 or ip.major != 11 or ip.base_count <= 1 or ip.bases[0] == 0 or ip.bases[1] == 0)
+        return error.AmdGfx11CuRegisterBaseMissing;
+    return .{
+        .selector = try resolveAmdRegister(ip.bases[1], 0x2200, register_bar_bytes),
+        .sa_disable = try resolveAmdRegister(ip.bases[0], 0x0fe9, register_bar_bytes),
+        .user_sa_disable = try resolveAmdRegister(ip.bases[1], 0x5b92, register_bar_bytes),
+        .shader_array_config = try resolveAmdRegister(ip.bases[0], 0x100f, register_bar_bytes),
+        .user_shader_array_config = try resolveAmdRegister(ip.bases[1], 0x5b90, register_bar_bytes),
+    };
+}
+
+pub fn decodeAmdGfx11CuInfo(topology: AmdGcInfo, factory_sa_disable: u16, user_sa_disable: u16, factory_wgp_disable: [16]u16, user_wgp_disable: [16]u16) !AmdGfx11CuInfo {
+    const sa_count = topology.num_shader_engines * topology.num_shader_arrays_per_engine;
+    const wgp_count = topology.maxCuPerShaderArray() / 2;
+    if (sa_count == 0 or sa_count > 16 or wgp_count == 0 or wgp_count > 16) return error.InvalidAmdGfx11CuTopology;
+    const sa_limit: u16 = if (sa_count == 16) 0xffff else (@as(u16, 1) << @intCast(sa_count)) - 1;
+    const wgp_limit: u16 = if (wgp_count == 16) 0xffff else (@as(u16, 1) << @intCast(wgp_count)) - 1;
+    const active_sa = sa_limit & ~(factory_sa_disable | user_sa_disable);
+    var result = AmdGfx11CuInfo{ .active_count = 0, .active_sa_mask = active_sa, .bitmap = .{.{0} ** 4} ** 4 };
+    var se: u32 = 0;
+    while (se < topology.num_shader_engines) : (se += 1) {
+        var sa: u32 = 0;
+        while (sa < topology.num_shader_arrays_per_engine) : (sa += 1) {
+            const linear = se * topology.num_shader_arrays_per_engine + sa;
+            if ((active_sa & (@as(u16, 1) << @intCast(linear))) == 0) continue;
+            const active_wgp = wgp_limit & ~(factory_wgp_disable[linear] | user_wgp_disable[linear]);
+            var cu_bitmap: u32 = 0;
+            var wgp: u32 = 0;
+            while (wgp < wgp_count) : (wgp += 1) {
+                if ((active_wgp & (@as(u16, 1) << @intCast(wgp))) != 0)
+                    cu_bitmap |= @as(u32, 3) << @intCast(wgp * 2);
+            }
+            result.bitmap[se % 4][sa + (se / 4) * 2] = cu_bitmap;
+            result.active_count += @popCount(cu_bitmap);
+        }
+    }
+    if (result.active_count == 0 or result.active_count > topology.num_shader_engines * topology.num_shader_arrays_per_engine * topology.maxCuPerShaderArray())
+        return error.InvalidAmdGfx11ActiveCuCount;
+    return result;
+}
+
+pub fn probeAmdGfx11CuInfo(adapter: *const Adapter, registers: AmdGfx11CuRegisters, topology: AmdGcInfo) !AmdGfx11CuInfo {
+    const factory_sa: u16 = @truncate((try adapter.readRegister(registers.sa_disable) >> 8) & 0xffff);
+    const user_sa: u16 = @truncate((try adapter.readRegister(registers.user_sa_disable) >> 8) & 0xffff);
+    var factory_wgp: [16]u16 = .{0} ** 16;
+    var user_wgp: [16]u16 = .{0} ** 16;
+    errdefer adapter.writeRegister(registers.selector, 0xe0000000) catch {};
+    var se: u32 = 0;
+    while (se < topology.num_shader_engines) : (se += 1) {
+        var sa: u32 = 0;
+        while (sa < topology.num_shader_arrays_per_engine) : (sa += 1) {
+            const linear = se * topology.num_shader_arrays_per_engine + sa;
+            try adapter.writeRegister(registers.selector, 0x40000000 | (se << 16) | (sa << 8));
+            factory_wgp[linear] = @truncate((try adapter.readRegister(registers.shader_array_config) >> 16) & 0xffff);
+            user_wgp[linear] = @truncate((try adapter.readRegister(registers.user_shader_array_config) >> 16) & 0xffff);
+        }
+    }
+    try adapter.writeRegister(registers.selector, 0xe0000000);
+    return decodeAmdGfx11CuInfo(topology, factory_sa, user_sa, factory_wgp, user_wgp);
+}
+
+comptime {
+    const gfx_ip = AmdIp{
+        .hw_id = amd_hw_id.gfx,
+        .major = 11,
+        .base_count = 2,
+        .bases = .{ 0x100, 0x500 } ++ .{0} ** 6,
+    };
+    const registers = resolveAmdGfx11CuRegisters(&gfx_ip, 0x20000) catch
+        @compileError("GFX11 CU register resolution failed");
+    if (registers.selector != 0x9c00 or registers.sa_disable != 0x43a4 or
+        registers.user_sa_disable != 0x18248 or registers.shader_array_config != 0x443c or
+        registers.user_shader_array_config != 0x18240)
+        @compileError("GFX11 CU register offsets mismatch");
+
+    const topology = AmdGcInfo{
+        .version_minor = 2,
+        .num_shader_engines = 6,
+        .num_shader_arrays_per_engine = 2,
+        .num_wgp0_per_sa = 4,
+        .num_wgp1_per_sa = 4,
+        .num_rb_per_se = 2,
+        .num_tcc_blocks = 16,
+        .gs_vgt_table_depth = 32,
+        .gs_prim_buffer_depth = 64,
+        .double_offchip_lds_buf = 512,
+        .wave_front_size = 32,
+    };
+    var factory_wgp = [_]u16{0} ** 16;
+    var user_wgp = [_]u16{0} ** 16;
+    factory_wgp[0] = 1;
+    user_wgp[1] = 2;
+    const cu = decodeAmdGfx11CuInfo(topology, @as(u16, 1) << 11, 0, factory_wgp, user_wgp) catch
+        @compileError("GFX11 CU harvesting decode failed");
+    if (cu.active_count != 172 or cu.active_sa_mask != 0x07ff or
+        cu.bitmap[0][0] != 0xfffc or cu.bitmap[0][1] != 0xfff3 or
+        cu.bitmap[1][3] != 0)
+        @compileError("GFX11 active CU bitmap mismatch");
+}
+
 pub fn resolveAmdGfx11CpGfxRegisters(ip: *const AmdIp, register_bar_bytes: u64) !AmdGfx11CpGfxRegisters {
     if (ip.hw_id != amd_hw_id.gfx or ip.instance != 0 or ip.major != 11 or ip.base_count <= 1 or ip.bases[1] == 0)
         return error.AmdGfx11CpRegisterBaseMissing;
