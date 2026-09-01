@@ -71,7 +71,14 @@ pub const AmdGpuCsEndpoint = struct {
 };
 var amdgpu_cs_endpoint: ?AmdGpuCsEndpoint = null;
 const max_amdgpu_contexts = 8;
-const AmdGpuContext = struct { allocated: bool = false, id: u32 = 0, priority: i32 = 0 };
+const AmdGpuContext = struct {
+    allocated: bool = false,
+    id: u32 = 0,
+    priority: i32 = 0,
+    next_handle: u64 = 1,
+    completed_handle: u64 = 0,
+    hardware_sequence: u64 = 0,
+};
 var amdgpu_contexts: [max_amdgpu_contexts]AmdGpuContext = .{AmdGpuContext{}} ** max_amdgpu_contexts;
 const max_amdgpu_bo_lists = 8;
 const AmdGpuBoList = struct {
@@ -394,6 +401,7 @@ fn ioctl(fd: u64, request: u64, address: u64) u64 {
             0xc0106447 => if (drm_driver == .amdgpu) amdgpuGemWaitIdle(address) else errno(25),
             0x40286448 => if (drm_driver == .amdgpu) amdgpuGemVa(address, false) else errno(25),
             0x40406448 => if (drm_driver == .amdgpu) amdgpuGemVa(address, true) else errno(25),
+            0xc0206449 => if (drm_driver == .amdgpu) amdgpuWaitCs(address) else errno(25),
             0xc0186450 => if (drm_driver == .amdgpu) amdgpuGemOp(address) else errno(25),
             0xc0106459 => if (drm_driver == .amdgpu) amdgpuGemListHandles(address) else errno(25),
             else => errno(25),
@@ -741,7 +749,6 @@ fn amdgpuCs(address: u64) u64 {
     if (!validUserSlice(address, 24)) return errno(14);
     const io: [*]const u8 = @ptrFromInt(address);
     const context = amdgpuContextForId(read32(io)) orelse return errno(2);
-    _ = context;
     const list = amdgpuBoListForHandle(read32(io + 4)) orelse return errno(2);
     const chunk_count = read32(io + 8);
     if (chunk_count != 1 or read32(io + 12) != 0) return errno(95);
@@ -764,15 +771,37 @@ fn amdgpuCs(address: u64) u64 {
         return errno(95);
     if (drm_vm_vmid == 0 or !amdgpuBoListCoversGpuVa(list, gpu_va, ib_bytes)) return errno(22);
     const endpoint = amdgpu_cs_endpoint orelse return errno(95);
-    const sequence = endpoint.submit(endpoint.context, drm_vm_vmid, gpu_va, ib_bytes / 4) catch |err| return switch (err) {
+    if (context.next_handle == ~@as(u64, 0)) return errno(75);
+    const hardware_sequence = endpoint.submit(endpoint.context, drm_vm_vmid, gpu_va, ib_bytes / 4) catch |err| return switch (err) {
         error.AmdGfxSubmissionQueueStopped, error.AmdGfxSubmissionRingNotIdle => errno(16),
         error.AmdGfxSubmissionTimeout, error.AmdGfxSubmissionDoorbellFailed,
         error.AmdCpGfxStopFailed => errno(5),
         error.AmdGpuVmContextNotBound, error.AmdGpuVmHardwareUnavailable => errno(19),
         else => errno(22),
     };
+    const handle = context.next_handle;
+    context.next_handle += 1;
+    context.completed_handle = handle;
+    context.hardware_sequence = hardware_sequence;
     const output: [*]u8 = @ptrFromInt(address);
-    put64(output, sequence);
+    put64(output, handle);
+    return 0;
+}
+
+fn amdgpuWaitCs(address: u64) u64 {
+    if (!validUserSlice(address, 32)) return errno(14);
+    const io: [*]u8 = @ptrFromInt(address);
+    const requested = read64(io);
+    const ip_type = read32(io + 16);
+    const ip_instance = read32(io + 20);
+    const ring = read32(io + 24);
+    const context = amdgpuContextForId(read32(io + 28)) orelse return errno(2);
+    if (ip_type != 0 or ip_instance != 0 or ring != 0) return errno(95);
+    const target = if (requested == ~@as(u64, 0)) context.completed_handle else requested;
+    if (target > context.completed_handle) return errno(22);
+    // CS submission is synchronous until an interrupt-backed fence wait exists:
+    // every published context handle has already passed the physical 64-bit fence.
+    @memset(io[0..32], 0);
     return 0;
 }
 
@@ -830,9 +859,10 @@ fn amdgpuGemWaitIdle(address: u64) u64 {
     if (!validUserSlice(address, 16)) return errno(14);
     const io: [*]u8 = @ptrFromInt(address);
     if (read32(io + 4) != 0) return errno(22);
-    if (drmObjectForHandle(read32(io)) == null) return errno(2);
-    // Command submission is still unavailable, so every accepted BO is idle.
+    const object = drmObjectForHandle(read32(io)) orelse return errno(2);
+    // Submission currently waits for the physical fence before returning.
     @memset(io[0..16], 0);
+    put32(io + 4, @truncate(object.domains));
     return 0;
 }
 

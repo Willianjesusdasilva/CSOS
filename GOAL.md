@@ -1871,6 +1871,7 @@ GFX11 internal IB dispatcher with 1024-dword wrap, ordered WPTR, monotonic fence
 AMDGPU_CTX lifecycle and AMDGPU_BO_LIST residency ownership: implemented; integration validation pending
 AMDGPU_CS single-GFX-IB parser with context/list/GPUVA fail-closed validation: implemented; returns EOPNOTSUPP unless a verified CP endpoint is installed
 verified-CP AMDGPU_CS endpoint with bound-VMID check and real 64-bit fence sequence: implemented; Radeon validation pending
+per-context CS handles plus AMDGPU_WAIT_CS for synchronous completed GFX fences: implemented; async/IRQ waits pending
 GFX11 ring resource contract and fail-closed preflight: implemented and host-tested
 transactional ring/MQD/EOP/pointer physical allocation: implemented and host-tested
 dual MES scheduler/KIQ GART layout and GFX11 MQD encoding: implemented and host-tested
@@ -1900,8 +1901,10 @@ context lifecycle now exist, but require real Radeon validation. The GFX11
 IB/fence frame and its internal ring transaction are host-tested; CTX and BO_LIST
 state exist, and the AMDGPU_CS entry point validates a single GFX IB against its
 resident GPUVA pages. It returns EOPNOTSUPP without a verified CP endpoint; with
-the full explicit hardware gate, it submits only on the matching bound VMID and
-returns the real 64-bit fence sequence. Radeon hardware execution remains
+the full explicit hardware gate, it submits only on the matching bound VMID,
+waits for the real 64-bit fence and then publishes a per-context handle.
+AMDGPU_WAIT_CS resolves completed handles without fabricating pending work;
+Radeon hardware execution remains
 unvalidated. M14 remains incomplete, and neither AMD nor NVIDIA acceleration may
 be advertised from this checkpoint.
 

@@ -719,8 +719,9 @@ suporte Vulkan concluído.
 
 A ABI AMDGPU inicial também preserva por BO tamanho, alinhamento, domínio e
 flags de criação, implementa `AMDGPU_GEM_METADATA` (set/get de até 256 bytes) e
-`AMDGPU_GEM_WAIT_IDLE`. Este último só retorna idle porque o ioctl de command
-submission ainda é recusado; `AMDGPU_INFO_ACCEL_WORKING` continua zero. A VM
+`AMDGPU_GEM_WAIT_IDLE`. Este último retorna idle e o domínio corrente porque a
+submissão aceita ainda espera o fence físico antes de retornar;
+`AMDGPU_INFO_ACCEL_WORKING` continua zero. A VM
 possui isolamento por VMID e page tables testadas no host, e o ring gráfico já
 passa o teste PM4 privado. O encoder de submissão produz o pacote GFX11
 `INDIRECT_BUFFER` para VMIDs 1–7 seguido de `RELEASE_MEM` com fence de 64 bits.
@@ -731,8 +732,11 @@ prova contexto, lista, flags, limites e cobertura GPUVA legível página a pági
 Sem backend CP verificado ele termina em `EOPNOTSUPP`, sem inventar sequence
 number ou estado busy. Quando o gate completo de GART/PSP/RLC/MES/CP e o teste
 PM4 passam, o kernel instala um endpoint tipado que também exige o mesmo VMID
-ligado no MMHUB; somente então o ioctl pode devolver o sequence escrito pelo
-fence real. O
+ligado no MMHUB; somente então o ioctl pode publicar um handle monotônico do
+contexto, depois de observar o sequence escrito pelo fence real. `AMDGPU_WAIT_CS`
+aceita GFX/instance0/ring0 e responde apenas para handles já concluídos daquele
+contexto, incluindo as sentinelas `0` e `~0`; handle futuro ou engine diferente
+falham fechados. O
 backend do ring já possui uma transação interna separada do ioctl: exige o ring
 ocioso no WPTR confirmado, grava os 12 dwords com wrap em 1024 slots, publica
 WPTR somente após `mfence`, toca o doorbell autorizado e espera simultaneamente
