@@ -1850,8 +1850,9 @@ KIQ MAP_QUEUES of MES scheduler with scratch/RPTR completion and halt rollback: 
 MES control page/GART, GFX11 HQD/VMID/aggregated-doorbell topology and typed SET_HW_RSRC frame: implemented and host-tested
 direct GPUVM VMIDs 1-7 partitioned from MES-owned VMIDs 8-15: implemented and host-tested
 private scheduler SET_HW_RSRC + QUERY_STATUS transaction with dual-fence/RPTR timeout-to-halt: implemented and host-tested
+revision-gated SET_HW_RSRC_1 + cleaner fence + sequence-2 query: implemented and host-tested
 real Radeon MMIO lifecycle validation: pending
-real MES load/handshake/KIQ/scheduler-map/SET_HW_RSRC validation and command submission: pending
+real MES load/handshake/KIQ/scheduler resource validation and command submission: pending
 AMD RADV triangle on real hardware: pending
 NVIDIA NVK/compatible-stack triangle on real hardware: pending
 ```

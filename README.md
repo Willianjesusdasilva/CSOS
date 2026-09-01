@@ -829,6 +829,14 @@ quando o completion fence da primeira API, o fence da query e RPTR=128 forem
 observados. O timeout de 2,1 milhões de polls restaura a HQD KIQ e força MES a
 reset+halt. O caminho está host-tested e compila com toda a cadeia de gates,
 mas ainda requer Radeon real; ele não expõe command submission ao userspace.
+Para revisões MES `scheduler_version & 0xFFF >= 0x52`, o gate adicional
+`-Damd-mes-scheduler-resource1=true` executa o `SET_HW_RSRC_1` obrigatório.
+A página de controle reserva um cleaner-shader fence próprio; o frame habilita
+o contexto informativo sem inventar endereço SR-IOV e é seguido por outra
+`QUERY_SCHEDULER_STATUS`, agora com fence de sequência 2. O ring progride de
+WPTR/RPTR 128 para 256. Revisões anteriores ignoram corretamente esse estágio;
+timeout em revisão nova restaura KIQ e retorna MES a reset+halt. A validação em
+Radeon real permanece pendente.
 Para VA de 48 bits, o walker segue `PDB2[47:39] → PDB1[38:30] →
 PDB0[29:21] → PTB[20:12]`, com offset `[11:0]`. Cada nível possui até 512
 entradas de 64 bits e ocupa uma página de 4 KiB, conforme a geometria do

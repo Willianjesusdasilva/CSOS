@@ -102,6 +102,8 @@ pub fn start(info: BootInfo) noreturn {
         panic("AMDGPU MES scheduler map gate requires verified KIQ gate");
     if (build_options.amd_mes_scheduler_init and !build_options.amd_mes_scheduler_map)
         panic("AMDGPU MES scheduler init gate requires scheduler map gate");
+    if (build_options.amd_mes_scheduler_resource1 and !build_options.amd_mes_scheduler_init)
+        panic("AMDGPU MES scheduler resource1 gate requires scheduler init gate");
     serial.write("kernel entry\n");
     syscalls.configureFramebuffer(.{
         .base = info.framebuffer.base,
@@ -790,6 +792,8 @@ pub fn start(info: BootInfo) noreturn {
     var gpu_mes_kiq_test_polls: u32 = 0;
     var gpu_mes_scheduler_map_polls: u32 = 0;
     var gpu_mes_scheduler_init_polls: u32 = 0;
+    var gpu_mes_scheduler_resource1_polls: u32 = 0;
+    var gpu_mes_scheduler_ready = false;
     if (gpu_gart_mmio_transport) |*transport| {
         const psp_ready = (gpu_psp_mailbox_snapshot != null and gpu_psp_mailbox_snapshot.?.state == .sos_alive) or
             gpu_psp_handoff.state == .finished;
@@ -988,6 +992,41 @@ pub fn start(info: BootInfo) noreturn {
                                     panic("AMDGPU MES scheduler init failed and returned to halt");
                                 };
                                 scheduler_doorbell_transport.disarm();
+                                if (build_options.amd_mes_scheduler_resource1) {
+                                    const resource1_plan = gpu.planAmdMesSchedulerResource1(
+                                        gpu_mes_activation.?.scheduler_version, control_layout, bootstrap.scheduler_doorbell,
+                                    ) catch panic("AMDGPU MES scheduler resource1 plan invalid");
+                                    if (resource1_plan) |plan| {
+                                        var resource1_doorbell_transport = gpu.AmdGfx11DoorbellTransport{
+                                            .aperture = gpu_memory_plan.?.doorbell_bar,
+                                            .expected_offset = bootstrap.scheduler_doorbell.byte_offset,
+                                            .uncached = true,
+                                        };
+                                        resource1_doorbell_transport.authorize(bootstrap.scheduler_doorbell) catch
+                                            panic("AMDGPU MES scheduler resource1 doorbell authorization rejected");
+                                        resource1_doorbell_transport.arm() catch panic("AMDGPU MES scheduler resource1 doorbell arming failed");
+                                        gpu_mes_scheduler_resource1_polls = gpu.initializeAmdMesSchedulerResource1(
+                                            plan, scheduler_ring, scheduler_pointers, control_page, 2_100_000,
+                                            resource1_doorbell_transport.io(),
+                                        ) catch {
+                                            resource1_doorbell_transport.disarm();
+                                            gpu.restoreAmdGfx11Kiq(kiq_hqd_plan, &kiq_transaction, transport.io()) catch {
+                                                transport.disarm();
+                                                panic("AMDGPU MES scheduler resource1 rollback failed");
+                                            };
+                                            gpu.haltAmdGfx11Mes(gpu_mes_registers.?, transport.io()) catch {
+                                                transport.disarm();
+                                                panic("AMDGPU MES scheduler resource1 failure could not halt MES");
+                                            };
+                                            gpu_mes_kiq_active = false;
+                                            gpu_mes_activation = null;
+                                            transport.disarm();
+                                            panic("AMDGPU MES scheduler resource1 failed and returned to halt");
+                                        };
+                                        resource1_doorbell_transport.disarm();
+                                    }
+                                    gpu_mes_scheduler_ready = true;
+                                }
                             }
                         }
                     }
@@ -1131,6 +1170,8 @@ pub fn start(info: BootInfo) noreturn {
     serial.write(" mes-kiq-test-polls: "); serial.writeDecimal(gpu_mes_kiq_test_polls);
     serial.write(" mes-scheduler-map-polls: "); serial.writeDecimal(gpu_mes_scheduler_map_polls);
     serial.write(" mes-scheduler-init-polls: "); serial.writeDecimal(gpu_mes_scheduler_init_polls);
+    serial.write(" mes-scheduler-resource1-polls: "); serial.writeDecimal(gpu_mes_scheduler_resource1_polls);
+    serial.write(" mes-scheduler-ready: "); serial.writeDecimal(@intFromBool(gpu_mes_scheduler_ready));
     serial.write(" driver: ");
     serial.write(switch (gpu_adapter.driver) {
         .amdgpu => "amdgpu",
