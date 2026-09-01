@@ -1103,6 +1103,13 @@ de referência; depois do primeiro triângulo RADV, o caminho NVIDIA deve ser
 validado com NVK/stack compatível em hardware explicitamente suportado. M14 não
 será considerada concluída com apenas um dos fabricantes.
 
+O suporte será registrado por fabricante, família de GPU e caminho Vulkan.
+Detecção PCI ou display básico não bastam: cada entrada só pode ser marcada
+como funcional depois de inicialização, memória, filas, sincronização e um
+triângulo Vulkan passarem em hardware real. Até lá, AMD e NVIDIA permanecem
+como trabalho de M14, e Steam/CS2 continuam bloqueados atrás das milestones do
+sistema operacional.
+
 O grande próximo desafio continua sendo a stack gráfica:
 
 ```text

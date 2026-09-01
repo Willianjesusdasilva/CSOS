@@ -1305,6 +1305,12 @@ Detecção PCI, seleção de driver ou ioctls isolados não contam como suporte 
 Não anunciar AMD ou NVIDIA como funcional antes da validação correspondente.
 Steam/CS2 não fazem parte dos critérios de M14 e permanecem para M27-M29.
 
+Manter uma matriz de suporte por fabricante, família de GPU e backend Vulkan.
+Cada combinação AMD/RADV ou NVIDIA/NVK/stack compatível só muda para
+`supported` depois de validar em hardware real inicialização, memória, filas,
+sincronização e triângulo Vulkan. O trabalho NVIDIA começa depois do primeiro
+triângulo AMD/RADV; ele não autoriza antecipar Steam Runtime, Steam ou CS2.
+
 ## M15 â€” SDL
 
 VÃ­deo + input + Ã¡udio.
