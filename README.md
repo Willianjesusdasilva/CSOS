@@ -837,6 +837,13 @@ zero; o total GL1 usa multiplicação com overflow verificado. Esses seis campos
 seguem o mapeamento upstream e ampliam o prefixo de `DEV_INFO` para 408 bytes.
 O próximo campo, `mall_size`, depende da tabela MALL separada.
 
+O parser do IP discovery agora conta instâncias UMC, aplica harvesting separado
+por instância e consome MALL v2.0 com assinatura, tamanho e checksum validados.
+`mall_size_per_umc × UMCs ativos` usa multiplicação de 64 bits com overflow
+verificado; MALL ausente ou zero fecha o perfil. A máscara alta de RB permanece
+zero porque o backend suportado possui menos de 32 pipes. Assim, `DEV_INFO`
+alcança 420 bytes.
+
 O parser do IP discovery também valida
 e consome agora a tabela GC v1.0–v1.3: assinatura, tamanho, checksum, SE, SA,
 WGP/CU máximo, RB, TCC, wave size, profundidades GS e caches. Esses máximos já

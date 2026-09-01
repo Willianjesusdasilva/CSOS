@@ -3004,6 +3004,9 @@ pub const AmdIpDiscovery = struct {
     base_addresses: u32,
     harvested: u32,
     gc_info: ?AmdGcInfo = null,
+    umc_mask: u32 = 0,
+    umc_harvest_mask: u32 = 0,
+    mall_size: ?u64 = null,
     critical_count: usize = 0,
     critical: [16]AmdIp = .{AmdIp{}} ** 16,
 
@@ -3089,6 +3092,7 @@ pub const amd_hw_id = struct {
     pub const sdma2: u16 = 44;
     pub const sdma3: u16 = 45;
     pub const nbif: u16 = 108;
+    pub const umc: u16 = 150;
     pub const psp: u16 = 255;
 };
 
@@ -7486,6 +7490,12 @@ pub fn parseAmdIpDiscovery(bytes: []const u8) !AmdIpDiscovery {
             result.base_addresses += bases;
             if (table_version <= 2 and (bytes[ip_offset + 7] & 0xf) != 0) result.harvested += 1;
             const hw_id = readLittle16(bytes, ip_offset);
+            if (hw_id == amd_hw_id.umc) {
+                const instance = bytes[ip_offset + 2];
+                if (instance >= 32 or (result.umc_mask & (@as(u32, 1) << @intCast(instance))) != 0)
+                    return error.InvalidAmdUmcInstance;
+                result.umc_mask |= @as(u32, 1) << @intCast(instance);
+            }
             if (isCriticalAmdIp(hw_id)) {
                 if (result.critical_count == result.critical.len) return error.TooManyCriticalAmdIps;
                 if (bases > 8) return error.TooManyCriticalAmdIpBaseAddresses;
@@ -7513,7 +7523,78 @@ pub fn parseAmdIpDiscovery(bytes: []const u8) !AmdIpDiscovery {
             ip_offset += entry_size;
         }
     }
+    if (table_count > 2)
+        result.umc_harvest_mask = try parseAmdUmcHarvestMask(bytes[0..binary_size], table_list + 16, result.umc_mask);
+    if (table_count > 4)
+        result.mall_size = try parseAmdMallInfoTable(bytes[0..binary_size], table_list + 32, result.umc_mask & ~result.umc_harvest_mask);
     return result;
+}
+
+fn parseAmdUmcHarvestMask(bytes: []const u8, descriptor: usize, umc_mask: u32) !u32 {
+    const offset: usize = readLittle16(bytes, descriptor);
+    if (offset == 0) return 0;
+    const checksum = readLittle16(bytes, descriptor + 2);
+    const size: usize = readLittle16(bytes, descriptor + 4);
+    if (size < 8 or offset > bytes.len or size > bytes.len - offset or readLittle32(bytes, offset) != 0x56524148)
+        return error.InvalidAmdHarvestTable;
+    if (byteSum(bytes[offset .. offset + size]) != checksum) return error.InvalidAmdHarvestChecksum;
+    var mask: u32 = 0;
+    var entry: usize = offset + 8;
+    while (entry + 4 <= offset + size) : (entry += 4) {
+        const hw_id = readLittle16(bytes, entry);
+        if (hw_id == 0) break;
+        if (hw_id != amd_hw_id.umc) continue;
+        const instance = bytes[entry + 2];
+        if (instance >= 32 or (umc_mask & (@as(u32, 1) << @intCast(instance))) == 0)
+            return error.InvalidAmdUmcHarvestInstance;
+        mask |= @as(u32, 1) << @intCast(instance);
+    }
+    return mask;
+}
+
+fn parseAmdMallInfoTable(bytes: []const u8, descriptor: usize, active_umc_mask: u32) !?u64 {
+    const offset: usize = readLittle16(bytes, descriptor);
+    if (offset == 0) return null;
+    const checksum = readLittle16(bytes, descriptor + 2);
+    const descriptor_size: usize = readLittle16(bytes, descriptor + 4);
+    if (descriptor_size < 48 or offset > bytes.len or descriptor_size > bytes.len - offset or
+        readLittle32(bytes, offset) != 0x4c4c414d)
+        return error.InvalidAmdMallInfo;
+    const major = readLittle16(bytes, offset + 4);
+    const minor = readLittle16(bytes, offset + 6);
+    const size: usize = readLittle32(bytes, offset + 8);
+    if (major != 2 or minor != 0 or size != descriptor_size or byteSum(bytes[offset .. offset + size]) != checksum)
+        return error.InvalidAmdMallInfo;
+    const active_umcs: u32 = @popCount(active_umc_mask);
+    const per_umc: u32 = @intCast(readLittle32(bytes, offset + 12));
+    if (active_umcs == 0 or per_umc == 0) return error.InvalidAmdMallTopology;
+    return std.math.mul(u64, per_umc, active_umcs) catch return error.InvalidAmdMallTopology;
+}
+
+comptime {
+    var mall = [_]u8{0} ** 64;
+    writeLittle16(&mall, 0, 16);
+    writeLittle16(&mall, 4, 48);
+    writeLittle32(&mall, 16, 0x4c4c414d);
+    writeLittle16(&mall, 20, 2);
+    writeLittle16(&mall, 22, 0);
+    writeLittle32(&mall, 24, 48);
+    writeLittle32(&mall, 28, 4 * 1024 * 1024);
+    writeLittle16(&mall, 2, byteSum(mall[16..64]));
+    const size = (parseAmdMallInfoTable(&mall, 0, 0b1011) catch @compileError("AMDGPU MALL sample rejected")) orelse
+        @compileError("AMDGPU MALL sample missing");
+    if (size != 12 * 1024 * 1024) @compileError("AMDGPU MALL size mismatch");
+
+    var harvest = [_]u8{0} ** 32;
+    writeLittle16(&harvest, 0, 16);
+    writeLittle16(&harvest, 4, 16);
+    writeLittle32(&harvest, 16, 0x56524148);
+    writeLittle32(&harvest, 20, 1);
+    writeLittle16(&harvest, 24, amd_hw_id.umc);
+    harvest[26] = 1;
+    writeLittle16(&harvest, 2, byteSum(harvest[16..32]));
+    if ((parseAmdUmcHarvestMask(&harvest, 0, 0b11) catch @compileError("AMDGPU UMC harvest sample rejected")) != 0b10)
+        @compileError("AMDGPU UMC harvest mask mismatch");
 }
 
 fn parseAmdGcInfoTable(bytes: []const u8, descriptor: usize) !?AmdGcInfo {
