@@ -791,7 +791,11 @@ dados reais. Compute, SDMA e demais IPs continuam com count zero. O caminho GFX1
 de harvesting, seleciona cada SE/SA, combina as máscaras de fábrica e usuário e
 publica internamente a contagem e o bitmap de CUs realmente ativos; o seletor é
 sempre restaurado ao modo broadcast. A `DEV_INFO` completa permanece pendente de
-memória, VA e demais campos físicos. O parser do IP discovery também valida
+memória, VA e demais campos físicos. O mesmo snapshot lê agora
+`CC_RB_BACKEND_DISABLE` e `GC_USER_RB_BACKEND_DISABLE`, cruza o harvesting
+global de render backends com as SAs ativas e amplia o prefixo verificável de
+`DEV_INFO` para 132 bytes, incluindo máscara de RBs, total físico de pipes e os
+oito contextos de hardware definidos pelo GFX11 suportado. O parser do IP discovery também valida
 e consome agora a tabela GC v1.0–v1.3: assinatura, tamanho, checksum, SE, SA,
 WGP/CU máximo, RB, TCC, wave size, profundidades GS e caches. Esses máximos já
 fazem parte do perfil DRM e são obrigatórios para publicar GFX, mas não são

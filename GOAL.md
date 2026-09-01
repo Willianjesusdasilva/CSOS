@@ -35,7 +35,7 @@ AMD permanece como primeiro backend de referência. O trabalho NVIDIA começa de
 ## Ordem das milestones
 
 - [x] **M0–M13 — fundações do SO:** build, boot, memória, CPU/SMP, scheduler, userspace, ABI Linux inicial, BusyBox, PCIe, NVMe, filesystem, USB/xHCI, rede e áudio possuem fundações implementadas; integração e validação final ainda continuam.
-- [ ] **M14 — GPU AMD/NVIDIA + Vulkan:** parcial. A preparação AMD GFX11, a ABI DRM, clocks ATOM e o snapshot físico de CUs ativos possuem implementação e testes de host, mas memória/VA completos, execução Radeon real e triângulo RADV ainda faltam. NVIDIA/NVK vem depois do primeiro triângulo AMD e também exige validação real.
+- [ ] **M14 — GPU AMD/NVIDIA + Vulkan:** parcial. A preparação AMD GFX11, a ABI DRM, clocks ATOM e snapshots físicos de CUs/RBs ativos possuem implementação e testes de host, mas PCIe, memória/VA completos, execução Radeon real e triângulo RADV ainda faltam. NVIDIA/NVK vem depois do primeiro triângulo AMD e também exige validação real.
 - [ ] **M15 — SDL:** vídeo, input e áudio sobre o caminho funcional do SO.
 - [ ] **M16 — hardware discovery/autotune:** detectar hardware e produzir `/system/config/hardware.csc`.
 - [ ] **M17 — otimização para jogos:** scheduler, IRQ, input, rede, NVMe, áudio, GAME e MATCH medidos contra baseline.
@@ -60,7 +60,7 @@ Esta porcentagem não é uma contagem simples de milestones. M0–M13 têm bases
 
 ## Próxima rota
 
-1. Completar memória, VA e demais campos físicos do `AMDGPU_INFO_DEV_INFO`, command submission e RADV no caminho AMD GFX11.
+1. Completar PCIe, memória, VA e demais campos físicos do `AMDGPU_INFO_DEV_INFO`, command submission e RADV no caminho AMD GFX11.
 2. Validar o primeiro triângulo AMD/RADV em Radeon real suportada.
 3. Adaptar a infraestrutura compartilhada para NVIDIA e validar Nouveau/NVK ou stack compatível em GeForce real suportada.
 4. Completar SDL, autoconfiguração, estabilidade, lifecycle e interface do SO.

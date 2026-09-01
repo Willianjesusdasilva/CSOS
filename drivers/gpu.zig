@@ -1480,11 +1480,15 @@ pub const AmdGfx11CuRegisters = struct {
     user_sa_disable: u32,
     shader_array_config: u32,
     user_shader_array_config: u32,
+    rb_disable: u32,
+    user_rb_disable: u32,
 };
 pub const AmdGfx11CuInfo = struct {
     active_count: u32,
     active_sa_mask: u16,
     bitmap: [4][4]u32,
+    enabled_rb_mask: u32,
+    active_rb_count: u8,
 };
 
 pub fn resolveAmdGfx11CuRegisters(ip: *const AmdIp, register_bar_bytes: u64) !AmdGfx11CuRegisters {
@@ -1496,17 +1500,22 @@ pub fn resolveAmdGfx11CuRegisters(ip: *const AmdIp, register_bar_bytes: u64) !Am
         .user_sa_disable = try resolveAmdRegister(ip.bases[1], 0x5b92, register_bar_bytes),
         .shader_array_config = try resolveAmdRegister(ip.bases[0], 0x100f, register_bar_bytes),
         .user_shader_array_config = try resolveAmdRegister(ip.bases[1], 0x5b90, register_bar_bytes),
+        .rb_disable = try resolveAmdRegister(ip.bases[0], 0x13dd, register_bar_bytes),
+        .user_rb_disable = try resolveAmdRegister(ip.bases[1], 0x5b94, register_bar_bytes),
     };
 }
 
-pub fn decodeAmdGfx11CuInfo(topology: AmdGcInfo, factory_sa_disable: u16, user_sa_disable: u16, factory_wgp_disable: [16]u16, user_wgp_disable: [16]u16) !AmdGfx11CuInfo {
+pub fn decodeAmdGfx11CuInfo(topology: AmdGcInfo, factory_sa_disable: u16, user_sa_disable: u16, factory_wgp_disable: [16]u16, user_wgp_disable: [16]u16, factory_rb_disable: u32, user_rb_disable: u32) !AmdGfx11CuInfo {
     const sa_count = topology.num_shader_engines * topology.num_shader_arrays_per_engine;
     const wgp_count = topology.maxCuPerShaderArray() / 2;
-    if (sa_count == 0 or sa_count > 16 or wgp_count == 0 or wgp_count > 16) return error.InvalidAmdGfx11CuTopology;
+    const rb_count = topology.num_shader_engines * topology.num_rb_per_se;
+    if (sa_count == 0 or sa_count > 16 or wgp_count == 0 or wgp_count > 16 or rb_count == 0 or rb_count > 28 or
+        topology.num_rb_per_se % topology.num_shader_arrays_per_engine != 0)
+        return error.InvalidAmdGfx11CuTopology;
     const sa_limit: u16 = if (sa_count == 16) 0xffff else (@as(u16, 1) << @intCast(sa_count)) - 1;
     const wgp_limit: u16 = if (wgp_count == 16) 0xffff else (@as(u16, 1) << @intCast(wgp_count)) - 1;
     const active_sa = sa_limit & ~(factory_sa_disable | user_sa_disable);
-    var result = AmdGfx11CuInfo{ .active_count = 0, .active_sa_mask = active_sa, .bitmap = .{.{0} ** 4} ** 4 };
+    var result = AmdGfx11CuInfo{ .active_count = 0, .active_sa_mask = active_sa, .bitmap = .{.{0} ** 4} ** 4, .enabled_rb_mask = 0, .active_rb_count = 0 };
     var se: u32 = 0;
     while (se < topology.num_shader_engines) : (se += 1) {
         var sa: u32 = 0;
@@ -1526,12 +1535,26 @@ pub fn decodeAmdGfx11CuInfo(topology: AmdGcInfo, factory_sa_disable: u16, user_s
     }
     if (result.active_count == 0 or result.active_count > topology.num_shader_engines * topology.num_shader_arrays_per_engine * topology.maxCuPerShaderArray())
         return error.InvalidAmdGfx11ActiveCuCount;
+    const rb_per_sa = topology.num_rb_per_se / topology.num_shader_arrays_per_engine;
+    const rb_per_sa_mask = (@as(u32, 1) << @intCast(rb_per_sa)) - 1;
+    var active_rb_by_sa: u32 = 0;
+    var sa: u32 = 0;
+    while (sa < sa_count) : (sa += 1) {
+        if ((active_sa & (@as(u16, 1) << @intCast(sa))) != 0)
+            active_rb_by_sa |= rb_per_sa_mask << @intCast(sa * rb_per_sa);
+    }
+    const rb_limit = (@as(u32, 1) << @intCast(rb_count)) - 1;
+    result.enabled_rb_mask = rb_limit & active_rb_by_sa & ~(factory_rb_disable | user_rb_disable);
+    result.active_rb_count = @intCast(@popCount(result.enabled_rb_mask));
+    if (result.active_rb_count == 0) return error.InvalidAmdGfx11ActiveRbCount;
     return result;
 }
 
 pub fn probeAmdGfx11CuInfo(adapter: *const Adapter, registers: AmdGfx11CuRegisters, topology: AmdGcInfo) !AmdGfx11CuInfo {
     const factory_sa: u16 = @truncate((try adapter.readRegister(registers.sa_disable) >> 8) & 0xffff);
     const user_sa: u16 = @truncate((try adapter.readRegister(registers.user_sa_disable) >> 8) & 0xffff);
+    const factory_rb = (try adapter.readRegister(registers.rb_disable) >> 4) & 0x0fffffff;
+    const user_rb = (try adapter.readRegister(registers.user_rb_disable) >> 4) & 0x0fffffff;
     var factory_wgp: [16]u16 = .{0} ** 16;
     var user_wgp: [16]u16 = .{0} ** 16;
     errdefer adapter.writeRegister(registers.selector, 0xe0000000) catch {};
@@ -1546,7 +1569,7 @@ pub fn probeAmdGfx11CuInfo(adapter: *const Adapter, registers: AmdGfx11CuRegiste
         }
     }
     try adapter.writeRegister(registers.selector, 0xe0000000);
-    return decodeAmdGfx11CuInfo(topology, factory_sa, user_sa, factory_wgp, user_wgp);
+    return decodeAmdGfx11CuInfo(topology, factory_sa, user_sa, factory_wgp, user_wgp, factory_rb, user_rb);
 }
 
 comptime {
@@ -1560,7 +1583,8 @@ comptime {
         @compileError("GFX11 CU register resolution failed");
     if (registers.selector != 0x9c00 or registers.sa_disable != 0x43a4 or
         registers.user_sa_disable != 0x18248 or registers.shader_array_config != 0x443c or
-        registers.user_shader_array_config != 0x18240)
+        registers.user_shader_array_config != 0x18240 or registers.rb_disable != 0x5374 or
+        registers.user_rb_disable != 0x18250)
         @compileError("GFX11 CU register offsets mismatch");
 
     const topology = AmdGcInfo{
@@ -1580,11 +1604,11 @@ comptime {
     var user_wgp = [_]u16{0} ** 16;
     factory_wgp[0] = 1;
     user_wgp[1] = 2;
-    const cu = decodeAmdGfx11CuInfo(topology, @as(u16, 1) << 11, 0, factory_wgp, user_wgp) catch
+    const cu = decodeAmdGfx11CuInfo(topology, @as(u16, 1) << 11, 0, factory_wgp, user_wgp, 1, 0) catch
         @compileError("GFX11 CU harvesting decode failed");
     if (cu.active_count != 172 or cu.active_sa_mask != 0x07ff or
         cu.bitmap[0][0] != 0xfffc or cu.bitmap[0][1] != 0xfff3 or
-        cu.bitmap[1][3] != 0)
+        cu.bitmap[1][3] != 0 or cu.enabled_rb_mask != 0x7fe or cu.active_rb_count != 10)
         @compileError("GFX11 active CU bitmap mismatch");
 }
 
