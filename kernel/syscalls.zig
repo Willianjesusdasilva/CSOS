@@ -751,24 +751,58 @@ fn amdgpuCs(address: u64) u64 {
     const context = amdgpuContextForId(read32(io)) orelse return errno(2);
     const list = amdgpuBoListForHandle(read32(io + 4)) orelse return errno(2);
     const chunk_count = read32(io + 8);
-    if (chunk_count != 1 or read32(io + 12) != 0) return errno(95);
+    if (chunk_count == 0 or chunk_count > 3 or read32(io + 12) != 0) return errno(95);
     const chunk_pointers_address = read64(io + 16);
-    if (!validUserSlice(chunk_pointers_address, 8)) return errno(14);
+    if (!validUserSlice(chunk_pointers_address, @as(u64, chunk_count) * 8)) return errno(14);
     const chunk_pointers: [*]const u8 = @ptrFromInt(chunk_pointers_address);
-    const chunk_address = read64(chunk_pointers);
-    if (!validUserSlice(chunk_address, 16)) return errno(14);
-    const chunk: [*]const u8 = @ptrFromInt(chunk_address);
-    if (read32(chunk) != 1 or read32(chunk + 4) != 8) return errno(95);
-    const ib_address = read64(chunk + 8);
-    if (!validUserSlice(ib_address, 32)) return errno(14);
-    const ib: [*]const u8 = @ptrFromInt(ib_address);
-    const flags = read32(ib + 4);
-    const gpu_va = read64(ib + 8);
-    const ib_bytes = read32(ib + 16);
-    if (read32(ib) != 0 or flags != 0 or gpu_va == 0 or (gpu_va & 3) != 0 or
-        ib_bytes == 0 or (ib_bytes & 3) != 0 or ib_bytes > 0x003ffffc or
-        read32(ib + 20) != 0 or read32(ib + 24) != 0 or read32(ib + 28) != 0)
-        return errno(95);
+    var gpu_va: u64 = 0;
+    var ib_bytes: u32 = 0;
+    var saw_ib = false;
+    var saw_sync_in = false;
+    var saw_sync_out = false;
+    var output_syncobjs: [max_drm_syncobjs]*DrmSyncobj = undefined;
+    var output_count: usize = 0;
+    var chunk_index: usize = 0;
+    while (chunk_index < chunk_count) : (chunk_index += 1) {
+        const chunk_address = read64(chunk_pointers + chunk_index * 8);
+        if (!validUserSlice(chunk_address, 16)) return errno(14);
+        const chunk: [*]const u8 = @ptrFromInt(chunk_address);
+        const chunk_id = read32(chunk);
+        const length_dw = read32(chunk + 4);
+        const data_address = read64(chunk + 8);
+        if (chunk_id == 1) {
+            if (saw_ib or length_dw != 8 or !validUserSlice(data_address, 32)) return errno(95);
+            const ib: [*]const u8 = @ptrFromInt(data_address);
+            const flags = read32(ib + 4);
+            gpu_va = read64(ib + 8);
+            ib_bytes = read32(ib + 16);
+            if (read32(ib) != 0 or flags != 0 or gpu_va == 0 or (gpu_va & 3) != 0 or
+                ib_bytes == 0 or (ib_bytes & 3) != 0 or ib_bytes > 0x003ffffc or
+                read32(ib + 20) != 0 or read32(ib + 24) != 0 or read32(ib + 28) != 0)
+                return errno(95);
+            saw_ib = true;
+            continue;
+        }
+        if (chunk_id != 4 and chunk_id != 5) return errno(95);
+        if (length_dw == 0 or length_dw > max_drm_syncobjs or !validUserSlice(data_address, @as(u64, length_dw) * 4))
+            return errno(22);
+        if ((chunk_id == 4 and saw_sync_in) or (chunk_id == 5 and saw_sync_out)) return errno(17);
+        if (chunk_id == 4) saw_sync_in = true else saw_sync_out = true;
+        const handles: [*]const u8 = @ptrFromInt(data_address);
+        var sync_index: usize = 0;
+        while (sync_index < length_dw) : (sync_index += 1) {
+            const object = drmSyncobjForHandle(read32(handles + sync_index * 4)) orelse return errno(22);
+            if (chunk_id == 4) {
+                if (object.point == 0) return errno(62);
+            } else {
+                var prior: usize = 0;
+                while (prior < output_count) : (prior += 1) if (output_syncobjs[prior] == object) return errno(17);
+                output_syncobjs[output_count] = object;
+                output_count += 1;
+            }
+        }
+    }
+    if (!saw_ib) return errno(95);
     if (drm_vm_vmid == 0 or !amdgpuBoListCoversGpuVa(list, gpu_va, ib_bytes)) return errno(22);
     const endpoint = amdgpu_cs_endpoint orelse return errno(95);
     if (context.next_handle == ~@as(u64, 0)) return errno(75);
@@ -783,6 +817,8 @@ fn amdgpuCs(address: u64) u64 {
     context.next_handle += 1;
     context.completed_handle = handle;
     context.hardware_sequence = hardware_sequence;
+    var output_index: usize = 0;
+    while (output_index < output_count) : (output_index += 1) output_syncobjs[output_index].point = 1;
     const output: [*]u8 = @ptrFromInt(address);
     put64(output, handle);
     return 0;

@@ -736,7 +736,11 @@ ligado no MMHUB; somente então o ioctl pode publicar um handle monotônico do
 contexto, depois de observar o sequence escrito pelo fence real. `AMDGPU_WAIT_CS`
 aceita GFX/instance0/ring0 e responde apenas para handles já concluídos daquele
 contexto, incluindo as sentinelas `0` e `~0`; handle futuro ou engine diferente
-falham fechados. O
+falham fechados. `AMDGPU_CS` também aceita os chunks binários oficiais
+`SYNCOBJ_IN` e `SYNCOBJ_OUT`: todas as dependências e saídas são validadas antes
+do doorbell, input não sinalizado retorna timeout e outputs só são sinalizados
+depois do fence físico. Duplicatas, mais de 16 syncobjs e chunks de timeline,
+dependencies ou user-fence ainda não implementados são recusados sem efeitos. O
 backend do ring já possui uma transação interna separada do ioctl: exige o ring
 ocioso no WPTR confirmado, grava os 12 dwords com wrap em 1024 slots, publica
 WPTR somente após `mfence`, toca o doorbell autorizado e espera simultaneamente
