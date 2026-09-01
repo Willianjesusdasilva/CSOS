@@ -795,6 +795,66 @@ pub fn planAmdGfx11MesHwResources(
     }
     return .{ .input = input, .frame = try encodeAmdMesSetHwResources(input, control) };
 }
+
+pub const AmdMesSchedulerInitPlan = struct {
+    frames: [128]u32,
+    scheduler_doorbell_offset: u32,
+    final_wptr: u64 = 128,
+};
+
+pub fn planAmdMesSchedulerInit(
+    resources: AmdGfx11MesHwResourcePlan,
+    control: AmdMesControlLayout,
+    scheduler_doorbell: AmdGfx11Doorbell,
+) !AmdMesSchedulerInitPlan {
+    if (resources.frame.dwords[0] != 0x00040001 or resources.frame.dwords[50] != @as(u32, @truncate(control.api_completion_fence)) or
+        scheduler_doorbell.register_index != 0x16 or (scheduler_doorbell.byte_offset & 7) != 0 or
+        control.scheduler_fence == 0 or (control.scheduler_fence & 7) != 0)
+        return error.InvalidAmdMesSchedulerInit;
+    var frames = [_]u32{0} ** 128;
+    @memcpy(frames[0..64], &resources.frame.dwords);
+    // QUERY_SCHEDULER_STATUS is the second fixed 64-dword API frame and acts
+    // as the scheduler-ring fence after SET_HW_RSRC.
+    frames[64] = 0x000400b1;
+    frames[65] = 0;
+    frames[66] = @truncate(control.scheduler_fence);
+    frames[67] = @truncate(control.scheduler_fence >> 32);
+    frames[68] = 1;
+    frames[69] = 0;
+    return .{ .frames = frames, .scheduler_doorbell_offset = scheduler_doorbell.byte_offset };
+}
+
+pub fn initializeAmdMesScheduler(
+    plan: AmdMesSchedulerInitPlan,
+    scheduler_ring: *[1024]u32,
+    scheduler_pointers: *[2]u64,
+    control_page: *[512]u64,
+    poll_limit: u32,
+    doorbells: AmdDoorbellIo,
+) !u32 {
+    if (poll_limit == 0 or plan.final_wptr != plan.frames.len or plan.frames[0] != 0x00040001 or
+        plan.frames[64] != 0x000400b1 or plan.frames[68] != 1)
+        return error.InvalidAmdMesSchedulerInitPlan;
+    if (@atomicLoad(u64, &scheduler_pointers[0], .seq_cst) != 0 or
+        @atomicLoad(u64, &scheduler_pointers[1], .seq_cst) != 0)
+        return error.AmdMesSchedulerRingNotIdle;
+    @atomicStore(u64, &control_page[2], 0, .seq_cst);
+    @atomicStore(u64, &control_page[3], 0, .seq_cst);
+    @memcpy(scheduler_ring[0..plan.frames.len], &plan.frames);
+    @atomicStore(u64, &scheduler_pointers[1], plan.final_wptr, .seq_cst);
+    doorbells.write64(doorbells.context, plan.scheduler_doorbell_offset, plan.final_wptr) catch
+        return error.AmdMesSchedulerDoorbellWriteFailed;
+    var polls: u32 = 0;
+    while (polls < poll_limit) {
+        polls += 1;
+        const api_complete = @atomicLoad(u64, &control_page[2], .seq_cst) == 1;
+        const query_complete = @atomicLoad(u64, &control_page[3], .seq_cst) == 1;
+        const consumed = @atomicLoad(u64, &scheduler_pointers[0], .seq_cst) == plan.final_wptr;
+        if (api_complete and query_complete and consumed) return polls;
+        asm volatile ("pause");
+    }
+    return error.AmdMesSchedulerInitTimeout;
+}
 pub const AmdGfx11MesRegisters = struct {
     grbm_gfx_cntl: u32,
     mes_control: u32,
@@ -3450,6 +3510,32 @@ const AmdKiqDoorbellTestBank = struct {
     }
 };
 
+const AmdMesSchedulerDoorbellTestBank = struct {
+    expected_offset: u32,
+    expected_wptr: u64,
+    pointers: *[2]u64,
+    control: *[512]u64,
+    writes: u32 = 0,
+    complete: bool = true,
+    fail: bool = false,
+
+    fn write64(context: *anyopaque, offset: u32, value: u64) !void {
+        const self: *AmdMesSchedulerDoorbellTestBank = @ptrCast(@alignCast(context));
+        if (self.fail) return error.InjectedAmdDoorbellFailure;
+        if (offset != self.expected_offset or value != self.expected_wptr) return error.UnexpectedAmdDoorbellWrite;
+        self.writes += 1;
+        if (self.complete) {
+            self.control[2] = 1;
+            self.control[3] = 1;
+            self.pointers[0] = self.expected_wptr;
+        }
+    }
+
+    fn io(self: *AmdMesSchedulerDoorbellTestBank) AmdDoorbellIo {
+        return .{ .context = self, .write64 = &write64 };
+    }
+};
+
 pub fn validateAmdGfx11KiqRingTestSelfTest() !void {
     const gfx_ip = AmdIp{ .hw_id = amd_hw_id.gfx, .major = 11, .instance = 0, .base_count = 2, .bases = .{ 0, 0x100 } ++ .{0} ** 6 };
     const registers = try resolveAmdGfx11MesRegisters(&gfx_ip, 0x20000);
@@ -3595,6 +3681,50 @@ pub fn validateAmdGfx11MesHwTopologySelfTest() !void {
     discovery.critical[0].minor = 9;
     if (planAmdGfx11MesHwResources(&discovery, control, 0x200000)) |_| return error.UnsupportedAmdMesTopologyAccepted else |err|
         if (err != error.UnsupportedAmdMesHwTopology) return err;
+}
+
+pub fn validateAmdMesSchedulerInitSelfTest() !void {
+    var discovery = AmdIpDiscovery{
+        .binary_version_major = 1, .binary_version_minor = 0, .table_version = 3,
+        .dies = 1, .ips = 4, .base_addresses = 12, .harvested = 0, .critical_count = 4,
+    };
+    discovery.critical[0] = .{ .hw_id = amd_hw_id.gfx, .major = 11, .base_count = 2, .bases = .{ 0, 0x100 } ++ .{0} ** 6 };
+    discovery.critical[1] = .{ .hw_id = amd_hw_id.mmhub, .major = 3, .base_count = 1, .bases = .{0x500} ++ .{0} ** 7 };
+    discovery.critical[2] = .{ .hw_id = amd_hw_id.osssys, .major = 6, .base_count = 1, .bases = .{0xa00} ++ .{0} ** 7 };
+    discovery.critical[3] = .{ .hw_id = amd_hw_id.sdma0, .major = 6, .base_count = 1, .bases = .{0xf00} ++ .{0} ** 7 };
+    const control_layout = AmdMesControlLayout{
+        .page = 0x200f000, .scheduler_context = 0x200f000, .query_status_fence = 0x200f008,
+        .api_completion_fence = 0x200f010, .scheduler_fence = 0x200f018, .first_gart_page = 15,
+    };
+    const resources = try planAmdGfx11MesHwResources(&discovery, control_layout, 0x200000);
+    const scheduler_doorbell = try planAmdGfx11MesDoorbell(.scheduler, 0x200000);
+    const plan = try planAmdMesSchedulerInit(resources, control_layout, scheduler_doorbell);
+    if (plan.frames[0] != 0x00040001 or plan.frames[50] != 0x200f010 or plan.frames[52] != 1 or
+        plan.frames[64] != 0x000400b1 or plan.frames[66] != 0x200f018 or plan.frames[68] != 1 or
+        plan.frames[127] != 0 or plan.scheduler_doorbell_offset != 0x58)
+        return error.AmdMesSchedulerInitFramesMismatch;
+    var ring = [_]u32{0xa5a5a5a5} ** 1024;
+    var pointers = [2]u64{ 0, 0 };
+    var control = [_]u64{0xa5a5a5a5a5a5a5a5} ** 512;
+    var doorbell = AmdMesSchedulerDoorbellTestBank{
+        .expected_offset = 0x58, .expected_wptr = 128, .pointers = &pointers, .control = &control,
+    };
+    const polls = try initializeAmdMesScheduler(plan, &ring, &pointers, &control, 2, doorbell.io());
+    if (polls != 1 or doorbell.writes != 1 or pointers[0] != 128 or pointers[1] != 128 or
+        control[2] != 1 or control[3] != 1 or !std.mem.eql(u32, ring[0..128], &plan.frames))
+        return error.AmdMesSchedulerInitMismatch;
+
+    pointers = .{ 0, 0 };
+    doorbell.complete = false;
+    if (initializeAmdMesScheduler(plan, &ring, &pointers, &control, 2, doorbell.io())) |_| return error.AmdMesSchedulerInitTimeoutNotDetected else |err|
+        if (err != error.AmdMesSchedulerInitTimeout) return err;
+    pointers = .{ 0, 0 };
+    doorbell.fail = true;
+    if (initializeAmdMesScheduler(plan, &ring, &pointers, &control, 2, doorbell.io())) |_| return error.AmdMesSchedulerDoorbellFailureNotDetected else |err|
+        if (err != error.AmdMesSchedulerDoorbellWriteFailed) return err;
+    pointers = .{ 1, 0 };
+    if (initializeAmdMesScheduler(plan, &ring, &pointers, &control, 2, doorbell.io())) |_| return error.AmdMesSchedulerBusyRingAccepted else |err|
+        if (err != error.AmdMesSchedulerRingNotIdle) return err;
 }
 
 pub fn validateAmdGmc11VmContextSelfTest() !void {
