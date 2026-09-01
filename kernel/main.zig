@@ -933,6 +933,7 @@ pub fn start(info: BootInfo) noreturn {
     var gpu_mes_scheduler_ready = false;
     var gpu_cp_gfx_ready = false;
     var gpu_cp_gfx_polls: u32 = 0;
+    var gpu_cp_gfx_test_polls: u32 = 0;
     var gpu_psp_ring_activation: ?gpu.AmdPspRingActivation = null;
     var gpu_psp_firmware_load: ?gpu.AmdPspFirmwareLoadResult = null;
     var gpu_rlc_resumed = false;
@@ -1271,6 +1272,25 @@ pub fn start(info: BootInfo) noreturn {
                 transport.disarm();
                 panic("AMDGPU CP graphics clear-state activation failed and returned to halt");
             };
+            const ring_test = gpu.planAmdGfx11CpGfxRingTest(plan) catch {
+                cp_doorbell_transport.disarm();
+                transport.disarm();
+                panic("AMDGPU CP graphics ring test plan invalid");
+            };
+            const ring: *[1024]u32 = @ptrFromInt(gpu_gfx_command_ring_resources.ring);
+            gpu_cp_gfx_test_polls = gpu.testAmdGfx11CpGfxRing(
+                plan,
+                ring_test,
+                ring,
+                pointers,
+                2_100_000,
+                transport.io(),
+                cp_doorbell_transport.io(),
+            ) catch {
+                cp_doorbell_transport.disarm();
+                transport.disarm();
+                panic("AMDGPU CP graphics PM4 ring test failed and returned to halt");
+            };
             cp_doorbell_transport.disarm();
             transport.disarm();
             gpu_cp_gfx_ready = true;
@@ -1552,6 +1572,8 @@ pub fn start(info: BootInfo) noreturn {
     serial.writeDecimal(@intFromBool(gpu_cp_gfx_ready));
     serial.write(" cp-gfx-polls: ");
     serial.writeDecimal(gpu_cp_gfx_polls);
+    serial.write(" cp-gfx-test-polls: ");
+    serial.writeDecimal(gpu_cp_gfx_test_polls);
     serial.write(" driver: ");
     serial.write(switch (gpu_adapter.driver) {
         .amdgpu => "amdgpu",

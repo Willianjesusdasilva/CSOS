@@ -1864,6 +1864,7 @@ gated PSP KM-ring activation and sequential LOAD_IP_FW fence transaction: implem
 GFX11 960-dword clear-state block, GART mapping and gated RLC SRM resume transaction: implemented and host-tested; Radeon validation pending
 GFX11 graphics ring0/pointer allocation, post-CSB GART layout and SOC21 doorbell identity: implemented and host-tested
 gated CP_RB0 activation, ME/PFP unhalt and 960-dword clear-state RPTR handshake: implemented and host-tested; Radeon validation pending
+GFX11 graphics PM4 SET_UCONFIG_REG scratch test with RPTR=963 and timeout-to-halt: implemented and host-tested; Radeon validation pending
 GFX11 ring resource contract and fail-closed preflight: implemented and host-tested
 transactional ring/MQD/EOP/pointer physical allocation: implemented and host-tested
 dual MES scheduler/KIQ GART layout and GFX11 MQD encoding: implemented and host-tested

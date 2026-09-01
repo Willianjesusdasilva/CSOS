@@ -796,9 +796,12 @@ preserva o doorbell SOC21 `gfx_ring0=0x08B`, convertido para o índice 64-bit
 `0x116` e offset `0x458`. O gate `-Damd-cp-gfx=true` só abre depois de GART,
 PSP, RLC e recursos MES completos. Com ME/PFP previamente halted, ele programa
 os ranges de doorbell, `CP_RB0`, contexto e device ID, libera ME/PFP, publica o
-CSB de 960 dwords e exige RPTR=960. Falha MMIO, doorbell ou timeout restaura os
-registradores e força ME/PFP de volta a halt. O fluxo está host-tested, mas
-ainda requer validação Radeon; ele não expõe command submission à ABI.
+CSB de 960 dwords e exige RPTR=960. Em seguida, reproduz o teste obrigatório
+do upstream: um pacote `SET_UCONFIG_REG` no mesmo ring deve alterar
+`SCRATCH_REG0` de `0xCAFEDEAD` para `0xDEADBEEF` e avançar RPTR até 963. Falha
+MMIO, doorbell ou timeout restaura os registradores ou desativa o ring e força
+ME/PFP de volta a halt. O fluxo está host-tested, mas ainda requer validação
+Radeon; ele não expõe command submission à ABI.
 As duas filas exigidas pelo bootstrap — scheduler MES ring0 e KIQ ring1 — agora
 recebem, cada uma, páginas físicas separadas para ring, MQD, EOP e ponteiros.
 As oito páginas nascem zeradas abaixo da máscara DMA de 44 bits e são liberadas
