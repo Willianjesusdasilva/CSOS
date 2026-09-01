@@ -712,7 +712,13 @@ pub fn encodeAmdMesSetHwResources(input: AmdMesHwResourceInput, control: AmdMesC
     for (input.compute_hqd_mask) |mask| any_hqd = any_hqd or mask != 0;
     for (input.gfx_hqd_mask) |mask| any_hqd = any_hqd or mask != 0;
     for (input.sdma_hqd_mask) |mask| any_hqd = any_hqd or mask != 0;
-    if (!any_hqd or input.gc_base[0] == 0 or input.mmhub_base[0] == 0 or input.osssys_base[0] == 0)
+    var any_gc_base = false;
+    var any_mmhub_base = false;
+    var any_osssys_base = false;
+    for (input.gc_base) |base| any_gc_base = any_gc_base or base != 0;
+    for (input.mmhub_base) |base| any_mmhub_base = any_mmhub_base or base != 0;
+    for (input.osssys_base) |base| any_osssys_base = any_osssys_base or base != 0;
+    if (!any_hqd or !any_gc_base or !any_mmhub_base or !any_osssys_base)
         return error.InvalidAmdMesHwResources;
 
     var result = AmdMesHwResourceFrame{};
@@ -735,6 +741,59 @@ pub fn encodeAmdMesSetHwResources(input: AmdMesHwResourceInput, control: AmdMesC
     putAmdMesU64(frame, 52, 1);
     frame[54] = 0x5; // disable_reset | disable_mes_log, matching the upstream base policy.
     return result;
+}
+
+pub const AmdGfx11MesHwResourcePlan = struct {
+    input: AmdMesHwResourceInput,
+    frame: AmdMesHwResourceFrame,
+    aggregated_doorbell_first: u32 = 0x800,
+    aggregated_doorbell_bytes: u32 = 0x28,
+};
+
+pub fn planAmdGfx11MesHwResources(
+    discovery: *const AmdIpDiscovery,
+    control: AmdMesControlLayout,
+    doorbell_aperture_bytes: u64,
+) !AmdGfx11MesHwResourcePlan {
+    const gfx = discovery.find(amd_hw_id.gfx, 0) orelse return error.AmdGfxMissing;
+    const mmhub = discovery.find(amd_hw_id.mmhub, 0) orelse return error.AmdMmhubMissing;
+    const osssys = discovery.find(amd_hw_id.osssys, 0) orelse return error.AmdOsssysMissing;
+    const sdma0 = discovery.find(amd_hw_id.sdma0, 0) orelse return error.AmdSdmaMissing;
+    if (gfx.major != 11 or mmhub.major != 3 or gfx.base_count == 0 or mmhub.base_count == 0 or
+        osssys.base_count == 0 or sdma0.major != 6)
+        return error.UnsupportedAmdMesHwTopology;
+    switch (version(gfx)) {
+        0x0b0000, 0x0b0001, 0x0b0002, 0x0b0504, 0x0b0506, 0x0b0700, 0x0b0701 => {},
+        else => return error.UnsupportedAmdMesHwTopology,
+    }
+    const aggregated = [5]u32{ 0x800, 0x802, 0x804, 0x806, 0x808 };
+    const final_byte = @as(u64, aggregated[4]) * 4 + 8;
+    if (doorbell_aperture_bytes < final_byte) return error.AmdMesDoorbellApertureTooSmall;
+    const sdma1_present = discovery.find(amd_hw_id.sdma1, 0) != null;
+    var input = AmdMesHwResourceInput{
+        .vmid_mask_mmhub = 0xff00,
+        .vmid_mask_gfxhub = 0xff00,
+        .compute_hqd_mask = .{ 0x0c, 0x0c, 0x0c, 0x0c, 0, 0, 0, 0 },
+        .gfx_hqd_mask = .{ 0x02, 0x02 },
+        .sdma_hqd_mask = .{ 0xfc, if (sdma1_present) 0xfc else 0 },
+        .aggregated_doorbells = aggregated,
+        .gc_base = .{0} ** 8,
+        .mmhub_base = .{0} ** 8,
+        .osssys_base = .{0} ** 8,
+    };
+    for (gfx.bases, 0..) |base, index| {
+        if (base > ~@as(u32, 0)) return error.AmdMesIpBaseOutsideRange;
+        input.gc_base[index] = @intCast(base);
+    }
+    for (mmhub.bases, 0..) |base, index| {
+        if (base > ~@as(u32, 0)) return error.AmdMesIpBaseOutsideRange;
+        input.mmhub_base[index] = @intCast(base);
+    }
+    for (osssys.bases, 0..) |base, index| {
+        if (base > ~@as(u32, 0)) return error.AmdMesIpBaseOutsideRange;
+        input.osssys_base[index] = @intCast(base);
+    }
+    return .{ .input = input, .frame = try encodeAmdMesSetHwResources(input, control) };
 }
 pub const AmdGfx11MesRegisters = struct {
     grbm_gfx_cntl: u32,
@@ -2286,7 +2345,8 @@ pub const AmdGpuVm = struct {
     page_tree: AmdGpuVmPageTree = .{},
 };
 pub const AmdGpuVmManager = struct {
-    vms: [15]AmdGpuVm = .{AmdGpuVm{}} ** 15,
+    // VMIDs 8-15 are owned by MES; direct kernel-managed GPUVM uses 1-7.
+    vms: [7]AmdGpuVm = .{AmdGpuVm{}} ** 7,
 
     pub fn allocate(self: *AmdGpuVmManager) !*AmdGpuVm {
         for (&self.vms, 1..) |*vm, vmid| if (!vm.allocated) {
@@ -2387,7 +2447,7 @@ pub const AmdGpuVmManager = struct {
     }
 
     fn get(self: *AmdGpuVmManager, vmid: u4) !*AmdGpuVm {
-        if (vmid == 0 or vmid > 15) return error.InvalidAmdGpuVmid;
+        if (vmid == 0 or vmid > self.vms.len) return error.InvalidAmdGpuVmid;
         const vm = &self.vms[vmid - 1];
         return if (vm.allocated) vm else error.AmdGpuVmidNotAllocated;
     }
@@ -3503,6 +3563,40 @@ pub fn validateAmdMesSetHwResourcesSelfTest() !void {
         if (err != error.InvalidAmdMesHwResources) return err;
 }
 
+pub fn validateAmdGfx11MesHwTopologySelfTest() !void {
+    var discovery = AmdIpDiscovery{
+        .binary_version_major = 1, .binary_version_minor = 0, .table_version = 3,
+        .dies = 1, .ips = 5, .base_addresses = 15, .harvested = 0, .critical_count = 5,
+    };
+    discovery.critical[0] = .{ .hw_id = amd_hw_id.gfx, .major = 11, .base_count = 5, .bases = .{ 0, 0x100, 0x200, 0x300, 0x400, 0, 0, 0 } };
+    discovery.critical[1] = .{ .hw_id = amd_hw_id.mmhub, .major = 3, .base_count = 5, .bases = .{ 0x500, 0x600, 0x700, 0x800, 0x900, 0, 0, 0 } };
+    discovery.critical[2] = .{ .hw_id = amd_hw_id.osssys, .major = 6, .base_count = 5, .bases = .{ 0xa00, 0xb00, 0xc00, 0xd00, 0xe00, 0, 0, 0 } };
+    discovery.critical[3] = .{ .hw_id = amd_hw_id.sdma0, .major = 6, .base_count = 1, .bases = .{0xf00} ++ .{0} ** 7 };
+    discovery.critical[4] = .{ .hw_id = amd_hw_id.sdma1, .major = 6, .base_count = 1, .bases = .{0x1000} ++ .{0} ** 7 };
+    const control = AmdMesControlLayout{
+        .page = 0x200f000, .scheduler_context = 0x200f000, .query_status_fence = 0x200f008,
+        .api_completion_fence = 0x200f010, .scheduler_fence = 0x200f018, .first_gart_page = 15,
+    };
+    const plan = try planAmdGfx11MesHwResources(&discovery, control, 0x200000);
+    const expected_compute = [8]u32{ 0x0c, 0x0c, 0x0c, 0x0c, 0, 0, 0, 0 };
+    const expected_gfx = [2]u32{ 2, 2 };
+    const expected_sdma = [2]u32{ 0xfc, 0xfc };
+    const expected_doorbells = [5]u32{ 0x800, 0x802, 0x804, 0x806, 0x808 };
+    if (plan.input.vmid_mask_mmhub != 0xff00 or plan.input.vmid_mask_gfxhub != 0xff00 or
+        !std.mem.eql(u32, &plan.input.compute_hqd_mask, &expected_compute) or
+        !std.mem.eql(u32, &plan.input.gfx_hqd_mask, &expected_gfx) or
+        !std.mem.eql(u32, &plan.input.sdma_hqd_mask, &expected_sdma) or
+        !std.mem.eql(u32, &plan.input.aggregated_doorbells, &expected_doorbells) or
+        plan.frame.dwords[1] != 0xff00 or plan.frame.dwords[5] != 0x0c or plan.frame.dwords[13] != 2 or
+        plan.frame.dwords[17] != 0x800 or plan.frame.dwords[21] != 0x808)
+        return error.AmdMesHwTopologyMismatch;
+    if (planAmdGfx11MesHwResources(&discovery, control, 0x2027)) |_| return error.AmdMesShortDoorbellApertureAccepted else |err|
+        if (err != error.AmdMesDoorbellApertureTooSmall) return err;
+    discovery.critical[0].minor = 9;
+    if (planAmdGfx11MesHwResources(&discovery, control, 0x200000)) |_| return error.UnsupportedAmdMesTopologyAccepted else |err|
+        if (err != error.UnsupportedAmdMesHwTopology) return err;
+}
+
 pub fn validateAmdGmc11VmContextSelfTest() !void {
     const plan = AmdGartPlan{
         .family = .v11_0,
@@ -3644,6 +3738,12 @@ pub fn validateAmdGpuVmManagerSelfTest() !void {
         return error.AmdGpuVmTableSizeMismatch;
     if (amdGpuVmPagePath(0x0000800000000000)) |_| return error.AmdGpuVmNonCanonicalVaAccepted else |err|
         if (err != error.InvalidAmdGpuVa) return err;
+    for (0..5) |_| _ = try manager.allocate();
+    if (manager.allocate()) |_| return error.AmdGpuVmMesVmidAllocated else |err|
+        if (err != error.AmdGpuVmidsExhausted) return err;
+    if (manager.map(8, 1, 0x300000000, 0x1000, 0, 0x1000, 1 << 1))
+        return error.AmdGpuVmMesVmidAccepted
+    else |err| if (err != error.InvalidAmdGpuVmid) return err;
 }
 
 const AmdGpuVmHardwareTest = struct {
@@ -5221,7 +5321,7 @@ pub fn parseAmdIpDiscovery(bytes: []const u8) !AmdIpDiscovery {
 }
 
 fn isCriticalAmdIp(hw_id: u16) bool {
-    return hw_id == amd_hw_id.smu or hw_id == amd_hw_id.gfx or hw_id == amd_hw_id.mmhub or
+    return hw_id == amd_hw_id.smu or hw_id == amd_hw_id.gfx or hw_id == amd_hw_id.mmhub or hw_id == amd_hw_id.osssys or
         (hw_id >= amd_hw_id.sdma0 and hw_id <= amd_hw_id.sdma3) or hw_id == amd_hw_id.nbif or hw_id == amd_hw_id.psp;
 }
 

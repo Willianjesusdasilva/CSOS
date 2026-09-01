@@ -714,8 +714,9 @@ ponteiro de usuário validado, e `AMDGPU_GEM_LIST_HANDLES` enumera tamanho,
 domínio, flags e alinhamento dos BOs ainda abertos. Placement em VRAM continua
 recusado; somente BO page-backed no domínio GTT pode entrar no GPUVM atual.
 
-O núcleo do GPUVM agora possui um allocator para VMIDs 1–15 (VMID0 permanece
-reservado ao sistema) e até 32 intervalos por VM. Map valida alinhamento de
+O núcleo do GPUVM direto agora possui um allocator para VMIDs 1–7 (VMID0
+permanece reservado ao sistema); VMIDs 8–15 ficam reservados ao MES conforme
+o particionamento GMC11 upstream. Cada VM aceita até 32 intervalos. Map valida alinhamento de
 4 KiB, limites do BO, flags R/W/X, overflow e o VA hole de 48 bits; overlap é
 rejeitado dentro da VM, enquanto o mesmo VA pode existir isoladamente em outra
 VM. Release remove todos os mappings antes de reciclar o VMID.
@@ -817,9 +818,12 @@ fail-closed, mas ainda não é emitido. Uma página física zerada é mapeada no
 primeiro slot GART após o firmware e separa contexto do scheduler, query fence,
 completion fence da API e fence final. O encoder reproduz o frame upstream de
 64 dwords, preserva as três listas de bases IP e recusa VMID0 nas máscaras ou
-um conjunto HQD vazio. Máscaras HQD, doorbells agregados e bases reais ainda
-precisam ser derivados da topologia GFX11 detectada antes de habilitar um gate
-de execução; valores inventados não são enviados ao firmware.
+um conjunto HQD vazio. O plano agora deriva do `ip_discovery` as bases
+GC/MMHUB/OSSSYS, valida GFX11/MMHUB3/SDMA6 e aplica a geometria upstream:
+VMIDs `8–15`, duas GFX pipes com máscara `0x2`, quatro compute pipes com
+`0xC`, SDMA presente com `0xFC` e doorbells agregados `0x800..0x808` dentro
+do aperture. A emissão continua bloqueada até existir a transação/fence do
+scheduler; valores inventados não são enviados ao firmware.
 Para VA de 48 bits, o walker segue `PDB2[47:39] → PDB1[38:30] →
 PDB0[29:21] → PTB[20:12]`, com offset `[11:0]`. Cada nível possui até 512
 entradas de 64 bits e ocupa uma página de 4 KiB, conforme a geometria do

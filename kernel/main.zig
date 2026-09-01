@@ -682,6 +682,11 @@ pub fn start(info: BootInfo) noreturn {
             gpu_psp_gtt, gpu_mes_firmware_gpu.?, gpu_mes_control_resources, gpu_gmc11_gart_window.?.start,
         ) catch panic("AMDGPU MES control GART mapping failed")
     else null;
+    const gpu_mes_hw_resources = if (gpu_mes_control_gpu) |control|
+        gpu.planAmdGfx11MesHwResources(
+            &gpu_ip_discovery.?, control, gpu_memory_plan.?.doorbell_bar.size,
+        ) catch panic("AMDGPU MES hardware topology invalid")
+    else null;
     const gpu_mes_scheduler_load = if (gpu_mes_halted) if (gpu_mes_firmware) |firmware| if (gpu_mes_firmware_gpu) |layout| if (gpu_mes_registers) |registers|
         gpu.planAmdGfx11MesLoad(.scheduler, firmware.scheduler, layout.scheduler_ucode, layout.scheduler_data, registers, true) catch
             panic("AMDGPU MES scheduler load plan invalid")
@@ -1074,6 +1079,7 @@ pub fn start(info: BootInfo) noreturn {
     serial.write(" mes-ring1-db: "); serial.writeDecimal(if (gpu_gfx_mes_bootstrap) |bootstrap| bootstrap.kiq_doorbell.register_index else 0);
     serial.write(" mes-fw-gart-pages: "); serial.writeDecimal(if (gpu_mes_firmware_gpu) |layout| layout.gart_pages else 0);
     serial.write(" mes-control-gart-page: "); serial.writeDecimal(if (gpu_mes_control_gpu) |layout| layout.first_gart_page else 0);
+    serial.write(" mes-hw-resource-plan: "); serial.writeDecimal(if (gpu_mes_hw_resources) |_| 1 else 0);
     serial.write(" mes-halted: "); serial.writeDecimal(@intFromBool(gpu_mes_halted));
     serial.write(" mes-load-plans: "); serial.writeDecimal(@intFromBool(gpu_mes_scheduler_load != null) + @intFromBool(gpu_mes_kiq_load != null));
     serial.write(" mes-loads: "); serial.writeDecimal(gpu_mes_loads);

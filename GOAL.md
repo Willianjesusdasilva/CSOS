@@ -1847,7 +1847,8 @@ dual-pipe MES unhalt/version handshake with timeout-to-halt rollback: implemente
 ME3/pipe1 KIQ HQD activation transaction with doorbell-last/active-last ordering: implemented and host-tested
 private GFX11 KIQ WRITE_DATA ring test with 64-bit doorbell, timeout and rollback: implemented and host-tested
 KIQ MAP_QUEUES of MES scheduler with scratch/RPTR completion and halt rollback: implemented and host-tested
-MES control page allocation/GART mapping and typed 64-dword SET_HW_RSRC frame: implemented and host-tested; topology binding pending
+MES control page/GART, GFX11 HQD/VMID/aggregated-doorbell topology and typed SET_HW_RSRC frame: implemented and host-tested
+direct GPUVM VMIDs 1-7 partitioned from MES-owned VMIDs 8-15: implemented and host-tested
 real Radeon MMIO lifecycle validation: pending
 real MES load/handshake/KIQ/scheduler-map validation, SET_HW_RSRC execution and command submission: pending
 AMD RADV triangle on real hardware: pending
