@@ -978,7 +978,7 @@ pub fn validateAmdGpuDrmAbiSelfTest() !void {
     configureAmdGpuCsEndpoint(.{ .context = &endpoint_cookie, .submit = &amdgpuAbiTestSubmit });
     if (amdgpuInfo(@intFromPtr(base + 560)) != 0 or read32(base + 608) != 0) return error.AmdGpuHwIpLeakedWithoutPhysicalProfile;
     const test_topology = gpu.AmdGcInfo{ .version_minor = 2, .num_shader_engines = 6, .num_wgp0_per_sa = 4, .num_wgp1_per_sa = 4, .num_rb_per_se = 2, .num_tcc_blocks = 16, .max_gprs = 1536, .max_gs_threads = 32, .gs_vgt_table_depth = 32, .gs_prim_buffer_depth = 64, .double_offchip_lds_buf = 512, .wave_front_size = 32, .num_shader_arrays_per_engine = 2 };
-    var test_cu_info = gpu.AmdGfx11CuInfo{ .active_count = 172, .active_sa_mask = 0x07ff, .bitmap = .{.{0} ** 4} ** 4, .enabled_rb_mask = 0x7fe, .active_rb_count = 10 };
+    var test_cu_info = gpu.AmdGfx11CuInfo{ .active_count = 172, .active_sa_mask = 0x07ff, .bitmap = .{.{0} ** 4} ** 4, .enabled_rb_mask = 0x7fe, .active_rb_count = 10, .tcc_disabled_mask = 4 };
     test_cu_info.bitmap[0][0] = 0xfffc;
     const test_clocks = gpu.AmdGpuClockInfo{ .counter_khz = 100000, .min_engine_khz = 2500000, .max_engine_khz = 2500000, .min_memory_khz = 1200000, .max_memory_khz = 1200000 };
     const test_vm_info = gpu.amdGpuVmInfo();
@@ -1036,6 +1036,11 @@ pub fn validateAmdGpuDrmAbiSelfTest() !void {
         read32(base + 860) != 16 or read32(base + 864) != 32 or read32(base + 868) != 64 or
         read32(base + 872) != 32 or read32(base + 876) != 16)
         return error.AmdGpuDevInfoGraphicsConfigAbiMismatch;
+    put32(base + 568, 384);
+    if (amdgpuInfo(@intFromPtr(base + 560)) != 0 or read64(base + 880) != 0 or read64(base + 944) != 0 or
+        read64(base + 952) != 0 or read32(base + 960) != 0 or read64(base + 968) != 4 or
+        read64(base + 976) != 2500000 or read64(base + 984) != 1200000)
+        return error.AmdGpuDevInfoAoTccClockAbiMismatch;
     if (amdgpuCs(@intFromPtr(base + 160)) != 0 or read64(base + 160) != 1 or amdgpu_abi_test_dispatches != 1)
         return error.AmdGpuCsDispatchAbiMismatch;
     put64(base + 192, 1);
@@ -1353,7 +1358,7 @@ fn amdgpuInfo(address: u64) u64 {
         if (!gfx_available) return errno(19);
         // The prefix through cu_bitmap is physically known. Reject partial
         // fields and larger requests until the remaining memory/VA data exists.
-        if (return_size != 20 and return_size != 120 and return_size != 132 and return_size != 136 and return_size != 176 and return_size != 184 and return_size != 192 and return_size != 244 and return_size != 272) return errno(95);
+        if (return_size != 20 and return_size != 120 and return_size != 132 and return_size != 136 and return_size != 176 and return_size != 184 and return_size != 192 and return_size != 244 and return_size != 272 and return_size != 384) return errno(95);
         if (!validUserSlice(return_address, return_size)) return errno(14);
         const gfx = profile.?;
         const output: [*]u8 = @ptrFromInt(return_address);
@@ -1420,6 +1425,23 @@ fn amdgpuInfo(address: u64) u64 {
             put32(output + 260, gfx.topology.gs_prim_buffer_depth);
             put32(output + 264, gfx.topology.max_gs_threads);
             put32(output + 268, gfx.pcie_width);
+        }
+        if (return_size == 384) {
+            put32(output + 184, 0);
+            put32(output + 188, gfx.topology.double_offchip_lds_buf);
+            put32(output + 240, gfx.topology.wave_front_size);
+            put32(output + 244, gfx.topology.max_gprs);
+            put32(output + 248, gfx.topology.maxCuPerShaderArray());
+            put32(output + 252, gfx.topology.num_tcc_blocks);
+            put32(output + 256, gfx.topology.gs_vgt_table_depth);
+            put32(output + 260, gfx.topology.gs_prim_buffer_depth);
+            put32(output + 264, gfx.topology.max_gs_threads);
+            put32(output + 268, gfx.pcie_width);
+            // GFX11 does not populate an always-on CU bitmap; high VA is not
+            // implemented and PA_SC tile steering is explicitly zero.
+            put64(output + 360, gfx.cu_info.tcc_disabled_mask);
+            put64(output + 368, gfx.clocks.min_engine_khz);
+            put64(output + 376, gfx.clocks.min_memory_khz);
         }
         return 0;
     }

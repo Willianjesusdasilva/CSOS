@@ -1482,6 +1482,8 @@ pub const AmdGfx11CuRegisters = struct {
     user_shader_array_config: u32,
     rb_disable: u32,
     user_rb_disable: u32,
+    tcc_disable: u32,
+    user_tcc_disable: u32,
 };
 pub const AmdGfx11CuInfo = struct {
     active_count: u32,
@@ -1489,6 +1491,7 @@ pub const AmdGfx11CuInfo = struct {
     bitmap: [4][4]u32,
     enabled_rb_mask: u32,
     active_rb_count: u8,
+    tcc_disabled_mask: u32,
 };
 
 pub fn resolveAmdGfx11CuRegisters(ip: *const AmdIp, register_bar_bytes: u64) !AmdGfx11CuRegisters {
@@ -1502,6 +1505,8 @@ pub fn resolveAmdGfx11CuRegisters(ip: *const AmdIp, register_bar_bytes: u64) !Am
         .user_shader_array_config = try resolveAmdRegister(ip.bases[1], 0x5b90, register_bar_bytes),
         .rb_disable = try resolveAmdRegister(ip.bases[0], 0x13dd, register_bar_bytes),
         .user_rb_disable = try resolveAmdRegister(ip.bases[1], 0x5b94, register_bar_bytes),
+        .tcc_disable = try resolveAmdRegister(ip.bases[1], 0x5006, register_bar_bytes),
+        .user_tcc_disable = try resolveAmdRegister(ip.bases[1], 0x5b96, register_bar_bytes),
     };
 }
 
@@ -1515,7 +1520,7 @@ pub fn decodeAmdGfx11CuInfo(topology: AmdGcInfo, factory_sa_disable: u16, user_s
     const sa_limit: u16 = if (sa_count == 16) 0xffff else (@as(u16, 1) << @intCast(sa_count)) - 1;
     const wgp_limit: u16 = if (wgp_count == 16) 0xffff else (@as(u16, 1) << @intCast(wgp_count)) - 1;
     const active_sa = sa_limit & ~(factory_sa_disable | user_sa_disable);
-    var result = AmdGfx11CuInfo{ .active_count = 0, .active_sa_mask = active_sa, .bitmap = .{.{0} ** 4} ** 4, .enabled_rb_mask = 0, .active_rb_count = 0 };
+    var result = AmdGfx11CuInfo{ .active_count = 0, .active_sa_mask = active_sa, .bitmap = .{.{0} ** 4} ** 4, .enabled_rb_mask = 0, .active_rb_count = 0, .tcc_disabled_mask = 0 };
     var se: u32 = 0;
     while (se < topology.num_shader_engines) : (se += 1) {
         var sa: u32 = 0;
@@ -1550,6 +1555,14 @@ pub fn decodeAmdGfx11CuInfo(topology: AmdGcInfo, factory_sa_disable: u16, user_s
     return result;
 }
 
+pub fn decodeAmdGfx11TccDisabled(raw: u32, tcc_count: u32) !u32 {
+    if (tcc_count == 0 or tcc_count > 24) return error.InvalidAmdGfx11TccTopology;
+    const disabled = ((raw >> 16) & 0xffff) | (((raw >> 8) & 0xff) << 16);
+    const limit = (@as(u32, 1) << @intCast(tcc_count)) - 1;
+    if ((disabled & ~limit) != 0 or disabled == limit) return error.InvalidAmdGfx11TccHarvesting;
+    return disabled;
+}
+
 pub fn probeAmdGfx11CuInfo(adapter: *const Adapter, registers: AmdGfx11CuRegisters, topology: AmdGcInfo) !AmdGfx11CuInfo {
     const factory_sa: u16 = @truncate((try adapter.readRegister(registers.sa_disable) >> 8) & 0xffff);
     const user_sa: u16 = @truncate((try adapter.readRegister(registers.user_sa_disable) >> 8) & 0xffff);
@@ -1569,7 +1582,10 @@ pub fn probeAmdGfx11CuInfo(adapter: *const Adapter, registers: AmdGfx11CuRegiste
         }
     }
     try adapter.writeRegister(registers.selector, 0xe0000000);
-    return decodeAmdGfx11CuInfo(topology, factory_sa, user_sa, factory_wgp, user_wgp, factory_rb, user_rb);
+    var result = try decodeAmdGfx11CuInfo(topology, factory_sa, user_sa, factory_wgp, user_wgp, factory_rb, user_rb);
+    const raw_tcc = try adapter.readRegister(registers.tcc_disable) | try adapter.readRegister(registers.user_tcc_disable);
+    result.tcc_disabled_mask = try decodeAmdGfx11TccDisabled(raw_tcc, topology.num_tcc_blocks);
+    return result;
 }
 
 comptime {
@@ -1584,7 +1600,8 @@ comptime {
     if (registers.selector != 0x9c00 or registers.sa_disable != 0x43a4 or
         registers.user_sa_disable != 0x18248 or registers.shader_array_config != 0x443c or
         registers.user_shader_array_config != 0x18240 or registers.rb_disable != 0x5374 or
-        registers.user_rb_disable != 0x18250)
+        registers.user_rb_disable != 0x18250 or registers.tcc_disable != 0x15418 or
+        registers.user_tcc_disable != 0x18258)
         @compileError("GFX11 CU register offsets mismatch");
 
     const topology = AmdGcInfo{
@@ -1610,6 +1627,9 @@ comptime {
         cu.bitmap[0][0] != 0xfffc or cu.bitmap[0][1] != 0xfff3 or
         cu.bitmap[1][3] != 0 or cu.enabled_rb_mask != 0x7fe or cu.active_rb_count != 10)
         @compileError("GFX11 active CU bitmap mismatch");
+    const disabled_tcc = decodeAmdGfx11TccDisabled(0x00040000, topology.num_tcc_blocks) catch
+        @compileError("GFX11 TCC harvesting decode failed");
+    if (disabled_tcc != 4) @compileError("GFX11 TCC harvesting mask mismatch");
 }
 
 pub fn resolveAmdGfx11CpGfxRegisters(ip: *const AmdIp, register_bar_bytes: u64) !AmdGfx11CpGfxRegisters {

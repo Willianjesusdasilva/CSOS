@@ -823,6 +823,14 @@ verificável de `DEV_INFO` para 244 bytes. O parser GC passou a preservar també
 `gc_num_gprs` e `gc_num_max_gs_thds`; junto de CU/SA, TCC, profundidades GS e a
 largura PCIe já comprovados, esses dados ampliam o prefixo para 272 bytes.
 
+No GFX11, o upstream não preenche `cu_ao_bitmap`; o CSOS também não anuncia
+CUs always-on. A faixa VA alta permanece zero porque apenas a metade baixa de
+48 bits está implementada, e `pa_sc_tile_steering_override` é zero como na
+inicialização oficial. O snapshot agora lê ainda `CGTS_TCC_DISABLE` e
+`CGTS_USER_TCC_DISABLE`, recompõe a máscara física de até 24 TCCs e rejeita bits
+fora da topologia ou todos os TCCs desabilitados. Com essa máscara e os clocks
+mínimos ATOM, o prefixo verificável de `DEV_INFO` alcança 384 bytes.
+
 O parser do IP discovery também valida
 e consome agora a tabela GC v1.0–v1.3: assinatura, tamanho, checksum, SE, SA,
 WGP/CU máximo, RB, TCC, wave size, profundidades GS e caches. Esses máximos já
