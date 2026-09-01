@@ -742,7 +742,7 @@ pub fn start(info: BootInfo) noreturn {
         if (!mapper.identityIsUncached(rom.address)) panic("GPU expansion ROM cache policy failed");
     }
     mapper.activate();
-    if (gpu_adapter.driver == .amdgpu and gpu_gmc11_nbio_registers != null) {
+    if (gpu_adapter.driver == .amdgpu and gpu_gmc11_nbio_registers != null and gpu_ip_discovery.?.gc_info != null) {
         const gfx_ip = gpu_ip_discovery.?.find(gpu.amd_hw_id.gfx, 0) orelse panic("AMDGPU GFX IP missing");
         const strap = gpu_adapter.readRegister(gpu_gmc11_nbio_registers.?.revision_strap) catch panic("AMDGPU revision strap read failed");
         const identity = gpu.decodeAmdGfx11AsicIdentity(gfx_ip, strap) catch panic("AMDGPU ASIC identity unsupported");
@@ -756,6 +756,7 @@ pub fn start(info: BootInfo) noreturn {
             .gfx_major = gfx_ip.major,
             .gfx_minor = gfx_ip.minor,
             .gfx_revision = gfx_ip.revision,
+            .topology = gpu_ip_discovery.?.gc_info.?,
         });
     } else syscalls.configureAmdGpuInfoProfile(null);
     const gpu_mes_control = if (gpu_mes_registers) |registers|

@@ -780,7 +780,11 @@ NBIO, exige que seu device ID coincida com o PCI e deriva `chip_rev`,
 cinco campos; pedidos maiores falham com `EOPNOTSUPP` para impedir que Mesa veja
 topologia, clocks ou memória zerados como dados reais. Compute, SDMA e demais IPs
 continuam com count zero. A `DEV_INFO` completa permanece pendente do probe
-físico de CU topology, clocks e memória.
+físico de CU topology, clocks e memória. O parser do IP discovery também valida
+e consome agora a tabela GC v1.0–v1.3: assinatura, tamanho, checksum, SE, SA,
+WGP/CU máximo, RB, TCC, wave size, profundidades GS e caches. Esses máximos já
+fazem parte do perfil DRM e são obrigatórios para publicar GFX, mas não são
+confundidos com o bitmap de CUs realmente ativos após harvesting.
 `AMDGPU_GEM_OP_GET_GEM_CREATE_INFO` devolve o descritor de criação original por
 ponteiro de usuário validado, e `AMDGPU_GEM_LIST_HANDLES` enumera tamanho,
 domínio, flags e alinhamento dos BOs ainda abertos. Placement em VRAM continua

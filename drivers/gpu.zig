@@ -2845,12 +2845,39 @@ pub const AmdIpDiscovery = struct {
     ips: u32,
     base_addresses: u32,
     harvested: u32,
+    gc_info: ?AmdGcInfo = null,
     critical_count: usize = 0,
     critical: [16]AmdIp = .{AmdIp{}} ** 16,
 
     pub fn find(self: *const AmdIpDiscovery, hw_id: u16, instance: u8) ?*const AmdIp {
         for (self.critical[0..self.critical_count]) |*ip| if (ip.hw_id == hw_id and ip.instance == instance) return ip;
         return null;
+    }
+};
+
+pub const AmdGcInfo = struct {
+    version_minor: u16,
+    num_shader_engines: u32,
+    num_wgp0_per_sa: u32,
+    num_wgp1_per_sa: u32,
+    num_rb_per_se: u32,
+    num_tcc_blocks: u32,
+    gs_vgt_table_depth: u32,
+    gs_prim_buffer_depth: u32,
+    double_offchip_lds_buf: u32,
+    wave_front_size: u32,
+    num_shader_arrays_per_engine: u32,
+    num_tcp_per_sa: u32 = 0,
+    num_sqc_per_wgp: u32 = 0,
+    tcp_l1_size: u32 = 0,
+    sqc_instruction_cache_size: u32 = 0,
+    sqc_data_cache_size: u32 = 0,
+    gl1c_per_sa: u32 = 0,
+    gl1c_size_per_instance: u32 = 0,
+    gl2c_per_gpu: u32 = 0,
+
+    pub fn maxCuPerShaderArray(self: AmdGcInfo) u32 {
+        return 2 * (self.num_wgp0_per_sa + self.num_wgp1_per_sa);
     }
 };
 
@@ -7220,6 +7247,7 @@ pub fn parseAmdIpDiscovery(bytes: []const u8) !AmdIpDiscovery {
     if (dies == 0 or dies > 16) return error.InvalidAmdIpDiscoveryDieCount;
     const address_bytes: usize = if (table_version == 4 and (bytes[table_offset + 78] & 1) != 0) 8 else 4;
     var result = AmdIpDiscovery{ .binary_version_major = binary_major, .binary_version_minor = binary_minor, .table_version = table_version, .dies = dies, .ips = 0, .base_addresses = 0, .harvested = 0 };
+    if (table_count > 1) result.gc_info = try parseAmdGcInfoTable(bytes[0..binary_size], table_list + 8);
     var die_index: u16 = 0;
     while (die_index < dies) : (die_index += 1) {
         const die_info = table_offset + 14 + @as(usize, die_index) * 4;
@@ -7267,6 +7295,49 @@ pub fn parseAmdIpDiscovery(bytes: []const u8) !AmdIpDiscovery {
     return result;
 }
 
+fn parseAmdGcInfoTable(bytes: []const u8, descriptor: usize) !?AmdGcInfo {
+    const offset: usize = readLittle16(bytes, descriptor);
+    if (offset == 0) return null;
+    const checksum = readLittle16(bytes, descriptor + 2);
+    const descriptor_size: usize = readLittle16(bytes, descriptor + 4);
+    if (offset > bytes.len or bytes.len - offset < 12) return error.InvalidAmdGcInfoOffset;
+    if (readLittle32(bytes, offset) != 0x4347) return error.InvalidAmdGcInfoSignature;
+    const major = readLittle16(bytes, offset + 4);
+    const minor = readLittle16(bytes, offset + 6);
+    const size: usize = readLittle32(bytes, offset + 8);
+    const minimum_size: usize = if (major == 1 and minor == 0) 88 else if (major == 1 and minor == 1) 100 else if (major == 1 and minor == 2) 132 else if (major == 1 and minor == 3) 164 else return error.UnsupportedAmdGcInfoVersion;
+    if (size < minimum_size or descriptor_size != size or size > bytes.len - offset) return error.InvalidAmdGcInfoSize;
+    if (byteSum(bytes[offset .. offset + size]) != checksum) return error.InvalidAmdGcInfoChecksum;
+    const result = AmdGcInfo{
+        .version_minor = minor,
+        .num_shader_engines = @intCast(readLittle32(bytes, offset + 12)),
+        .num_wgp0_per_sa = @intCast(readLittle32(bytes, offset + 16)),
+        .num_wgp1_per_sa = @intCast(readLittle32(bytes, offset + 20)),
+        .num_rb_per_se = @intCast(readLittle32(bytes, offset + 24)),
+        .num_tcc_blocks = @intCast(readLittle32(bytes, offset + 28)),
+        .gs_vgt_table_depth = @intCast(readLittle32(bytes, offset + 40)),
+        .gs_prim_buffer_depth = @intCast(readLittle32(bytes, offset + 44)),
+        .double_offchip_lds_buf = @intCast(readLittle32(bytes, offset + 52)),
+        .wave_front_size = @intCast(readLittle32(bytes, offset + 56)),
+        .num_shader_arrays_per_engine = @intCast(readLittle32(bytes, offset + 76)),
+        .num_tcp_per_sa = if (minor >= 1) @intCast(readLittle32(bytes, offset + 88)) else 0,
+        .tcp_l1_size = if (minor >= 2) @intCast(readLittle32(bytes, offset + 104)) else 0,
+        .num_sqc_per_wgp = if (minor >= 2) @intCast(readLittle32(bytes, offset + 108)) else 0,
+        .sqc_instruction_cache_size = if (minor >= 2) @intCast(readLittle32(bytes, offset + 112)) else 0,
+        .sqc_data_cache_size = if (minor >= 2) @intCast(readLittle32(bytes, offset + 116)) else 0,
+        .gl1c_per_sa = if (minor >= 2) @intCast(readLittle32(bytes, offset + 120)) else 0,
+        .gl1c_size_per_instance = if (minor >= 2) @intCast(readLittle32(bytes, offset + 124)) else 0,
+        .gl2c_per_gpu = if (minor >= 2) @intCast(readLittle32(bytes, offset + 128)) else 0,
+    };
+    if (result.num_shader_engines == 0 or result.num_shader_engines > 8 or
+        result.num_shader_arrays_per_engine == 0 or result.num_shader_arrays_per_engine > 4 or
+        result.num_wgp0_per_sa > 32 or result.num_wgp1_per_sa > 32 or result.num_rb_per_se > 16 or
+        result.num_tcc_blocks > 64 or (result.wave_front_size != 32 and result.wave_front_size != 64) or
+        result.maxCuPerShaderArray() == 0 or result.maxCuPerShaderArray() > 128)
+        return error.InvalidAmdGcInfoTopology;
+    return result;
+}
+
 fn isCriticalAmdIp(hw_id: u16) bool {
     return hw_id == amd_hw_id.smu or hw_id == amd_hw_id.gfx or hw_id == amd_hw_id.mmhub or hw_id == amd_hw_id.osssys or
         (hw_id >= amd_hw_id.sdma0 and hw_id <= amd_hw_id.sdma3) or hw_id == amd_hw_id.nbif or hw_id == amd_hw_id.psp;
@@ -7292,12 +7363,15 @@ fn readLittle64(bytes: []const u8, offset: usize) u64 {
 }
 
 comptime {
-    var sample = [_]u8{0} ** 156;
+    @setEvalBranchQuota(5000);
+    var sample = [_]u8{0} ** 288;
     writeLittle32(&sample, 0, 0x28211407);
     writeLittle16(&sample, 4, 1);
     writeLittle16(&sample, 10, sample.len);
     writeLittle16(&sample, 12, 60);
     writeLittle16(&sample, 16, 96);
+    writeLittle16(&sample, 20, 156);
+    writeLittle16(&sample, 24, 132);
     writeLittle32(&sample, 60, 0x53445049);
     writeLittle16(&sample, 64, 3);
     writeLittle16(&sample, 66, 96);
@@ -7308,11 +7382,37 @@ comptime {
     sample[147] = 1;
     sample[148] = 11;
     writeLittle32(&sample, 152, 0x1234);
+    writeLittle32(&sample, 156, 0x4347);
+    writeLittle16(&sample, 160, 1);
+    writeLittle16(&sample, 162, 2);
+    writeLittle32(&sample, 164, 132);
+    writeLittle32(&sample, 168, 6);
+    writeLittle32(&sample, 172, 4);
+    writeLittle32(&sample, 176, 4);
+    writeLittle32(&sample, 180, 2);
+    writeLittle32(&sample, 184, 16);
+    writeLittle32(&sample, 196, 32);
+    writeLittle32(&sample, 200, 64);
+    writeLittle32(&sample, 208, 512);
+    writeLittle32(&sample, 212, 32);
+    writeLittle32(&sample, 232, 2);
+    writeLittle32(&sample, 244, 4);
+    writeLittle32(&sample, 260, 32);
+    writeLittle32(&sample, 264, 2);
+    writeLittle32(&sample, 268, 32);
+    writeLittle32(&sample, 272, 16);
+    writeLittle32(&sample, 276, 4);
+    writeLittle32(&sample, 280, 32);
+    writeLittle32(&sample, 284, 16);
+    writeLittle16(&sample, 22, byteSum(sample[156..288]));
     writeLittle16(&sample, 14, byteSum(sample[60..156]));
-    writeLittle16(&sample, 8, byteSum(sample[10..156]));
+    writeLittle16(&sample, 8, byteSum(sample[10..288]));
     const discovery = parseAmdIpDiscovery(&sample) catch @compileError("AMDGPU IP discovery sample was rejected");
     const sdma = discovery.find(amd_hw_id.sdma0, 0);
-    if (discovery.table_version != 3 or discovery.dies != 1 or discovery.ips != 1 or discovery.base_addresses != 1 or sdma == null or sdma.?.major != 11 or sdma.?.bases[0] != 0x1234)
+    if (discovery.table_version != 3 or discovery.dies != 1 or discovery.ips != 1 or discovery.base_addresses != 1 or sdma == null or sdma.?.major != 11 or sdma.?.bases[0] != 0x1234 or
+        discovery.gc_info == null or discovery.gc_info.?.num_shader_engines != 6 or discovery.gc_info.?.maxCuPerShaderArray() != 16 or
+        discovery.gc_info.?.num_shader_arrays_per_engine != 2 or discovery.gc_info.?.num_tcc_blocks != 16 or discovery.gc_info.?.wave_front_size != 32 or
+        discovery.gc_info.?.num_sqc_per_wgp != 2 or discovery.gc_info.?.sqc_instruction_cache_size != 32)
         @compileError("AMDGPU IP discovery sample decoded incorrectly");
 }
 
