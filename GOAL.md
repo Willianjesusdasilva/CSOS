@@ -1877,6 +1877,7 @@ AMDGPU_CS timeline WAIT/SIGNAL chunks with monotonic points and point-zero binar
 AMDGPU_CS DEPENDENCIES/SCHEDULED_DEPENDENCIES cross-context validation: implemented for completed synchronous GFX handles; async scheduled state pending
 direct host ABI test for AMDGPU CTX/BO_LIST/CS/WAIT_CS/syncobj success and pre-dispatch rejection: implemented
 AMDGPU CS user-fence validation and post-hardware-fence atomic contextual-handle publication: implemented and directly host-tested
+gate-derived AMDGPU_INFO HW_IP_COUNT/HW_IP_INFO for verified GFX11 ring0 only: implemented and directly host-tested; DEV_INFO/topology pending
 GFX11 ring resource contract and fail-closed preflight: implemented and host-tested
 transactional ring/MQD/EOP/pointer physical allocation: implemented and host-tested
 dual MES scheduler/KIQ GART layout and GFX11 MQD encoding: implemented and host-tested

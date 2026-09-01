@@ -767,6 +767,13 @@ offset de 64 bits alinhado dentro da página. O ponteiro é resolvido antes do
 dispatch, mas o handle contextual só é gravado atomicamente depois do fence
 físico; falhas anteriores não alteram a memória do usuário. O teste direto da
 ABI verifica a ordem conjunta de user-fence e `SYNCOBJ_OUT`.
+
+As consultas `AMDGPU_INFO_HW_IP_COUNT` e `AMDGPU_INFO_HW_IP_INFO` agora refletem
+somente o backend realmente exposto: sem endpoint CP verificado, GFX tem count
+zero; com o endpoint, apenas GFX11 instance 0/ring 0 é anunciado, com alinhamento
+de IB de 4 bytes e nenhuma capability adicional. Compute, SDMA e demais IPs
+continuam com count zero. `DEV_INFO`, CU topology, clocks e memória não são
+inventados e permanecem pendentes de dados físicos completos do probe.
 `AMDGPU_GEM_OP_GET_GEM_CREATE_INFO` devolve o descritor de criação original por
 ponteiro de usuário validado, e `AMDGPU_GEM_LIST_HANDLES` enumera tamanho,
 domínio, flags e alinhamento dos BOs ainda abertos. Placement em VRAM continua

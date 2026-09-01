@@ -949,7 +949,20 @@ pub fn validateAmdGpuDrmAbiSelfTest() !void {
     put64(base + 176, @intFromPtr(base + 144));
     amdgpu_abi_test_dispatches = 0;
     var endpoint_cookie: u8 = 0;
+    put64(base + 560, @intFromPtr(base + 608));
+    put32(base + 568, 4);
+    put32(base + 572, 3);
+    put32(base + 576, 0);
+    put32(base + 580, 99);
+    if (amdgpuInfo(@intFromPtr(base + 560)) != 0 or read32(base + 608) != 0) return error.AmdGpuHwIpLeakedBeforeGate;
     configureAmdGpuCsEndpoint(.{ .context = &endpoint_cookie, .submit = &amdgpuAbiTestSubmit });
+    if (amdgpuInfo(@intFromPtr(base + 560)) != 0 or read32(base + 608) != 1) return error.AmdGpuHwIpCountAbiMismatch;
+    put32(base + 568, 40);
+    put32(base + 572, 2);
+    put32(base + 580, 0);
+    if (amdgpuInfo(@intFromPtr(base + 560)) != 0 or read32(base + 608) != 11 or
+        read32(base + 624) != 4 or read32(base + 628) != 4 or read32(base + 632) != 1 or read32(base + 636) != 0)
+        return error.AmdGpuHwIpInfoAbiMismatch;
     if (amdgpuCs(@intFromPtr(base + 160)) != 0 or read64(base + 160) != 1 or amdgpu_abi_test_dispatches != 1)
         return error.AmdGpuCsDispatchAbiMismatch;
     put64(base + 192, 1);
@@ -1221,14 +1234,35 @@ fn amdgpuInfo(address: u64) u64 {
     const return_size = read32(input + 8);
     const query = read32(input + 12);
     if (return_address == 0 or return_size == 0) return errno(22);
-    if (query != 0) return errno(22);
-    const count = @min(return_size, 4);
-    if (!validUserSlice(return_address, count)) return errno(14);
-    const output: [*]u8 = @ptrFromInt(return_address);
-    // AMDGPU_INFO_ACCEL_WORKING remains false until firmware, GART and a
-    // command ring have all been initialized and verified on the device.
-    @memset(output[0..count], 0);
-    return 0;
+    if (query == 0) {
+        const count = @min(return_size, 4);
+        if (!validUserSlice(return_address, count)) return errno(14);
+        const output: [*]u8 = @ptrFromInt(return_address);
+        // Keep false until the complete Radeon Vulkan path is hardware-tested.
+        @memset(output[0..count], 0);
+        return 0;
+    }
+    const ip_type = read32(input + 16);
+    const ip_instance = read32(input + 20);
+    if (query == 3) {
+        if (return_size < 4 or !validUserSlice(return_address, 4)) return errno(14);
+        const output: [*]u8 = @ptrFromInt(return_address);
+        put32(output, if (ip_type == 0 and amdgpu_cs_endpoint != null) 1 else 0);
+        return 0;
+    }
+    if (query == 2) {
+        if (ip_type != 0 or ip_instance != 0 or amdgpu_cs_endpoint == null) return errno(2);
+        const count = @min(return_size, 40);
+        if (!validUserSlice(return_address, count)) return errno(14);
+        const output: [*]u8 = @ptrFromInt(return_address);
+        @memset(output[0..count], 0);
+        if (count >= 4) put32(output, 11);
+        if (count >= 20) put32(output + 16, 4);
+        if (count >= 24) put32(output + 20, 4);
+        if (count >= 28) put32(output + 24, 1);
+        return 0;
+    }
+    return errno(22);
 }
 
 fn drmMapDumb(address: u64) u64 {
