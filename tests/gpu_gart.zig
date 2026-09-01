@@ -29,6 +29,7 @@ test "AMDGPU GPUVM branches share directories and prune by reference" {
 }
 
 test "GFX11 firmware roles and ring resources remain fail-closed" {
+    try gpu.validateAmdPspRingProtocolSelfTest();
     try gpu.validateAmdGfx11FirmwarePreflightSelfTest();
     try gpu.validateAmdGfx11RingResourceSelfTest();
     try gpu.validateAmdGfx11MesLoadTransactionSelfTest();

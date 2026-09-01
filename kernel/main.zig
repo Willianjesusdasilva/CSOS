@@ -623,6 +623,7 @@ pub fn start(info: BootInfo) noreturn {
     if (gpu_registers.size > 16 * 1024 * 1024) panic("GPU register BAR unexpectedly large");
     var gpu_psp_mailbox_profile: ?gpu.AmdPspMailboxProfile = null;
     var gpu_psp_mailbox_registers: ?gpu.AmdPspMailboxRegisters = null;
+    var gpu_psp_ring_registers: ?gpu.AmdPspRingRegisters = null;
     const gpu_mes_registers = if (gpu_backend_plan) |plan| if (plan.gfx == .v11_0) blk: {
         const gfx_ip = gpu_ip_discovery.?.find(gpu.amd_hw_id.gfx, 0) orelse panic("AMDGPU GFX IP missing");
         break :blk gpu.resolveAmdGfx11MesRegisters(gfx_ip, gpu_registers.size) catch panic("AMDGPU MES registers invalid");
@@ -634,6 +635,9 @@ pub fn start(info: BootInfo) noreturn {
         gpu_psp_mailbox_profile = profile;
         gpu_psp_mailbox_registers = gpu.resolveAmdPspMailboxRegisters(psp_ip, profile, gpu_registers.size) catch
             panic("AMDGPU PSP mailbox registers invalid");
+        if (plan.psp.ip_version == 0x0d0002)
+            gpu_psp_ring_registers = gpu.resolveAmdPsp13RingRegisters(psp_ip, gpu_registers.size) catch
+                panic("AMDGPU PSP ring registers invalid");
     };
     mapper.mapIdentityUncached(gpu_registers.address, gpu_registers.size) catch panic("GPU register MMIO mapping failed");
     if (!mapper.identityIsUncached(gpu_registers.address)) panic("GPU register MMIO cache policy failed");
@@ -677,6 +681,9 @@ pub fn start(info: BootInfo) noreturn {
     ) catch panic("AMDGPU memory topology unavailable") else null;
     const gpu_gmc11_gart_window = if (gpu_gmc11_memory) |memory| gpu.planAmdGmc11HighGartWindow(memory, gpu_gart_plan.?.window_bytes) catch
         panic("AMDGPU GART high window invalid") else null;
+    const gpu_psp_ring_layout = if (gpu_gmc11_gart_window != null)
+        gpu.planAmdPspRingLayout(gpu_psp_gtt, gpu_gmc11_gart_window.?.start) catch panic("AMDGPU PSP ring GART layout invalid")
+    else null;
     const gpu_gfx_mes_bootstrap = if (gpu_gfx_firmware != null and gpu_gmc11_gart_window != null)
         gpu.prepareAmdGfx11MesBootstrap(
             gpu_psp_gtt,
@@ -693,6 +700,17 @@ pub fn start(info: BootInfo) noreturn {
         gpu.mapAmdMesControlIntoGart(
             gpu_psp_gtt, gpu_mes_firmware_gpu.?, gpu_mes_control_resources, gpu_gmc11_gart_window.?.start,
         ) catch panic("AMDGPU MES control GART mapping failed")
+    else null;
+    const gpu_cp_firmware_gpu = if (gpu_mes_control_gpu) |control|
+        gpu.mapAmdGfx11CpFirmwareIntoGart(
+            gpu_psp_gtt, gpu_cp_firmware_staging, control.first_gart_page, gpu_gmc11_gart_window.?.start,
+        ) catch panic("AMDGPU CP/RLC firmware GART mapping failed")
+    else null;
+    const gpu_psp_ring_control = if (gpu_psp_ring_registers) |registers|
+        gpu_adapter.readRegister(registers.control) catch panic("AMDGPU PSP ring control read failed")
+    else 0;
+    const gpu_psp_ring_bootstrap = if (gpu_psp_ring_registers != null and gpu_psp_ring_layout != null)
+        gpu.planAmdPsp13RingBootstrap(gpu_psp_ring_registers.?, gpu_psp_ring_layout.?, gpu_psp_ring_control) catch null
     else null;
     const gpu_mes_hw_resources = if (gpu_mes_control_gpu) |control|
         gpu.planAmdGfx11MesHwResources(
@@ -1153,6 +1171,8 @@ pub fn start(info: BootInfo) noreturn {
     serial.write(" gfx-fw-typed: "); serial.writeDecimal(if (gpu_gfx_firmware) |manifest| manifest.entries else 0);
     serial.write(" cp-fw-format: "); serial.writeDecimal(if (gpu_cp_firmware) |firmware| @intFromEnum(firmware.pfp.?.format) + 1 else 0);
     serial.write(" cp-fw-psp-payloads: "); serial.writeDecimal(gpu_cp_firmware_staging.count);
+    serial.write(" cp-fw-gart-pages: "); serial.writeDecimal(if (gpu_cp_firmware_gpu) |layout| layout.gart_pages else 0);
+    serial.write(" psp-ring-bootstrap: "); serial.writeDecimal(@intFromBool(gpu_psp_ring_bootstrap != null));
     serial.write(" gfx-ring-preflight: "); serial.writeDecimal(@intFromEnum(gpu.preflightAmdGfx11Ring(.{
         .firmware = gpu_gfx_firmware != null,
         .psp = gpu_psp_handoff.state == .finished,

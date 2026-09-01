@@ -450,6 +450,13 @@ pub const AmdGfx11CpFirmwareStaging = struct {
         self.* = .{};
     }
 };
+pub const AmdPspIpFirmwareGpuArea = struct { kind: AmdPspGfxFirmwareType = .cp_me, address: u64 = 0, bytes: u32 = 0 };
+pub const AmdGfx11CpFirmwareGpuLayout = struct {
+    count: usize = 0,
+    first_gart_page: u16 = 0,
+    gart_pages: u16 = 0,
+    areas: [22]AmdPspIpFirmwareGpuArea = .{AmdPspIpFirmwareGpuArea{}} ** 22,
+};
 pub const AmdMesPayloadArea = struct { address: u64 = 0, pages: u64 = 0, bytes: usize = 0 };
 pub const AmdMesStagedImage = struct { ucode: AmdMesPayloadArea = .{}, data: AmdMesPayloadArea = .{} };
 pub const AmdMesFirmwareStaging = struct {
@@ -780,6 +787,41 @@ pub fn mapAmdMesControlIntoGart(
         .cleaner_shader_fence = gpu_page + 32,
         .first_gart_page = @intCast(first_page),
     };
+}
+
+pub fn mapAmdGfx11CpFirmwareIntoGart(
+    staging: AmdPspGttStaging,
+    firmware: AmdGfx11CpFirmwareStaging,
+    after_page: u16,
+    window_start: u64,
+) !AmdGfx11CpFirmwareGpuLayout {
+    if (staging.active or staging.page_table_address == 0 or staging.page_table_pages != 1 or
+        firmware.count == 0 or firmware.count > firmware.areas.len or (window_start & 4095) != 0)
+        return error.InvalidAmdCpFirmwareGart;
+    const first_page: u64 = @as(u64, after_page) + 1;
+    var total_pages: u64 = 0;
+    for (firmware.areas[0..firmware.count]) |area| {
+        if (area.address == 0 or area.pages == 0 or area.bytes == 0 or (area.address & 4095) != 0 or
+            area.bytes > area.pages * 4096)
+            return error.InvalidAmdCpFirmwareStaging;
+        total_pages = std.math.add(u64, total_pages, area.pages) catch return error.AmdCpFirmwareExceedsGartWindow;
+    }
+    if (first_page >= 512 or total_pages > 512 - first_page) return error.AmdCpFirmwareExceedsGartWindow;
+    const table: [*]u64 = @ptrFromInt(staging.page_table_address);
+    for (first_page..first_page + total_pages) |index| if (table[index] != 0) return error.AmdCpFirmwareGartPageAlreadyMapped;
+    var result = AmdGfx11CpFirmwareGpuLayout{
+        .count = firmware.count,
+        .first_gart_page = @intCast(first_page),
+        .gart_pages = @intCast(total_pages),
+    };
+    var next = first_page;
+    for (firmware.areas[0..firmware.count], 0..) |area, area_index| {
+        result.areas[area_index] = .{ .kind = area.kind, .address = window_start + next * 4096, .bytes = area.bytes };
+        var page: u64 = 0;
+        while (page < area.pages) : (page += 1) table[next + page] = amdGttPte(area.address + page * 4096);
+        next += area.pages;
+    }
+    return result;
 }
 
 pub const AmdMesHwResourceInput = struct {
@@ -4732,6 +4774,48 @@ pub fn validateAmdPspGtt(pages: *physical.Allocator) !void {
     for (buffers[0 .. staging.buffer_pages * 4096]) |byte| if (byte != 0) return error.AmdPspGttBufferNotZero;
 }
 
+pub fn validateAmdPspRingProtocolSelfTest() !void {
+    var table = [_]u64{0} ** 512;
+    const staging = AmdPspGttStaging{
+        .page_table_address = @intFromPtr(&table), .page_table_pages = 1,
+        .buffer_address = 0x800000, .buffer_pages = 3,
+    };
+    table[0] = amdGttPte(0x800000);
+    table[1] = amdGttPte(0x801000);
+    table[2] = amdGttPte(0x802000);
+    const layout = try planAmdPspRingLayout(staging, 0x2000000);
+    var ip = AmdIp{ .hw_id = amd_hw_id.psp, .major = 13, .minor = 0, .revision = 2, .base_count = 1 };
+    ip.bases[0] = 0x100;
+    const registers = try resolveAmdPsp13RingRegisters(&ip, 0x2000);
+    const bootstrap = try planAmdPsp13RingBootstrap(registers, layout, 0x80000000);
+    if (layout.command_mc_address != 0x2001000 or layout.fence_mc_address != 0x2002000 or
+        bootstrap.writes[0].offset != registers.ring_address_low or bootstrap.writes[2].value != 4096 or
+        bootstrap.writes[3].value != 0x00020000)
+        return error.AmdPspRingBootstrapSelfTestFailed;
+
+    var firmware = AmdGfx11CpFirmwareStaging{ .count = 2 };
+    firmware.areas[0] = .{ .kind = .rs64_pfp, .address = 0x900000, .pages = 1, .bytes = 64 };
+    firmware.areas[1] = .{ .kind = .rs64_me, .address = 0xa00000, .pages = 2, .bytes = 5000 };
+    const gpu_firmware = try mapAmdGfx11CpFirmwareIntoGart(staging, firmware, 15, 0x2000000);
+    if (gpu_firmware.first_gart_page != 16 or gpu_firmware.gart_pages != 3 or
+        gpu_firmware.areas[0].address != 0x2010000 or gpu_firmware.areas[1].address != 0x2011000 or
+        table[16] != amdGttPte(0x900000) or table[18] != amdGttPte(0xa01000))
+        return error.AmdCpFirmwareGartSelfTestFailed;
+
+    const command = try encodeAmdPspLoadIpFirmware(gpu_firmware.areas[0], layout, 1008, 7);
+    if (command.command[0] != 0 or command.command[1] != 0 or command.command[2] != 6 or
+        command.command[7] != 0x02010000 or command.command[9] != 64 or command.command[10] != 87 or
+        command.frame[0] != 0x02001000 or command.frame[3] != 0x02002000 or command.frame[5] != 7 or
+        command.ring_dword != 1008 or command.next_write_pointer != 0)
+        return error.AmdPspLoadIpFirmwareEncodingSelfTestFailed;
+    if (encodeAmdPspLoadIpFirmware(gpu_firmware.areas[0], layout, 1, 7)) |_|
+        return error.UnalignedAmdPspWritePointerAccepted
+    else |err| if (err != error.InvalidAmdPspLoadIpFirmware) return err;
+    if (planAmdPsp13RingBootstrap(registers, layout, 0)) |_|
+        return error.UnreadyAmdPspRingAccepted
+    else |err| if (err != error.AmdPspRingNotReady) return err;
+}
+
 fn amdGttPte(address: u64) u64 {
     return (address & 0x0000fffffffff000) | amd_gtt_pte_flags;
 }
@@ -4973,6 +5057,32 @@ pub const AmdPspMailboxRegisters = struct {
     command_offset: u32,
     address_offset: u32,
     sos_offset: u32,
+};
+pub const AmdPspRingRegisters = struct {
+    control: u32,
+    write_pointer: u32,
+    ring_address_low: u32,
+    ring_address_high: u32,
+    ring_size: u32,
+};
+pub const AmdPspRingLayout = struct {
+    ring_mc_address: u64,
+    command_mc_address: u64,
+    fence_mc_address: u64,
+    ring_bytes: u32 = 4096,
+    command_bytes: u32 = 4096,
+};
+pub const AmdPspRingBootstrap = struct {
+    registers: AmdPspRingRegisters,
+    initial_control: u32,
+    writes: [4]AmdRegisterWrite,
+};
+pub const AmdPspLoadIpFirmwareCommand = struct {
+    command: [256]u32 = .{0} ** 256,
+    frame: [16]u32 = .{0} ** 16,
+    ring_dword: u32,
+    next_write_pointer: u32,
+    fence_value: u32,
 };
 pub const AmdPspHandoffStep = struct { command: AmdPspBootCommand = .load_sysdrv, source_address: u64 = 0, bytes: u32 = 0 };
 pub const AmdPspHandoffState = enum { empty, ready, staged, submitted, finished, failed };
@@ -5306,6 +5416,89 @@ pub fn resolveAmdPspMailboxRegisters(ip: *const AmdIp, profile: AmdPspMailboxPro
         address_offset > register_bar_bytes - 4 or sos_offset > register_bar_bytes - 4)
         return error.AmdPspRegistersOutsideBar;
     return .{ .command_offset = @intCast(command_offset), .address_offset = @intCast(address_offset), .sos_offset = @intCast(sos_offset) };
+}
+
+pub fn resolveAmdPsp13RingRegisters(ip: *const AmdIp, register_bar_bytes: u64) !AmdPspRingRegisters {
+    if (ip.hw_id != amd_hw_id.psp or ip.instance != 0 or ip.base_count == 0 or version(ip) != 0x0d0002)
+        return error.UnsupportedAmdPspRingRegisters;
+    const base = ip.bases[0];
+    const messages = .{ @as(u64, 64), 67, 69, 70, 71 };
+    var offsets: [5]u32 = undefined;
+    inline for (messages, 0..) |message, index| {
+        const dword = std.math.add(u64, base, 0x40 + message) catch return error.AmdPspRegisterOffsetOverflow;
+        const offset = std.math.mul(u64, dword, 4) catch return error.AmdPspRegisterOffsetOverflow;
+        if (offset > ~@as(u32, 0) or register_bar_bytes < 4 or offset > register_bar_bytes - 4)
+            return error.AmdPspRegistersOutsideBar;
+        offsets[index] = @intCast(offset);
+    }
+    return .{
+        .control = offsets[0], .write_pointer = offsets[1], .ring_address_low = offsets[2],
+        .ring_address_high = offsets[3], .ring_size = offsets[4],
+    };
+}
+
+pub fn planAmdPspRingLayout(staging: AmdPspGttStaging, window_start: u64) !AmdPspRingLayout {
+    if (staging.page_table_address == 0 or staging.page_table_pages != 1 or staging.buffer_address == 0 or
+        staging.buffer_pages != 3 or staging.ring_page != 0 or staging.command_page != 1 or staging.fence_page != 2 or
+        (window_start & 4095) != 0)
+        return error.InvalidAmdPspRingLayout;
+    const table: [*]const u64 = @ptrFromInt(staging.page_table_address);
+    if (table[0] != amdGttPte(staging.buffer_address) or table[1] != amdGttPte(staging.buffer_address + 4096) or
+        table[2] != amdGttPte(staging.buffer_address + 8192))
+        return error.InvalidAmdPspRingGartMapping;
+    return .{
+        .ring_mc_address = window_start,
+        .command_mc_address = window_start + 4096,
+        .fence_mc_address = window_start + 8192,
+    };
+}
+
+pub fn planAmdPsp13RingBootstrap(registers: AmdPspRingRegisters, layout: AmdPspRingLayout, initial_control: u32) !AmdPspRingBootstrap {
+    if ((initial_control & 0x8000ffff) != 0x80000000 or layout.ring_mc_address == 0 or
+        (layout.ring_mc_address & 4095) != 0 or layout.ring_bytes != 4096)
+        return error.AmdPspRingNotReady;
+    return .{
+        .registers = registers,
+        .initial_control = initial_control,
+        .writes = .{
+            .{ .offset = registers.ring_address_low, .value = @truncate(layout.ring_mc_address) },
+            .{ .offset = registers.ring_address_high, .value = @truncate(layout.ring_mc_address >> 32) },
+            .{ .offset = registers.ring_size, .value = layout.ring_bytes },
+            .{ .offset = registers.control, .value = 0x00020000, .verify_mask = 0 },
+        },
+    };
+}
+
+pub fn encodeAmdPspLoadIpFirmware(
+    area: AmdPspIpFirmwareGpuArea,
+    layout: AmdPspRingLayout,
+    write_pointer: u32,
+    fence_value: u32,
+) !AmdPspLoadIpFirmwareCommand {
+    const ring_dwords = layout.ring_bytes / 4;
+    if (area.address == 0 or (area.address & 4095) != 0 or area.bytes == 0 or
+        (layout.command_mc_address & 4095) != 0 or (layout.fence_mc_address & 4095) != 0 or
+        layout.command_bytes != 4096 or ring_dwords != 1024 or write_pointer >= ring_dwords or
+        (write_pointer & 15) != 0 or fence_value == 0)
+        return error.InvalidAmdPspLoadIpFirmware;
+    var result = AmdPspLoadIpFirmwareCommand{
+        .ring_dword = write_pointer,
+        .next_write_pointer = (write_pointer + 16) % ring_dwords,
+        .fence_value = fence_value,
+    };
+    // Linux leaves the generic size/version fields zero for GPCOM and fills
+    // only cmd_id plus the LOAD_IP_FW union at byte 28.
+    result.command[2] = 0x00000006;
+    result.command[7] = @truncate(area.address);
+    result.command[8] = @truncate(area.address >> 32);
+    result.command[9] = area.bytes;
+    result.command[10] = @intFromEnum(area.kind);
+    result.frame[0] = @truncate(layout.command_mc_address);
+    result.frame[1] = @truncate(layout.command_mc_address >> 32);
+    result.frame[3] = @truncate(layout.fence_mc_address);
+    result.frame[4] = @truncate(layout.fence_mc_address >> 32);
+    result.frame[5] = fence_value;
+    return result;
 }
 
 pub fn classifyAmdPspMailbox(profile: AmdPspMailboxProfile, command: u32, sos: u32) !AmdPspMailboxSnapshot {

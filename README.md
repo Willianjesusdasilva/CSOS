@@ -769,6 +769,13 @@ incluindo duas stacks de PFP/ME, quatro de MEC e os componentes adicionais dos
 cabeçalhos RLC 2.1–2.5. Alocação parcial é revertida e a máscara DMA de 44 bits
 é obrigatória. Este checkpoint ainda não envia `LOAD_IP_FW` ao ring PSP e não
 significa que RLC ou os command processors estejam ativos.
+Como o protocolo PSP consome endereços GPU virtuais, esses payloads também são
+agora mapeados no GART depois das filas, firmware e página de controle MES. O
+bootstrap do ring KM/GPCOM para PSP 13.0.2 resolve C2PMSG 64/67/69/70/71 a
+partir do `ip_discovery`, exige o sOS pronto e prepara endereço, tamanho e
+comando de inicialização. O encoder `LOAD_IP_FW` reproduz o command buffer de
+1024 bytes, o frame de 64 bytes, o fence e o wrap do WPTR em dwords. Tanto a
+criação do ring quanto a submissão permanecem write-free neste checkpoint.
 As duas filas exigidas pelo bootstrap — scheduler MES ring0 e KIQ ring1 — agora
 recebem, cada uma, páginas físicas separadas para ring, MQD, EOP e ponteiros.
 As oito páginas nascem zeradas abaixo da máscara DMA de 44 bits e são liberadas
