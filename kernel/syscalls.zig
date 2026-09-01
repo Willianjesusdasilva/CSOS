@@ -70,6 +70,14 @@ pub const AmdGpuCsEndpoint = struct {
     submit: *const fn (*anyopaque, u4, u64, u32) anyerror!u64,
 };
 var amdgpu_cs_endpoint: ?AmdGpuCsEndpoint = null;
+pub const AmdGpuInfoProfile = struct {
+    pci_device: u16,
+    pci_revision: u8,
+    gfx_major: u8,
+    gfx_minor: u8,
+    gfx_revision: u8,
+};
+var amdgpu_info_profile: ?AmdGpuInfoProfile = null;
 var amdgpu_abi_test_dispatches: u32 = 0;
 fn amdgpuAbiTestSubmit(_: *anyopaque, vmid: u4, address: u64, dwords: u32) !u64 {
     if (vmid != 1 or address != 0x4000 or dwords != 4) return error.InvalidAmdGpuAbiTestSubmission;
@@ -188,6 +196,7 @@ pub fn configureDrmGpuVmHardware(hardware: ?gpu.AmdGpuVmHardware) void {
     drm_vm_hardware = if (hardware) |value| .{ .hardware = value } else null;
 }
 pub fn configureAmdGpuCsEndpoint(endpoint: ?AmdGpuCsEndpoint) void { amdgpu_cs_endpoint = endpoint; }
+pub fn configureAmdGpuInfoProfile(profile: ?AmdGpuInfoProfile) void { amdgpu_info_profile = profile; }
 
 pub fn configureMmap(protect_hook: ?*const fn (u64, u64, bool, bool) callconv(.c) bool, unmap_hook: ?*const fn (u64, u64) callconv(.c) bool, device_hook: ?*const fn (u64, u64, u64, bool) callconv(.c) bool) void {
     mmap_protect_hook = protect_hook;
@@ -910,6 +919,7 @@ pub fn validateAmdGpuDrmAbiSelfTest() !void {
     configureDrm(.amdgpu);
     defer {
         amdgpu_cs_endpoint = null;
+        amdgpu_info_profile = null;
         amdgpu_contexts = .{AmdGpuContext{}} ** max_amdgpu_contexts;
         amdgpu_bo_lists = .{AmdGpuBoList{}} ** max_amdgpu_bo_lists;
         drm_syncobjs = .{DrmSyncobj{}} ** max_drm_syncobjs;
@@ -956,13 +966,18 @@ pub fn validateAmdGpuDrmAbiSelfTest() !void {
     put32(base + 580, 99);
     if (amdgpuInfo(@intFromPtr(base + 560)) != 0 or read32(base + 608) != 0) return error.AmdGpuHwIpLeakedBeforeGate;
     configureAmdGpuCsEndpoint(.{ .context = &endpoint_cookie, .submit = &amdgpuAbiTestSubmit });
+    if (amdgpuInfo(@intFromPtr(base + 560)) != 0 or read32(base + 608) != 0) return error.AmdGpuHwIpLeakedWithoutPhysicalProfile;
+    configureAmdGpuInfoProfile(.{ .pci_device = 0, .pci_revision = 0, .gfx_major = 11, .gfx_minor = 0, .gfx_revision = 2 });
+    if (amdgpuInfo(@intFromPtr(base + 560)) != 0 or read32(base + 608) != 0) return error.AmdGpuHwIpAcceptedInvalidPhysicalProfile;
+    configureAmdGpuInfoProfile(.{ .pci_device = 0x744c, .pci_revision = 0xc8, .gfx_major = 11, .gfx_minor = 0, .gfx_revision = 2 });
     if (amdgpuInfo(@intFromPtr(base + 560)) != 0 or read32(base + 608) != 1) return error.AmdGpuHwIpCountAbiMismatch;
     put32(base + 568, 40);
     put32(base + 572, 2);
     put32(base + 580, 0);
-    if (amdgpuInfo(@intFromPtr(base + 560)) != 0 or read32(base + 608) != 11 or
-        read32(base + 624) != 4 or read32(base + 628) != 4 or read32(base + 632) != 1 or read32(base + 636) != 0)
+    if (amdgpuInfo(@intFromPtr(base + 560)) != 0 or read32(base + 608) != 11 or read32(base + 612) != 0 or
+        read32(base + 624) != 4 or read32(base + 628) != 4 or read32(base + 632) != 1)
         return error.AmdGpuHwIpInfoAbiMismatch;
+    if (read32(base + 636) != 0x0b0002) return error.AmdGpuHwIpDiscoveryVersionAbiMismatch;
     if (amdgpuCs(@intFromPtr(base + 160)) != 0 or read64(base + 160) != 1 or amdgpu_abi_test_dispatches != 1)
         return error.AmdGpuCsDispatchAbiMismatch;
     put64(base + 192, 1);
@@ -1244,22 +1259,28 @@ fn amdgpuInfo(address: u64) u64 {
     }
     const ip_type = read32(input + 16);
     const ip_instance = read32(input + 20);
+    const profile = amdgpu_info_profile;
+    const gfx_available = amdgpu_cs_endpoint != null and profile != null and
+        profile.?.pci_device != 0 and profile.?.pci_device != 0xffff and profile.?.gfx_major == 11;
     if (query == 3) {
         if (return_size < 4 or !validUserSlice(return_address, 4)) return errno(14);
         const output: [*]u8 = @ptrFromInt(return_address);
-        put32(output, if (ip_type == 0 and amdgpu_cs_endpoint != null) 1 else 0);
+        put32(output, if (ip_type == 0 and gfx_available) 1 else 0);
         return 0;
     }
     if (query == 2) {
-        if (ip_type != 0 or ip_instance != 0 or amdgpu_cs_endpoint == null) return errno(2);
+        if (ip_type != 0 or ip_instance != 0 or !gfx_available) return errno(2);
+        const gfx = profile.?;
         const count = @min(return_size, 40);
         if (!validUserSlice(return_address, count)) return errno(14);
         const output: [*]u8 = @ptrFromInt(return_address);
         @memset(output[0..count], 0);
-        if (count >= 4) put32(output, 11);
+        if (count >= 4) put32(output, gfx.gfx_major);
+        if (count >= 8) put32(output + 4, gfx.gfx_minor);
         if (count >= 20) put32(output + 16, 4);
         if (count >= 24) put32(output + 20, 4);
         if (count >= 28) put32(output + 24, 1);
+        if (count >= 32) put32(output + 28, (@as(u32, gfx.gfx_major) << 16) | (@as(u32, gfx.gfx_minor) << 8) | gfx.gfx_revision);
         return 0;
     }
     return errno(22);

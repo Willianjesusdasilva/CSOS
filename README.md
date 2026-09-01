@@ -770,8 +770,11 @@ ABI verifica a ordem conjunta de user-fence e `SYNCOBJ_OUT`.
 
 As consultas `AMDGPU_INFO_HW_IP_COUNT` e `AMDGPU_INFO_HW_IP_INFO` agora refletem
 somente o backend realmente exposto: sem endpoint CP verificado, GFX tem count
-zero; com o endpoint, apenas GFX11 instance 0/ring 0 é anunciado, com alinhamento
-de IB de 4 bytes e nenhuma capability adicional. Compute, SDMA e demais IPs
+zero; o endpoint sozinho também não basta sem o perfil físico. Com ambos, apenas
+GFX instance 0/ring 0 é anunciado, usando major, minor, revision e
+`ip_discovery_version` obtidos do IP discovery validado, com alinhamento de IB de
+4 bytes e nenhuma capability adicional. O perfil preserva ainda device ID e PCI
+revision para a futura `DEV_INFO`. Compute, SDMA e demais IPs
 continuam com count zero. `DEV_INFO`, CU topology, clocks e memória não são
 inventados e permanecem pendentes de dados físicos completos do probe.
 `AMDGPU_GEM_OP_GET_GEM_CREATE_INFO` devolve o descritor de criação original por

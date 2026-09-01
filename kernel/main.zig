@@ -620,6 +620,16 @@ pub fn start(info: BootInfo) noreturn {
             gpu_ip_discovery = firmware.amdDiscovery(selection) catch panic("AMDGPU IP discovery invalid");
     };
     if (gpu_ip_discovery) |*discovery| gpu_backend_plan = gpu.planAmdBackend(discovery) catch panic("AMDGPU IP combination unsupported");
+    if (gpu_adapter.driver == .amdgpu) {
+        const gfx_ip = if (gpu_ip_discovery) |*discovery| discovery.find(gpu.amd_hw_id.gfx, 0) else null;
+        if (gfx_ip) |ip| syscalls.configureAmdGpuInfoProfile(.{
+            .pci_device = display_device.device,
+            .pci_revision = display_device.revision,
+            .gfx_major = ip.major,
+            .gfx_minor = ip.minor,
+            .gfx_revision = ip.revision,
+        }) else syscalls.configureAmdGpuInfoProfile(null);
+    } else syscalls.configureAmdGpuInfoProfile(null);
     const gpu_gfx_firmware = if (gpu_backend_plan) |plan| if (plan.gfx == .v11_0)
         (gpu_firmware orelse panic("AMDGPU firmware archive missing")).amdGfxFirmwareManifest(
             gpu_selection orelse panic("AMDGPU firmware selection missing"),
