@@ -92,6 +92,10 @@ pub const BootInfo = struct {
 pub const Framebuffer = display.Framebuffer;
 
 pub fn start(info: BootInfo) noreturn {
+    if (build_options.amd_rlc_resume and !build_options.amd_psp_ring)
+        panic("AMDGPU RLC resume gate requires PSP firmware load gate");
+    if (build_options.amd_mes_mmio and !build_options.amd_rlc_resume)
+        panic("AMDGPU MES load gate requires RLC resume gate");
     if (build_options.amd_mes_activate and !build_options.amd_mes_mmio)
         panic("AMDGPU MES activation gate requires MES load gate");
     if (build_options.amd_mes_kiq and !build_options.amd_mes_activate)
@@ -154,7 +158,11 @@ pub fn start(info: BootInfo) noreturn {
     if (inventory.findClass(0x06, 0x01) == null) panic("PCI ISA bridge missing");
     const display_device = inventory.findClass(0x03, 0x00) orelse
         inventory.findClass(0x03, 0x80) orelse panic("display adapter missing");
-    syscalls.configureDrm(switch (display_device.vendor) { 0x1002 => .amdgpu, 0x10de => .nouveau, else => .csos });
+    syscalls.configureDrm(switch (display_device.vendor) {
+        0x1002 => .amdgpu,
+        0x10de => .nouveau,
+        else => .csos,
+    });
 
     smp.prepare(mapper.root) catch panic("SMP trampoline failed");
     const bsp_id = apic.id();
@@ -233,10 +241,14 @@ pub fn start(info: BootInfo) noreturn {
     scheduler.setMode(.normal);
     if (input_workload_order != 1 or background_workload_order != 2) panic("GAME workload priority failed");
     const scheduler_latency = scheduler.dispatchLatency() catch panic("scheduler latency metrics missing");
-    serial.write("profile scheduler dispatch cycles p50: "); serial.writeDecimal(scheduler_latency.p50);
-    serial.write(" p95: "); serial.writeDecimal(scheduler_latency.p95);
-    serial.write(" p99: "); serial.writeDecimal(scheduler_latency.p99);
-    serial.write(" migrations: "); serial.writeDecimal(scheduler.migrationCount());
+    serial.write("profile scheduler dispatch cycles p50: ");
+    serial.writeDecimal(scheduler_latency.p50);
+    serial.write(" p95: ");
+    serial.writeDecimal(scheduler_latency.p95);
+    serial.write(" p99: ");
+    serial.writeDecimal(scheduler_latency.p99);
+    serial.write(" migrations: ");
+    serial.writeDecimal(scheduler.migrationCount());
     serial.write("\nCSOS M18 scheduler latency ready\n");
     serial.write("CSOS M18 workload policy ready\n");
 
@@ -282,11 +294,14 @@ pub fn start(info: BootInfo) noreturn {
     if (syscalls.framebuffer_mmaps != 1) panic("Linux framebuffer mmap coverage failed");
     serial.write("CSOS M14 userspace framebuffer ioctl ready\n");
     serial.write("CSOS M14 userspace framebuffer mmap ready\n");
-    const drm_guard: *volatile const u32 = @ptrFromInt(info.framebuffer.base + 16380);
+    const drm_guard: *const volatile u32 = @ptrFromInt(info.framebuffer.base + 16380);
     const drm_guard_before = drm_guard.*;
     process.runDrmTest(mapper.root, &pages) catch {
-        serial.write("DRM last request: "); serial.writeDecimal(syscalls.drm_last_request);
-        serial.write(" result: "); serial.writeDecimal(syscalls.drm_last_result); serial.write("\n");
+        serial.write("DRM last request: ");
+        serial.writeDecimal(syscalls.drm_last_request);
+        serial.write(" result: ");
+        serial.writeDecimal(syscalls.drm_last_result);
+        serial.write("\n");
         panic("Linux DRM core userspace failed");
     };
     mapper.activate();
@@ -310,7 +325,8 @@ pub fn start(info: BootInfo) noreturn {
     process.runBusyBox(mapper.root, &pages, &shell_arguments) catch panic("BusyBox sh failed");
     mapper.activate();
     if (pages.free_pages != userspace_pages_before) panic("userspace page reclaim mismatch");
-    serial.write("userspace reclaimed pages: "); serial.writeDecimal(pages.reclaimed_pages);
+    serial.write("userspace reclaimed pages: ");
+    serial.writeDecimal(pages.reclaimed_pages);
     serial.write("\nCSOS M17 process reclaim ready\n");
     serial.write("BusyBox applets returned\n");
 
@@ -432,8 +448,11 @@ pub fn start(info: BootInfo) noreturn {
         error.ConfigurationDescriptorFailed => panic("USB configuration descriptor failed"),
         else => panic("USB enumeration failed"),
     };
-    serial.write("USB keyboards: "); serial.writeDecimal(hid.keyboards);
-    serial.write(" mice: "); serial.writeDecimal(hid.mice); serial.write("\n");
+    serial.write("USB keyboards: ");
+    serial.writeDecimal(hid.keyboards);
+    serial.write(" mice: ");
+    serial.writeDecimal(hid.mice);
+    serial.write("\n");
     if (hid.keyboards == 0 or hid.mice == 0) panic("USB HID descriptors missing");
     serial.write("USB HID endpoints armed\n");
     serial.write("CSOS M11 ready\n");
@@ -510,8 +529,10 @@ pub fn start(info: BootInfo) noreturn {
     if (pages.free_pages != nettest_pages_before) panic("network userspace page reclaim mismatch");
     if (process.pause_count != 1 or process.standby_pages == 0 or process.restored_pages == 0 or process.lifecycle != .finished)
         panic("persistent userspace standby failed");
-    serial.write("standby pages discarded: "); serial.writeDecimal(process.standby_pages);
-    serial.write(" restored: "); serial.writeDecimal(process.restored_pages);
+    serial.write("standby pages discarded: ");
+    serial.writeDecimal(process.standby_pages);
+    serial.write(" restored: ");
+    serial.writeDecimal(process.restored_pages);
     serial.write("\nCSOS M17 persistent standby resume ready\n");
     serial.write("CSOS Linux socket ABI ready\n");
     var irq_spins: usize = 0;
@@ -520,14 +541,21 @@ pub fn start(info: BootInfo) noreturn {
     if (e1000.interruptCount() == 0) panic("Ethernet MSI interrupt missing");
     if (e1000.interruptApic() != network_irq_apic) panic("Ethernet MSI affinity mismatch");
     const network_rx_latency = network.rx_latency.summarize() catch panic("Ethernet RX latency metrics missing");
-    serial.write("profile Ethernet RX IRQ-to-consume cycles p50: "); serial.writeDecimal(network_rx_latency.p50);
-    serial.write(" p95: "); serial.writeDecimal(network_rx_latency.p95);
-    serial.write(" p99: "); serial.writeDecimal(network_rx_latency.p99);
+    serial.write("profile Ethernet RX IRQ-to-consume cycles p50: ");
+    serial.writeDecimal(network_rx_latency.p50);
+    serial.write(" p95: ");
+    serial.writeDecimal(network_rx_latency.p95);
+    serial.write(" p99: ");
+    serial.writeDecimal(network_rx_latency.p99);
     serial.write("\nCSOS M18 network processing latency ready\n");
     serial.write("Ethernet ARP ready\n");
     serial.write("Ethernet MSI ready\n");
-    serial.write("Ethernet IRQ APIC: "); serial.writeDecimal(network_irq_apic); serial.write("\n");
-    serial.write("xHCI MSI-X armed APIC: "); serial.writeDecimal(input_irq_apic); serial.write("\n");
+    serial.write("Ethernet IRQ APIC: ");
+    serial.writeDecimal(network_irq_apic);
+    serial.write("\n");
+    serial.write("xHCI MSI-X armed APIC: ");
+    serial.writeDecimal(input_irq_apic);
+    serial.write("\n");
     serial.write("IPv4 ICMP ready\n");
     const gpu_adapter = gpu.Adapter.discover(display_device) catch panic("GPU discovery failed");
     if (gpu_adapter.bar_count == 0) panic("GPU BAR discovery failed");
@@ -539,8 +567,9 @@ pub fn start(info: BootInfo) noreturn {
     const gpu_firmware_entries = if (gpu_firmware) |firmware| firmware.entryCount() catch panic("GPU firmware archive invalid") else 0;
     const gpu_catalog_entries = if (gpu_firmware) |firmware|
         (firmware.countPrefix("amdgpu/") catch panic("AMDGPU firmware index invalid")) +
-        (firmware.countPrefix("nouveau/") catch panic("Nouveau firmware index invalid"))
-    else 0;
+            (firmware.countPrefix("nouveau/") catch panic("Nouveau firmware index invalid"))
+    else
+        0;
     const gpu_firmware_mappings = if (gpu_firmware) |firmware| firmware.mappingCount() catch panic("GPU firmware manifest invalid") else 0;
     const gpu_selection = if (gpu_firmware) |firmware| firmware.select(display_device, gpu_adapter.driver) catch panic("GPU firmware selection invalid") else null;
     const gpu_backend_entries = if (gpu_selection) |selection| selection.entries else 0;
@@ -548,7 +577,8 @@ pub fn start(info: BootInfo) noreturn {
     if ((gpu_adapter.driver == .amdgpu or gpu_adapter.driver == .nouveau) and gpu_selection == null) panic("GPU model firmware mapping missing");
     const gpu_validated_entries = if (gpu_firmware) |firmware|
         if (gpu_selection) |selection| firmware.validateSelection(selection, gpu_adapter.driver) catch panic("GPU firmware validation failed") else 0
-    else 0;
+    else
+        0;
     var gpu_inventory = gpu.FirmwareInventory{};
     var gpu_ip_discovery: ?gpu.AmdIpDiscovery = null;
     var gpu_backend_plan: ?gpu.AmdBackendPlan = null;
@@ -563,31 +593,43 @@ pub fn start(info: BootInfo) noreturn {
             gpu_selection orelse panic("AMDGPU firmware selection missing"),
             plan.gfx,
         ) catch panic("AMDGPU GFX11 firmware set incomplete")
-    else null else null;
+    else
+        null else null;
     const gpu_mes_firmware = if (gpu_gfx_firmware != null)
         (gpu_firmware orelse panic("AMDGPU firmware archive missing")).amdMesFirmwareSet(
             gpu_selection orelse panic("AMDGPU firmware selection missing"),
         ) catch panic("AMDGPU MES firmware selection failed")
-    else null;
+    else
+        null;
     const gpu_cp_firmware = if (gpu_gfx_firmware != null)
         (gpu_firmware orelse panic("AMDGPU firmware archive missing")).amdGfx11CpFirmwareSet(
             gpu_selection orelse panic("AMDGPU firmware selection missing"),
         ) catch panic("AMDGPU CP/RLC firmware selection failed")
-    else null;
+    else
+        null;
     const gpu_cp_firmware_staging = if (gpu_cp_firmware) |firmware|
         gpu.stageAmdGfx11CpFirmwareSet(firmware, &pages) catch panic("AMDGPU CP/RLC firmware staging failed")
-    else gpu.AmdGfx11CpFirmwareStaging{};
+    else
+        gpu.AmdGfx11CpFirmwareStaging{};
     const gpu_mes_firmware_staging = if (gpu_mes_firmware) |firmware|
         gpu.stageAmdMesFirmwareSet(firmware, &pages) catch panic("AMDGPU MES firmware staging failed")
-    else gpu.AmdMesFirmwareStaging{};
+    else
+        gpu.AmdMesFirmwareStaging{};
     const gpu_gfx_ring_resources = if (gpu_gfx_firmware != null)
         gpu.allocateAmdGfx11RingResources(gpu.physicalAmdGpuVmPageAllocator(&pages)) catch
             panic("AMDGPU GFX11 ring resource allocation failed")
-    else gpu.AmdGfx11RingResources{};
+    else
+        gpu.AmdGfx11RingResources{};
     const gpu_mes_control_resources = if (gpu_gfx_firmware != null)
         gpu.allocateAmdMesControlResources(gpu.physicalAmdGpuVmPageAllocator(&pages)) catch
             panic("AMDGPU MES control resource allocation failed")
-    else gpu.AmdMesControlResources{};
+    else
+        gpu.AmdMesControlResources{};
+    const gpu_rlc_resources = if (gpu_gfx_firmware != null)
+        gpu.allocateAmdGfx11RlcResources(gpu.physicalAmdGpuVmPageAllocator(&pages)) catch
+            panic("AMDGPU GFX11 RLC clear-state allocation failed")
+    else
+        gpu.AmdGfx11RlcResources{};
     const gpu_memory_plan = if (gpu_backend_plan) |plan| gpu.planAmdMemory(gpu_adapter.bars, gpu_adapter.register_bar, plan.gmc) catch
         panic("AMDGPU memory apertures invalid") else null;
     const gpu_psp_gtt = if (gpu_memory_plan != null) gpu.prepareAmdPspGtt(&pages) catch panic("AMDGPU PSP GTT staging failed") else gpu.AmdPspGttStaging{};
@@ -595,7 +637,8 @@ pub fn start(info: BootInfo) noreturn {
         panic("AMDGPU GART plan invalid") else null;
     const gpu_gart_registers = if (gpu_gart_plan) |plan| if (plan.family == .v11_0)
         gpu.resolveAmdGmc11GartRegisters(plan, gpu_adapter.register_bar.?.size) catch panic("AMDGPU GART registers invalid")
-    else null else null;
+    else
+        null else null;
     const gpu_gmc11_nbio_registers = if (gpu_gart_plan) |plan| if (plan.family == .v11_0) blk: {
         const nbio_ip = gpu_ip_discovery.?.find(gpu.amd_hw_id.nbif, 0) orelse panic("AMDGPU NBIO IP missing");
         break :blk gpu.resolveAmdGmc11NbioRegisters(nbio_ip, gpu_adapter.register_bar.?.size) catch panic("AMDGPU NBIO registers invalid");
@@ -628,6 +671,10 @@ pub fn start(info: BootInfo) noreturn {
         const gfx_ip = gpu_ip_discovery.?.find(gpu.amd_hw_id.gfx, 0) orelse panic("AMDGPU GFX IP missing");
         break :blk gpu.resolveAmdGfx11MesRegisters(gfx_ip, gpu_registers.size) catch panic("AMDGPU MES registers invalid");
     } else null else null;
+    const gpu_rlc_registers = if (gpu_backend_plan) |plan| if (plan.gfx == .v11_0) blk: {
+        const gfx_ip = gpu_ip_discovery.?.find(gpu.amd_hw_id.gfx, 0) orelse panic("AMDGPU GFX IP missing");
+        break :blk gpu.resolveAmdGfx11RlcRegisters(gfx_ip, gpu_registers.size) catch panic("AMDGPU RLC registers invalid");
+    } else null else null;
     if (gpu_backend_plan) |plan| if (plan.psp.host_boot_components) {
         const psp_ip = if (gpu_ip_discovery) |*discovery| discovery.find(gpu.amd_hw_id.psp, 0) orelse
             panic("AMDGPU PSP IP missing") else panic("AMDGPU IP discovery missing");
@@ -653,7 +700,8 @@ pub fn start(info: BootInfo) noreturn {
     mapper.activate();
     const gpu_mes_control = if (gpu_mes_registers) |registers|
         gpu_adapter.readRegister(registers.mes_control) catch panic("AMDGPU MES control read failed")
-    else 0;
+    else
+        0;
     const gpu_mes_halted = gpu_mes_registers != null and gpu.amdGfx11MesIsHalted(gpu_mes_control);
     var gpu_atom_vram_usage: ?gpu.AmdAtomVramUsage = null;
     var gpu_atom_firmware_info: ?gpu.AmdAtomFirmwareInfo = null;
@@ -683,7 +731,8 @@ pub fn start(info: BootInfo) noreturn {
         panic("AMDGPU GART high window invalid") else null;
     const gpu_psp_ring_layout = if (gpu_gmc11_gart_window != null)
         gpu.planAmdPspRingLayout(gpu_psp_gtt, gpu_gmc11_gart_window.?.start) catch panic("AMDGPU PSP ring GART layout invalid")
-    else null;
+    else
+        null;
     const gpu_gfx_mes_bootstrap = if (gpu_gfx_firmware != null and gpu_gmc11_gart_window != null)
         gpu.prepareAmdGfx11MesBootstrap(
             gpu_psp_gtt,
@@ -691,45 +740,72 @@ pub fn start(info: BootInfo) noreturn {
             gpu_gmc11_gart_window.?.start,
             gpu_memory_plan.?.doorbell_bar.size,
         ) catch panic("AMDGPU GFX11 MES bootstrap preparation failed")
-    else null;
+    else
+        null;
     const gpu_mes_firmware_gpu = if (gpu_mes_firmware != null and gpu_gmc11_gart_window != null)
         gpu.mapAmdMesFirmwareIntoGart(gpu_psp_gtt, gpu_mes_firmware_staging, gpu_gmc11_gart_window.?.start) catch
             panic("AMDGPU MES firmware GART mapping failed")
-    else null;
+    else
+        null;
     const gpu_mes_control_gpu = if (gpu_mes_firmware_gpu != null)
         gpu.mapAmdMesControlIntoGart(
-            gpu_psp_gtt, gpu_mes_firmware_gpu.?, gpu_mes_control_resources, gpu_gmc11_gart_window.?.start,
+            gpu_psp_gtt,
+            gpu_mes_firmware_gpu.?,
+            gpu_mes_control_resources,
+            gpu_gmc11_gart_window.?.start,
         ) catch panic("AMDGPU MES control GART mapping failed")
-    else null;
+    else
+        null;
     const gpu_cp_firmware_gpu = if (gpu_mes_control_gpu) |control|
         gpu.mapAmdGfx11CpFirmwareIntoGart(
-            gpu_psp_gtt, gpu_cp_firmware_staging, control.first_gart_page, gpu_gmc11_gart_window.?.start,
+            gpu_psp_gtt,
+            gpu_cp_firmware_staging,
+            control.first_gart_page,
+            gpu_gmc11_gart_window.?.start,
         ) catch panic("AMDGPU CP/RLC firmware GART mapping failed")
-    else null;
+    else
+        null;
+    const gpu_rlc_gpu = if (gpu_cp_firmware_gpu) |firmware|
+        gpu.mapAmdGfx11RlcIntoGart(gpu_psp_gtt, firmware, gpu_rlc_resources, gpu_gmc11_gart_window.?.start) catch
+            panic("AMDGPU RLC clear-state GART mapping failed")
+    else
+        null;
+    const gpu_rlc_resume_plan = if (gpu_rlc_gpu) |layout|
+        gpu.planAmdGfx11RlcResume(gpu_rlc_registers.?, layout) catch panic("AMDGPU RLC resume plan invalid")
+    else
+        null;
     const gpu_mes_hw_resources = if (gpu_mes_control_gpu) |control|
         gpu.planAmdGfx11MesHwResources(
-            &gpu_ip_discovery.?, control, gpu_memory_plan.?.doorbell_bar.size,
+            &gpu_ip_discovery.?,
+            control,
+            gpu_memory_plan.?.doorbell_bar.size,
         ) catch panic("AMDGPU MES hardware topology invalid")
-    else null;
+    else
+        null;
     const gpu_mes_scheduler_load = if (gpu_mes_halted) if (gpu_mes_firmware) |firmware| if (gpu_mes_firmware_gpu) |layout| if (gpu_mes_registers) |registers|
         gpu.planAmdGfx11MesLoad(.scheduler, firmware.scheduler, layout.scheduler_ucode, layout.scheduler_data, registers, true) catch
             panic("AMDGPU MES scheduler load plan invalid")
-    else null else null else null else null;
+    else
+        null else null else null else null;
     const gpu_mes_kiq_load = if (gpu_mes_halted) if (gpu_mes_firmware) |firmware| if (gpu_mes_firmware_gpu) |layout| if (gpu_mes_registers) |registers|
         gpu.planAmdGfx11MesLoad(.kiq, firmware.kiq, layout.kiq_ucode, layout.kiq_data, registers, true) catch
             panic("AMDGPU MES KIQ load plan invalid")
-    else null else null else null else null;
+    else
+        null else null else null else null;
     const gpu_mes_kiq_plan = if (gpu_gfx_mes_bootstrap != null) blk: {
         const mqd: *const [512]u32 = @ptrFromInt(gpu_gfx_ring_resources.kiq.mqd);
         break :blk gpu.planAmdGfx11KiqHqd(gpu_mes_registers.?, mqd) catch panic("AMDGPU MES KIQ HQD plan invalid");
     } else null;
     const gpu_gmc11_visible_vram = if (gpu_gmc11_memory) |memory| if (gpu_memory_plan.?.vram_bar) |bar|
         gpu.mapAmdGmc11VisibleVram(memory, bar, info.framebuffer.base, info.framebuffer.size) catch panic("AMDGPU visible VRAM mapping invalid")
-    else null else null;
+    else
+        null else null;
     var gpu_vram_allocator = if (gpu_gmc11_visible_vram) |visible| gpu.AmdVramAllocator.init(visible) catch
         panic("AMDGPU VRAM allocator invalid") else null;
     const gpu_firmware_tail_bytes: u64 = if (gpu_atom_firmware_info) |atom| if (atom.reserved_kib != 0)
-        @as(u64, atom.reserved_kib) * 1024 else 64 * 1024 else 64 * 1024;
+        @as(u64, atom.reserved_kib) * 1024
+    else
+        64 * 1024 else 64 * 1024;
     const gpu_memory_training_reserved = if (gpu_atom_firmware_info) |atom| (atom.capability & 0x400) != 0 else false;
     var gpu_gart_table_vram: ?gpu.AmdVramAllocation = null;
     var gpu_gmc11_system_pages: ?gpu.AmdGmc11SystemPages = null;
@@ -814,7 +890,9 @@ pub fn start(info: BootInfo) noreturn {
         gpu_psp_ring_control = gpu_adapter.readRegister(gpu_psp_ring_registers.?.control) catch
             panic("AMDGPU PSP ring control read failed");
         gpu_psp_ring_bootstrap = gpu.planAmdPsp13RingBootstrap(
-            gpu_psp_ring_registers.?, gpu_psp_ring_layout.?, gpu_psp_ring_control,
+            gpu_psp_ring_registers.?,
+            gpu_psp_ring_layout.?,
+            gpu_psp_ring_control,
         ) catch null;
     }
     var gpu_mes_loads: u8 = 0;
@@ -827,6 +905,7 @@ pub fn start(info: BootInfo) noreturn {
     var gpu_mes_scheduler_ready = false;
     var gpu_psp_ring_activation: ?gpu.AmdPspRingActivation = null;
     var gpu_psp_firmware_load: ?gpu.AmdPspFirmwareLoadResult = null;
+    var gpu_rlc_resumed = false;
     if (gpu_gart_mmio_transport) |*transport| {
         transport.authorize(.{
             .selected_firmware_entries = gpu_backend_entries,
@@ -883,8 +962,13 @@ pub fn start(info: BootInfo) noreturn {
                 panic("AMDGPU PSP KM ring activation failed");
             };
             gpu_psp_firmware_load = gpu.loadAmdPspIpFirmwareSequence(
-                firmware, gpu_psp_ring_layout.?, gpu_psp_gtt, gpu_psp_ring_registers.?,
-                gpu_psp_ring_activation.?.write_pointer, transport.io(), 2_100_000,
+                firmware,
+                gpu_psp_ring_layout.?,
+                gpu_psp_gtt,
+                gpu_psp_ring_registers.?,
+                gpu_psp_ring_activation.?.write_pointer,
+                transport.io(),
+                2_100_000,
             ) catch {
                 transport.disarm();
                 gpu_psp_ring_activation = null;
@@ -892,8 +976,23 @@ pub fn start(info: BootInfo) noreturn {
             };
             transport.disarm();
         }
-        if (build_options.amd_mes_mmio) {
+        if (build_options.amd_rlc_resume) {
             if (!build_options.amd_gart_mmio or !build_options.amd_psp_ring or !gpu_gmc11_activation_workspace.active or
+                gpu_psp_firmware_load == null or gpu_psp_firmware_load.?.loaded != gpu_cp_firmware_gpu.?.count or
+                build_options.amd_gart_device == 0 or build_options.amd_gart_device != gpu_adapter.device.device)
+                panic("AMDGPU RLC resume gate requires matching GART and loaded CP/RLC firmware");
+            const plan = gpu_rlc_resume_plan orelse panic("AMDGPU RLC resume plan unavailable");
+            transport.arm() catch panic("AMDGPU RLC resume MMIO arming failed");
+            _ = gpu.executeAmdGfx11RlcResume(plan, transport.io()) catch {
+                transport.disarm();
+                panic("AMDGPU RLC resume failed and rolled back");
+            };
+            transport.disarm();
+            gpu_rlc_resumed = true;
+        }
+        if (build_options.amd_mes_mmio) {
+            if (!build_options.amd_gart_mmio or !build_options.amd_psp_ring or !build_options.amd_rlc_resume or !gpu_rlc_resumed or
+                !gpu_gmc11_activation_workspace.active or
                 gpu_psp_firmware_load == null or gpu_psp_firmware_load.?.loaded != gpu_cp_firmware_gpu.?.count or
                 build_options.amd_gart_device == 0 or build_options.amd_gart_device != gpu_adapter.device.device)
                 panic("AMDGPU MES load gate requires matching GART and loaded CP/RLC firmware");
@@ -960,7 +1059,12 @@ pub fn start(info: BootInfo) noreturn {
                         const ring: *[1024]u32 = @ptrFromInt(gpu_gfx_ring_resources.kiq.ring);
                         const pointers: *[2]u64 = @ptrFromInt(gpu_gfx_ring_resources.kiq.pointers);
                         gpu_mes_kiq_test_polls = gpu.testAmdGfx11Kiq(
-                            test_plan, ring, pointers, 100_000, transport.io(), doorbell_transport.io(),
+                            test_plan,
+                            ring,
+                            pointers,
+                            100_000,
+                            transport.io(),
+                            doorbell_transport.io(),
                         ) catch {
                             doorbell_transport.disarm();
                             gpu.restoreAmdGfx11Kiq(kiq_hqd_plan, &kiq_transaction, transport.io()) catch {
@@ -980,8 +1084,11 @@ pub fn start(info: BootInfo) noreturn {
                         if (build_options.amd_mes_scheduler_map) {
                             const scheduler_mqd: *const [512]u32 = @ptrFromInt(gpu_gfx_ring_resources.scheduler.mqd);
                             const map_plan = gpu.planAmdGfx11MesSchedulerMap(
-                                gpu_mes_registers.?, bootstrap.scheduler, bootstrap.scheduler_doorbell,
-                                bootstrap.kiq_doorbell, scheduler_mqd,
+                                gpu_mes_registers.?,
+                                bootstrap.scheduler,
+                                bootstrap.scheduler_doorbell,
+                                bootstrap.kiq_doorbell,
+                                scheduler_mqd,
                             ) catch panic("AMDGPU MES scheduler map plan invalid");
                             var map_doorbell_transport = gpu.AmdGfx11DoorbellTransport{
                                 .aperture = gpu_memory_plan.?.doorbell_bar,
@@ -992,7 +1099,12 @@ pub fn start(info: BootInfo) noreturn {
                                 panic("AMDGPU MES scheduler map doorbell authorization rejected");
                             map_doorbell_transport.arm() catch panic("AMDGPU MES scheduler map doorbell arming failed");
                             gpu_mes_scheduler_map_polls = gpu.mapAmdGfx11MesScheduler(
-                                map_plan, ring, pointers, 100_000, transport.io(), map_doorbell_transport.io(),
+                                map_plan,
+                                ring,
+                                pointers,
+                                100_000,
+                                transport.io(),
+                                map_doorbell_transport.io(),
                             ) catch {
                                 map_doorbell_transport.disarm();
                                 gpu.restoreAmdGfx11Kiq(kiq_hqd_plan, &kiq_transaction, transport.io()) catch {
@@ -1013,7 +1125,9 @@ pub fn start(info: BootInfo) noreturn {
                                 const hw_resources = gpu_mes_hw_resources orelse panic("AMDGPU MES hardware resources unavailable");
                                 const control_layout = gpu_mes_control_gpu orelse panic("AMDGPU MES control layout unavailable");
                                 const init_plan = gpu.planAmdMesSchedulerInit(
-                                    hw_resources, control_layout, bootstrap.scheduler_doorbell,
+                                    hw_resources,
+                                    control_layout,
+                                    bootstrap.scheduler_doorbell,
                                 ) catch panic("AMDGPU MES scheduler init plan invalid");
                                 var scheduler_doorbell_transport = gpu.AmdGfx11DoorbellTransport{
                                     .aperture = gpu_memory_plan.?.doorbell_bar,
@@ -1027,7 +1141,11 @@ pub fn start(info: BootInfo) noreturn {
                                 const scheduler_pointers: *[2]u64 = @ptrFromInt(gpu_gfx_ring_resources.scheduler.pointers);
                                 const control_page: *[512]u64 = @ptrFromInt(gpu_mes_control_resources.page);
                                 gpu_mes_scheduler_init_polls = gpu.initializeAmdMesScheduler(
-                                    init_plan, scheduler_ring, scheduler_pointers, control_page, 2_100_000,
+                                    init_plan,
+                                    scheduler_ring,
+                                    scheduler_pointers,
+                                    control_page,
+                                    2_100_000,
                                     scheduler_doorbell_transport.io(),
                                 ) catch {
                                     scheduler_doorbell_transport.disarm();
@@ -1047,7 +1165,9 @@ pub fn start(info: BootInfo) noreturn {
                                 scheduler_doorbell_transport.disarm();
                                 if (build_options.amd_mes_scheduler_resource1) {
                                     const resource1_plan = gpu.planAmdMesSchedulerResource1(
-                                        gpu_mes_activation.?.scheduler_version, control_layout, bootstrap.scheduler_doorbell,
+                                        gpu_mes_activation.?.scheduler_version,
+                                        control_layout,
+                                        bootstrap.scheduler_doorbell,
                                     ) catch panic("AMDGPU MES scheduler resource1 plan invalid");
                                     if (resource1_plan) |plan| {
                                         var resource1_doorbell_transport = gpu.AmdGfx11DoorbellTransport{
@@ -1059,7 +1179,11 @@ pub fn start(info: BootInfo) noreturn {
                                             panic("AMDGPU MES scheduler resource1 doorbell authorization rejected");
                                         resource1_doorbell_transport.arm() catch panic("AMDGPU MES scheduler resource1 doorbell arming failed");
                                         gpu_mes_scheduler_resource1_polls = gpu.initializeAmdMesSchedulerResource1(
-                                            plan, scheduler_ring, scheduler_pointers, control_page, 2_100_000,
+                                            plan,
+                                            scheduler_ring,
+                                            scheduler_pointers,
+                                            control_page,
+                                            2_100_000,
                                             resource1_doorbell_transport.io(),
                                         ) catch {
                                             resource1_doorbell_transport.disarm();
@@ -1094,116 +1218,226 @@ pub fn start(info: BootInfo) noreturn {
     screen.drawBaseline(@as(usize, hid.keyboards) + hid.mice, audio_info.playback_endpoints);
     const initial_pixels = screen.present();
     if (initial_pixels == 0) panic("display presentation failed");
-    serial.write("GPU PCI vendor: "); serial.writeDecimal(screen.adapter.vendor);
-    serial.write(" device: "); serial.writeDecimal(screen.adapter.device);
-    serial.write(" revision: "); serial.writeDecimal(display_device.revision);
-    serial.write(" bars: "); serial.writeDecimal(gpu_adapter.bar_count);
-    serial.write(" bytes: "); serial.writeDecimal(gpu_adapter.mmio_bytes);
-    serial.write(" registers: "); serial.writeDecimal(gpu_registers.size);
-    serial.write(" rom-bytes: "); serial.writeDecimal(if (gpu_adapter.rom_bar) |rom| rom.size else 0);
-    serial.write(" rom-enabled: "); serial.writeDecimal(if (gpu_adapter.rom_bar) |rom| @intFromBool(rom.enabled) else 0);
-    serial.write(" rom-read: "); serial.writeDecimal(@intFromBool(gpu_rom_read));
-    serial.write(" rom-restored: "); serial.writeDecimal(@intFromBool(gpu_rom_restored));
-    serial.write(" atom-vram-usage: "); serial.writeDecimal(if (gpu_atom_vram_usage) |_| 1 else 0);
-    serial.write(" atom-fw-kib: "); serial.writeDecimal(if (gpu_atom_vram_usage) |usage| usage.firmware_kib else 0);
-    serial.write(" atom-driver-kib: "); serial.writeDecimal(if (gpu_atom_vram_usage) |usage| usage.driver_kib else 0);
-    serial.write(" atom-firmware-info: "); serial.writeDecimal(if (gpu_atom_firmware_info) |_| 1 else 0);
-    serial.write(" atom-fw-reserved-kib: "); serial.writeDecimal(if (gpu_atom_firmware_info) |atom| atom.reserved_kib else 0);
-    serial.write(" firmware-tail-bytes: "); serial.writeDecimal(if (gpu_gmc11_memory != null) gpu_firmware_tail_bytes else 0);
-    serial.write(" memory-training-reserved: "); serial.writeDecimal(@intFromBool(gpu_memory_training_reserved));
-    serial.write(" probe: "); serial.writeDecimal(gpu_register_probe);
-    serial.write(" chipset: "); serial.writeDecimal(gpu_identity.chipset orelse 0);
-    serial.write(" chiprev: "); serial.writeDecimal(gpu_identity.chip_revision orelse 0);
-    serial.write(" firmware: "); serial.writeDecimal(if (gpu_firmware) |firmware| firmware.size else 0);
-    serial.write(" entries: "); serial.writeDecimal(gpu_firmware_entries);
-    serial.write(" catalog: "); serial.writeDecimal(gpu_catalog_entries);
-    serial.write(" mappings: "); serial.writeDecimal(gpu_firmware_mappings);
-    serial.write(" selected: "); serial.writeDecimal(gpu_backend_entries);
-    serial.write(" required-mask: "); serial.writeDecimal(gpu_required_blocks);
-    serial.write(" validated: "); serial.writeDecimal(gpu_validated_entries);
-    serial.write(" payloads: "); serial.writeDecimal(gpu_inventory.entries);
-    serial.write(" payload-bytes: "); serial.writeDecimal(gpu_inventory.payload_bytes);
-    serial.write(" security: "); serial.writeDecimal(gpu_inventory.block(.security).entries);
-    serial.write(" graphics: "); serial.writeDecimal(gpu_inventory.block(.graphics).entries);
-    serial.write(" dma: "); serial.writeDecimal(gpu_inventory.block(.dma).entries);
-    serial.write(" ip-dies: "); serial.writeDecimal(if (gpu_ip_discovery) |discovery| discovery.dies else 0);
-    serial.write(" ips: "); serial.writeDecimal(if (gpu_ip_discovery) |discovery| discovery.ips else 0);
-    serial.write(" psp: "); serial.writeDecimal(gpu_psp_major);
-    serial.write(" gfx: "); serial.writeDecimal(gpu_gfx_major);
-    serial.write(" mmhub: "); serial.writeDecimal(gpu_mmhub_major);
-    serial.write(" sdma: "); serial.writeDecimal(gpu_sdma_major);
-    serial.write(" plan: "); serial.writeDecimal(if (gpu_backend_plan) |_| 1 else 0);
-    serial.write(" gmc-plan: "); serial.writeDecimal(if (gpu_memory_plan) |_| 1 else 0);
-    serial.write(" gmc-snapshot: "); serial.writeDecimal(if (gpu_gmc11_memory) |_| 1 else 0);
-    serial.write(" vram-mc-base: "); serial.writeDecimal(if (gpu_gmc11_memory) |snapshot| snapshot.vram_mc_base else 0);
-    serial.write(" vram-mc-offset: "); serial.writeDecimal(if (gpu_gmc11_memory) |snapshot| snapshot.vram_mc_offset else 0);
-    serial.write(" vram-bytes: "); serial.writeDecimal(if (gpu_gmc11_memory) |snapshot| snapshot.vram_bytes else 0);
-    serial.write(" vram-visible: "); serial.writeDecimal(if (gpu_gmc11_visible_vram) |visible| visible.bytes else 0);
-    serial.write(" framebuffer-mc: "); serial.writeDecimal(if (gpu_gmc11_visible_vram) |visible| visible.framebuffer_mc_start else 0);
-    serial.write(" vram-reservations: "); serial.writeDecimal(if (gpu_vram_allocator) |allocator| allocator.reservation_count else 0);
-    serial.write(" vram-map-sealed: "); serial.writeDecimal(if (gpu_vram_allocator) |allocator| @intFromBool(allocator.firmware_map_sealed) else 0);
-    serial.write(" vram-aperture: "); serial.writeDecimal(if (gpu_memory_plan) |plan| if (plan.vram_bar) |bar| bar.size else 0 else 0);
-    serial.write(" doorbell-aperture: "); serial.writeDecimal(if (gpu_memory_plan) |plan| plan.doorbell_bar.size else 0);
-    serial.write(" gtt-table: "); serial.writeDecimal(gpu_psp_gtt.page_table_address);
-    serial.write(" gtt-pages: "); serial.writeDecimal(gpu_psp_gtt.buffer_pages);
-    serial.write(" gtt-ready: "); serial.writeDecimal(@intFromBool(gpu_psp_gtt.active));
-    serial.write(" gart-plan: "); serial.writeDecimal(if (gpu_gart_plan) |_| 1 else 0);
-    serial.write(" gart-bound: "); serial.writeDecimal(if (gpu_gart_plan) |plan| @intFromBool(plan.table_mc_address != null) else 0);
-    serial.write(" gart-table-mc: "); serial.writeDecimal(if (gpu_gart_plan) |plan| plan.table_mc_address orelse 0 else 0);
-    serial.write(" gart-table-vram-cpu: "); serial.writeDecimal(if (gpu_gart_table_vram) |allocation| allocation.cpu_address else 0);
-    serial.write(" gart-aperture-ready: "); serial.writeDecimal(if (gpu_gart_aperture) |_| 1 else 0);
-    serial.write(" gart-rollback-registers: "); serial.writeDecimal(gpu_gart_rollback_registers);
-    serial.write(" gart-scratch-mc: "); serial.writeDecimal(if (gpu_gmc11_system_pages) |system| system.scratch.mc_address else 0);
-    serial.write(" gart-scratch-pa: "); serial.writeDecimal(if (gpu_gmc11_system_pages) |system| system.scratch_physical else 0);
-    serial.write(" gart-dummy-pa: "); serial.writeDecimal(if (gpu_gmc11_system_pages) |system| system.dummy_physical else 0);
-    serial.write(" gart-system-aperture-ready: "); serial.writeDecimal(if (gpu_gmc11_system_aperture) |_| 1 else 0);
-    serial.write(" gart-window: "); serial.writeDecimal(if (gpu_gart_plan) |plan| plan.window_bytes else 0);
-    serial.write(" gart-window-start: "); serial.writeDecimal(if (gpu_gmc11_gart_window) |window| window.start else 0);
-    serial.write(" gart-window-end: "); serial.writeDecimal(if (gpu_gmc11_gart_window) |window| window.end else 0);
-    serial.write(" gart-gfxhub: "); serial.writeDecimal(if (gpu_gart_plan) |plan| @intFromBool(plan.gfxhub_base != null) else 0);
-    serial.write(" gart-registers: "); serial.writeDecimal(if (gpu_gart_registers) |_| 1 else 0);
-    serial.write(" gart-context-reg: "); serial.writeDecimal(if (gpu_gart_registers) |registers| registers.context_control else 0);
-    serial.write(" gart-invalidate-reg: "); serial.writeDecimal(if (gpu_gart_registers) |registers| registers.invalidate_request else 0);
-    serial.write(" gart-active: "); serial.writeDecimal(if (gpu_gart_plan) |plan| @intFromBool(plan.active) else 0);
-    serial.write(" gart-mmio-transport: "); serial.writeDecimal(if (gpu_gart_mmio_transport) |_| 1 else 0);
-    serial.write(" gart-write-authorized: "); serial.writeDecimal(if (gpu_gart_mmio_transport) |transport| @intFromBool(transport.authorized) else 0);
-    serial.write(" gart-write-armed: "); serial.writeDecimal(if (gpu_gart_mmio_transport) |transport| @intFromBool(transport.armed) else 0);
-    serial.write(" gart-activation-prepared: "); serial.writeDecimal(@intFromBool(gpu_gmc11_activation_workspace.prepared));
-    serial.write(" gart-activation-committed: "); serial.writeDecimal(@intFromBool(gpu_gmc11_activation_workspace.active));
-    serial.write(" gart-snapshot-digest: "); serial.writeDecimal(gpu_gmc11_activation_workspace.snapshot_digest);
-    serial.write(" gart-write-digest: "); serial.writeDecimal(gpu_gmc11_activation_workspace.write_digest);
-    serial.write(" gart-invalidate-polls: "); serial.writeDecimal(gpu_gmc11_activation_workspace.invalidate_polls);
-    serial.write(" psp-version: "); serial.writeDecimal(if (gpu_backend_plan) |plan| plan.psp.ip_version else 0);
-    serial.write(" psp-autoload: "); serial.writeDecimal(if (gpu_backend_plan) |plan| @intFromBool(plan.psp.autoload_supported) else 0);
-    serial.write(" psp-boot-tmr: "); serial.writeDecimal(if (gpu_backend_plan) |plan| @intFromBool(plan.psp.boot_time_tmr) else 0);
-    serial.write(" psp-host-boot: "); serial.writeDecimal(if (gpu_backend_plan) |plan| @intFromBool(plan.psp.host_boot_components) else 0);
-    serial.write(" psp-mailbox: "); serial.writeDecimal(if (gpu_psp_mailbox_registers) |_| 1 else 0);
-    serial.write(" psp-command-reg: "); serial.writeDecimal(if (gpu_psp_mailbox_registers) |registers| registers.command_offset else 0);
-    serial.write(" psp-observed: "); serial.writeDecimal(if (gpu_psp_mailbox_snapshot) |_| 1 else 0);
-    serial.write(" psp-mailbox-state: "); serial.writeDecimal(if (gpu_psp_mailbox_snapshot) |snapshot| @intFromEnum(snapshot.state) else 0);
-    serial.write(" psp-mailbox-waited: "); serial.writeDecimal(@intFromBool(gpu_psp_mailbox_waited));
-    serial.write(" psp-mmio-transport: "); serial.writeDecimal(if (gpu_psp_mmio_transport) |_| 1 else 0);
-    serial.write(" psp-write-armed: "); serial.writeDecimal(if (gpu_psp_mmio_transport) |transport| @intFromBool(transport.armed) else 0);
-    serial.write(" psp-write-authorized: "); serial.writeDecimal(if (gpu_psp_mmio_transport) |transport| @intFromBool(transport.authorized) else 0);
-    serial.write(" psp-preflight: "); serial.writeDecimal(if (gpu_psp_preflight) |preflight| @intFromEnum(preflight) + 1 else 0);
-    serial.write(" staged: "); serial.writeDecimal(gpu_firmware_staging.count);
-    serial.write(" staged-bytes: "); serial.writeDecimal(gpu_firmware_staging.image_bytes);
-    serial.write(" staged-payload: "); serial.writeDecimal(gpu_firmware_staging.payload_bytes);
-    serial.write(" psp-components: "); serial.writeDecimal(gpu_firmware_staging.psp_component_count);
-    serial.write(" psp-boot: "); serial.writeDecimal(if (gpu_psp_boot_images) |_| 1 else 0);
-    serial.write(" psp-aux: "); serial.writeDecimal(if (gpu_psp_boot_images) |images| @intFromBool(images.auxiliary) else 0);
-    serial.write(" psp-steps: "); serial.writeDecimal(gpu_psp_handoff.count);
-    serial.write(" psp-transfer: "); serial.writeDecimal(gpu_psp_handoff.transfer_address);
-    serial.write(" psp-state: "); serial.writeDecimal(@intFromEnum(gpu_psp_handoff.state));
-    serial.write(" gfx-fw-typed: "); serial.writeDecimal(if (gpu_gfx_firmware) |manifest| manifest.entries else 0);
-    serial.write(" cp-fw-format: "); serial.writeDecimal(if (gpu_cp_firmware) |firmware| @intFromEnum(firmware.pfp.?.format) + 1 else 0);
-    serial.write(" cp-fw-psp-payloads: "); serial.writeDecimal(gpu_cp_firmware_staging.count);
-    serial.write(" cp-fw-gart-pages: "); serial.writeDecimal(if (gpu_cp_firmware_gpu) |layout| layout.gart_pages else 0);
-    serial.write(" psp-ring-bootstrap: "); serial.writeDecimal(@intFromBool(gpu_psp_ring_bootstrap != null));
-    serial.write(" psp-ring-active: "); serial.writeDecimal(@intFromBool(gpu_psp_ring_activation != null));
-    serial.write(" psp-ip-fw-loaded: "); serial.writeDecimal(if (gpu_psp_firmware_load) |loaded| loaded.loaded else 0);
-    serial.write(" psp-ip-fw-warnings: "); serial.writeDecimal(if (gpu_psp_firmware_load) |loaded| loaded.response_warnings else 0);
-    serial.write(" gfx-ring-preflight: "); serial.writeDecimal(@intFromEnum(gpu.preflightAmdGfx11Ring(.{
+    serial.write("GPU PCI vendor: ");
+    serial.writeDecimal(screen.adapter.vendor);
+    serial.write(" device: ");
+    serial.writeDecimal(screen.adapter.device);
+    serial.write(" revision: ");
+    serial.writeDecimal(display_device.revision);
+    serial.write(" bars: ");
+    serial.writeDecimal(gpu_adapter.bar_count);
+    serial.write(" bytes: ");
+    serial.writeDecimal(gpu_adapter.mmio_bytes);
+    serial.write(" registers: ");
+    serial.writeDecimal(gpu_registers.size);
+    serial.write(" rom-bytes: ");
+    serial.writeDecimal(if (gpu_adapter.rom_bar) |rom| rom.size else 0);
+    serial.write(" rom-enabled: ");
+    serial.writeDecimal(if (gpu_adapter.rom_bar) |rom| @intFromBool(rom.enabled) else 0);
+    serial.write(" rom-read: ");
+    serial.writeDecimal(@intFromBool(gpu_rom_read));
+    serial.write(" rom-restored: ");
+    serial.writeDecimal(@intFromBool(gpu_rom_restored));
+    serial.write(" atom-vram-usage: ");
+    serial.writeDecimal(if (gpu_atom_vram_usage) |_| 1 else 0);
+    serial.write(" atom-fw-kib: ");
+    serial.writeDecimal(if (gpu_atom_vram_usage) |usage| usage.firmware_kib else 0);
+    serial.write(" atom-driver-kib: ");
+    serial.writeDecimal(if (gpu_atom_vram_usage) |usage| usage.driver_kib else 0);
+    serial.write(" atom-firmware-info: ");
+    serial.writeDecimal(if (gpu_atom_firmware_info) |_| 1 else 0);
+    serial.write(" atom-fw-reserved-kib: ");
+    serial.writeDecimal(if (gpu_atom_firmware_info) |atom| atom.reserved_kib else 0);
+    serial.write(" firmware-tail-bytes: ");
+    serial.writeDecimal(if (gpu_gmc11_memory != null) gpu_firmware_tail_bytes else 0);
+    serial.write(" memory-training-reserved: ");
+    serial.writeDecimal(@intFromBool(gpu_memory_training_reserved));
+    serial.write(" probe: ");
+    serial.writeDecimal(gpu_register_probe);
+    serial.write(" chipset: ");
+    serial.writeDecimal(gpu_identity.chipset orelse 0);
+    serial.write(" chiprev: ");
+    serial.writeDecimal(gpu_identity.chip_revision orelse 0);
+    serial.write(" firmware: ");
+    serial.writeDecimal(if (gpu_firmware) |firmware| firmware.size else 0);
+    serial.write(" entries: ");
+    serial.writeDecimal(gpu_firmware_entries);
+    serial.write(" catalog: ");
+    serial.writeDecimal(gpu_catalog_entries);
+    serial.write(" mappings: ");
+    serial.writeDecimal(gpu_firmware_mappings);
+    serial.write(" selected: ");
+    serial.writeDecimal(gpu_backend_entries);
+    serial.write(" required-mask: ");
+    serial.writeDecimal(gpu_required_blocks);
+    serial.write(" validated: ");
+    serial.writeDecimal(gpu_validated_entries);
+    serial.write(" payloads: ");
+    serial.writeDecimal(gpu_inventory.entries);
+    serial.write(" payload-bytes: ");
+    serial.writeDecimal(gpu_inventory.payload_bytes);
+    serial.write(" security: ");
+    serial.writeDecimal(gpu_inventory.block(.security).entries);
+    serial.write(" graphics: ");
+    serial.writeDecimal(gpu_inventory.block(.graphics).entries);
+    serial.write(" dma: ");
+    serial.writeDecimal(gpu_inventory.block(.dma).entries);
+    serial.write(" ip-dies: ");
+    serial.writeDecimal(if (gpu_ip_discovery) |discovery| discovery.dies else 0);
+    serial.write(" ips: ");
+    serial.writeDecimal(if (gpu_ip_discovery) |discovery| discovery.ips else 0);
+    serial.write(" psp: ");
+    serial.writeDecimal(gpu_psp_major);
+    serial.write(" gfx: ");
+    serial.writeDecimal(gpu_gfx_major);
+    serial.write(" mmhub: ");
+    serial.writeDecimal(gpu_mmhub_major);
+    serial.write(" sdma: ");
+    serial.writeDecimal(gpu_sdma_major);
+    serial.write(" plan: ");
+    serial.writeDecimal(if (gpu_backend_plan) |_| 1 else 0);
+    serial.write(" gmc-plan: ");
+    serial.writeDecimal(if (gpu_memory_plan) |_| 1 else 0);
+    serial.write(" gmc-snapshot: ");
+    serial.writeDecimal(if (gpu_gmc11_memory) |_| 1 else 0);
+    serial.write(" vram-mc-base: ");
+    serial.writeDecimal(if (gpu_gmc11_memory) |snapshot| snapshot.vram_mc_base else 0);
+    serial.write(" vram-mc-offset: ");
+    serial.writeDecimal(if (gpu_gmc11_memory) |snapshot| snapshot.vram_mc_offset else 0);
+    serial.write(" vram-bytes: ");
+    serial.writeDecimal(if (gpu_gmc11_memory) |snapshot| snapshot.vram_bytes else 0);
+    serial.write(" vram-visible: ");
+    serial.writeDecimal(if (gpu_gmc11_visible_vram) |visible| visible.bytes else 0);
+    serial.write(" framebuffer-mc: ");
+    serial.writeDecimal(if (gpu_gmc11_visible_vram) |visible| visible.framebuffer_mc_start else 0);
+    serial.write(" vram-reservations: ");
+    serial.writeDecimal(if (gpu_vram_allocator) |allocator| allocator.reservation_count else 0);
+    serial.write(" vram-map-sealed: ");
+    serial.writeDecimal(if (gpu_vram_allocator) |allocator| @intFromBool(allocator.firmware_map_sealed) else 0);
+    serial.write(" vram-aperture: ");
+    serial.writeDecimal(if (gpu_memory_plan) |plan| if (plan.vram_bar) |bar| bar.size else 0 else 0);
+    serial.write(" doorbell-aperture: ");
+    serial.writeDecimal(if (gpu_memory_plan) |plan| plan.doorbell_bar.size else 0);
+    serial.write(" gtt-table: ");
+    serial.writeDecimal(gpu_psp_gtt.page_table_address);
+    serial.write(" gtt-pages: ");
+    serial.writeDecimal(gpu_psp_gtt.buffer_pages);
+    serial.write(" gtt-ready: ");
+    serial.writeDecimal(@intFromBool(gpu_psp_gtt.active));
+    serial.write(" gart-plan: ");
+    serial.writeDecimal(if (gpu_gart_plan) |_| 1 else 0);
+    serial.write(" gart-bound: ");
+    serial.writeDecimal(if (gpu_gart_plan) |plan| @intFromBool(plan.table_mc_address != null) else 0);
+    serial.write(" gart-table-mc: ");
+    serial.writeDecimal(if (gpu_gart_plan) |plan| plan.table_mc_address orelse 0 else 0);
+    serial.write(" gart-table-vram-cpu: ");
+    serial.writeDecimal(if (gpu_gart_table_vram) |allocation| allocation.cpu_address else 0);
+    serial.write(" gart-aperture-ready: ");
+    serial.writeDecimal(if (gpu_gart_aperture) |_| 1 else 0);
+    serial.write(" gart-rollback-registers: ");
+    serial.writeDecimal(gpu_gart_rollback_registers);
+    serial.write(" gart-scratch-mc: ");
+    serial.writeDecimal(if (gpu_gmc11_system_pages) |system| system.scratch.mc_address else 0);
+    serial.write(" gart-scratch-pa: ");
+    serial.writeDecimal(if (gpu_gmc11_system_pages) |system| system.scratch_physical else 0);
+    serial.write(" gart-dummy-pa: ");
+    serial.writeDecimal(if (gpu_gmc11_system_pages) |system| system.dummy_physical else 0);
+    serial.write(" gart-system-aperture-ready: ");
+    serial.writeDecimal(if (gpu_gmc11_system_aperture) |_| 1 else 0);
+    serial.write(" gart-window: ");
+    serial.writeDecimal(if (gpu_gart_plan) |plan| plan.window_bytes else 0);
+    serial.write(" gart-window-start: ");
+    serial.writeDecimal(if (gpu_gmc11_gart_window) |window| window.start else 0);
+    serial.write(" gart-window-end: ");
+    serial.writeDecimal(if (gpu_gmc11_gart_window) |window| window.end else 0);
+    serial.write(" gart-gfxhub: ");
+    serial.writeDecimal(if (gpu_gart_plan) |plan| @intFromBool(plan.gfxhub_base != null) else 0);
+    serial.write(" gart-registers: ");
+    serial.writeDecimal(if (gpu_gart_registers) |_| 1 else 0);
+    serial.write(" gart-context-reg: ");
+    serial.writeDecimal(if (gpu_gart_registers) |registers| registers.context_control else 0);
+    serial.write(" gart-invalidate-reg: ");
+    serial.writeDecimal(if (gpu_gart_registers) |registers| registers.invalidate_request else 0);
+    serial.write(" gart-active: ");
+    serial.writeDecimal(if (gpu_gart_plan) |plan| @intFromBool(plan.active) else 0);
+    serial.write(" gart-mmio-transport: ");
+    serial.writeDecimal(if (gpu_gart_mmio_transport) |_| 1 else 0);
+    serial.write(" gart-write-authorized: ");
+    serial.writeDecimal(if (gpu_gart_mmio_transport) |transport| @intFromBool(transport.authorized) else 0);
+    serial.write(" gart-write-armed: ");
+    serial.writeDecimal(if (gpu_gart_mmio_transport) |transport| @intFromBool(transport.armed) else 0);
+    serial.write(" gart-activation-prepared: ");
+    serial.writeDecimal(@intFromBool(gpu_gmc11_activation_workspace.prepared));
+    serial.write(" gart-activation-committed: ");
+    serial.writeDecimal(@intFromBool(gpu_gmc11_activation_workspace.active));
+    serial.write(" gart-snapshot-digest: ");
+    serial.writeDecimal(gpu_gmc11_activation_workspace.snapshot_digest);
+    serial.write(" gart-write-digest: ");
+    serial.writeDecimal(gpu_gmc11_activation_workspace.write_digest);
+    serial.write(" gart-invalidate-polls: ");
+    serial.writeDecimal(gpu_gmc11_activation_workspace.invalidate_polls);
+    serial.write(" psp-version: ");
+    serial.writeDecimal(if (gpu_backend_plan) |plan| plan.psp.ip_version else 0);
+    serial.write(" psp-autoload: ");
+    serial.writeDecimal(if (gpu_backend_plan) |plan| @intFromBool(plan.psp.autoload_supported) else 0);
+    serial.write(" psp-boot-tmr: ");
+    serial.writeDecimal(if (gpu_backend_plan) |plan| @intFromBool(plan.psp.boot_time_tmr) else 0);
+    serial.write(" psp-host-boot: ");
+    serial.writeDecimal(if (gpu_backend_plan) |plan| @intFromBool(plan.psp.host_boot_components) else 0);
+    serial.write(" psp-mailbox: ");
+    serial.writeDecimal(if (gpu_psp_mailbox_registers) |_| 1 else 0);
+    serial.write(" psp-command-reg: ");
+    serial.writeDecimal(if (gpu_psp_mailbox_registers) |registers| registers.command_offset else 0);
+    serial.write(" psp-observed: ");
+    serial.writeDecimal(if (gpu_psp_mailbox_snapshot) |_| 1 else 0);
+    serial.write(" psp-mailbox-state: ");
+    serial.writeDecimal(if (gpu_psp_mailbox_snapshot) |snapshot| @intFromEnum(snapshot.state) else 0);
+    serial.write(" psp-mailbox-waited: ");
+    serial.writeDecimal(@intFromBool(gpu_psp_mailbox_waited));
+    serial.write(" psp-mmio-transport: ");
+    serial.writeDecimal(if (gpu_psp_mmio_transport) |_| 1 else 0);
+    serial.write(" psp-write-armed: ");
+    serial.writeDecimal(if (gpu_psp_mmio_transport) |transport| @intFromBool(transport.armed) else 0);
+    serial.write(" psp-write-authorized: ");
+    serial.writeDecimal(if (gpu_psp_mmio_transport) |transport| @intFromBool(transport.authorized) else 0);
+    serial.write(" psp-preflight: ");
+    serial.writeDecimal(if (gpu_psp_preflight) |preflight| @intFromEnum(preflight) + 1 else 0);
+    serial.write(" staged: ");
+    serial.writeDecimal(gpu_firmware_staging.count);
+    serial.write(" staged-bytes: ");
+    serial.writeDecimal(gpu_firmware_staging.image_bytes);
+    serial.write(" staged-payload: ");
+    serial.writeDecimal(gpu_firmware_staging.payload_bytes);
+    serial.write(" psp-components: ");
+    serial.writeDecimal(gpu_firmware_staging.psp_component_count);
+    serial.write(" psp-boot: ");
+    serial.writeDecimal(if (gpu_psp_boot_images) |_| 1 else 0);
+    serial.write(" psp-aux: ");
+    serial.writeDecimal(if (gpu_psp_boot_images) |images| @intFromBool(images.auxiliary) else 0);
+    serial.write(" psp-steps: ");
+    serial.writeDecimal(gpu_psp_handoff.count);
+    serial.write(" psp-transfer: ");
+    serial.writeDecimal(gpu_psp_handoff.transfer_address);
+    serial.write(" psp-state: ");
+    serial.writeDecimal(@intFromEnum(gpu_psp_handoff.state));
+    serial.write(" gfx-fw-typed: ");
+    serial.writeDecimal(if (gpu_gfx_firmware) |manifest| manifest.entries else 0);
+    serial.write(" cp-fw-format: ");
+    serial.writeDecimal(if (gpu_cp_firmware) |firmware| @intFromEnum(firmware.pfp.?.format) + 1 else 0);
+    serial.write(" cp-fw-psp-payloads: ");
+    serial.writeDecimal(gpu_cp_firmware_staging.count);
+    serial.write(" cp-fw-gart-pages: ");
+    serial.writeDecimal(if (gpu_cp_firmware_gpu) |layout| layout.gart_pages else 0);
+    serial.write(" psp-ring-bootstrap: ");
+    serial.writeDecimal(@intFromBool(gpu_psp_ring_bootstrap != null));
+    serial.write(" psp-ring-active: ");
+    serial.writeDecimal(@intFromBool(gpu_psp_ring_activation != null));
+    serial.write(" psp-ip-fw-loaded: ");
+    serial.writeDecimal(if (gpu_psp_firmware_load) |loaded| loaded.loaded else 0);
+    serial.write(" psp-ip-fw-warnings: ");
+    serial.writeDecimal(if (gpu_psp_firmware_load) |loaded| loaded.response_warnings else 0);
+    serial.write(" gfx-ring-preflight: ");
+    serial.writeDecimal(@intFromEnum(gpu.preflightAmdGfx11Ring(.{
         .firmware = gpu_gfx_firmware != null,
         .psp = gpu_psp_handoff.state == .finished,
         .gart = gpu_gmc11_activation_workspace.active,
@@ -1214,24 +1448,42 @@ pub fn start(info: BootInfo) noreturn {
         .pointers = gpu_gfx_ring_resources.scheduler.pointers != 0 and gpu_gfx_ring_resources.kiq.pointers != 0,
         .doorbell = gpu_gfx_mes_bootstrap != null,
     })));
-    serial.write(" mes-ring0-db: "); serial.writeDecimal(if (gpu_gfx_mes_bootstrap) |bootstrap| bootstrap.scheduler_doorbell.register_index else 0);
-    serial.write(" mes-ring1-db: "); serial.writeDecimal(if (gpu_gfx_mes_bootstrap) |bootstrap| bootstrap.kiq_doorbell.register_index else 0);
-    serial.write(" mes-fw-gart-pages: "); serial.writeDecimal(if (gpu_mes_firmware_gpu) |layout| layout.gart_pages else 0);
-    serial.write(" mes-control-gart-page: "); serial.writeDecimal(if (gpu_mes_control_gpu) |layout| layout.first_gart_page else 0);
-    serial.write(" mes-hw-resource-plan: "); serial.writeDecimal(if (gpu_mes_hw_resources) |_| 1 else 0);
-    serial.write(" mes-halted: "); serial.writeDecimal(@intFromBool(gpu_mes_halted));
-    serial.write(" mes-load-plans: "); serial.writeDecimal(@intFromBool(gpu_mes_scheduler_load != null) + @intFromBool(gpu_mes_kiq_load != null));
-    serial.write(" mes-loads: "); serial.writeDecimal(gpu_mes_loads);
-    serial.write(" mes-active: "); serial.writeDecimal(if (gpu_mes_activation) |_| 1 else 0);
-    serial.write(" mes-sched-version: "); serial.writeDecimal(if (gpu_mes_activation) |activation| activation.scheduler_version else 0);
-    serial.write(" mes-kiq-version: "); serial.writeDecimal(if (gpu_mes_activation) |activation| activation.kiq_version else 0);
-    serial.write(" mes-handshake-polls: "); serial.writeDecimal(if (gpu_mes_activation) |activation| activation.polls else 0);
-    serial.write(" mes-kiq-active: "); serial.writeDecimal(@intFromBool(gpu_mes_kiq_active));
-    serial.write(" mes-kiq-test-polls: "); serial.writeDecimal(gpu_mes_kiq_test_polls);
-    serial.write(" mes-scheduler-map-polls: "); serial.writeDecimal(gpu_mes_scheduler_map_polls);
-    serial.write(" mes-scheduler-init-polls: "); serial.writeDecimal(gpu_mes_scheduler_init_polls);
-    serial.write(" mes-scheduler-resource1-polls: "); serial.writeDecimal(gpu_mes_scheduler_resource1_polls);
-    serial.write(" mes-scheduler-ready: "); serial.writeDecimal(@intFromBool(gpu_mes_scheduler_ready));
+    serial.write(" mes-ring0-db: ");
+    serial.writeDecimal(if (gpu_gfx_mes_bootstrap) |bootstrap| bootstrap.scheduler_doorbell.register_index else 0);
+    serial.write(" mes-ring1-db: ");
+    serial.writeDecimal(if (gpu_gfx_mes_bootstrap) |bootstrap| bootstrap.kiq_doorbell.register_index else 0);
+    serial.write(" mes-fw-gart-pages: ");
+    serial.writeDecimal(if (gpu_mes_firmware_gpu) |layout| layout.gart_pages else 0);
+    serial.write(" mes-control-gart-page: ");
+    serial.writeDecimal(if (gpu_mes_control_gpu) |layout| layout.first_gart_page else 0);
+    serial.write(" mes-hw-resource-plan: ");
+    serial.writeDecimal(if (gpu_mes_hw_resources) |_| 1 else 0);
+    serial.write(" mes-halted: ");
+    serial.writeDecimal(@intFromBool(gpu_mes_halted));
+    serial.write(" mes-load-plans: ");
+    serial.writeDecimal(@intFromBool(gpu_mes_scheduler_load != null) + @intFromBool(gpu_mes_kiq_load != null));
+    serial.write(" mes-loads: ");
+    serial.writeDecimal(gpu_mes_loads);
+    serial.write(" mes-active: ");
+    serial.writeDecimal(if (gpu_mes_activation) |_| 1 else 0);
+    serial.write(" mes-sched-version: ");
+    serial.writeDecimal(if (gpu_mes_activation) |activation| activation.scheduler_version else 0);
+    serial.write(" mes-kiq-version: ");
+    serial.writeDecimal(if (gpu_mes_activation) |activation| activation.kiq_version else 0);
+    serial.write(" mes-handshake-polls: ");
+    serial.writeDecimal(if (gpu_mes_activation) |activation| activation.polls else 0);
+    serial.write(" mes-kiq-active: ");
+    serial.writeDecimal(@intFromBool(gpu_mes_kiq_active));
+    serial.write(" mes-kiq-test-polls: ");
+    serial.writeDecimal(gpu_mes_kiq_test_polls);
+    serial.write(" mes-scheduler-map-polls: ");
+    serial.writeDecimal(gpu_mes_scheduler_map_polls);
+    serial.write(" mes-scheduler-init-polls: ");
+    serial.writeDecimal(gpu_mes_scheduler_init_polls);
+    serial.write(" mes-scheduler-resource1-polls: ");
+    serial.writeDecimal(gpu_mes_scheduler_resource1_polls);
+    serial.write(" mes-scheduler-ready: ");
+    serial.writeDecimal(@intFromBool(gpu_mes_scheduler_ready));
     serial.write(" driver: ");
     serial.write(switch (gpu_adapter.driver) {
         .amdgpu => "amdgpu",
@@ -1239,11 +1491,16 @@ pub fn start(info: BootInfo) noreturn {
         .qemu_vga => "qemu-vga",
         .unsupported => "unsupported",
     });
-    serial.write("\ndisplay resolution: "); serial.writeDecimal(screen.framebuffer.width);
-    serial.write("x"); serial.writeDecimal(screen.framebuffer.height);
-    serial.write(" stride: "); serial.writeDecimal(screen.framebuffer.stride);
-    serial.write("\ndisplay backbuffer bytes: "); serial.writeDecimal(screen.buffer_bytes);
-    serial.write("\ndisplay initial pixels: "); serial.writeDecimal(initial_pixels);
+    serial.write("\ndisplay resolution: ");
+    serial.writeDecimal(screen.framebuffer.width);
+    serial.write("x");
+    serial.writeDecimal(screen.framebuffer.height);
+    serial.write(" stride: ");
+    serial.writeDecimal(screen.framebuffer.stride);
+    serial.write("\ndisplay backbuffer bytes: ");
+    serial.writeDecimal(screen.buffer_bytes);
+    serial.write("\ndisplay initial pixels: ");
+    serial.writeDecimal(initial_pixels);
     serial.write("\nCSOS M14 GPU discovery baseline ready\n");
     serial.write("CSOS M14 display baseline ready\n");
     var current_profile = hardware_profile.build(cpu_profile, .{
@@ -1313,23 +1570,43 @@ pub fn start(info: BootInfo) noreturn {
     const nvme_latency = nvme_samples.summarize() catch panic("NVMe metrics missing");
     const tcp_latency = tcp_samples.summarize() catch panic("TCP metrics missing");
     if (!profile_reused) current_profile.addBaseline(
-        freeze_latency.p50, freeze_latency.p95, freeze_latency.p99,
-        resume_latency.p50, resume_latency.p95, resume_latency.p99,
-        nvme_latency.p50, nvme_latency.p95, nvme_latency.p99,
-        tcp_latency.p50, tcp_latency.p95, tcp_latency.p99,
+        freeze_latency.p50,
+        freeze_latency.p95,
+        freeze_latency.p99,
+        resume_latency.p50,
+        resume_latency.p95,
+        resume_latency.p99,
+        nvme_latency.p50,
+        nvme_latency.p95,
+        nvme_latency.p99,
+        tcp_latency.p50,
+        tcp_latency.p95,
+        tcp_latency.p99,
     ) catch panic("hardware baseline append failed");
-    serial.write("profile scheduler freeze cycles p50: "); serial.writeDecimal(freeze_latency.p50);
-    serial.write(" p95: "); serial.writeDecimal(freeze_latency.p95);
-    serial.write(" p99: "); serial.writeDecimal(freeze_latency.p99);
-    serial.write(" resume p50: "); serial.writeDecimal(resume_latency.p50);
-    serial.write(" p95: "); serial.writeDecimal(resume_latency.p95);
-    serial.write(" p99: "); serial.writeDecimal(resume_latency.p99);
-    serial.write("\nprofile NVMe read cycles p50: "); serial.writeDecimal(nvme_latency.p50);
-    serial.write(" p95: "); serial.writeDecimal(nvme_latency.p95);
-    serial.write(" p99: "); serial.writeDecimal(nvme_latency.p99);
-    serial.write("\nprofile TCP transaction cycles p50: "); serial.writeDecimal(tcp_latency.p50);
-    serial.write(" p95: "); serial.writeDecimal(tcp_latency.p95);
-    serial.write(" p99: "); serial.writeDecimal(tcp_latency.p99);
+    serial.write("profile scheduler freeze cycles p50: ");
+    serial.writeDecimal(freeze_latency.p50);
+    serial.write(" p95: ");
+    serial.writeDecimal(freeze_latency.p95);
+    serial.write(" p99: ");
+    serial.writeDecimal(freeze_latency.p99);
+    serial.write(" resume p50: ");
+    serial.writeDecimal(resume_latency.p50);
+    serial.write(" p95: ");
+    serial.writeDecimal(resume_latency.p95);
+    serial.write(" p99: ");
+    serial.writeDecimal(resume_latency.p99);
+    serial.write("\nprofile NVMe read cycles p50: ");
+    serial.writeDecimal(nvme_latency.p50);
+    serial.write(" p95: ");
+    serial.writeDecimal(nvme_latency.p95);
+    serial.write(" p99: ");
+    serial.writeDecimal(nvme_latency.p99);
+    serial.write("\nprofile TCP transaction cycles p50: ");
+    serial.writeDecimal(tcp_latency.p50);
+    serial.write(" p95: ");
+    serial.writeDecimal(tcp_latency.p95);
+    serial.write(" p99: ");
+    serial.writeDecimal(tcp_latency.p99);
     serial.write(if (installation_current and profile_reused) "\nCSOS M18 boot validation ready\n" else "\nCSOS M18 install profiling baseline ready\n");
     if (!profile_reused) volume.writeRootFile(&hardware_name, current_profile.text()) catch panic("hardware profile write failed");
     var verified_profile: [2048]u8 = undefined;
@@ -1340,7 +1617,8 @@ pub fn start(info: BootInfo) noreturn {
         !containsBytes(verified_profile[0..verified_length], "freeze_p99=") or
         !containsBytes(verified_profile[0..verified_length], "resume_p99=")))
         panic("hardware baseline persistence failed");
-    serial.write("hardware signature: "); serial.writeDecimal(current_profile.signature);
+    serial.write("hardware signature: ");
+    serial.writeDecimal(current_profile.signature);
     serial.write(if (profile_reused) "\nhardware.csc reused\n" else "\nhardware.csc generated\n");
     serial.write("CSOS M16 hardware profile ready\n");
     if (usb.audioReady()) {
@@ -1373,9 +1651,12 @@ pub fn start(info: BootInfo) noreturn {
     serial.write("CSOS console shell exited\n");
     if (hid.latency.count != 0) {
         const input_latency = hid.latency.summarize() catch panic("input metrics missing");
-        serial.write("profile USB input queue cycles p50: "); serial.writeDecimal(input_latency.p50);
-        serial.write(" p95: "); serial.writeDecimal(input_latency.p95);
-        serial.write(" p99: "); serial.writeDecimal(input_latency.p99);
+        serial.write("profile USB input queue cycles p50: ");
+        serial.writeDecimal(input_latency.p50);
+        serial.write(" p95: ");
+        serial.writeDecimal(input_latency.p95);
+        serial.write(" p99: ");
+        serial.writeDecimal(input_latency.p99);
         serial.write("\nCSOS M18 input latency ready\n");
     }
     var display_ticks: u64 = 0;
@@ -1414,9 +1695,12 @@ fn reportAudio(usb: *xhci.Controller) void {
     if (audio_reported or usb.audio.completed < 32) return;
     if (usb.audio.underruns != 0) panic("USB audio underrun");
     const audio_jitter = usb.audio.completion_intervals.summarize() catch panic("USB audio jitter metrics missing");
-    serial.write("profile USB audio period cycles p50: "); serial.writeDecimal(audio_jitter.p50);
-    serial.write(" p95: "); serial.writeDecimal(audio_jitter.p95);
-    serial.write(" p99: "); serial.writeDecimal(audio_jitter.p99);
+    serial.write("profile USB audio period cycles p50: ");
+    serial.writeDecimal(audio_jitter.p50);
+    serial.write(" p95: ");
+    serial.writeDecimal(audio_jitter.p95);
+    serial.write(" p99: ");
+    serial.writeDecimal(audio_jitter.p99);
     serial.write("\nCSOS M18 audio jitter ready\n");
     serial.write("CSOS M13 audio streaming ready\n");
     audio_reported = true;

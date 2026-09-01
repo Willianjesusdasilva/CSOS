@@ -70,7 +70,7 @@ pub const Adapter = struct {
     pub fn readRegister(self: *const Adapter, offset: u32) !u32 {
         const bar = self.register_bar orelse return error.RegisterBarMissing;
         if ((offset & 3) != 0 or offset > bar.size or bar.size - offset < 4) return error.InvalidRegisterOffset;
-        const register: *align(1) volatile const u32 = @ptrFromInt(bar.address + offset);
+        const register: *align(1) const volatile u32 = @ptrFromInt(bar.address + offset);
         return register.*;
     }
 
@@ -304,7 +304,11 @@ pub const Firmware = struct {
 
     pub fn select(self: Firmware, device: pci.Device, driver: Driver) !?Selection {
         const manifest = try self.find("csos-gpu.conf") orelse return null;
-        const backend = switch (driver) { .amdgpu => "amdgpu/", .nouveau => "nouveau/", else => return null };
+        const backend = switch (driver) {
+            .amdgpu => "amdgpu/",
+            .nouveau => "nouveau/",
+            else => return null,
+        };
         var iterator = ManifestIterator{ .manifest = manifest };
         var best: ?Mapping = null;
         var best_specificity: u8 = 0;
@@ -367,7 +371,9 @@ pub const FirmwareInventory = struct {
     payload_bytes: usize = 0,
     blocks: [9]FirmwareBlockSummary = .{FirmwareBlockSummary{}} ** 9,
 
-    pub fn block(self: *const FirmwareInventory, kind: FirmwareBlock) FirmwareBlockSummary { return self.blocks[@intFromEnum(kind)]; }
+    pub fn block(self: *const FirmwareInventory, kind: FirmwareBlock) FirmwareBlockSummary {
+        return self.blocks[@intFromEnum(kind)];
+    }
 };
 pub const AmdGfxFirmwareRole = enum { pfp, me, mec, rlc, mes_scheduler, mes_kiq };
 pub const AmdMesFirmware = struct {
@@ -419,16 +425,36 @@ pub const AmdGfx11CpFirmwareSet = struct {
     }
 };
 pub const AmdPspGfxFirmwareType = enum(u32) {
-    cp_me = 1, cp_pfp = 2, cp_mec = 4, cp_mec_me1 = 5, rlc_g = 8,
-    rlc_v = 7, rlc_restore_gpm = 20, rlc_restore_srm = 21, rlc_restore_cntl = 22,
-    rlc_p = 25, rlc_iram = 26, global_tap_delays = 27, se0_tap_delays = 28, se1_tap_delays = 29,
-    rlc_dram_boot = 48, se2_tap_delays = 65, se3_tap_delays = 66,
-    rs64_pfp = 87, rs64_me = 88, rs64_mec = 89,
-    rs64_pfp_p0_stack = 90, rs64_pfp_p1_stack = 91,
-    rs64_me_p0_stack = 92, rs64_me_p1_stack = 93,
-    rs64_mec_p0_stack = 94, rs64_mec_p1_stack = 95,
-    rs64_mec_p2_stack = 96, rs64_mec_p3_stack = 97,
-    rlc_iram_core1 = 98, rlc_dram_boot_core1 = 99,
+    cp_me = 1,
+    cp_pfp = 2,
+    cp_mec = 4,
+    cp_mec_me1 = 5,
+    rlc_g = 8,
+    rlc_v = 7,
+    rlc_restore_gpm = 20,
+    rlc_restore_srm = 21,
+    rlc_restore_cntl = 22,
+    rlc_p = 25,
+    rlc_iram = 26,
+    global_tap_delays = 27,
+    se0_tap_delays = 28,
+    se1_tap_delays = 29,
+    rlc_dram_boot = 48,
+    se2_tap_delays = 65,
+    se3_tap_delays = 66,
+    rs64_pfp = 87,
+    rs64_me = 88,
+    rs64_mec = 89,
+    rs64_pfp_p0_stack = 90,
+    rs64_pfp_p1_stack = 91,
+    rs64_me_p0_stack = 92,
+    rs64_me_p1_stack = 93,
+    rs64_mec_p0_stack = 94,
+    rs64_mec_p1_stack = 95,
+    rs64_mec_p2_stack = 96,
+    rs64_mec_p3_stack = 97,
+    rlc_iram_core1 = 98,
+    rlc_dram_boot_core1 = 99,
 };
 pub const AmdPspIpFirmwareArea = struct { kind: AmdPspGfxFirmwareType = .cp_me, address: u64 = 0, pages: u64 = 0, bytes: u32 = 0 };
 pub const AmdPspIpFirmwarePayload = struct { kind: AmdPspGfxFirmwareType = .cp_me, data: []const u8 = &.{} };
@@ -556,7 +582,9 @@ pub const AmdGfx11RingResources = struct {
         inline for (.{ "kiq", "scheduler" }) |queue_field| {
             inline for (.{ "pointers", "eop", "mqd", "ring" }) |field| {
                 const address = @field(@field(self, queue_field), field);
-                if (address != 0) allocator.release(allocator.context, address) catch { failed = true; };
+                if (address != 0) allocator.release(allocator.context, address) catch {
+                    failed = true;
+                };
             }
         }
         self.* = .{};
@@ -582,7 +610,10 @@ pub const AmdGfx11QueueKind = enum { scheduler, kiq };
 pub const AmdGfx11Doorbell = struct { assignment: u16, register_index: u16, byte_offset: u32 };
 
 pub fn planAmdGfx11MesDoorbell(kind: AmdGfx11QueueKind, aperture_bytes: u64) !AmdGfx11Doorbell {
-    const assignment: u16 = switch (kind) { .scheduler => 0x00b, .kiq => 0x00c };
+    const assignment: u16 = switch (kind) {
+        .scheduler => 0x00b,
+        .kiq => 0x00c,
+    };
     const register_index = assignment << 1;
     const byte_offset = @as(u32, register_index) * 4;
     if (aperture_bytes < @as(u64, byte_offset) + 8) return error.AmdGfxDoorbellOutsideAperture;
@@ -672,12 +703,18 @@ pub fn prepareAmdGfx11MesBootstrap(
         return error.InvalidAmdGfxMesBootstrap;
 
     const scheduler = AmdGfx11QueueAddresses{
-        .ring = window_start + 3 * 4096, .mqd = window_start + 4 * 4096, .eop = window_start + 5 * 4096,
-        .rptr = window_start + 6 * 4096, .wptr = window_start + 6 * 4096 + 8,
+        .ring = window_start + 3 * 4096,
+        .mqd = window_start + 4 * 4096,
+        .eop = window_start + 5 * 4096,
+        .rptr = window_start + 6 * 4096,
+        .wptr = window_start + 6 * 4096 + 8,
     };
     const kiq = AmdGfx11QueueAddresses{
-        .ring = window_start + 7 * 4096, .mqd = window_start + 8 * 4096, .eop = window_start + 9 * 4096,
-        .rptr = window_start + 10 * 4096, .wptr = window_start + 10 * 4096 + 8,
+        .ring = window_start + 7 * 4096,
+        .mqd = window_start + 8 * 4096,
+        .eop = window_start + 9 * 4096,
+        .rptr = window_start + 10 * 4096,
+        .wptr = window_start + 10 * 4096 + 8,
     };
     const scheduler_mqd = try encodeAmdGfx11MesMqd(.scheduler, scheduler, doorbell_aperture_bytes);
     const kiq_mqd = try encodeAmdGfx11MesMqd(.kiq, kiq, doorbell_aperture_bytes);
@@ -685,7 +722,7 @@ pub fn prepareAmdGfx11MesBootstrap(
     for (3..11) |index| if (table[index] != 0) return error.AmdGfxGartPageAlreadyMapped;
     const physical_pages = .{
         resources.scheduler.ring, resources.scheduler.mqd, resources.scheduler.eop, resources.scheduler.pointers,
-        resources.kiq.ring, resources.kiq.mqd, resources.kiq.eop, resources.kiq.pointers,
+        resources.kiq.ring,       resources.kiq.mqd,       resources.kiq.eop,       resources.kiq.pointers,
     };
     inline for (physical_pages, 3..) |address, index| table[index] = amdGttPte(address);
     const scheduler_target: *[512]u32 = @ptrFromInt(resources.scheduler.mqd);
@@ -693,8 +730,10 @@ pub fn prepareAmdGfx11MesBootstrap(
     scheduler_target.* = scheduler_mqd.dwords;
     kiq_target.* = kiq_mqd.dwords;
     return .{
-        .scheduler = scheduler, .kiq = kiq,
-        .scheduler_doorbell = scheduler_mqd.doorbell, .kiq_doorbell = kiq_mqd.doorbell,
+        .scheduler = scheduler,
+        .kiq = kiq,
+        .scheduler_doorbell = scheduler_mqd.doorbell,
+        .kiq_doorbell = kiq_mqd.doorbell,
     };
 }
 pub const AmdMesFirmwareGpuLayout = struct {
@@ -728,8 +767,10 @@ pub fn mapAmdMesFirmwareIntoGart(staging: AmdPspGttStaging, firmware: AmdMesFirm
         next += area.pages;
     }
     return .{
-        .scheduler_ucode = gpu_addresses[0], .scheduler_data = gpu_addresses[1],
-        .kiq_ucode = gpu_addresses[2], .kiq_data = gpu_addresses[3],
+        .scheduler_ucode = gpu_addresses[0],
+        .scheduler_data = gpu_addresses[1],
+        .kiq_ucode = gpu_addresses[2],
+        .kiq_data = gpu_addresses[3],
         .gart_pages = @intCast(total_pages),
     };
 }
@@ -751,6 +792,139 @@ pub fn allocateAmdMesControlResources(allocator: AmdGpuVmPageAllocator) !AmdMesC
     errdefer allocator.release(allocator.context, page) catch {};
     try allocator.zero(allocator.context, page);
     return .{ .page = page, .allocator = allocator };
+}
+
+pub const AmdGfx11RlcResources = struct {
+    page: u64 = 0,
+    allocator: ?AmdGpuVmPageAllocator = null,
+
+    pub fn release(self: *AmdGfx11RlcResources) !void {
+        const allocator = self.allocator orelse return error.AmdRlcResourcesNotAllocated;
+        if (self.page == 0) return error.AmdRlcResourcesNotAllocated;
+        try allocator.release(allocator.context, self.page);
+        self.* = .{};
+    }
+};
+
+const AmdGfx11ClearStateExtent = struct { register: u16, count: u16 };
+const amd_gfx11_clear_state_extents = [_]AmdGfx11ClearStateExtent{
+    .{ .register = 0xa000, .count = 215 }, .{ .register = 0xa0d8, .count = 272 },
+    .{ .register = 0xa1f5, .count = 4 },   .{ .register = 0xa1ff, .count = 158 },
+    .{ .register = 0xa2a0, .count = 2 },   .{ .register = 0xa2a3, .count = 1 },
+    .{ .register = 0xa2a6, .count = 282 },
+};
+const AmdGfx11ClearStateValue = struct { index: u16, value: u32 };
+const amd_gfx11_clear_state_values = [_]AmdGfx11ClearStateValue{
+    .{ .index = 13, .value = 0x40004000 },  .{ .index = 31, .value = 0x00150055 },
+    .{ .index = 129, .value = 0x80000000 }, .{ .index = 130, .value = 0x40004000 },
+    .{ .index = 131, .value = 0x0000ffff }, .{ .index = 133, .value = 0x40004000 },
+    .{ .index = 135, .value = 0x40004000 }, .{ .index = 137, .value = 0x40004000 },
+    .{ .index = 139, .value = 0x40004000 }, .{ .index = 140, .value = 0xaa99aaaa },
+    .{ .index = 142, .value = 0xffffffff }, .{ .index = 143, .value = 0xffffffff },
+    .{ .index = 144, .value = 0x80000000 }, .{ .index = 145, .value = 0x40004000 },
+    .{ .index = 148, .value = 0x80000000 }, .{ .index = 149, .value = 0x40004000 },
+    .{ .index = 150, .value = 0x80000000 }, .{ .index = 151, .value = 0x40004000 },
+    .{ .index = 152, .value = 0x80000000 }, .{ .index = 153, .value = 0x40004000 },
+    .{ .index = 154, .value = 0x80000000 }, .{ .index = 155, .value = 0x40004000 },
+    .{ .index = 156, .value = 0x80000000 }, .{ .index = 157, .value = 0x40004000 },
+    .{ .index = 158, .value = 0x80000000 }, .{ .index = 159, .value = 0x40004000 },
+    .{ .index = 160, .value = 0x80000000 }, .{ .index = 161, .value = 0x40004000 },
+    .{ .index = 162, .value = 0x80000000 }, .{ .index = 163, .value = 0x40004000 },
+    .{ .index = 164, .value = 0x80000000 }, .{ .index = 165, .value = 0x40004000 },
+    .{ .index = 166, .value = 0x80000000 }, .{ .index = 167, .value = 0x40004000 },
+    .{ .index = 168, .value = 0x80000000 }, .{ .index = 169, .value = 0x40004000 },
+    .{ .index = 170, .value = 0x80000000 }, .{ .index = 171, .value = 0x40004000 },
+    .{ .index = 172, .value = 0x80000000 }, .{ .index = 173, .value = 0x40004000 },
+    .{ .index = 174, .value = 0x80000000 }, .{ .index = 175, .value = 0x40004000 },
+    .{ .index = 176, .value = 0x80000000 }, .{ .index = 177, .value = 0x40004000 },
+    .{ .index = 178, .value = 0x80000000 }, .{ .index = 179, .value = 0x40004000 },
+    .{ .index = 181, .value = 0x3f800000 }, .{ .index = 183, .value = 0x3f800000 },
+    .{ .index = 185, .value = 0x3f800000 }, .{ .index = 187, .value = 0x3f800000 },
+    .{ .index = 189, .value = 0x3f800000 }, .{ .index = 191, .value = 0x3f800000 },
+    .{ .index = 193, .value = 0x3f800000 }, .{ .index = 195, .value = 0x3f800000 },
+    .{ .index = 197, .value = 0x3f800000 }, .{ .index = 199, .value = 0x3f800000 },
+    .{ .index = 201, .value = 0x3f800000 }, .{ .index = 203, .value = 0x3f800000 },
+    .{ .index = 205, .value = 0x3f800000 }, .{ .index = 207, .value = 0x3f800000 },
+    .{ .index = 209, .value = 0x3f800000 }, .{ .index = 211, .value = 0x3f800000 },
+    .{ .index = 259, .value = 0x00550055 }, .{ .index = 267, .value = 0x01000000 },
+    .{ .index = 268, .value = 0x01000000 }, .{ .index = 437, .value = 0x00000002 },
+    .{ .index = 496, .value = 0x00090000 }, .{ .index = 497, .value = 0x00000004 },
+    .{ .index = 733, .value = 0x00001000 }, .{ .index = 735, .value = 0x00000005 },
+    .{ .index = 736, .value = 0x3f800000 }, .{ .index = 737, .value = 0x3f800000 },
+    .{ .index = 738, .value = 0x3f800000 }, .{ .index = 739, .value = 0x3f800000 },
+    .{ .index = 756, .value = 0xffffffff }, .{ .index = 757, .value = 0xffffffff },
+    .{ .index = 759, .value = 0x00000003 }, .{ .index = 761, .value = 0x00100000 },
+};
+
+fn amdPacket3(opcode: u8, count: u14) u32 {
+    return 0xc0000000 | (@as(u32, count) << 16) | (@as(u32, opcode) << 8);
+}
+
+pub fn buildAmdGfx11ClearStateBlock(target: *[1024]u32, tile_steering_override: u32) !u16 {
+    @memset(target, 0);
+    var defaults = [_]u32{0} ** 934;
+    for (amd_gfx11_clear_state_values) |entry| defaults[entry.index] = entry.value;
+    var cursor: usize = 0;
+    target[cursor] = amdPacket3(0x4a, 0);
+    cursor += 1;
+    target[cursor] = 2 << 28;
+    cursor += 1;
+    target[cursor] = amdPacket3(0x28, 1);
+    cursor += 1;
+    target[cursor] = 0x80000000;
+    cursor += 1;
+    target[cursor] = 0x80000000;
+    cursor += 1;
+    var source: usize = 0;
+    for (amd_gfx11_clear_state_extents) |extent| {
+        target[cursor] = amdPacket3(0x69, @intCast(extent.count));
+        cursor += 1;
+        target[cursor] = extent.register - 0xa000;
+        cursor += 1;
+        @memcpy(target[cursor .. cursor + extent.count], defaults[source .. source + extent.count]);
+        cursor += extent.count;
+        source += extent.count;
+    }
+    if (source != defaults.len) return error.InvalidAmdGfx11ClearStateData;
+    target[cursor] = amdPacket3(0x69, 1);
+    cursor += 1;
+    target[cursor] = 0x00d7;
+    cursor += 1;
+    target[cursor] = tile_steering_override;
+    cursor += 1;
+    target[cursor] = amdPacket3(0x4a, 0);
+    cursor += 1;
+    target[cursor] = 3 << 28;
+    cursor += 1;
+    target[cursor] = amdPacket3(0x12, 0);
+    cursor += 1;
+    target[cursor] = 0;
+    cursor += 1;
+    if (cursor != 960) return error.InvalidAmdGfx11ClearStateSize;
+    return @intCast(cursor);
+}
+
+pub fn allocateAmdGfx11RlcResources(allocator: AmdGpuVmPageAllocator) !AmdGfx11RlcResources {
+    const page = try allocateCheckedAmdGpuVmPage(allocator);
+    errdefer allocator.release(allocator.context, page) catch {};
+    try allocator.zero(allocator.context, page);
+    const target: *[1024]u32 = @ptrFromInt(page);
+    _ = try buildAmdGfx11ClearStateBlock(target, 0);
+    return .{ .page = page, .allocator = allocator };
+}
+
+pub const AmdGfx11RlcLayout = struct { address: u64, dwords: u16 = 960, first_gart_page: u16 };
+
+pub fn mapAmdGfx11RlcIntoGart(staging: AmdPspGttStaging, firmware: AmdGfx11CpFirmwareGpuLayout, resources: AmdGfx11RlcResources, window_start: u64) !AmdGfx11RlcLayout {
+    if (staging.active or staging.page_table_address == 0 or staging.page_table_pages != 1 or resources.allocator == null or
+        resources.page == 0 or (resources.page & 4095) != 0 or firmware.count == 0 or (window_start & 4095) != 0)
+        return error.InvalidAmdRlcResources;
+    const first_page: u64 = @as(u64, firmware.first_gart_page) + firmware.gart_pages;
+    if (first_page >= 512) return error.AmdRlcExceedsGartWindow;
+    const table: [*]u64 = @ptrFromInt(staging.page_table_address);
+    if (table[first_page] != 0) return error.AmdRlcGartPageAlreadyMapped;
+    table[first_page] = amdGttPte(resources.page);
+    return .{ .address = window_start + first_page * 4096, .first_gart_page = @intCast(first_page) };
 }
 
 pub const AmdMesControlLayout = struct {
@@ -1135,6 +1309,79 @@ pub fn resolveAmdGfx11MesRegisters(ip: *const AmdIp, register_bar_bytes: u64) !A
     };
 }
 
+pub const AmdGfx11RlcRegisters = struct {
+    csib_address_low: u32,
+    csib_address_high: u32,
+    csib_length: u32,
+    srm_control: u32,
+};
+
+pub fn resolveAmdGfx11RlcRegisters(ip: *const AmdIp, register_bar_bytes: u64) !AmdGfx11RlcRegisters {
+    if (ip.hw_id != amd_hw_id.gfx or ip.instance != 0 or ip.major != 11 or ip.base_count <= 1 or ip.bases[1] == 0)
+        return error.AmdGfx11RlcRegisterBaseMissing;
+    const base = ip.bases[1];
+    return .{
+        .csib_address_low = try resolveAmdRegister(base, 0x0987, register_bar_bytes),
+        .csib_address_high = try resolveAmdRegister(base, 0x0988, register_bar_bytes),
+        .csib_length = try resolveAmdRegister(base, 0x0989, register_bar_bytes),
+        .srm_control = try resolveAmdRegister(base, 0x4c80, register_bar_bytes),
+    };
+}
+
+pub const AmdGfx11RlcResumePlan = struct {
+    registers: AmdGfx11RlcRegisters,
+    address: u64,
+    dwords: u16,
+};
+pub const AmdGfx11RlcResumeTransaction = struct { previous: [4]u32, applied: u3 = 0 };
+
+pub fn planAmdGfx11RlcResume(registers: AmdGfx11RlcRegisters, layout: AmdGfx11RlcLayout) !AmdGfx11RlcResumePlan {
+    if (layout.address == 0 or (layout.address & 3) != 0 or layout.address >= (@as(u64, 1) << 48) or layout.dwords != 960)
+        return error.InvalidAmdGfx11RlcResumePlan;
+    return .{ .registers = registers, .address = layout.address, .dwords = layout.dwords };
+}
+
+fn rollbackAmdGfx11RlcResume(plan: AmdGfx11RlcResumePlan, transaction: *const AmdGfx11RlcResumeTransaction, io: AmdRegisterIo) !void {
+    const offsets = [_]u32{ plan.registers.csib_address_high, plan.registers.csib_address_low, plan.registers.csib_length, plan.registers.srm_control };
+    var failed = false;
+    var index: usize = transaction.applied;
+    while (index != 0) {
+        index -= 1;
+        io.write(io.context, offsets[index], transaction.previous[index]) catch {
+            failed = true;
+        };
+    }
+    if (failed) return error.AmdRlcResumeRollbackFailed;
+}
+
+pub fn executeAmdGfx11RlcResume(plan: AmdGfx11RlcResumePlan, io: AmdRegisterIo) !AmdGfx11RlcResumeTransaction {
+    const offsets = [_]u32{ plan.registers.csib_address_high, plan.registers.csib_address_low, plan.registers.csib_length, plan.registers.srm_control };
+    const current_srm = io.read(io.context, plan.registers.srm_control) catch return error.AmdRlcRegisterReadFailed;
+    const values = [_]u32{ @truncate(plan.address >> 32), @truncate(plan.address & 0xfffffffc), plan.dwords, current_srm | 3 };
+    const masks = [_]u32{ 0x0000ffff, 0xfffffffc, 0xffffffff, 0x00000003 };
+    var transaction = AmdGfx11RlcResumeTransaction{ .previous = undefined };
+    for (offsets, values, masks, 0..) |offset, value, mask, index| {
+        transaction.previous[index] = io.read(io.context, offset) catch {
+            rollbackAmdGfx11RlcResume(plan, &transaction, io) catch return error.AmdRlcResumeRollbackFailed;
+            return error.AmdRlcRegisterReadFailed;
+        };
+        transaction.applied += 1;
+        io.write(io.context, offset, value) catch {
+            rollbackAmdGfx11RlcResume(plan, &transaction, io) catch return error.AmdRlcResumeRollbackFailed;
+            return error.AmdRlcRegisterWriteFailed;
+        };
+        const observed = io.read(io.context, offset) catch {
+            rollbackAmdGfx11RlcResume(plan, &transaction, io) catch return error.AmdRlcResumeRollbackFailed;
+            return error.AmdRlcRegisterReadFailed;
+        };
+        if ((observed & mask) != (value & mask)) {
+            rollbackAmdGfx11RlcResume(plan, &transaction, io) catch return error.AmdRlcResumeRollbackFailed;
+            return error.AmdRlcRegisterReadbackMismatch;
+        }
+    }
+    return transaction;
+}
+
 pub fn amdGfx11MesIsHalted(control: u32) bool {
     const reset = control & 0x00030000;
     const active = control & 0x0c000000;
@@ -1191,9 +1438,13 @@ fn rollbackAmdGfx11MesLoad(plan: AmdGfx11MesLoadPlan, transaction: *const AmdGfx
     var index: usize = transaction.applied;
     while (index != 0) {
         index -= 1;
-        io.write(io.context, transaction.offsets[index], transaction.values[index]) catch { failed = true; };
+        io.write(io.context, transaction.offsets[index], transaction.values[index]) catch {
+            failed = true;
+        };
     }
-    io.write(io.context, plan.writes[0].offset, 0) catch { failed = true; };
+    io.write(io.context, plan.writes[0].offset, 0) catch {
+        failed = true;
+    };
     if (failed) return error.AmdMesLoadRollbackFailed;
 }
 
@@ -1266,8 +1517,12 @@ fn readAmdGfx11MesVersions(registers: AmdGfx11MesRegisters, io: AmdRegisterIo) !
 
 fn restoreAmdGfx11MesHalted(registers: AmdGfx11MesRegisters, halted_control: u32, io: AmdRegisterIo) !void {
     var failed = false;
-    io.write(io.context, registers.mes_control, halted_control) catch { failed = true; };
-    io.write(io.context, registers.grbm_gfx_cntl, 0) catch { failed = true; };
+    io.write(io.context, registers.mes_control, halted_control) catch {
+        failed = true;
+    };
+    io.write(io.context, registers.grbm_gfx_cntl, 0) catch {
+        failed = true;
+    };
     if (failed) return error.AmdMesActivationRollbackFailed;
     const observed = io.read(io.context, registers.mes_control) catch return error.AmdMesActivationRollbackFailed;
     if (!amdGfx11MesIsHalted(observed)) return error.AmdMesActivationRollbackFailed;
@@ -1342,25 +1597,27 @@ pub fn planAmdGfx11KiqHqd(registers: AmdGfx11MesRegisters, mqd: *const [512]u32)
     if (mqd[0] != 0xc0310800 or mqd[128] == 0 or mqd[136] == 0 or mqd[143] == 0 or
         (mqd[143] & 0x40000000) == 0 or mqd[130] != 0)
         return error.InvalidAmdGfx11KiqMqd;
-    return .{ .writes = .{
-        .{ .offset = registers.grbm_gfx_cntl, .value = 0x0d }, // ME3/pipe1/queue0
-        .{ .offset = registers.hqd_active, .value = 0 },
-        .{ .offset = registers.hqd_doorbell_control, .value = 0 },
-        .{ .offset = registers.hqd_vmid, .value = mqd[131] },
-        .{ .offset = registers.mqd_base_low, .value = mqd[128] },
-        .{ .offset = registers.mqd_base_high, .value = mqd[129] },
-        .{ .offset = registers.mqd_control, .value = mqd[162] },
-        .{ .offset = registers.hqd_pq_base_low, .value = mqd[136] },
-        .{ .offset = registers.hqd_pq_base_high, .value = mqd[137] },
-        .{ .offset = registers.hqd_rptr_report_low, .value = mqd[139] },
-        .{ .offset = registers.hqd_rptr_report_high, .value = mqd[140] },
-        .{ .offset = registers.hqd_pq_control, .value = mqd[145] },
-        .{ .offset = registers.hqd_wptr_poll_low, .value = mqd[141] },
-        .{ .offset = registers.hqd_wptr_poll_high, .value = mqd[142] },
-        .{ .offset = registers.hqd_persistent_state, .value = mqd[132] },
-        .{ .offset = registers.hqd_doorbell_control, .value = mqd[143] },
-        .{ .offset = registers.hqd_active, .value = 1 },
-    } };
+    return .{
+        .writes = .{
+            .{ .offset = registers.grbm_gfx_cntl, .value = 0x0d }, // ME3/pipe1/queue0
+            .{ .offset = registers.hqd_active, .value = 0 },
+            .{ .offset = registers.hqd_doorbell_control, .value = 0 },
+            .{ .offset = registers.hqd_vmid, .value = mqd[131] },
+            .{ .offset = registers.mqd_base_low, .value = mqd[128] },
+            .{ .offset = registers.mqd_base_high, .value = mqd[129] },
+            .{ .offset = registers.mqd_control, .value = mqd[162] },
+            .{ .offset = registers.hqd_pq_base_low, .value = mqd[136] },
+            .{ .offset = registers.hqd_pq_base_high, .value = mqd[137] },
+            .{ .offset = registers.hqd_rptr_report_low, .value = mqd[139] },
+            .{ .offset = registers.hqd_rptr_report_high, .value = mqd[140] },
+            .{ .offset = registers.hqd_pq_control, .value = mqd[145] },
+            .{ .offset = registers.hqd_wptr_poll_low, .value = mqd[141] },
+            .{ .offset = registers.hqd_wptr_poll_high, .value = mqd[142] },
+            .{ .offset = registers.hqd_persistent_state, .value = mqd[132] },
+            .{ .offset = registers.hqd_doorbell_control, .value = mqd[143] },
+            .{ .offset = registers.hqd_active, .value = 1 },
+        },
+    };
 }
 
 pub const AmdGfx11KiqTransaction = struct {
@@ -1374,9 +1631,13 @@ pub fn restoreAmdGfx11Kiq(plan: AmdGfx11KiqPlan, transaction: *const AmdGfx11Kiq
     var index: usize = transaction.count;
     while (index != 0) {
         index -= 1;
-        io.write(io.context, transaction.offsets[index], transaction.values[index]) catch { failed = true; };
+        io.write(io.context, transaction.offsets[index], transaction.values[index]) catch {
+            failed = true;
+        };
     }
-    io.write(io.context, plan.writes[0].offset, 0) catch { failed = true; };
+    io.write(io.context, plan.writes[0].offset, 0) catch {
+        failed = true;
+    };
     if (failed) return error.AmdKiqRollbackFailed;
 }
 
@@ -1392,7 +1653,10 @@ pub fn activateAmdGfx11Kiq(plan: AmdGfx11KiqPlan, io: AmdRegisterIo) !AmdGfx11Ki
     var transaction = AmdGfx11KiqTransaction{};
     for (plan.writes[1..], 0..) |write, write_index| {
         var found: ?usize = null;
-        for (transaction.offsets[0..transaction.count], 0..) |offset, index| if (offset == write.offset) { found = index; break; };
+        for (transaction.offsets[0..transaction.count], 0..) |offset, index| if (offset == write.offset) {
+            found = index;
+            break;
+        };
         if (found == null) {
             if (transaction.count == transaction.offsets.len) return error.AmdKiqSnapshotFull;
             transaction.offsets[transaction.count] = write.offset;
@@ -1747,16 +2011,18 @@ const CpioIterator = struct {
 fn readHex(bytes: []const u8) !usize {
     var value: usize = 0;
     for (bytes) |character| {
-        const digit: u8 = if (character >= '0' and character <= '9') character - '0'
-            else if (character >= 'a' and character <= 'f') character - 'a' + 10
-            else if (character >= 'A' and character <= 'F') character - 'A' + 10
-            else return error.InvalidFirmwareArchive;
+        const digit: u8 = if (character >= '0' and character <= '9') character - '0' else if (character >= 'a' and character <= 'f') character - 'a' + 10 else if (character >= 'A' and character <= 'F') character - 'A' + 10 else return error.InvalidFirmwareArchive;
         value = value * 16 + digit;
     }
     return value;
 }
-fn readHexValue(bytes: []const u8) !u16 { return @intCast(try readHex(bytes)); }
-fn findByte(bytes: []const u8, wanted: u8) ?usize { for (bytes, 0..) |byte, index| if (byte == wanted) return index; return null; }
+fn readHexValue(bytes: []const u8) !u16 {
+    return @intCast(try readHex(bytes));
+}
+fn findByte(bytes: []const u8, wanted: u8) ?usize {
+    for (bytes, 0..) |byte, index| if (byte == wanted) return index;
+    return null;
+}
 
 const FirmwareRequirements = struct { blocks: u16 = 0, psp_host_boot: bool = false };
 
@@ -1774,16 +2040,7 @@ fn parseFirmwareRequirements(value: []const u8) !FirmwareRequirements {
             offset = if (end < value.len) end + 1 else end;
             continue;
         }
-        const block: FirmwareBlock = if (equal(name, "security")) .security
-            else if (equal(name, "management")) .management
-            else if (equal(name, "memory")) .memory
-            else if (equal(name, "graphics")) .graphics
-            else if (equal(name, "dma")) .dma
-            else if (equal(name, "display")) .display
-            else if (equal(name, "media")) .media
-            else if (equal(name, "discovery")) .discovery
-            else if (equal(name, "other")) .other
-            else return error.InvalidFirmwareRequirement;
+        const block: FirmwareBlock = if (equal(name, "security")) .security else if (equal(name, "management")) .management else if (equal(name, "memory")) .memory else if (equal(name, "graphics")) .graphics else if (equal(name, "dma")) .dma else if (equal(name, "display")) .display else if (equal(name, "media")) .media else if (equal(name, "discovery")) .discovery else if (equal(name, "other")) .other else return error.InvalidFirmwareRequirement;
         const bit = @as(u16, 1) << @intFromEnum(block);
         if ((result.blocks & bit) != 0) return error.DuplicateFirmwareRequirement;
         result.blocks |= bit;
@@ -1793,7 +2050,9 @@ fn parseFirmwareRequirements(value: []const u8) !FirmwareRequirements {
     return result;
 }
 
-fn align4(value: usize) usize { return (value + 3) & ~@as(usize, 3); }
+fn align4(value: usize) usize {
+    return (value + 3) & ~@as(usize, 3);
+}
 fn equal(left: []const u8, right: []const u8) bool {
     if (left.len != right.len) return false;
     for (left, right) |a, b| if (a != b) return false;
@@ -2022,7 +2281,9 @@ pub fn parseAmdMesFirmware(image: []const u8) !AmdMesFirmware {
     };
 }
 
-fn validateAmdMesFirmware(image: []const u8) !void { _ = try parseAmdMesFirmware(image); }
+fn validateAmdMesFirmware(image: []const u8) !void {
+    _ = try parseAmdMesFirmware(image);
+}
 
 pub fn classifyFirmware(driver: Driver, name: []const u8) FirmwareBlock {
     if (driver == .amdgpu) {
@@ -2182,7 +2443,18 @@ pub const AmdIp = struct {
     bases: [8]u64 = .{0} ** 8,
 };
 
-pub const amd_hw_id = struct { pub const smu: u16 = 1; pub const gfx: u16 = 11; pub const mmhub: u16 = 34; pub const osssys: u16 = 40; pub const sdma0: u16 = 42; pub const sdma1: u16 = 43; pub const sdma2: u16 = 44; pub const sdma3: u16 = 45; pub const nbif: u16 = 108; pub const psp: u16 = 255; };
+pub const amd_hw_id = struct {
+    pub const smu: u16 = 1;
+    pub const gfx: u16 = 11;
+    pub const mmhub: u16 = 34;
+    pub const osssys: u16 = 40;
+    pub const sdma0: u16 = 42;
+    pub const sdma1: u16 = 43;
+    pub const sdma2: u16 = 44;
+    pub const sdma3: u16 = 45;
+    pub const nbif: u16 = 108;
+    pub const psp: u16 = 255;
+};
 
 pub const AmdBackendPlan = struct { psp: AmdPspPlan, gmc: GmcFamily, gfx: GfxFamily, sdma: SdmaFamily };
 pub const AmdMemoryPlan = struct {
@@ -2492,18 +2764,43 @@ pub const AmdGpuVmBranchPlanner = struct {
 
     pub fn counts(self: *const AmdGpuVmBranchPlanner) AmdGpuVmBranchCounts {
         var result = AmdGpuVmBranchCounts{ .pdb1 = 0, .pdb0 = 0, .ptb = 0, .mapped_pages = 0 };
-        for (self.pdb1_nodes) |node| if (node.active) { result.pdb1 += 1; };
-        for (self.pdb0_nodes) |node| if (node.active) { result.pdb0 += 1; };
-        for (self.ptb_nodes) |node| if (node.active) { result.ptb += 1; result.mapped_pages += node.page_count; };
+        for (self.pdb1_nodes) |node| if (node.active) {
+            result.pdb1 += 1;
+        };
+        for (self.pdb0_nodes) |node| if (node.active) {
+            result.pdb0 += 1;
+        };
+        for (self.ptb_nodes) |node| if (node.active) {
+            result.ptb += 1;
+            result.mapped_pages += node.page_count;
+        };
         return result;
     }
 
-    fn findPdb1(self: *const AmdGpuVmBranchPlanner, path: AmdGpuVmPagePath) ?usize { for (self.pdb1_nodes, 0..) |node, index| if (node.active and node.pdb2 == path.pdb2) return index; return null; }
-    fn findPdb0(self: *const AmdGpuVmBranchPlanner, path: AmdGpuVmPagePath) ?usize { for (self.pdb0_nodes, 0..) |node, index| if (node.active and node.pdb2 == path.pdb2 and node.pdb1 == path.pdb1) return index; return null; }
-    fn findPtb(self: *const AmdGpuVmBranchPlanner, path: AmdGpuVmPagePath) ?usize { for (self.ptb_nodes, 0..) |node, index| if (node.active and node.pdb2 == path.pdb2 and node.pdb1 == path.pdb1 and node.pdb0 == path.pdb0) return index; return null; }
-    fn freePdb1(self: *const AmdGpuVmBranchPlanner) ?usize { for (self.pdb1_nodes, 0..) |node, index| if (!node.active) return index; return null; }
-    fn freePdb0(self: *const AmdGpuVmBranchPlanner) ?usize { for (self.pdb0_nodes, 0..) |node, index| if (!node.active) return index; return null; }
-    fn freePtb(self: *const AmdGpuVmBranchPlanner) ?usize { for (self.ptb_nodes, 0..) |node, index| if (!node.active) return index; return null; }
+    fn findPdb1(self: *const AmdGpuVmBranchPlanner, path: AmdGpuVmPagePath) ?usize {
+        for (self.pdb1_nodes, 0..) |node, index| if (node.active and node.pdb2 == path.pdb2) return index;
+        return null;
+    }
+    fn findPdb0(self: *const AmdGpuVmBranchPlanner, path: AmdGpuVmPagePath) ?usize {
+        for (self.pdb0_nodes, 0..) |node, index| if (node.active and node.pdb2 == path.pdb2 and node.pdb1 == path.pdb1) return index;
+        return null;
+    }
+    fn findPtb(self: *const AmdGpuVmBranchPlanner, path: AmdGpuVmPagePath) ?usize {
+        for (self.ptb_nodes, 0..) |node, index| if (node.active and node.pdb2 == path.pdb2 and node.pdb1 == path.pdb1 and node.pdb0 == path.pdb0) return index;
+        return null;
+    }
+    fn freePdb1(self: *const AmdGpuVmBranchPlanner) ?usize {
+        for (self.pdb1_nodes, 0..) |node, index| if (!node.active) return index;
+        return null;
+    }
+    fn freePdb0(self: *const AmdGpuVmBranchPlanner) ?usize {
+        for (self.pdb0_nodes, 0..) |node, index| if (!node.active) return index;
+        return null;
+    }
+    fn freePtb(self: *const AmdGpuVmBranchPlanner) ?usize {
+        for (self.ptb_nodes, 0..) |node, index| if (!node.active) return index;
+        return null;
+    }
 };
 pub const AmdGpuVmPageAllocator = struct {
     context: *anyopaque,
@@ -2579,7 +2876,9 @@ pub fn releaseAmdGpuVmPageTables(tables: *AmdGpuVmPageTables, allocator: AmdGpuV
     while (tables.count != 0) {
         tables.count -= 1;
         const page = tables.pages[tables.count];
-        allocator.release(allocator.context, page) catch { failed = true; };
+        allocator.release(allocator.context, page) catch {
+            failed = true;
+        };
         tables.pages[tables.count] = 0;
     }
     tables.path_bound = false;
@@ -2752,9 +3051,15 @@ pub fn unlinkAmdGpuVmPageTree(tree: *AmdGpuVmPageTree, path: AmdGpuVmPagePath, e
     try tree.branches.release(path);
     const allocator = tree.allocator.?;
     var release_failed = false;
-    if (prune_ptb) allocator.release(allocator.context, ptb_node.page) catch { release_failed = true; };
-    if (prune_pdb0) allocator.release(allocator.context, pdb0_node.page) catch { release_failed = true; };
-    if (prune_pdb1) allocator.release(allocator.context, pdb1_node.page) catch { release_failed = true; };
+    if (prune_ptb) allocator.release(allocator.context, ptb_node.page) catch {
+        release_failed = true;
+    };
+    if (prune_pdb0) allocator.release(allocator.context, pdb0_node.page) catch {
+        release_failed = true;
+    };
+    if (prune_pdb1) allocator.release(allocator.context, pdb1_node.page) catch {
+        release_failed = true;
+    };
     if (release_failed) return error.AmdGpuVmPageReleaseFailed;
 }
 
@@ -3196,20 +3501,21 @@ pub fn prepareAmdGmc11SystemAperture(
 pub fn amdGmc11GartMutableRegisters(registers: AmdGmc11GartRegisters) !AmdGmc11GartRegisterSet {
     var result = AmdGmc11GartRegisterSet{};
     const fixed = [_]u32{
-        registers.page_table_base_low, registers.page_table_base_high,
+        registers.page_table_base_low,  registers.page_table_base_high,
         registers.page_table_start_low, registers.page_table_start_high,
-        registers.page_table_end_low, registers.page_table_end_high,
-        registers.agp_base, registers.agp_bottom, registers.agp_top,
-        registers.system_aperture_low, registers.system_aperture_high,
-        registers.system_default_low, registers.system_default_high,
-        registers.fault_default_low, registers.fault_default_high, registers.fault_control2,
-        registers.l1_tlb_control, registers.l2_control, registers.l2_control2,
-        registers.l2_control3, registers.l2_control4, registers.l2_control5,
-        registers.context_control,
-        registers.identity_low_low, registers.identity_low_high,
-        registers.identity_high_low, registers.identity_high_high,
-        registers.identity_offset_low, registers.identity_offset_high,
-        registers.invalidate_request,
+        registers.page_table_end_low,   registers.page_table_end_high,
+        registers.agp_base,             registers.agp_bottom,
+        registers.agp_top,              registers.system_aperture_low,
+        registers.system_aperture_high, registers.system_default_low,
+        registers.system_default_high,  registers.fault_default_low,
+        registers.fault_default_high,   registers.fault_control2,
+        registers.l1_tlb_control,       registers.l2_control,
+        registers.l2_control2,          registers.l2_control3,
+        registers.l2_control4,          registers.l2_control5,
+        registers.context_control,      registers.identity_low_low,
+        registers.identity_low_high,    registers.identity_high_low,
+        registers.identity_high_high,   registers.identity_offset_low,
+        registers.identity_offset_high, registers.invalidate_request,
     };
     for (fixed) |offset| try result.add(offset);
     for (0..15) |index| {
@@ -3250,10 +3556,15 @@ pub fn restoreAmdGmc11GartSnapshot(snapshot: AmdGmc11GartSnapshot, io: AmdRegist
     var index = snapshot.count;
     while (index != 0) {
         index -= 1;
-        io.write(io.context, snapshot.offsets[index], snapshot.values[index]) catch { failed = true; };
+        io.write(io.context, snapshot.offsets[index], snapshot.values[index]) catch {
+            failed = true;
+        };
     }
     for (snapshot.offsets[0..snapshot.count], snapshot.values[0..snapshot.count]) |offset, expected| {
-        const observed = io.read(io.context, offset) catch { failed = true; continue; };
+        const observed = io.read(io.context, offset) catch {
+            failed = true;
+            continue;
+        };
         if (observed != expected) failed = true;
     }
     if (failed) return error.AmdGartRollbackFailed;
@@ -3267,7 +3578,10 @@ pub fn applyAmdGmc11RegisterTransaction(
     if (writes.count == 0 or writes.count > writes.writes.len) return error.InvalidAmdRegisterWriteSet;
     for (writes.writes[0..writes.count]) |write| {
         var known = false;
-        for (registers.offsets[0..registers.count]) |offset| if (offset == write.offset) { known = true; break; };
+        for (registers.offsets[0..registers.count]) |offset| if (offset == write.offset) {
+            known = true;
+            break;
+        };
         if (!known) return error.AmdRegisterWriteOutsideSnapshot;
     }
     const snapshot = try captureAmdGmc11GartSnapshot(registers, io);
@@ -3299,7 +3613,10 @@ fn applyAmdGmc11RegisterTransactionInPlace(
     if (writes.count == 0 or writes.count > writes.writes.len) return error.InvalidAmdRegisterWriteSet;
     for (writes.writes[0..writes.count]) |write| {
         var known = false;
-        for (registers.offsets[0..registers.count]) |offset| if (offset == write.offset) { known = true; break; };
+        for (registers.offsets[0..registers.count]) |offset| if (offset == write.offset) {
+            known = true;
+            break;
+        };
         if (!known) return error.AmdRegisterWriteOutsideSnapshot;
     }
     transaction.snapshot = try captureAmdGmc11GartSnapshot(registers.*, io);
@@ -3658,8 +3975,7 @@ pub fn validateAmdGmc11GartRollback(registers: AmdGmc11GartRegisterSet) !void {
         return error.AmdGartRegisterTransactionMismatch;
     try restoreAmdGmc11GartSnapshot(transaction.snapshot, bank.io());
     bank.fail_write_once = registers.offsets[1];
-    if (applyAmdGmc11RegisterTransaction(registers, writes, bank.io())) |_| return error.AmdGartWriteFailureNotDetected else |err|
-        if (err != error.AmdGartRegisterWriteFailed) return err;
+    if (applyAmdGmc11RegisterTransaction(registers, writes, bank.io())) |_| return error.AmdGartWriteFailureNotDetected else |err| if (err != error.AmdGartRegisterWriteFailed) return err;
     for (snapshot.values[0..snapshot.count], bank.values[0..bank.count]) |expected, observed|
         if (observed != expected) return error.AmdGartAutomaticRollbackMismatch;
 
@@ -3672,8 +3988,7 @@ pub fn validateAmdGmc11GartRollback(registers: AmdGmc11GartRegisterSet) !void {
     for (bank.values[0..bank.count]) |*value| value.* = 0xcccccccc;
     const failed_index = registers.count / 2;
     bank.fail_write = registers.offsets[failed_index];
-    if (restoreAmdGmc11GartSnapshot(snapshot, bank.io())) |_| return error.AmdGartRollbackFailureNotDetected else |err|
-        if (err != error.AmdGartRollbackFailed) return err;
+    if (restoreAmdGmc11GartSnapshot(snapshot, bank.io())) |_| return error.AmdGartRollbackFailureNotDetected else |err| if (err != error.AmdGartRollbackFailed) return err;
     for (bank.values[0..bank.count], snapshot.values[0..snapshot.count], 0..) |observed, expected, index| {
         if (index == failed_index) {
             if (observed == expected) return error.AmdGartInjectedFailureMissing;
@@ -3682,14 +3997,44 @@ pub fn validateAmdGmc11GartRollback(registers: AmdGmc11GartRegisterSet) !void {
     bank.fail_write = null;
     try restoreAmdGmc11GartSnapshot(snapshot, bank.io());
     bank.fail_read = registers.offsets[0];
-    if (captureAmdGmc11GartSnapshot(registers, bank.io())) |_| return error.AmdGartSnapshotFailureNotDetected else |err|
-        if (err != error.InjectedAmdRegisterReadFailure) return err;
+    if (captureAmdGmc11GartSnapshot(registers, bank.io())) |_| return error.AmdGartSnapshotFailureNotDetected else |err| if (err != error.InjectedAmdRegisterReadFailure) return err;
 }
 
 pub fn validateAmdGmc11GartRollbackSelfTest() !void {
     var registers = AmdGmc11GartRegisterSet{ .count = 141 };
     for (registers.offsets[0..registers.count], 0..) |*offset, index| offset.* = 0x1000 + @as(u32, @intCast(index)) * 4;
     try validateAmdGmc11GartRollback(registers);
+}
+
+pub fn validateAmdGfx11RlcResumeSelfTest() !void {
+    var block = [_]u32{0xdeadbeef} ** 1024;
+    const dwords = try buildAmdGfx11ClearStateBlock(&block, 0);
+    if (dwords != 960 or block[0] != 0xc0004a00 or block[1] != 0x20000000 or
+        block[2] != 0xc0012800 or block[5] != 0xc0d76900 or block[6] != 0 or
+        block[20] != 0x40004000 or block[955] != 0 or block[956] != 0xc0004a00 or
+        block[957] != 0x30000000 or block[958] != 0xc0001200 or block[959] != 0 or block[960] != 0)
+        return error.AmdGfx11ClearStateBlockSelfTestFailed;
+
+    const registers = AmdGfx11RlcRegisters{
+        .csib_address_low = 0x100,
+        .csib_address_high = 0x104,
+        .csib_length = 0x108,
+        .srm_control = 0x10c,
+    };
+    const plan = try planAmdGfx11RlcResume(registers, .{ .address = 0x12345678000, .first_gart_page = 31 });
+    var bank = AmdGartRegisterTestBank{ .count = 4 };
+    bank.offsets[0..4].* = .{ 0x100, 0x104, 0x108, 0x10c };
+    bank.values[0..4].* = .{ 0x11, 0x22, 0x33, 0x40 };
+    const transaction = try executeAmdGfx11RlcResume(plan, bank.io());
+    if (transaction.applied != 4 or bank.values[0] != 0x45678000 or bank.values[1] != 0x123 or
+        bank.values[2] != 960 or bank.values[3] != 0x43)
+        return error.AmdGfx11RlcResumeSelfTestFailed;
+
+    bank.values[0..4].* = .{ 0x11, 0x22, 0x33, 0x40 };
+    bank.fail_write_once = registers.csib_length;
+    if (executeAmdGfx11RlcResume(plan, bank.io())) |_| return error.AmdRlcResumeWriteFailureNotDetected else |err| if (err != error.AmdRlcRegisterWriteFailed) return err;
+    if (bank.values[0] != 0x11 or bank.values[1] != 0x22 or bank.values[2] != 0x33 or bank.values[3] != 0x40)
+        return error.AmdRlcResumeAutomaticRollbackMismatch;
 }
 
 pub fn validateAmdGmc11BootstrapWrites(
@@ -3740,8 +4085,7 @@ pub fn validateAmdGmc11BootstrapWrites(
     bank.acknowledge_after_reads = null;
     bank.values[bank.position(registers.invalidate_ack).?] = 0;
     try prepareAmdGmc11Activation(workspace, registers, aperture, system, bank.io());
-    if (commitAmdGmc11Activation(workspace, registers, 2, bank.io())) |_| return error.AmdGartInvalidateTimeoutNotDetected else |err|
-        if (err != error.AmdGartInvalidateTimeout) return err;
+    if (commitAmdGmc11Activation(workspace, registers, 2, bank.io())) |_| return error.AmdGartInvalidateTimeoutNotDetected else |err| if (err != error.AmdGartInvalidateTimeout) return err;
     for (transaction.snapshot.values[0..transaction.snapshot.count], bank.values[0..transaction.snapshot.count]) |expected, observed|
         if (expected != observed) return error.AmdGartInvalidateTimeoutRollbackMismatch;
     if (transaction.writes_applied != 0 or workspace.prepared or workspace.active) return error.AmdGartInvalidateTimeoutTransactionStillActive;
@@ -3800,8 +4144,7 @@ pub fn validateAmdGfx11MesLoadTransactionSelfTest() !void {
     for (original, bank.values[0..10]) |expected, observed| if (expected != observed)
         return error.AmdMesLoadExplicitRestoreMismatch;
     bank.fail_write_once = registers.data_base_high;
-    if (executeAmdGfx11MesLoad(plan, bank.io())) |_| return error.AmdMesLoadWriteFailureNotDetected else |err|
-        if (err != error.AmdMesRegisterWriteFailed) return err;
+    if (executeAmdGfx11MesLoad(plan, bank.io())) |_| return error.AmdMesLoadWriteFailureNotDetected else |err| if (err != error.AmdMesRegisterWriteFailed) return err;
     for (original, bank.values[0..10]) |expected, observed| if (expected != observed)
         return error.AmdMesLoadRollbackMismatch;
 }
@@ -3832,8 +4175,7 @@ pub fn validateAmdGfx11MesActivationSelfTest() !void {
     bank.indexed_versions = .{ 0, 0 };
     bank.indexed_ready_after = null;
     bank.indexed_reads = 0;
-    if (activateAmdGfx11Mes(registers, 0x3000, 0x4000, 2, bank.io())) |_| return error.AmdMesActivationTimeoutNotDetected else |err|
-        if (err != error.AmdMesActivationTimeout) return err;
+    if (activateAmdGfx11Mes(registers, 0x3000, 0x4000, 2, bank.io())) |_| return error.AmdMesActivationTimeoutNotDetected else |err| if (err != error.AmdMesActivationTimeout) return err;
     if (bank.values[0] != 0 or bank.values[1] != 0x40030000)
         return error.AmdMesActivationTimeoutRollbackMismatch;
 }
@@ -3842,7 +4184,11 @@ pub fn validateAmdGfx11KiqActivationSelfTest() !void {
     const gfx_ip = AmdIp{ .hw_id = amd_hw_id.gfx, .major = 11, .instance = 0, .base_count = 2, .bases = .{ 0, 0x100 } ++ .{0} ** 6 };
     const registers = try resolveAmdGfx11MesRegisters(&gfx_ip, 0x20000);
     const mqd = try encodeAmdGfx11MesMqd(.kiq, .{
-        .ring = 0x100000, .mqd = 0x110000, .eop = 0x120000, .rptr = 0x130000, .wptr = 0x130008,
+        .ring = 0x100000,
+        .mqd = 0x110000,
+        .eop = 0x120000,
+        .rptr = 0x130000,
+        .wptr = 0x130008,
     }, 0x200000);
     const plan = try planAmdGfx11KiqHqd(registers, &mqd.dwords);
     if (plan.writes[0].value != 0x0d or plan.writes[1].offset != registers.hqd_active or plan.writes[1].value != 0 or
@@ -3868,8 +4214,7 @@ pub fn validateAmdGfx11KiqActivationSelfTest() !void {
     for (original, bank.values[0..15]) |expected, observed| if (expected != observed) return error.AmdKiqExplicitRestoreMismatch;
 
     bank.fail_write_once = registers.hqd_pq_control;
-    if (activateAmdGfx11Kiq(plan, bank.io())) |_| return error.AmdKiqFailureNotDetected else |err|
-        if (err != error.AmdKiqRegisterWriteFailed) return err;
+    if (activateAmdGfx11Kiq(plan, bank.io())) |_| return error.AmdKiqFailureNotDetected else |err| if (err != error.AmdKiqRegisterWriteFailed) return err;
     for (original, bank.values[0..15]) |expected, observed| if (expected != observed) return error.AmdKiqFailureRollbackMismatch;
 }
 
@@ -3953,28 +4298,30 @@ pub fn validateAmdGfx11KiqRingTestSelfTest() !void {
 
     bank.values[0] = 0;
     doorbell_bank.fail = true;
-    if (testAmdGfx11Kiq(plan, &ring, &pointers, 2, bank.io(), doorbell_bank.io())) |_| return error.AmdKiqDoorbellFailureNotDetected else |err|
-        if (err != error.AmdKiqDoorbellWriteFailed) return err;
+    if (testAmdGfx11Kiq(plan, &ring, &pointers, 2, bank.io(), doorbell_bank.io())) |_| return error.AmdKiqDoorbellFailureNotDetected else |err| if (err != error.AmdKiqDoorbellWriteFailed) return err;
 
     doorbell_bank.fail = false;
     doorbell_bank.complete = false;
-    if (testAmdGfx11Kiq(plan, &ring, &pointers, 2, bank.io(), doorbell_bank.io())) |_| return error.AmdKiqTimeoutNotDetected else |err|
-        if (err != error.AmdKiqTestTimeout) return err;
+    if (testAmdGfx11Kiq(plan, &ring, &pointers, 2, bank.io(), doorbell_bank.io())) |_| return error.AmdKiqTimeoutNotDetected else |err| if (err != error.AmdKiqTestTimeout) return err;
 }
 
 pub fn validateAmdGfx11MesSchedulerMapSelfTest() !void {
     const gfx_ip = AmdIp{ .hw_id = amd_hw_id.gfx, .major = 11, .instance = 0, .base_count = 2, .bases = .{ 0, 0x100 } ++ .{0} ** 6 };
     const registers = try resolveAmdGfx11MesRegisters(&gfx_ip, 0x20000);
     const scheduler = AmdGfx11QueueAddresses{
-        .ring = 0x100000, .mqd = 0x110000, .eop = 0x120000, .rptr = 0x130000, .wptr = 0x130008,
+        .ring = 0x100000,
+        .mqd = 0x110000,
+        .eop = 0x120000,
+        .rptr = 0x130000,
+        .wptr = 0x130008,
     };
     const scheduler_mqd = try encodeAmdGfx11MesMqd(.scheduler, scheduler, 0x200000);
     const scheduler_doorbell = try planAmdGfx11MesDoorbell(.scheduler, 0x200000);
     const kiq_doorbell = try planAmdGfx11MesDoorbell(.kiq, 0x200000);
     const plan = try planAmdGfx11MesSchedulerMap(registers, scheduler, scheduler_doorbell, kiq_doorbell, &scheduler_mqd.dwords);
     const expected = [12]u32{
-        0xc005a200, 0x34080000, 0x58, 0x110000, 0, 0x130008, 0,
-        0xc0033700, 0x00010000, registers.scratch0 >> 2, 0, 0xdeadbeef,
+        0xc005a200, 0x34080000, 0x58,                    0x110000, 0,          0x130008, 0,
+        0xc0033700, 0x00010000, registers.scratch0 >> 2, 0,        0xdeadbeef,
     };
     if (!std.mem.eql(u32, &plan.packet, &expected)) return error.AmdMesSchedulerMapPacketMismatch;
     var ring = [_]u32{0} ** 1024;
@@ -3996,11 +4343,9 @@ pub fn validateAmdGfx11MesSchedulerMapSelfTest() !void {
 
     pointers = .{ 5, 5 };
     doorbell_bank.complete = false;
-    if (mapAmdGfx11MesScheduler(plan, &ring, &pointers, 2, bank.io(), doorbell_bank.io())) |_| return error.AmdMesSchedulerMapTimeoutNotDetected else |err|
-        if (err != error.AmdMesSchedulerMapTimeout) return err;
+    if (mapAmdGfx11MesScheduler(plan, &ring, &pointers, 2, bank.io(), doorbell_bank.io())) |_| return error.AmdMesSchedulerMapTimeoutNotDetected else |err| if (err != error.AmdMesSchedulerMapTimeout) return err;
     pointers = .{ 4, 5 };
-    if (mapAmdGfx11MesScheduler(plan, &ring, &pointers, 2, bank.io(), doorbell_bank.io())) |_| return error.AmdMesSchedulerBusyRingAccepted else |err|
-        if (err != error.AmdKiqRingNotIdle) return err;
+    if (mapAmdGfx11MesScheduler(plan, &ring, &pointers, 2, bank.io(), doorbell_bank.io())) |_| return error.AmdMesSchedulerBusyRingAccepted else |err| if (err != error.AmdKiqRingNotIdle) return err;
 }
 
 pub fn validateAmdMesSetHwResourcesSelfTest() !void {
@@ -4016,8 +4361,13 @@ pub fn validateAmdMesSetHwResourcesSelfTest() !void {
         .osssys_base = .{ 0xb00, 0xc00, 0xd00, 0xe00, 0xf00, 0, 0, 0 },
     };
     const control = AmdMesControlLayout{
-        .page = 0x200f000, .scheduler_context = 0x200f000, .query_status_fence = 0x200f008,
-        .api_completion_fence = 0x200f010, .scheduler_fence = 0x200f018, .cleaner_shader_fence = 0x200f020, .first_gart_page = 15,
+        .page = 0x200f000,
+        .scheduler_context = 0x200f000,
+        .query_status_fence = 0x200f008,
+        .api_completion_fence = 0x200f010,
+        .scheduler_fence = 0x200f018,
+        .cleaner_shader_fence = 0x200f020,
+        .first_gart_page = 15,
     };
     const frame = try encodeAmdMesSetHwResources(input, control);
     if (frame.dwords[0] != 0x00040001 or frame.dwords[1] != 0xff00 or frame.dwords[2] != 0xfffe or
@@ -4029,20 +4379,24 @@ pub fn validateAmdMesSetHwResourcesSelfTest() !void {
         return error.AmdMesHwResourceFrameMismatch;
     var invalid = input;
     invalid.vmid_mask_gfxhub |= 1;
-    if (encodeAmdMesSetHwResources(invalid, control)) |_| return error.AmdMesSystemVmidExposed else |err|
-        if (err != error.InvalidAmdMesHwResources) return err;
+    if (encodeAmdMesSetHwResources(invalid, control)) |_| return error.AmdMesSystemVmidExposed else |err| if (err != error.InvalidAmdMesHwResources) return err;
     invalid = input;
     invalid.compute_hqd_mask = .{0} ** 8;
     invalid.gfx_hqd_mask = .{0} ** 2;
     invalid.sdma_hqd_mask = .{0} ** 2;
-    if (encodeAmdMesSetHwResources(invalid, control)) |_| return error.AmdMesEmptyHqdResourcesAccepted else |err|
-        if (err != error.InvalidAmdMesHwResources) return err;
+    if (encodeAmdMesSetHwResources(invalid, control)) |_| return error.AmdMesEmptyHqdResourcesAccepted else |err| if (err != error.InvalidAmdMesHwResources) return err;
 }
 
 pub fn validateAmdGfx11MesHwTopologySelfTest() !void {
     var discovery = AmdIpDiscovery{
-        .binary_version_major = 1, .binary_version_minor = 0, .table_version = 3,
-        .dies = 1, .ips = 5, .base_addresses = 15, .harvested = 0, .critical_count = 5,
+        .binary_version_major = 1,
+        .binary_version_minor = 0,
+        .table_version = 3,
+        .dies = 1,
+        .ips = 5,
+        .base_addresses = 15,
+        .harvested = 0,
+        .critical_count = 5,
     };
     discovery.critical[0] = .{ .hw_id = amd_hw_id.gfx, .major = 11, .base_count = 5, .bases = .{ 0, 0x100, 0x200, 0x300, 0x400, 0, 0, 0 } };
     discovery.critical[1] = .{ .hw_id = amd_hw_id.mmhub, .major = 3, .base_count = 5, .bases = .{ 0x500, 0x600, 0x700, 0x800, 0x900, 0, 0, 0 } };
@@ -4050,8 +4404,13 @@ pub fn validateAmdGfx11MesHwTopologySelfTest() !void {
     discovery.critical[3] = .{ .hw_id = amd_hw_id.sdma0, .major = 6, .base_count = 1, .bases = .{0xf00} ++ .{0} ** 7 };
     discovery.critical[4] = .{ .hw_id = amd_hw_id.sdma1, .major = 6, .base_count = 1, .bases = .{0x1000} ++ .{0} ** 7 };
     const control = AmdMesControlLayout{
-        .page = 0x200f000, .scheduler_context = 0x200f000, .query_status_fence = 0x200f008,
-        .api_completion_fence = 0x200f010, .scheduler_fence = 0x200f018, .cleaner_shader_fence = 0x200f020, .first_gart_page = 15,
+        .page = 0x200f000,
+        .scheduler_context = 0x200f000,
+        .query_status_fence = 0x200f008,
+        .api_completion_fence = 0x200f010,
+        .scheduler_fence = 0x200f018,
+        .cleaner_shader_fence = 0x200f020,
+        .first_gart_page = 15,
     };
     const plan = try planAmdGfx11MesHwResources(&discovery, control, 0x200000);
     const expected_compute = [8]u32{ 0x0c, 0x0c, 0x0c, 0x0c, 0, 0, 0, 0 };
@@ -4066,25 +4425,34 @@ pub fn validateAmdGfx11MesHwTopologySelfTest() !void {
         plan.frame.dwords[1] != 0xff00 or plan.frame.dwords[5] != 0x0c or plan.frame.dwords[13] != 2 or
         plan.frame.dwords[17] != 0x800 or plan.frame.dwords[21] != 0x808)
         return error.AmdMesHwTopologyMismatch;
-    if (planAmdGfx11MesHwResources(&discovery, control, 0x2027)) |_| return error.AmdMesShortDoorbellApertureAccepted else |err|
-        if (err != error.AmdMesDoorbellApertureTooSmall) return err;
+    if (planAmdGfx11MesHwResources(&discovery, control, 0x2027)) |_| return error.AmdMesShortDoorbellApertureAccepted else |err| if (err != error.AmdMesDoorbellApertureTooSmall) return err;
     discovery.critical[0].minor = 9;
-    if (planAmdGfx11MesHwResources(&discovery, control, 0x200000)) |_| return error.UnsupportedAmdMesTopologyAccepted else |err|
-        if (err != error.UnsupportedAmdMesHwTopology) return err;
+    if (planAmdGfx11MesHwResources(&discovery, control, 0x200000)) |_| return error.UnsupportedAmdMesTopologyAccepted else |err| if (err != error.UnsupportedAmdMesHwTopology) return err;
 }
 
 pub fn validateAmdMesSchedulerInitSelfTest() !void {
     var discovery = AmdIpDiscovery{
-        .binary_version_major = 1, .binary_version_minor = 0, .table_version = 3,
-        .dies = 1, .ips = 4, .base_addresses = 12, .harvested = 0, .critical_count = 4,
+        .binary_version_major = 1,
+        .binary_version_minor = 0,
+        .table_version = 3,
+        .dies = 1,
+        .ips = 4,
+        .base_addresses = 12,
+        .harvested = 0,
+        .critical_count = 4,
     };
     discovery.critical[0] = .{ .hw_id = amd_hw_id.gfx, .major = 11, .base_count = 2, .bases = .{ 0, 0x100 } ++ .{0} ** 6 };
     discovery.critical[1] = .{ .hw_id = amd_hw_id.mmhub, .major = 3, .base_count = 1, .bases = .{0x500} ++ .{0} ** 7 };
     discovery.critical[2] = .{ .hw_id = amd_hw_id.osssys, .major = 6, .base_count = 1, .bases = .{0xa00} ++ .{0} ** 7 };
     discovery.critical[3] = .{ .hw_id = amd_hw_id.sdma0, .major = 6, .base_count = 1, .bases = .{0xf00} ++ .{0} ** 7 };
     const control_layout = AmdMesControlLayout{
-        .page = 0x200f000, .scheduler_context = 0x200f000, .query_status_fence = 0x200f008,
-        .api_completion_fence = 0x200f010, .scheduler_fence = 0x200f018, .cleaner_shader_fence = 0x200f020, .first_gart_page = 15,
+        .page = 0x200f000,
+        .scheduler_context = 0x200f000,
+        .query_status_fence = 0x200f008,
+        .api_completion_fence = 0x200f010,
+        .scheduler_fence = 0x200f018,
+        .cleaner_shader_fence = 0x200f020,
+        .first_gart_page = 15,
     };
     const resources = try planAmdGfx11MesHwResources(&discovery, control_layout, 0x200000);
     const scheduler_doorbell = try planAmdGfx11MesDoorbell(.scheduler, 0x200000);
@@ -4097,7 +4465,10 @@ pub fn validateAmdMesSchedulerInitSelfTest() !void {
     var pointers = [2]u64{ 0, 0 };
     var control = [_]u64{0xa5a5a5a5a5a5a5a5} ** 512;
     var doorbell = AmdMesSchedulerDoorbellTestBank{
-        .expected_offset = 0x58, .expected_wptr = 128, .pointers = &pointers, .control = &control,
+        .expected_offset = 0x58,
+        .expected_wptr = 128,
+        .pointers = &pointers,
+        .control = &control,
     };
     const polls = try initializeAmdMesScheduler(plan, &ring, &pointers, &control, 2, doorbell.io());
     if (polls != 1 or doorbell.writes != 1 or pointers[0] != 128 or pointers[1] != 128 or
@@ -4106,22 +4477,23 @@ pub fn validateAmdMesSchedulerInitSelfTest() !void {
 
     pointers = .{ 0, 0 };
     doorbell.complete = false;
-    if (initializeAmdMesScheduler(plan, &ring, &pointers, &control, 2, doorbell.io())) |_| return error.AmdMesSchedulerInitTimeoutNotDetected else |err|
-        if (err != error.AmdMesSchedulerInitTimeout) return err;
+    if (initializeAmdMesScheduler(plan, &ring, &pointers, &control, 2, doorbell.io())) |_| return error.AmdMesSchedulerInitTimeoutNotDetected else |err| if (err != error.AmdMesSchedulerInitTimeout) return err;
     pointers = .{ 0, 0 };
     doorbell.fail = true;
-    if (initializeAmdMesScheduler(plan, &ring, &pointers, &control, 2, doorbell.io())) |_| return error.AmdMesSchedulerDoorbellFailureNotDetected else |err|
-        if (err != error.AmdMesSchedulerDoorbellWriteFailed) return err;
+    if (initializeAmdMesScheduler(plan, &ring, &pointers, &control, 2, doorbell.io())) |_| return error.AmdMesSchedulerDoorbellFailureNotDetected else |err| if (err != error.AmdMesSchedulerDoorbellWriteFailed) return err;
     pointers = .{ 1, 0 };
-    if (initializeAmdMesScheduler(plan, &ring, &pointers, &control, 2, doorbell.io())) |_| return error.AmdMesSchedulerBusyRingAccepted else |err|
-        if (err != error.AmdMesSchedulerRingNotIdle) return err;
+    if (initializeAmdMesScheduler(plan, &ring, &pointers, &control, 2, doorbell.io())) |_| return error.AmdMesSchedulerBusyRingAccepted else |err| if (err != error.AmdMesSchedulerRingNotIdle) return err;
 }
 
 pub fn validateAmdMesSchedulerResource1SelfTest() !void {
     const control_layout = AmdMesControlLayout{
-        .page = 0x200f000, .scheduler_context = 0x200f000, .query_status_fence = 0x200f008,
-        .api_completion_fence = 0x200f010, .scheduler_fence = 0x200f018,
-        .cleaner_shader_fence = 0x200f020, .first_gart_page = 15,
+        .page = 0x200f000,
+        .scheduler_context = 0x200f000,
+        .query_status_fence = 0x200f008,
+        .api_completion_fence = 0x200f010,
+        .scheduler_fence = 0x200f018,
+        .cleaner_shader_fence = 0x200f020,
+        .first_gart_page = 15,
     };
     const scheduler_doorbell = try planAmdGfx11MesDoorbell(.scheduler, 0x200000);
     if (try planAmdMesSchedulerResource1(0x51, control_layout, scheduler_doorbell) != null)
@@ -4137,7 +4509,10 @@ pub fn validateAmdMesSchedulerResource1SelfTest() !void {
     var pointers = [2]u64{ 128, 128 };
     var control = [_]u64{0} ** 512;
     var doorbell = AmdMesSchedulerDoorbellTestBank{
-        .expected_offset = 0x58, .expected_wptr = 256, .pointers = &pointers, .control = &control,
+        .expected_offset = 0x58,
+        .expected_wptr = 256,
+        .pointers = &pointers,
+        .control = &control,
         .query_fence_value = 2,
     };
     const polls = try initializeAmdMesSchedulerResource1(plan, &ring, &pointers, &control, 2, doorbell.io());
@@ -4146,8 +4521,7 @@ pub fn validateAmdMesSchedulerResource1SelfTest() !void {
         return error.AmdMesSchedulerResource1Mismatch;
     pointers = .{ 128, 128 };
     doorbell.complete = false;
-    if (initializeAmdMesSchedulerResource1(plan, &ring, &pointers, &control, 2, doorbell.io())) |_| return error.AmdMesSchedulerResource1TimeoutNotDetected else |err|
-        if (err != error.AmdMesSchedulerResource1Timeout) return err;
+    if (initializeAmdMesSchedulerResource1(plan, &ring, &pointers, &control, 2, doorbell.io())) |_| return error.AmdMesSchedulerResource1TimeoutNotDetected else |err| if (err != error.AmdMesSchedulerResource1Timeout) return err;
 }
 
 pub fn validateAmdGmc11VmContextSelfTest() !void {
@@ -4197,8 +4571,7 @@ pub fn validateAmdGmc11VmContextSelfTest() !void {
     @memcpy(&bound_values, bank.values[0..7]);
     bank.acknowledge_after_reads = null;
     bank.values[bank.position(ack_offset).?] = 0;
-    if (unbindAmdGmc11VmContext(&workspace, registers, 2, bank.io())) |_| return error.AmdGpuVmContextUnbindTimeoutNotDetected else |err|
-        if (err != error.AmdGartInvalidateTimeout) return err;
+    if (unbindAmdGmc11VmContext(&workspace, registers, 2, bank.io())) |_| return error.AmdGpuVmContextUnbindTimeoutNotDetected else |err| if (err != error.AmdGartInvalidateTimeout) return err;
     if (!workspace.bound) return error.AmdGpuVmContextLostAfterUnbindTimeout;
     for (bound_values, bank.values[0..7]) |expected, observed| if (expected != observed)
         return error.AmdGpuVmContextUnbindRollbackMismatch;
@@ -4212,8 +4585,7 @@ pub fn validateAmdGmc11VmContextSelfTest() !void {
 
     bank.acknowledge_after_reads = null;
     bank.values[bank.position(ack_offset).?] = 0;
-    if (bindAmdGmc11VmContext(&workspace, registers, vmid, root_page, engine, 2, bank.io())) |_| return error.AmdGpuVmContextBindTimeoutNotDetected else |err|
-        if (err != error.AmdGartInvalidateTimeout) return err;
+    if (bindAmdGmc11VmContext(&workspace, registers, vmid, root_page, engine, 2, bank.io())) |_| return error.AmdGpuVmContextBindTimeoutNotDetected else |err| if (err != error.AmdGartInvalidateTimeout) return err;
     if (workspace.bound) return error.AmdGpuVmContextBoundAfterTimeout;
     for (original, bank.values[0..7]) |expected, observed| if (expected != observed)
         return error.AmdGpuVmContextBindRollbackMismatch;
@@ -4222,21 +4594,34 @@ pub fn validateAmdGmc11VmContextSelfTest() !void {
 pub fn validateAmdGmc11MmioTransportSelfTest() !void {
     var registers = [_]u32{ 0x11223344, 0x55667788, 0, 0 };
     const device = pci.Device{
-        .bus = 0, .slot = 1, .function = 0, .vendor = 0x1002, .device = 0x744c,
-        .revision = 1, .subsystem_vendor = 0x1002, .subsystem_device = 1,
-        .class = 3, .subclass = 0, .programming_interface = 0, .header_type = 0,
-        .msi = true, .msix = true,
+        .bus = 0,
+        .slot = 1,
+        .function = 0,
+        .vendor = 0x1002,
+        .device = 0x744c,
+        .revision = 1,
+        .subsystem_vendor = 0x1002,
+        .subsystem_device = 1,
+        .class = 3,
+        .subclass = 0,
+        .programming_interface = 0,
+        .header_type = 0,
+        .msi = true,
+        .msix = true,
     };
     const bar = pci.Bar{ .address = @intFromPtr(&registers), .size = @sizeOf(@TypeOf(registers)), .is_64_bit = true, .prefetchable = false };
     const adapter = Adapter{
-        .device = device, .driver = .amdgpu, .bars = .{ bar, null, null, null, null, null },
-        .bar_count = 1, .mmio_bytes = bar.size, .register_bar = bar, .rom_bar = null,
+        .device = device,
+        .driver = .amdgpu,
+        .bars = .{ bar, null, null, null, null, null },
+        .bar_count = 1,
+        .mmio_bytes = bar.size,
+        .register_bar = bar,
+        .rom_bar = null,
     };
     var transport = AmdGmc11MmioTransport{ .adapter = &adapter, .uncached = true };
-    if (transport.io().read(transport.io().context, 0)) |_| return error.AmdGmc11DisarmedReadAllowed else |err|
-        if (err != error.AmdGmc11MmioTransportDisarmed) return err;
-    if (transport.arm()) return error.AmdGmc11UnauthorizedArmAllowed else |err|
-        if (err != error.AmdGmc11MmioTransportNotReady) return err;
+    if (transport.io().read(transport.io().context, 0)) |_| return error.AmdGmc11DisarmedReadAllowed else |err| if (err != error.AmdGmc11MmioTransportDisarmed) return err;
+    if (transport.arm()) return error.AmdGmc11UnauthorizedArmAllowed else |err| if (err != error.AmdGmc11MmioTransportNotReady) return err;
     const valid_evidence = AmdGmc11AuthorizationEvidence{
         .selected_firmware_entries = 12,
         .validated_firmware_entries = 12,
@@ -4249,20 +4634,17 @@ pub fn validateAmdGmc11MmioTransportSelfTest() !void {
     };
     var invalid_evidence = valid_evidence;
     invalid_evidence.validated_firmware_entries = 11;
-    if (transport.authorize(invalid_evidence)) return error.AmdGmc11IncompleteFirmwareAuthorized else |err|
-        if (err != error.AmdGmc11MmioAuthorizationRejected) return err;
+    if (transport.authorize(invalid_evidence)) return error.AmdGmc11IncompleteFirmwareAuthorized else |err| if (err != error.AmdGmc11MmioAuthorizationRejected) return err;
     invalid_evidence = valid_evidence;
     invalid_evidence.psp_ready = false;
-    if (transport.authorize(invalid_evidence)) return error.AmdGmc11UnreadyPspAuthorized else |err|
-        if (err != error.AmdGmc11MmioAuthorizationRejected) return err;
+    if (transport.authorize(invalid_evidence)) return error.AmdGmc11UnreadyPspAuthorized else |err| if (err != error.AmdGmc11MmioAuthorizationRejected) return err;
     try transport.authorize(valid_evidence);
     try transport.arm();
     if (try transport.io().read(transport.io().context, 4) != 0x55667788) return error.AmdGmc11MmioReadMismatch;
     try transport.io().write(transport.io().context, 8, 0xa5a55a5a);
     if (registers[2] != 0xa5a55a5a) return error.AmdGmc11MmioWriteMismatch;
     transport.disarm();
-    if (transport.io().write(transport.io().context, 8, 0)) return error.AmdGmc11DisarmedWriteAllowed else |err|
-        if (err != error.AmdGmc11MmioTransportDisarmed) return err;
+    if (transport.io().write(transport.io().context, 8, 0)) return error.AmdGmc11DisarmedWriteAllowed else |err| if (err != error.AmdGmc11MmioTransportDisarmed) return err;
 }
 
 pub fn validateAmdGpuVmManagerSelfTest() !void {
@@ -4273,13 +4655,10 @@ pub fn validateAmdGpuVmManagerSelfTest() !void {
     try manager.map(1, 7, 0x100000000, 0x4000, 0, 0x8000, (1 << 1) | (1 << 2));
     try manager.map(1, 8, 0x100004000, 0x2000, 0x2000, 0x8000, 1 << 1);
     try manager.map(2, 9, 0x100000000, 0x1000, 0, 0x1000, 1 << 3);
-    if (manager.map(1, 10, 0x100003000, 0x2000, 0, 0x2000, 1 << 1)) return error.AmdGpuVaOverlapAccepted else |err|
-        if (err != error.AmdGpuVaOverlap) return err;
-    if (manager.map(1, 10, 0x200000000, 0x2000, 0x1000, 0x2000, 1 << 1)) return error.AmdGpuVaBoOverflowAccepted else |err|
-        if (err != error.InvalidAmdGpuVaMapping) return err;
+    if (manager.map(1, 10, 0x100003000, 0x2000, 0, 0x2000, 1 << 1)) return error.AmdGpuVaOverlapAccepted else |err| if (err != error.AmdGpuVaOverlap) return err;
+    if (manager.map(1, 10, 0x200000000, 0x2000, 0x1000, 0x2000, 1 << 1)) return error.AmdGpuVaBoOverflowAccepted else |err| if (err != error.InvalidAmdGpuVaMapping) return err;
     try manager.unmap(1, 0x100004000, 0x2000);
-    if (manager.unmap(1, 0x100004000, 0x2000)) return error.AmdGpuVaMissingUnmapAccepted else |err|
-        if (err != error.AmdGpuVaMappingNotFound) return err;
+    if (manager.unmap(1, 0x100004000, 0x2000)) return error.AmdGpuVaMissingUnmapAccepted else |err| if (err != error.AmdGpuVaMappingNotFound) return err;
     try manager.release(1);
     const recycled = try manager.allocate();
     if (recycled.vmid != 1) return error.AmdGpuVmidNotRecycled;
@@ -4289,11 +4668,9 @@ pub fn validateAmdGpuVmManagerSelfTest() !void {
         return error.AmdGpuVmPagePathMismatch;
     if (try amdGpuVmTableBytes(512) != 4096 or try amdGpuVmTableBytes(1) != 4096)
         return error.AmdGpuVmTableSizeMismatch;
-    if (amdGpuVmPagePath(0x0000800000000000)) |_| return error.AmdGpuVmNonCanonicalVaAccepted else |err|
-        if (err != error.InvalidAmdGpuVa) return err;
+    if (amdGpuVmPagePath(0x0000800000000000)) |_| return error.AmdGpuVmNonCanonicalVaAccepted else |err| if (err != error.InvalidAmdGpuVa) return err;
     for (0..5) |_| _ = try manager.allocate();
-    if (manager.allocate()) |_| return error.AmdGpuVmMesVmidAllocated else |err|
-        if (err != error.AmdGpuVmidsExhausted) return err;
+    if (manager.allocate()) |_| return error.AmdGpuVmMesVmidAllocated else |err| if (err != error.AmdGpuVmidsExhausted) return err;
     if (manager.map(8, 1, 0x300000000, 0x1000, 0, 0x1000, 1 << 1))
         return error.AmdGpuVmMesVmidAccepted
     else |err| if (err != error.InvalidAmdGpuVmid) return err;
@@ -4336,24 +4713,20 @@ pub fn validateAmdGpuVmHardwareSessionSelfTest() !void {
     try session.syncAfterUnmap(1, true);
     if (session.bound_vmid != 1 or backend.binds != 1 or backend.invalidates != 2 or backend.unbinds != 0)
         return error.AmdGpuVmHardwareSyncCountMismatch;
-    if (session.syncAfterMap(2, 0x2000)) return error.AmdGpuVmHardwareWrongVmidAccepted else |err|
-        if (err != error.AmdGpuVmHardwareVmidMismatch) return err;
+    if (session.syncAfterMap(2, 0x2000)) return error.AmdGpuVmHardwareWrongVmidAccepted else |err| if (err != error.AmdGpuVmHardwareVmidMismatch) return err;
 
     backend.fail = .invalidate;
-    if (session.syncAfterMap(1, 0x1000)) return error.AmdGpuVmHardwareInvalidateFailureMissed else |err|
-        if (err != error.InjectedAmdGpuVmHardwareFailure) return err;
+    if (session.syncAfterMap(1, 0x1000)) return error.AmdGpuVmHardwareInvalidateFailureMissed else |err| if (err != error.InjectedAmdGpuVmHardwareFailure) return err;
     if (session.bound_vmid != 1) return error.AmdGpuVmHardwareBindingLostAfterInvalidateFailure;
     backend.fail = .unbind;
-    if (session.syncAfterUnmap(1, false)) return error.AmdGpuVmHardwareUnbindFailureMissed else |err|
-        if (err != error.InjectedAmdGpuVmHardwareFailure) return err;
+    if (session.syncAfterUnmap(1, false)) return error.AmdGpuVmHardwareUnbindFailureMissed else |err| if (err != error.InjectedAmdGpuVmHardwareFailure) return err;
     if (session.bound_vmid != 1) return error.AmdGpuVmHardwareBindingLostAfterUnbindFailure;
     backend.fail = .none;
     try session.syncAfterUnmap(1, false);
     if (session.bound_vmid != 0 or backend.unbinds != 1) return error.AmdGpuVmHardwareUnbindMismatch;
 
     backend.fail = .bind;
-    if (session.syncAfterMap(2, 0x2000)) return error.AmdGpuVmHardwareBindFailureMissed else |err|
-        if (err != error.InjectedAmdGpuVmHardwareFailure) return err;
+    if (session.syncAfterMap(2, 0x2000)) return error.AmdGpuVmHardwareBindFailureMissed else |err| if (err != error.InjectedAmdGpuVmHardwareFailure) return err;
     if (session.bound_vmid != 0) return error.AmdGpuVmHardwareBoundAfterBindFailure;
 }
 
@@ -4387,8 +4760,7 @@ pub fn validateAmdGpuVmBranchPlannerSelfTest() !void {
     counts = planner.counts();
     if (counts.pdb1 != 0 or counts.pdb0 != 0 or counts.ptb != 0 or counts.mapped_pages != 0)
         return error.AmdGpuVmBranchPruneMismatch;
-    if (planner.release(first)) return error.AmdGpuVmMissingBranchReleaseAccepted else |err|
-        if (err != error.AmdGpuVmBranchNotFound) return err;
+    if (planner.release(first)) return error.AmdGpuVmMissingBranchReleaseAccepted else |err| if (err != error.AmdGpuVmBranchNotFound) return err;
 }
 
 pub fn validateAmdGfx11RingResourceSelfTest() !void {
@@ -4403,8 +4775,7 @@ pub fn validateAmdGfx11RingResourceSelfTest() !void {
     for (pool.allocated) |allocated| if (allocated) return error.AmdGfxRingResourceReleaseLeak;
 
     var failing = AmdGpuVmPageTestPool{ .fail_after = 5 };
-    if (allocateAmdGfx11RingResources(failing.pageAllocator())) |_| return error.AmdGfxRingResourceFailureNotDetected else |err|
-        if (err != error.InjectedAmdGpuVmAllocationFailure) return err;
+    if (allocateAmdGfx11RingResources(failing.pageAllocator())) |_| return error.AmdGfxRingResourceFailureNotDetected else |err| if (err != error.InjectedAmdGpuVmAllocationFailure) return err;
     for (failing.allocated) |allocated| if (allocated) return error.AmdGfxRingResourceRollbackLeak;
 
     const scheduler = try encodeAmdGfx11MesMqd(.scheduler, .{
@@ -4422,15 +4793,16 @@ pub fn validateAmdGfx11RingResourceSelfTest() !void {
     const kiq = try planAmdGfx11MesDoorbell(.kiq, 0x200000);
     if (kiq.assignment != 0x0c or kiq.register_index != 0x18 or kiq.byte_offset != 0x60)
         return error.AmdGfxKiqDoorbellMismatch;
-    if (planAmdGfx11MesDoorbell(.scheduler, 0x5f)) |_| return error.AmdGfxShortDoorbellApertureAccepted else |err|
-        if (err != error.AmdGfxDoorbellOutsideAperture) return err;
+    if (planAmdGfx11MesDoorbell(.scheduler, 0x5f)) |_| return error.AmdGfxShortDoorbellApertureAccepted else |err| if (err != error.AmdGfxDoorbellOutsideAperture) return err;
 
     var bootstrap_pool = AmdGpuVmPageTestPool{};
     var bootstrap_resources = try allocateAmdGfx11RingResources(bootstrap_pool.pageAllocator());
     var gart_table = [_]u64{0} ** 512;
     const bootstrap = try prepareAmdGfx11MesBootstrap(.{
-        .page_table_address = @intFromPtr(&gart_table), .page_table_pages = 1,
-        .buffer_address = 0x800000, .buffer_pages = 3,
+        .page_table_address = @intFromPtr(&gart_table),
+        .page_table_pages = 1,
+        .buffer_address = 0x800000,
+        .buffer_pages = 3,
     }, bootstrap_resources, 0x2000000, 0x200000);
     if (bootstrap.scheduler.ring != 0x2003000 or bootstrap.scheduler.mqd != 0x2004000 or
         bootstrap.kiq.ring != 0x2007000 or bootstrap.kiq.mqd != 0x2008000 or
@@ -4443,8 +4815,10 @@ pub fn validateAmdGfx11RingResourceSelfTest() !void {
         staged_scheduler[130] != 0 or staged_kiq[130] != 0)
         return error.AmdGfxMesBootstrapMqdMismatch;
     const firmware_layout = try mapAmdMesFirmwareIntoGart(.{
-        .page_table_address = @intFromPtr(&gart_table), .page_table_pages = 1,
-        .buffer_address = 0x800000, .buffer_pages = 3,
+        .page_table_address = @intFromPtr(&gart_table),
+        .page_table_pages = 1,
+        .buffer_address = 0x800000,
+        .buffer_pages = 3,
     }, .{
         .scheduler = .{ .ucode = .{ .address = @intFromPtr(&bootstrap_pool.storage[0]), .pages = 1, .bytes = 16 }, .data = .{ .address = @intFromPtr(&bootstrap_pool.storage[1]), .pages = 1, .bytes = 16 } },
         .kiq = .{ .ucode = .{ .address = @intFromPtr(&bootstrap_pool.storage[2]), .pages = 1, .bytes = 16 }, .data = .{ .address = @intFromPtr(&bootstrap_pool.storage[3]), .pages = 1, .bytes = 16 } },
@@ -4454,8 +4828,10 @@ pub fn validateAmdGfx11RingResourceSelfTest() !void {
         return error.AmdMesFirmwareGartLayoutMismatch;
     var control_resources = try allocateAmdMesControlResources(bootstrap_pool.pageAllocator());
     const control_layout = try mapAmdMesControlIntoGart(.{
-        .page_table_address = @intFromPtr(&gart_table), .page_table_pages = 1,
-        .buffer_address = 0x800000, .buffer_pages = 3,
+        .page_table_address = @intFromPtr(&gart_table),
+        .page_table_pages = 1,
+        .buffer_address = 0x800000,
+        .buffer_pages = 3,
     }, firmware_layout, control_resources, 0x2000000);
     if (control_layout.first_gart_page != 15 or control_layout.page != 0x200f000 or
         control_layout.scheduler_context != 0x200f000 or control_layout.query_status_fence != 0x200f008 or
@@ -4476,8 +4852,14 @@ pub fn validateAmdGfx11RingResourceSelfTest() !void {
     var ucode = [_]u8{0} ** 4;
     var data = [_]u8{0} ** 4;
     const load = try planAmdGfx11MesLoad(.kiq, .{
-        .ip_version_major = 11, .ip_version_minor = 0, .ucode_version = 1, .data_version = 1,
-        .ucode = &ucode, .data = &data, .ucode_start = 0x3000, .data_start = 0x8000,
+        .ip_version_major = 11,
+        .ip_version_minor = 0,
+        .ucode_version = 1,
+        .data_version = 1,
+        .ucode = &ucode,
+        .data = &data,
+        .ucode_start = 0x3000,
+        .data_start = 0x8000,
     }, 0x2010000, 0x2020000, registers, true);
     if (load.pipe != 1 or load.writes[0].value != 0x0d or load.writes[1].value != 0 or
         load.writes[2].value != 0x0c00 or load.writes[4].value != 0x2010000 or
@@ -4549,25 +4931,21 @@ pub fn validateAmdGpuVmPageTablesSelfTest() !void {
         pdb0[path.pdb0] != try amdGpuVmSystemPde(tables.pages[3], 0) or
         ptb[path.ptb] != try amdGpuVmSystemPte(data_page, (1 << 1) | (1 << 2)))
         return error.AmdGpuVmPageLinkMismatch;
-    if (linkAmdGpuVmPagePath(&tables, path, tables.pages[0], 1 << 1)) return error.AmdGpuVmPageCollisionNotDetected else |err|
-        if (err != error.AmdGpuVmPagePathCollision) return err;
+    if (linkAmdGpuVmPagePath(&tables, path, tables.pages[0], 1 << 1)) return error.AmdGpuVmPageCollisionNotDetected else |err| if (err != error.AmdGpuVmPagePathCollision) return err;
     const outside_path = try amdGpuVmPagePath(0x0000010000000000);
-    if (linkAmdGpuVmPagePath(&tables, outside_path, data_page, 1 << 1)) return error.AmdGpuVmOutsideBranchAccepted else |err|
-        if (err != error.AmdGpuVmPagePathOutsideMaterializedBranch) return err;
+    if (linkAmdGpuVmPagePath(&tables, outside_path, data_page, 1 << 1)) return error.AmdGpuVmOutsideBranchAccepted else |err| if (err != error.AmdGpuVmPagePathOutsideMaterializedBranch) return err;
     try releaseAmdGpuVmPageTables(&tables, pool.pageAllocator());
     for (pool.allocated) |allocated| if (allocated) return error.AmdGpuVmPageTableReleaseLeak;
 
     pool = AmdGpuVmPageTestPool{ .fail_after = 2 };
-    if (allocateAmdGpuVmPageTables(pool.pageAllocator())) |_| return error.AmdGpuVmPageFailureNotDetected else |err|
-        if (err != error.InjectedAmdGpuVmAllocationFailure) return err;
+    if (allocateAmdGpuVmPageTables(pool.pageAllocator())) |_| return error.AmdGpuVmPageFailureNotDetected else |err| if (err != error.InjectedAmdGpuVmAllocationFailure) return err;
     for (pool.allocated) |allocated| if (allocated) return error.AmdGpuVmPageRollbackLeak;
 
     pool = AmdGpuVmPageTestPool{};
     var manager = AmdGpuVmManager{};
     const vm = try manager.allocate();
     try manager.materialize(vm.vmid, pool.pageAllocator());
-    if (manager.release(vm.vmid)) return error.AmdGpuVmReleasedWithPageTables else |err|
-        if (err != error.AmdGpuVmPageTablesStillAllocated) return err;
+    if (manager.release(vm.vmid)) return error.AmdGpuVmReleasedWithPageTables else |err| if (err != error.AmdGpuVmPageTablesStillAllocated) return err;
     const vm_data_page = @intFromPtr(&pool.data_page);
     try manager.mapSystemPage(vm.vmid, 1, 0x200000000, 0, 0x1000, vm_data_page, 1 << 1);
     try manager.mapSystemPage(vm.vmid, 2, 0x10000000000, 0, 0x1000, vm_data_page, 1 << 1);
@@ -4576,16 +4954,15 @@ pub fn validateAmdGpuVmPageTablesSelfTest() !void {
     if (branch_counts.pdb1 != 2 or branch_counts.pdb0 != 2 or branch_counts.ptb != 2 or branch_counts.mapped_pages != 3)
         return error.AmdGpuVmDynamicBranchMaterializationMismatch;
     var active_mappings: usize = 0;
-    for (vm.mappings) |mapping| if (mapping.active) { active_mappings += 1; };
+    for (vm.mappings) |mapping| if (mapping.active) {
+        active_mappings += 1;
+    };
     if (active_mappings != 3) return error.AmdGpuVmDynamicMappingCountMismatch;
-    if (manager.dematerialize(vm.vmid)) return error.AmdGpuVmDematerializedWithMappings else |err|
-        if (err != error.AmdGpuVmMappingsStillActive) return err;
+    if (manager.dematerialize(vm.vmid)) return error.AmdGpuVmDematerializedWithMappings else |err| if (err != error.AmdGpuVmMappingsStillActive) return err;
     if (try manager.validateSystemPageMapping(vm.vmid, 1, 0x200000000, 0, vm_data_page) != 1 << 1)
         return error.AmdGpuVmMappingValidationFlagsMismatch;
-    if (manager.validateSystemPageMapping(vm.vmid, 99, 0x200000000, 0, vm_data_page)) |_| return error.AmdGpuVmWrongHandleValidated else |err|
-        if (err != error.AmdGpuVaMappingNotFound) return err;
-    if (manager.validateSystemPageMapping(vm.vmid, 1, 0x200000000, 0, vm_data_page + 4096)) |_| return error.AmdGpuVmWrongPhysicalPageValidated else |err|
-        if (err != error.AmdGpuVmPteMismatch) return err;
+    if (manager.validateSystemPageMapping(vm.vmid, 99, 0x200000000, 0, vm_data_page)) |_| return error.AmdGpuVmWrongHandleValidated else |err| if (err != error.AmdGpuVaMappingNotFound) return err;
+    if (manager.validateSystemPageMapping(vm.vmid, 1, 0x200000000, 0, vm_data_page + 4096)) |_| return error.AmdGpuVmWrongPhysicalPageValidated else |err| if (err != error.AmdGpuVmPteMismatch) return err;
     try manager.unmapSystemPage(vm.vmid, 0x200000000, vm_data_page, 1 << 1);
     const vm_path = try amdGpuVmPagePath(0x200000000);
     const vm_ptb_index = vm.page_tree.branches.findPtb(vm_path) orelse return error.AmdGpuVmSharedPtbPrunedEarly;
@@ -4611,10 +4988,14 @@ pub fn validateAmdGpuVmPageTablesSelfTest() !void {
     if (branch_counts.pdb1 != 0 or branch_counts.pdb0 != 0 or branch_counts.ptb != 0 or branch_counts.mapped_pages != 0)
         return error.AmdGpuVmDynamicAllocationRollbackMismatch;
     active_mappings = 0;
-    for (failing_vm.mappings) |mapping| if (mapping.active) { active_mappings += 1; };
+    for (failing_vm.mappings) |mapping| if (mapping.active) {
+        active_mappings += 1;
+    };
     if (active_mappings != 0) return error.AmdGpuVmDynamicLogicalRollbackMismatch;
     var allocated_pages: usize = 0;
-    for (pool.allocated) |allocated| if (allocated) { allocated_pages += 1; };
+    for (pool.allocated) |allocated| if (allocated) {
+        allocated_pages += 1;
+    };
     if (allocated_pages != 1) return error.AmdGpuVmDynamicPhysicalRollbackLeak;
     try manager.dematerialize(failing_vm.vmid);
     try manager.release(failing_vm.vmid);
@@ -4677,8 +5058,17 @@ pub fn resolveAmdGmc11NbioRegisters(ip: *const AmdIp, register_bar_bytes: u64) !
     if (ip.hw_id != amd_hw_id.nbif or ip.instance != 0 or ip.base_count <= 2 or ip.bases[2] == 0)
         return error.AmdGmc11NbioBaseMissing;
     switch (version(ip)) {
-        0x060301, 0x070700, 0x070701, 0x070900, 0x070901,
-        0x070b00, 0x070b01, 0x070b02, 0x070b03, 0x070b04, 0x070b05,
+        0x060301,
+        0x070700,
+        0x070701,
+        0x070900,
+        0x070901,
+        0x070b00,
+        0x070b01,
+        0x070b02,
+        0x070b03,
+        0x070b04,
+        0x070b05,
         => {},
         else => return error.UnsupportedAmdGmc11NbioVersion,
     }
@@ -4777,8 +5167,10 @@ pub fn validateAmdPspGtt(pages: *physical.Allocator) !void {
 pub fn validateAmdPspRingProtocolSelfTest() !void {
     var table = [_]u64{0} ** 512;
     const staging = AmdPspGttStaging{
-        .page_table_address = @intFromPtr(&table), .page_table_pages = 1,
-        .buffer_address = 0x800000, .buffer_pages = 3,
+        .page_table_address = @intFromPtr(&table),
+        .page_table_pages = 1,
+        .buffer_address = 0x800000,
+        .buffer_pages = 3,
     };
     table[0] = amdGttPte(0x800000);
     table[1] = amdGttPte(0x801000);
@@ -4856,9 +5248,18 @@ pub fn validateAmdPspRingProtocolSelfTest() !void {
                 self.response_reads = 2;
                 return;
             }
-            if (offset == self.registers.ring_address_low) { self.ring_low = value; return; }
-            if (offset == self.registers.ring_address_high) { self.ring_high = value; return; }
-            if (offset == self.registers.ring_size) { self.ring_size = value; return; }
+            if (offset == self.registers.ring_address_low) {
+                self.ring_low = value;
+                return;
+            }
+            if (offset == self.registers.ring_address_high) {
+                self.ring_high = value;
+                return;
+            }
+            if (offset == self.registers.ring_size) {
+                self.ring_size = value;
+                return;
+            }
             if (offset == self.registers.write_pointer) {
                 const old = self.write_pointer;
                 self.write_pointer = value;
@@ -4871,7 +5272,9 @@ pub fn validateAmdPspRingProtocolSelfTest() !void {
             return error.UnknownAmdPspRingRegister;
         }
 
-        fn io(self: *@This()) AmdRegisterIo { return .{ .context = self, .read = &read, .write = &write }; }
+        fn io(self: *@This()) AmdRegisterIo {
+            return .{ .context = self, .read = &read, .write = &write };
+        }
     };
     var buffers: [3][4096]u8 align(4096) = .{.{0} ** 4096} ** 3;
     const live_staging = AmdPspGttStaging{ .buffer_address = @intFromPtr(&buffers), .buffer_pages = 3 };
@@ -5027,8 +5430,7 @@ comptime {
     reserveAmdGmc11BootVram(&vram_allocator, memory_snapshot, 64 * 1024, false) catch
         @compileError("valid GMC 11 boot VRAM reservations were rejected");
     var found_boot_prefix = false;
-    for (vram_allocator.reservations[0..vram_allocator.reservation_count]) |reservation| if (
-        reservation.start == memory_snapshot.vram_mc_base and reservation.end == visible_vram.framebuffer_mc_end) {
+    for (vram_allocator.reservations[0..vram_allocator.reservation_count]) |reservation| if (reservation.start == memory_snapshot.vram_mc_base and reservation.end == visible_vram.framebuffer_mc_end) {
         found_boot_prefix = true;
     };
     if (vram_allocator.reservation_count != 1 or !found_boot_prefix)
@@ -5036,8 +5438,7 @@ comptime {
     vram_allocator.reserve(memory_snapshot.vram_mc_base + 8 * 1024 * 1024, 12 * 1024 * 1024) catch
         @compileError("overlapping GMC 11 firmware reservations were not normalized");
     found_boot_prefix = false;
-    for (vram_allocator.reservations[0..vram_allocator.reservation_count]) |reservation| if (
-        reservation.start == memory_snapshot.vram_mc_base and reservation.end == visible_vram.framebuffer_mc_end) {
+    for (vram_allocator.reservations[0..vram_allocator.reservation_count]) |reservation| if (reservation.start == memory_snapshot.vram_mc_base and reservation.end == visible_vram.framebuffer_mc_end) {
         found_boot_prefix = true;
     };
     if (vram_allocator.reservation_count != 1 or !found_boot_prefix)
@@ -5518,8 +5919,11 @@ pub fn resolveAmdPsp13RingRegisters(ip: *const AmdIp, register_bar_bytes: u64) !
         offsets[index] = @intCast(offset);
     }
     return .{
-        .control = offsets[0], .write_pointer = offsets[1], .ring_address_low = offsets[2],
-        .ring_address_high = offsets[3], .ring_size = offsets[4],
+        .control = offsets[0],
+        .write_pointer = offsets[1],
+        .ring_address_low = offsets[2],
+        .ring_address_high = offsets[3],
+        .ring_size = offsets[4],
     };
 }
 
@@ -5657,7 +6061,7 @@ pub fn loadAmdPspIpFirmwareSequence(
     errdefer _ = destroyAmdPsp13Ring(registers, io, poll_limit) catch {};
     const ring: [*]u32 = @ptrFromInt(staging.buffer_address);
     const command_page: *[1024]u32 = @ptrFromInt(staging.buffer_address + 4096);
-    const response_status: *volatile const u32 = @ptrFromInt(staging.buffer_address + 4096 + 864);
+    const response_status: *const volatile u32 = @ptrFromInt(staging.buffer_address + 4096 + 864);
     const fence: *volatile u32 = @ptrFromInt(staging.buffer_address + 8192);
     for (firmware.areas[0..firmware.count]) |area| {
         if (result.final_fence == std.math.maxInt(u32)) return error.AmdPspFenceOverflow;
@@ -5915,7 +6319,9 @@ pub fn planAmdBackend(discovery: *const AmdIpDiscovery) !AmdBackendPlan {
     };
 }
 
-fn version(ip: *const AmdIp) u32 { return (@as(u32, ip.major) << 16) | (@as(u32, ip.minor) << 8) | ip.revision; }
+fn version(ip: *const AmdIp) u32 {
+    return (@as(u32, ip.major) << 16) | (@as(u32, ip.minor) << 8) | ip.revision;
+}
 fn selectPsp(ip: *const AmdIp) !AmdPspPlan {
     const ip_version = version(ip);
     const family: PspFamily = switch (ip_version) {
@@ -5936,10 +6342,18 @@ fn selectPsp(ip: *const AmdIp) !AmdPspPlan {
     // having bootloader_load_* callbacks for SYS/SOS host boot.
     const autoload_supported = switch (ip_version) {
         0x090000,
-        0x0a0000, 0x0a0001,
-        0x0b0002, 0x0b0004, 0x0b0008,
-        0x0b0003, 0x0c0001,
-        0x0d0002, 0x0d0006, 0x0d000c, 0x0d000e, 0x0d000f,
+        0x0a0000,
+        0x0a0001,
+        0x0b0002,
+        0x0b0004,
+        0x0b0008,
+        0x0b0003,
+        0x0c0001,
+        0x0d0002,
+        0x0d0006,
+        0x0d000c,
+        0x0d000e,
+        0x0d000f,
         => false,
         else => true,
     };
@@ -6281,7 +6695,9 @@ pub fn parseAmdgpuFirmware(bytes: []const u8) !AmdgpuFirmware {
     };
 }
 
-pub fn validateAmdgpuFirmware(bytes: []const u8) !void { _ = try parseAmdgpuFirmware(bytes); }
+pub fn validateAmdgpuFirmware(bytes: []const u8) !void {
+    _ = try parseAmdgpuFirmware(bytes);
+}
 
 pub fn validateAmdGfx11FirmwarePreflightSelfTest() !void {
     var cp_image = [_]u8{0} ** 68;
@@ -6375,8 +6791,7 @@ pub fn validateAmdGfx11FirmwarePreflightSelfTest() !void {
         legacy_plan.payloads[3].kind != .cp_mec_me1 or legacy_plan.payloads[4].kind != .rlc_g)
         return error.AmdCpLegacyFirmwarePlanSelfTestFailed;
     cp_set.me.?.format = .legacy;
-    if (cp_set.validate()) |_| return error.MixedAmdCpFirmwareFormatsAccepted else |err|
-        if (err != error.MixedAmdCpFirmwareFormats) return err;
+    if (cp_set.validate()) |_| return error.MixedAmdCpFirmwareFormatsAccepted else |err| if (err != error.MixedAmdCpFirmwareFormats) return err;
 
     var image = [_]u8{0} ** 80;
     writeLittle32(&image, 0, image.len);
@@ -6405,8 +6820,7 @@ pub fn validateAmdGfx11FirmwarePreflightSelfTest() !void {
 
     var incomplete = AmdGfxFirmwareManifest{ .family = .v11_0 };
     try incomplete.add(.mes_scheduler, &image);
-    if (incomplete.validate()) |_| return error.AmdGfxFirmwareMissingRoleAccepted else |err|
-        if (err != error.RequiredAmdGfxFirmwareMissing) return err;
+    if (incomplete.validate()) |_| return error.AmdGfxFirmwareMissingRoleAccepted else |err| if (err != error.RequiredAmdGfxFirmwareMissing) return err;
 
     var evidence = AmdGfx11PreflightEvidence{};
     if (preflightAmdGfx11Ring(evidence) != .blocked) return error.AmdGfxRingPreflightOpenedEarly;
@@ -6620,5 +7034,9 @@ pub fn driverFor(vendor: u16, device: u16) Driver {
     };
 }
 
-pub fn handleInterrupt() callconv(.c) void { _ = @atomicRmw(u64, &interrupt_count, .Add, 1, .monotonic); }
-pub fn interrupts() u64 { return @atomicLoad(u64, &interrupt_count, .acquire); }
+pub fn handleInterrupt() callconv(.c) void {
+    _ = @atomicRmw(u64, &interrupt_count, .Add, 1, .monotonic);
+}
+pub fn interrupts() u64 {
+    return @atomicLoad(u64, &interrupt_count, .acquire);
+}

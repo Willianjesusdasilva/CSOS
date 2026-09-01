@@ -1861,6 +1861,7 @@ typed GFX11 firmware roles and MES payload validation: implemented and host-test
 typed GFX11 PFP/ME/MEC/RLC parsing and PSP payload staging: implemented and host-tested
 CP/RLC GART mapping, PSP 13.0.2 KM-ring bootstrap plan and LOAD_IP_FW encoding: implemented and host-tested
 gated PSP KM-ring activation and sequential LOAD_IP_FW fence transaction: implemented and host-tested; Radeon validation pending
+GFX11 960-dword clear-state block, GART mapping and gated RLC SRM resume transaction: implemented and host-tested; Radeon validation pending
 GFX11 ring resource contract and fail-closed preflight: implemented and host-tested
 transactional ring/MQD/EOP/pointer physical allocation: implemented and host-tested
 dual MES scheduler/KIQ GART layout and GFX11 MQD encoding: implemented and host-tested
@@ -1878,7 +1879,7 @@ direct GPUVM VMIDs 1-7 partitioned from MES-owned VMIDs 8-15: implemented and ho
 private scheduler SET_HW_RSRC + QUERY_STATUS transaction with dual-fence/RPTR timeout-to-halt: implemented and host-tested
 revision-gated SET_HW_RSRC_1 + cleaner fence + sequence-2 query: implemented and host-tested
 real Radeon MMIO lifecycle validation: pending
-PSP KM-ring/LOAD_IP_FW hardware validation and CP/RLC resume: pending
+PSP KM-ring/LOAD_IP_FW and RLC resume hardware validation; CP resume: pending
 real MES load/handshake/KIQ/scheduler resource validation and command submission: pending
 AMD RADV triangle on real hardware: pending
 NVIDIA NVK/compatible-stack triangle on real hardware: pending

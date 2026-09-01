@@ -779,9 +779,16 @@ ele cria o ring, submete todos os payloads em sequência e espera um fence por
 comando. Falha de write/readback ou timeout destrói o ring e o bootstrap
 restaura seus registradores. Respostas PSP não zero são contabilizadas como
 warning, acompanhando o comportamento upstream para hardware físico. Sem o
-gate não há escrita. MES agora também recusa seu gate enquanto a sequência
-CP/RLC não tiver terminado integralmente. Isso ainda não executa `rlc_resume`
-ou `cp_resume` e não constitui aceleração 3D.
+gate não há escrita. O passo seguinte do fluxo PSP, `rlc_resume`, agora possui
+um gate próprio (`-Damd-rlc-resume=true`). Ele constrói o Clear State Block
+GFX11 oficial de 960 dwords em uma página física abaixo da máscara DMA,
+mapeia essa página após os payloads CP/RLC e programa `RLC_CSIB_ADDR_HI/LO`,
+`RLC_CSIB_LENGTH` e `RLC_SRM_CNTL`. Cada escrita tem readback; falha restaura
+os quatro registradores. O gate exige GART ativo, PCI ID exato e todos os
+payloads PSP carregados. MES também exige esse resume concluído. A transação
+está testada no host, mas ainda não foi validada em Radeon real; `cp_resume`
+e command submission continuam ausentes, portanto isso não constitui
+aceleração 3D.
 As duas filas exigidas pelo bootstrap — scheduler MES ring0 e KIQ ring1 — agora
 recebem, cada uma, páginas físicas separadas para ring, MQD, EOP e ponteiros.
 As oito páginas nascem zeradas abaixo da máscara DMA de 44 bits e são liberadas
