@@ -927,6 +927,72 @@ pub fn mapAmdGfx11RlcIntoGart(staging: AmdPspGttStaging, firmware: AmdGfx11CpFir
     return .{ .address = window_start + first_page * 4096, .first_gart_page = @intCast(first_page) };
 }
 
+pub const AmdGfx11GfxRingResources = struct {
+    ring: u64 = 0,
+    pointers: u64 = 0,
+    allocator: ?AmdGpuVmPageAllocator = null,
+
+    pub fn release(self: *AmdGfx11GfxRingResources) !void {
+        const allocator = self.allocator orelse return error.AmdGfxRingResourcesNotAllocated;
+        var failed = false;
+        if (self.pointers != 0) allocator.release(allocator.context, self.pointers) catch {
+            failed = true;
+        };
+        if (self.ring != 0) allocator.release(allocator.context, self.ring) catch {
+            failed = true;
+        };
+        self.* = .{};
+        if (failed) return error.AmdGfxRingResourceReleaseFailed;
+    }
+};
+
+pub fn allocateAmdGfx11GfxRingResources(allocator: AmdGpuVmPageAllocator) !AmdGfx11GfxRingResources {
+    var result = AmdGfx11GfxRingResources{ .allocator = allocator };
+    errdefer result.release() catch {};
+    result.ring = try allocateCheckedAmdGpuVmPage(allocator);
+    try allocator.zero(allocator.context, result.ring);
+    result.pointers = try allocateCheckedAmdGpuVmPage(allocator);
+    try allocator.zero(allocator.context, result.pointers);
+    return result;
+}
+
+pub const AmdGfx11GfxRingLayout = struct {
+    ring: u64,
+    rptr: u64,
+    wptr: u64,
+    first_gart_page: u16,
+    gart_pages: u8 = 2,
+    ring_dwords: u16 = 1024,
+    doorbell_index: u16 = 0x116,
+    doorbell_byte_offset: u32 = 0x458,
+};
+
+pub fn mapAmdGfx11GfxRingIntoGart(
+    staging: AmdPspGttStaging,
+    rlc: AmdGfx11RlcLayout,
+    resources: AmdGfx11GfxRingResources,
+    window_start: u64,
+    doorbell_aperture_bytes: u64,
+) !AmdGfx11GfxRingLayout {
+    if (staging.active or staging.page_table_address == 0 or staging.page_table_pages != 1 or resources.allocator == null or
+        resources.ring == 0 or resources.pointers == 0 or (resources.ring & 4095) != 0 or (resources.pointers & 4095) != 0 or
+        (window_start & 4095) != 0 or rlc.dwords != 960 or doorbell_aperture_bytes < 0x460)
+        return error.InvalidAmdGfx11GfxRingResources;
+    const first_page: u64 = @as(u64, rlc.first_gart_page) + 1;
+    if (first_page >= 511) return error.AmdGfxRingExceedsGartWindow;
+    const table: [*]u64 = @ptrFromInt(staging.page_table_address);
+    if (table[first_page] != 0 or table[first_page + 1] != 0) return error.AmdGfxRingGartPageAlreadyMapped;
+    table[first_page] = amdGttPte(resources.ring);
+    table[first_page + 1] = amdGttPte(resources.pointers);
+    const pointer_gpu = window_start + (first_page + 1) * 4096;
+    return .{
+        .ring = window_start + first_page * 4096,
+        .rptr = pointer_gpu,
+        .wptr = pointer_gpu + 8,
+        .first_gart_page = @intCast(first_page),
+    };
+}
+
 pub const AmdMesControlLayout = struct {
     page: u64,
     scheduler_context: u64,
@@ -4777,6 +4843,26 @@ pub fn validateAmdGfx11RingResourceSelfTest() !void {
     var failing = AmdGpuVmPageTestPool{ .fail_after = 5 };
     if (allocateAmdGfx11RingResources(failing.pageAllocator())) |_| return error.AmdGfxRingResourceFailureNotDetected else |err| if (err != error.InjectedAmdGpuVmAllocationFailure) return err;
     for (failing.allocated) |allocated| if (allocated) return error.AmdGfxRingResourceRollbackLeak;
+
+    var command_pool = AmdGpuVmPageTestPool{};
+    var command = try allocateAmdGfx11GfxRingResources(command_pool.pageAllocator());
+    var command_table: [512]u64 align(4096) = .{0} ** 512;
+    const command_staging = AmdPspGttStaging{ .page_table_address = @intFromPtr(&command_table), .page_table_pages = 1 };
+    const command_layout = try mapAmdGfx11GfxRingIntoGart(
+        command_staging,
+        .{ .address = 0x20014000, .first_gart_page = 20 },
+        command,
+        0x20000000,
+        0x1000,
+    );
+    if (command_layout.first_gart_page != 21 or command_layout.ring != 0x20015000 or command_layout.rptr != 0x20016000 or
+        command_layout.wptr != 0x20016008 or command_layout.ring_dwords != 1024 or command_layout.doorbell_index != 0x116 or
+        command_layout.doorbell_byte_offset != 0x458 or command_table[21] != amdGttPte(command.ring) or
+        command_table[22] != amdGttPte(command.pointers))
+        return error.AmdGfxCommandRingLayoutMismatch;
+    if (mapAmdGfx11GfxRingIntoGart(command_staging, .{ .address = 0x20014000, .first_gart_page = 20 }, command, 0x20000000, 0x1000)) |_| return error.AmdGfxCommandRingCollisionAccepted else |err| if (err != error.AmdGfxRingGartPageAlreadyMapped) return err;
+    try command.release();
+    for (command_pool.allocated) |allocated| if (allocated) return error.AmdGfxCommandRingReleaseLeak;
 
     const scheduler = try encodeAmdGfx11MesMqd(.scheduler, .{
         .ring = 0x100000,

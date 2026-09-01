@@ -789,6 +789,13 @@ payloads PSP carregados. MES também exige esse resume concluído. A transação
 está testada no host, mas ainda não foi validada em Radeon real; `cp_resume`
 e command submission continuam ausentes, portanto isso não constitui
 aceleração 3D.
+O caminho de `cp_resume` também deixou de reutilizar incorretamente as filas
+MES: o ring gráfico 0 agora recebe uma página própria de 1024 dwords e outra
+para RPTR/WPTR, ambas zeradas, transacionais e mapeadas no GART após o CSB.
+O layout preserva o doorbell SOC21 `gfx_ring0=0x08B`, convertido para o índice
+64-bit `0x116` e offset `0x458`. Este checkpoint apenas estabelece os recursos
+reais exigidos por `CP_RB0`; ele ainda não programa os registradores, não
+destrava ME/PFP e não toca o doorbell.
 As duas filas exigidas pelo bootstrap — scheduler MES ring0 e KIQ ring1 — agora
 recebem, cada uma, páginas físicas separadas para ring, MQD, EOP e ponteiros.
 As oito páginas nascem zeradas abaixo da máscara DMA de 44 bits e são liberadas

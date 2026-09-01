@@ -1862,6 +1862,7 @@ typed GFX11 PFP/ME/MEC/RLC parsing and PSP payload staging: implemented and host
 CP/RLC GART mapping, PSP 13.0.2 KM-ring bootstrap plan and LOAD_IP_FW encoding: implemented and host-tested
 gated PSP KM-ring activation and sequential LOAD_IP_FW fence transaction: implemented and host-tested; Radeon validation pending
 GFX11 960-dword clear-state block, GART mapping and gated RLC SRM resume transaction: implemented and host-tested; Radeon validation pending
+GFX11 graphics ring0/pointer allocation, post-CSB GART layout and SOC21 doorbell identity: implemented and host-tested
 GFX11 ring resource contract and fail-closed preflight: implemented and host-tested
 transactional ring/MQD/EOP/pointer physical allocation: implemented and host-tested
 dual MES scheduler/KIQ GART layout and GFX11 MQD encoding: implemented and host-tested

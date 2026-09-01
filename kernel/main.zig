@@ -630,6 +630,11 @@ pub fn start(info: BootInfo) noreturn {
             panic("AMDGPU GFX11 RLC clear-state allocation failed")
     else
         gpu.AmdGfx11RlcResources{};
+    const gpu_gfx_command_ring_resources = if (gpu_gfx_firmware != null)
+        gpu.allocateAmdGfx11GfxRingResources(gpu.physicalAmdGpuVmPageAllocator(&pages)) catch
+            panic("AMDGPU GFX11 graphics command ring allocation failed")
+    else
+        gpu.AmdGfx11GfxRingResources{};
     const gpu_memory_plan = if (gpu_backend_plan) |plan| gpu.planAmdMemory(gpu_adapter.bars, gpu_adapter.register_bar, plan.gmc) catch
         panic("AMDGPU memory apertures invalid") else null;
     const gpu_psp_gtt = if (gpu_memory_plan != null) gpu.prepareAmdPspGtt(&pages) catch panic("AMDGPU PSP GTT staging failed") else gpu.AmdPspGttStaging{};
@@ -770,10 +775,21 @@ pub fn start(info: BootInfo) noreturn {
             panic("AMDGPU RLC clear-state GART mapping failed")
     else
         null;
+    const gpu_gfx_command_ring = if (gpu_rlc_gpu) |layout|
+        gpu.mapAmdGfx11GfxRingIntoGart(
+            gpu_psp_gtt,
+            layout,
+            gpu_gfx_command_ring_resources,
+            gpu_gmc11_gart_window.?.start,
+            gpu_memory_plan.?.doorbell_bar.size,
+        ) catch panic("AMDGPU graphics command ring GART mapping failed")
+    else
+        null;
     const gpu_rlc_resume_plan = if (gpu_rlc_gpu) |layout|
         gpu.planAmdGfx11RlcResume(gpu_rlc_registers.?, layout) catch panic("AMDGPU RLC resume plan invalid")
     else
         null;
+    _ = gpu_gfx_command_ring;
     const gpu_mes_hw_resources = if (gpu_mes_control_gpu) |control|
         gpu.planAmdGfx11MesHwResources(
             &gpu_ip_discovery.?,
