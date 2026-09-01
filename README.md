@@ -728,8 +728,13 @@ passa o teste PM4 privado. O encoder de submissão produz o pacote GFX11
 `AMDGPU_BO_LIST` cria, atualiza e destrói listas validadas, mantendo os BOs vivos.
 O parser inicial de `AMDGPU_CS` aceita como formato somente um IB GFX simples e
 prova contexto, lista, flags, limites e cobertura GPUVA legível página a página.
-Ele ainda termina em `EOPNOTSUPP`: dispatcher e execução em Radeon real faltam,
-portanto nenhum sequence number ou estado busy é inventado.
+Ele ainda termina em `EOPNOTSUPP`: ligação ao dispatcher e execução em Radeon
+real faltam, portanto nenhum sequence number ou estado busy é inventado. O
+backend do ring já possui uma transação interna separada do ioctl: exige o ring
+ocioso no WPTR confirmado, grava os 12 dwords com wrap em 1024 slots, publica
+WPTR somente após `mfence`, toca o doorbell autorizado e espera simultaneamente
+RPTR e fence de 64 bits. Sequence só avança após ambas as confirmações; falha de
+doorbell ou timeout marca a fila como parada e desativa o CP.
 `AMDGPU_GEM_OP_GET_GEM_CREATE_INFO` devolve o descritor de criação original por
 ponteiro de usuário validado, e `AMDGPU_GEM_LIST_HANDLES` enumera tamanho,
 domínio, flags e alinhamento dos BOs ainda abertos. Placement em VRAM continua

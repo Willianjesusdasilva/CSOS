@@ -1749,6 +1749,63 @@ pub fn encodeAmdGfx11SubmissionFrame(vmid: u8, ib_address: u64, ib_dwords: u32, 
     };
 }
 
+pub const AmdGfx11SubmissionQueue = struct {
+    next_sequence: u64 = 1,
+    committed_wptr: u64 = 963,
+    stopped: bool = false,
+};
+
+pub const AmdGfx11SubmissionResult = struct { sequence: u64, final_wptr: u64, polls: u32 };
+
+pub fn submitAmdGfx11IndirectBuffer(
+    plan: AmdGfx11CpGfxPlan,
+    queue: *AmdGfx11SubmissionQueue,
+    ring: *[1024]u32,
+    pointers: *[512]u64,
+    fence: *u64,
+    fence_address: u64,
+    vmid: u8,
+    ib_address: u64,
+    ib_dwords: u32,
+    poll_limit: u32,
+    io: AmdRegisterIo,
+    doorbells: AmdDoorbellIo,
+) !AmdGfx11SubmissionResult {
+    if (queue.stopped) return error.AmdGfxSubmissionQueueStopped;
+    if (poll_limit == 0 or queue.next_sequence == 0 or queue.committed_wptr > std.math.maxInt(u64) - 12)
+        return error.InvalidAmdGfxSubmissionQueue;
+    const rptr = @atomicLoad(u64, &pointers[0], .seq_cst);
+    const wptr = @atomicLoad(u64, &pointers[1], .seq_cst);
+    if (rptr != queue.committed_wptr or wptr != queue.committed_wptr) return error.AmdGfxSubmissionRingNotIdle;
+    const sequence = queue.next_sequence;
+    const frame = try encodeAmdGfx11SubmissionFrame(vmid, ib_address, ib_dwords, fence_address, sequence);
+    @atomicStore(u64, fence, 0, .seq_cst);
+    for (frame.dwords, 0..) |dword, index| ring[@intCast((wptr + index) & 1023)] = dword;
+    const final_wptr = wptr + frame.dwords.len;
+    asm volatile ("mfence" ::: .{ .memory = true });
+    @atomicStore(u64, &pointers[1], final_wptr, .seq_cst);
+    asm volatile ("mfence" ::: .{ .memory = true });
+    doorbells.write64(doorbells.context, plan.doorbell.byte_offset, final_wptr) catch {
+        queue.stopped = true;
+        stopAmdGfx11CpGfx(plan, io) catch return error.AmdCpGfxStopFailed;
+        return error.AmdGfxSubmissionDoorbellFailed;
+    };
+    var polls: u32 = 0;
+    while (polls < poll_limit) : (polls += 1) {
+        if (@atomicLoad(u64, fence, .seq_cst) == sequence and
+            @atomicLoad(u64, &pointers[0], .seq_cst) == final_wptr) {
+            queue.committed_wptr = final_wptr;
+            queue.next_sequence +%= 1;
+            if (queue.next_sequence == 0) queue.next_sequence = 1;
+            return .{ .sequence = sequence, .final_wptr = final_wptr, .polls = polls + 1 };
+        }
+        asm volatile ("pause");
+    }
+    queue.stopped = true;
+    stopAmdGfx11CpGfx(plan, io) catch return error.AmdCpGfxStopFailed;
+    return error.AmdGfxSubmissionTimeout;
+}
+
 pub fn amdGfx11MesIsHalted(control: u32) bool {
     const reset = control & 0x00030000;
     const active = control & 0x0c000000;
@@ -4478,6 +4535,49 @@ pub fn validateAmdGfx11CpGfxResumeSelfTest() !void {
     if (encodeAmdGfx11SubmissionFrame(1, 0x1001, 1, 0x2000, 1)) |_| return error.AmdGfxMisalignedIbAccepted else |err| if (err != error.InvalidAmdGfxIndirectBuffer) return err;
     if (encodeAmdGfx11SubmissionFrame(1, 0x1000, 1, 0x2004, 1)) |_| return error.AmdGfxMisalignedFenceAccepted else |err| if (err != error.InvalidAmdGfxSubmissionFence) return err;
 
+    var queue = AmdGfx11SubmissionQueue{};
+    var fence: u64 = 0xa5a5;
+    pointers[0] = 963;
+    pointers[1] = 963;
+    bank.values[bank.position(registers.me_control).?] &= ~@as(u32, 0x14000000);
+    bank.values[bank.position(registers.rb_active).?] = 1;
+    doorbell.complete = true;
+    doorbell.expected_wptr = 975;
+    doorbell.fence = &fence;
+    doorbell.fence_value = 1;
+    doorbell.writes = 0;
+    const submitted = try submitAmdGfx11IndirectBuffer(plan, &queue, &ring, &pointers, &fence, 0x22334455000, 3, 0x12345678000, 0x321, 2, bank.io(), doorbell.io());
+    var expected_transaction = expected_submission;
+    expected_transaction[9] = 1;
+    expected_transaction[10] = 0;
+    if (submitted.sequence != 1 or submitted.final_wptr != 975 or submitted.polls != 1 or
+        queue.next_sequence != 2 or queue.committed_wptr != 975 or queue.stopped or fence != 1 or
+        !std.mem.eql(u32, ring[963..975], &expected_transaction))
+        return error.AmdGfxSubmissionTransactionMismatch;
+
+    queue = .{ .next_sequence = 9, .committed_wptr = 1018 };
+    pointers[0] = 1018;
+    pointers[1] = 1018;
+    fence = 0;
+    doorbell.expected_wptr = 1030;
+    doorbell.fence_value = 9;
+    const wrapped = try submitAmdGfx11IndirectBuffer(plan, &queue, &ring, &pointers, &fence, 0x22334455000, 3, 0x12345678000, 0x321, 2, bank.io(), doorbell.io());
+    expected_transaction[9] = 9;
+    if (wrapped.final_wptr != 1030 or !std.mem.eql(u32, ring[1018..1024], expected_transaction[0..6]) or
+        !std.mem.eql(u32, ring[0..6], expected_transaction[6..12]))
+        return error.AmdGfxSubmissionWrapMismatch;
+
+    queue = .{ .next_sequence = 10, .committed_wptr = 1030 };
+    pointers[0] = 1030;
+    pointers[1] = 1030;
+    doorbell.complete = false;
+    doorbell.expected_wptr = 1042;
+    if (submitAmdGfx11IndirectBuffer(plan, &queue, &ring, &pointers, &fence, 0x22334455000, 3, 0x12345678000, 0x321, 2, bank.io(), doorbell.io())) |_| return error.AmdGfxSubmissionTimeoutNotDetected else |err| if (err != error.AmdGfxSubmissionTimeout) return err;
+    if (!queue.stopped or (bank.values[bank.position(registers.me_control).?] & 0x14000000) != 0x14000000 or
+        bank.values[bank.position(registers.rb_active).?] != 0)
+        return error.AmdGfxSubmissionTimeoutDidNotStop;
+    if (submitAmdGfx11IndirectBuffer(plan, &queue, &ring, &pointers, &fence, 0x22334455000, 3, 0x12345678000, 0x321, 2, bank.io(), doorbell.io())) |_| return error.AmdGfxStoppedQueueAccepted else |err| if (err != error.AmdGfxSubmissionQueueStopped) return err;
+
     @memcpy(bank.values[0..offsets.len], &original);
     pointers = .{0} ** 512;
     doorbell.complete = false;
@@ -4738,6 +4838,8 @@ const AmdCpGfxDoorbellTestBank = struct {
     pointers: *[512]u64,
     registers: ?*AmdGartRegisterTestBank = null,
     scratch_offset: u32 = 0,
+    fence: ?*u64 = null,
+    fence_value: u64 = 0,
     complete: bool = true,
     fail: bool = false,
     writes: u32 = 0,
@@ -4751,6 +4853,7 @@ const AmdCpGfxDoorbellTestBank = struct {
             @atomicStore(u64, &self.pointers[0], value, .seq_cst);
             if (self.registers) |registers|
                 registers.values[registers.position(self.scratch_offset) orelse return error.UnknownAmdRegister] = 0xdeadbeef;
+            if (self.fence) |fence| @atomicStore(u64, fence, self.fence_value, .seq_cst);
         }
     }
 

@@ -1866,7 +1866,8 @@ GFX11 960-dword clear-state block, GART mapping and gated RLC SRM resume transac
 GFX11 graphics ring0/pointer allocation, post-CSB GART layout and SOC21 doorbell identity: implemented and host-tested
 gated CP_RB0 activation, ME/PFP unhalt and 960-dword clear-state RPTR handshake: implemented and host-tested; Radeon validation pending
 GFX11 graphics PM4 SET_UCONFIG_REG scratch test with RPTR=963 and timeout-to-halt: implemented and host-tested; Radeon validation pending
-GFX11 direct-VMID INDIRECT_BUFFER + 64-bit RELEASE_MEM fence frame: implemented and host-tested; dispatcher/ioctl and Radeon validation pending
+GFX11 direct-VMID INDIRECT_BUFFER + 64-bit RELEASE_MEM fence frame: implemented and host-tested; ioctl wiring and Radeon validation pending
+GFX11 internal IB dispatcher with 1024-dword wrap, ordered WPTR, monotonic fence and timeout-to-stop: implemented and host-tested; ioctl wiring pending
 AMDGPU_CTX lifecycle and AMDGPU_BO_LIST residency ownership: implemented; integration validation pending
 AMDGPU_CS single-GFX-IB parser with context/list/GPUVA fail-closed validation: implemented; dispatch deliberately returns EOPNOTSUPP
 GFX11 ring resource contract and fail-closed preflight: implemented and host-tested
@@ -1895,11 +1896,12 @@ NVIDIA NVK/compatible-stack triangle on real hardware: pending
 The branch nodes own physical table pages and map/unmap creates, links, prunes
 and releases them transactionally. GEM_VA and the gate-controlled hardware
 context lifecycle now exist, but require real Radeon validation. The GFX11
-IB/fence frame is encoded and host-tested; CTX and BO_LIST state exist, and the
-AMDGPU_CS entry point validates a single GFX IB against its resident GPUVA pages
-before deliberately returning EOPNOTSUPP. Ring dispatch, sequence tracking and
-hardware execution are still absent. M14 remains incomplete, and neither AMD
-nor NVIDIA acceleration may be advertised from this checkpoint.
+IB/fence frame and its internal ring transaction are host-tested; CTX and BO_LIST
+state exist, and the AMDGPU_CS entry point validates a single GFX IB against its
+resident GPUVA pages
+before deliberately returning EOPNOTSUPP. Per-process fence provisioning, ioctl
+wiring and hardware execution are still absent. M14 remains incomplete, and
+neither AMD nor NVIDIA acceleration may be advertised from this checkpoint.
 
 CSOS completo quando:
 
