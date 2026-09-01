@@ -3262,6 +3262,31 @@ pub const AmdGpuVmPagePath = struct {
     ptb: u9,
     page_offset: u12,
 };
+
+pub const AmdGpuVmInfo = struct {
+    ids_flags: u64,
+    virtual_address_offset: u64,
+    virtual_address_max: u64,
+    virtual_address_alignment: u32,
+    pte_fragment_size: u32,
+    gart_page_size: u32,
+    ce_ram_size: u32,
+};
+
+pub fn amdGpuVmInfo() AmdGpuVmInfo {
+    return .{
+        // No optional IDS capability is exposed until its implementation is
+        // complete. The current GFX11 page walker supports the low 48-bit VA
+        // half with one 4 KiB PTE per mapping.
+        .ids_flags = 0,
+        .virtual_address_offset = 1 << 16,
+        .virtual_address_max = 0x0000800000000000,
+        .virtual_address_alignment = 4096,
+        .pte_fragment_size = 4096,
+        .gart_page_size = 4096,
+        .ce_ram_size = 0,
+    };
+}
 pub const AmdGpuVmHardware = struct {
     context: *anyopaque,
     bind: *const fn (*anyopaque, u4, u64) anyerror!void,
@@ -3510,6 +3535,17 @@ pub fn amdGpuVmPagePath(address: u64) !AmdGpuVmPagePath {
         .ptb = @truncate(address >> 12),
         .page_offset = @truncate(address),
     };
+}
+
+comptime {
+    const info = amdGpuVmInfo();
+    if (info.ids_flags != 0 or info.virtual_address_offset != 0x10000 or
+        info.virtual_address_max != 0x0000800000000000 or info.virtual_address_alignment != 4096 or
+        info.pte_fragment_size != 4096 or info.gart_page_size != 4096 or info.ce_ram_size != 0)
+        @compileError("AMDGPU VM information contract mismatch");
+    _ = amdGpuVmPagePath(info.virtual_address_offset) catch @compileError("AMDGPU advertised VA start is not mappable");
+    _ = amdGpuVmPagePath(info.virtual_address_max - info.gart_page_size) catch @compileError("AMDGPU advertised VA end is not mappable");
+    if (amdGpuVmPagePath(info.virtual_address_max)) |_| @compileError("AMDGPU VA hole boundary was accepted") else |_| {}
 }
 
 pub fn amdGpuVmTableBytes(entries: u16) !u32 {

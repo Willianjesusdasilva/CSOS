@@ -84,6 +84,7 @@ pub const AmdGpuInfoProfile = struct {
     clocks: gpu.AmdGpuClockInfo,
     pcie_generation: u8,
     pcie_width: u8,
+    vm_info: gpu.AmdGpuVmInfo,
 };
 var amdgpu_info_profile: ?AmdGpuInfoProfile = null;
 var amdgpu_abi_test_dispatches: u32 = 0;
@@ -979,9 +980,10 @@ pub fn validateAmdGpuDrmAbiSelfTest() !void {
     var test_cu_info = gpu.AmdGfx11CuInfo{ .active_count = 172, .active_sa_mask = 0x07ff, .bitmap = .{.{0} ** 4} ** 4, .enabled_rb_mask = 0x7fe, .active_rb_count = 10 };
     test_cu_info.bitmap[0][0] = 0xfffc;
     const test_clocks = gpu.AmdGpuClockInfo{ .counter_khz = 100000, .min_engine_khz = 2500000, .max_engine_khz = 2500000, .min_memory_khz = 1200000, .max_memory_khz = 1200000 };
-    configureAmdGpuInfoProfile(.{ .pci_device = 0, .pci_revision = 0, .chip_revision = 0, .external_revision = 0, .family = 145, .gfx_major = 11, .gfx_minor = 0, .gfx_revision = 2, .topology = test_topology, .cu_info = test_cu_info, .clocks = test_clocks, .pcie_generation = 4, .pcie_width = 16 });
+    const test_vm_info = gpu.amdGpuVmInfo();
+    configureAmdGpuInfoProfile(.{ .pci_device = 0, .pci_revision = 0, .chip_revision = 0, .external_revision = 0, .family = 145, .gfx_major = 11, .gfx_minor = 0, .gfx_revision = 2, .topology = test_topology, .cu_info = test_cu_info, .clocks = test_clocks, .pcie_generation = 4, .pcie_width = 16, .vm_info = test_vm_info });
     if (amdgpuInfo(@intFromPtr(base + 560)) != 0 or read32(base + 608) != 0) return error.AmdGpuHwIpAcceptedInvalidPhysicalProfile;
-    configureAmdGpuInfoProfile(.{ .pci_device = 0x744c, .pci_revision = 0xc8, .chip_revision = 3, .external_revision = 0x13, .family = 145, .gfx_major = 11, .gfx_minor = 0, .gfx_revision = 2, .topology = test_topology, .cu_info = test_cu_info, .clocks = test_clocks, .pcie_generation = 4, .pcie_width = 16 });
+    configureAmdGpuInfoProfile(.{ .pci_device = 0x744c, .pci_revision = 0xc8, .chip_revision = 3, .external_revision = 0x13, .family = 145, .gfx_major = 11, .gfx_minor = 0, .gfx_revision = 2, .topology = test_topology, .cu_info = test_cu_info, .clocks = test_clocks, .pcie_generation = 4, .pcie_width = 16, .vm_info = test_vm_info });
     if (amdgpuInfo(@intFromPtr(base + 560)) != 0 or read32(base + 608) != 1) return error.AmdGpuHwIpCountAbiMismatch;
     put32(base + 568, 40);
     put32(base + 572, 2);
@@ -1009,6 +1011,12 @@ pub fn validateAmdGpuDrmAbiSelfTest() !void {
     put32(base + 568, 136);
     if (amdgpuInfo(@intFromPtr(base + 560)) != 0 or read32(base + 740) != 4)
         return error.AmdGpuDevInfoPcieAbiMismatch;
+    put32(base + 568, 176);
+    if (amdgpuInfo(@intFromPtr(base + 560)) != 0 or read64(base + 744) != 0 or
+        read64(base + 752) != 0x10000 or read64(base + 760) != 0x0000800000000000 or
+        read32(base + 768) != 4096 or read32(base + 772) != 4096 or read32(base + 776) != 4096 or
+        read32(base + 780) != 0)
+        return error.AmdGpuDevInfoVmAbiMismatch;
     if (amdgpuCs(@intFromPtr(base + 160)) != 0 or read64(base + 160) != 1 or amdgpu_abi_test_dispatches != 1)
         return error.AmdGpuCsDispatchAbiMismatch;
     put64(base + 192, 1);
@@ -1294,6 +1302,8 @@ fn amdgpuInfo(address: u64) u64 {
     const gfx_available = amdgpu_cs_endpoint != null and profile != null and profile.?.cu_info.active_count != 0 and
         profile.?.cu_info.enabled_rb_mask != 0 and profile.?.cu_info.active_rb_count != 0 and
         profile.?.pcie_generation != 0 and profile.?.pcie_width != 0 and
+        profile.?.vm_info.virtual_address_offset != 0 and profile.?.vm_info.virtual_address_max > profile.?.vm_info.virtual_address_offset and
+        profile.?.vm_info.virtual_address_alignment == 4096 and profile.?.vm_info.gart_page_size == 4096 and
         profile.?.clocks.counter_khz != 0 and profile.?.clocks.max_engine_khz != 0 and profile.?.clocks.max_memory_khz != 0 and
         profile.?.pci_device != 0 and profile.?.pci_device != 0xffff and profile.?.gfx_major == 11 and
         profile.?.topology.num_shader_engines != 0 and profile.?.topology.num_shader_arrays_per_engine != 0 and
@@ -1323,7 +1333,7 @@ fn amdgpuInfo(address: u64) u64 {
         if (!gfx_available) return errno(19);
         // The prefix through cu_bitmap is physically known. Reject partial
         // fields and larger requests until the remaining memory/VA data exists.
-        if (return_size != 20 and return_size != 120 and return_size != 132 and return_size != 136) return errno(95);
+        if (return_size != 20 and return_size != 120 and return_size != 132 and return_size != 136 and return_size != 176) return errno(95);
         if (!validUserSlice(return_address, return_size)) return errno(14);
         const gfx = profile.?;
         const output: [*]u8 = @ptrFromInt(return_address);
@@ -1353,6 +1363,16 @@ fn amdgpuInfo(address: u64) u64 {
             put32(output + 128, 8);
         }
         if (return_size == 136) put32(output + 132, gfx.pcie_generation);
+        if (return_size == 176) {
+            put32(output + 132, gfx.pcie_generation);
+            put64(output + 136, gfx.vm_info.ids_flags);
+            put64(output + 144, gfx.vm_info.virtual_address_offset);
+            put64(output + 152, gfx.vm_info.virtual_address_max);
+            put32(output + 160, gfx.vm_info.virtual_address_alignment);
+            put32(output + 164, gfx.vm_info.pte_fragment_size);
+            put32(output + 168, gfx.vm_info.gart_page_size);
+            put32(output + 172, gfx.vm_info.ce_ram_size);
+        }
         return 0;
     }
     return errno(22);

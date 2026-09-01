@@ -795,6 +795,7 @@ pub fn start(info: BootInfo) noreturn {
             .clocks = gpu_clock_info.?,
             .pcie_generation = gpu_pcie_link.?.generation,
             .pcie_width = gpu_pcie_link.?.width,
+            .vm_info = gpu.amdGpuVmInfo(),
         });
     } else syscalls.configureAmdGpuInfoProfile(null);
     const gpu_gmc11_memory = if (gpu_gart_registers) |registers| gpu.decodeAmdGmc11MemorySnapshot(

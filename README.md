@@ -790,8 +790,7 @@ falham com `EOPNOTSUPP` para impedir que Mesa veja memória ou VA zerados como
 dados reais. Compute, SDMA e demais IPs continuam com count zero. O caminho GFX11 agora resolve os registradores oficiais
 de harvesting, seleciona cada SE/SA, combina as máscaras de fábrica e usuário e
 publica internamente a contagem e o bitmap de CUs realmente ativos; o seletor é
-sempre restaurado ao modo broadcast. A `DEV_INFO` completa permanece pendente de
-memória, VA e demais campos físicos. O mesmo snapshot lê agora
+sempre restaurado ao modo broadcast. O mesmo snapshot lê agora
 `CC_RB_BACKEND_DISABLE` e `GC_USER_RB_BACKEND_DISABLE`, cruza o harvesting
 global de render backends com as SAs ativas e amplia o prefixo verificável de
 `DEV_INFO` para 132 bytes, incluindo máscara de RBs, total físico de pipes e os
@@ -799,7 +798,16 @@ oito contextos de hardware definidos pelo GFX11 suportado. A enumeração PCI
 preserva ainda geração e largura máximas anunciadas por endpoints e bridges;
 o caminho até a GPU escolhe o menor limite de cada nível, detecta hierarquia
 ausente/cíclica e amplia `DEV_INFO` para 136 bytes com `pcie_gen`. A largura é
-retida no perfil para o campo UAPI posterior. O parser do IP discovery também valida
+retida no perfil para o campo UAPI posterior.
+
+O contrato GPUVA publicado é derivado do page walker já implementado: reserva
+inferior de 64 KiB, janela baixa até o hole canônico de 48 bits, alinhamento,
+fragmento PTE e página GART de 4 KiB. O teste em compile-time confirma a primeira
+e a última página anunciadas e rejeita o início do hole. Nenhuma capability IDS
+opcional é anunciada e `ce_ram_size` permanece zero no GFX11; com isso o prefixo
+verificável de `DEV_INFO` alcança 176 bytes sem antecipar o tipo de VRAM.
+
+O parser do IP discovery também valida
 e consome agora a tabela GC v1.0–v1.3: assinatura, tamanho, checksum, SE, SA,
 WGP/CU máximo, RB, TCC, wave size, profundidades GS e caches. Esses máximos já
 fazem parte do perfil DRM e são obrigatórios para publicar GFX, mas não são
