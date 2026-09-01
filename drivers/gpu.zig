@@ -535,7 +535,7 @@ pub fn encodeAmdGfx11MesMqd(kind: AmdGfx11QueueKind, addresses: AmdGfx11QueueAdd
     var pq_control: u32 = 0x00308509;
     pq_control = setField(pq_control, 0x0000003f, 0, 9);
     pq_control = setField(pq_control, 0x00003f00, 8, 9);
-    mqd[145] = pq_control | 0x10000000 | 0x40000000 | 0x80000000;
+    mqd[145] = pq_control | 0x08000000 | 0x10000000 | 0x40000000 | 0x80000000;
     mqd[149] = setField(0x00300000, 0x00300000, 20, 3);
     mqd[162] = 0x00000100;
     const eop_base = addresses.eop >> 8;
@@ -641,6 +641,20 @@ pub const AmdGfx11MesRegisters = struct {
     data_base_high: u32,
     data_bound_low: u32,
     gp3_low: u32,
+    hqd_vmid: u32,
+    hqd_doorbell_control: u32,
+    mqd_base_low: u32,
+    mqd_base_high: u32,
+    mqd_control: u32,
+    hqd_pq_base_low: u32,
+    hqd_pq_base_high: u32,
+    hqd_rptr_report_low: u32,
+    hqd_rptr_report_high: u32,
+    hqd_pq_control: u32,
+    hqd_wptr_poll_low: u32,
+    hqd_wptr_poll_high: u32,
+    hqd_persistent_state: u32,
+    hqd_active: u32,
 };
 
 pub fn resolveAmdGfx11MesRegisters(ip: *const AmdIp, register_bar_bytes: u64) !AmdGfx11MesRegisters {
@@ -660,6 +674,20 @@ pub fn resolveAmdGfx11MesRegisters(ip: *const AmdIp, register_bar_bytes: u64) !A
         .data_base_high = try resolveAmdRegister(base, 0x5855, register_bar_bytes),
         .data_bound_low = try resolveAmdRegister(base, 0x585d, register_bar_bytes),
         .gp3_low = try resolveAmdRegister(base, 0x2849, register_bar_bytes),
+        .hqd_vmid = try resolveAmdRegister(base, 0x1fac, register_bar_bytes),
+        .hqd_doorbell_control = try resolveAmdRegister(base, 0x1fb8, register_bar_bytes),
+        .mqd_base_low = try resolveAmdRegister(base, 0x1fa9, register_bar_bytes),
+        .mqd_base_high = try resolveAmdRegister(base, 0x1faa, register_bar_bytes),
+        .mqd_control = try resolveAmdRegister(base, 0x1fcb, register_bar_bytes),
+        .hqd_pq_base_low = try resolveAmdRegister(base, 0x1fb1, register_bar_bytes),
+        .hqd_pq_base_high = try resolveAmdRegister(base, 0x1fb2, register_bar_bytes),
+        .hqd_rptr_report_low = try resolveAmdRegister(base, 0x1fb4, register_bar_bytes),
+        .hqd_rptr_report_high = try resolveAmdRegister(base, 0x1fb5, register_bar_bytes),
+        .hqd_pq_control = try resolveAmdRegister(base, 0x1fba, register_bar_bytes),
+        .hqd_wptr_poll_low = try resolveAmdRegister(base, 0x1fb6, register_bar_bytes),
+        .hqd_wptr_poll_high = try resolveAmdRegister(base, 0x1fb7, register_bar_bytes),
+        .hqd_persistent_state = try resolveAmdRegister(base, 0x1fad, register_bar_bytes),
+        .hqd_active = try resolveAmdRegister(base, 0x1fab, register_bar_bytes),
     };
 }
 
@@ -728,7 +756,11 @@ fn rollbackAmdGfx11MesLoad(plan: AmdGfx11MesLoadPlan, transaction: *const AmdGfx
 pub fn restoreAmdGfx11MesLoad(plan: AmdGfx11MesLoadPlan, transaction: AmdGfx11MesLoadTransaction, io: AmdRegisterIo) !void {
     if (transaction.applied != 9 or transaction.pipe != plan.pipe or try io.read(io.context, plan.writes[0].offset) != 0)
         return error.InvalidAmdMesLoadRestore;
-    try io.write(io.context, plan.writes[0].offset, plan.writes[0].value);
+    io.write(io.context, plan.writes[0].offset, plan.writes[0].value) catch return error.AmdMesRegisterWriteFailed;
+    if (try io.read(io.context, plan.writes[0].offset) != plan.writes[0].value) {
+        io.write(io.context, plan.writes[0].offset, 0) catch return error.AmdMesLoadRollbackFailed;
+        return error.AmdMesRegisterReadbackMismatch;
+    }
     try rollbackAmdGfx11MesLoad(plan, &transaction, io);
 }
 
@@ -797,6 +829,12 @@ fn restoreAmdGfx11MesHalted(registers: AmdGfx11MesRegisters, halted_control: u32
     if (!amdGfx11MesIsHalted(observed)) return error.AmdMesActivationRollbackFailed;
 }
 
+pub fn haltAmdGfx11Mes(registers: AmdGfx11MesRegisters, io: AmdRegisterIo) !void {
+    try io.write(io.context, registers.mes_control, 0x40030000);
+    try io.write(io.context, registers.grbm_gfx_cntl, 0);
+    if (!amdGfx11MesIsHalted(try io.read(io.context, registers.mes_control))) return error.AmdMesHaltReadbackMismatch;
+}
+
 pub fn activateAmdGfx11Mes(
     registers: AmdGfx11MesRegisters,
     scheduler_start: u64,
@@ -853,6 +891,96 @@ pub fn activateAmdGfx11Mes(
     }
     restoreAmdGfx11MesHalted(registers, halted_control, io) catch return error.AmdMesActivationRollbackFailed;
     return error.AmdMesActivationTimeout;
+}
+pub const AmdGfx11KiqPlan = struct { writes: [17]AmdRegisterWrite, count: u8 = 17 };
+
+pub fn planAmdGfx11KiqHqd(registers: AmdGfx11MesRegisters, mqd: *const [512]u32) !AmdGfx11KiqPlan {
+    if (mqd[0] != 0xc0310800 or mqd[128] == 0 or mqd[136] == 0 or mqd[143] == 0 or
+        (mqd[143] & 0x40000000) == 0 or mqd[130] != 0)
+        return error.InvalidAmdGfx11KiqMqd;
+    return .{ .writes = .{
+        .{ .offset = registers.grbm_gfx_cntl, .value = 0x0d }, // ME3/pipe1/queue0
+        .{ .offset = registers.hqd_active, .value = 0 },
+        .{ .offset = registers.hqd_doorbell_control, .value = 0 },
+        .{ .offset = registers.hqd_vmid, .value = mqd[131] },
+        .{ .offset = registers.mqd_base_low, .value = mqd[128] },
+        .{ .offset = registers.mqd_base_high, .value = mqd[129] },
+        .{ .offset = registers.mqd_control, .value = mqd[162] },
+        .{ .offset = registers.hqd_pq_base_low, .value = mqd[136] },
+        .{ .offset = registers.hqd_pq_base_high, .value = mqd[137] },
+        .{ .offset = registers.hqd_rptr_report_low, .value = mqd[139] },
+        .{ .offset = registers.hqd_rptr_report_high, .value = mqd[140] },
+        .{ .offset = registers.hqd_pq_control, .value = mqd[145] },
+        .{ .offset = registers.hqd_wptr_poll_low, .value = mqd[141] },
+        .{ .offset = registers.hqd_wptr_poll_high, .value = mqd[142] },
+        .{ .offset = registers.hqd_persistent_state, .value = mqd[132] },
+        .{ .offset = registers.hqd_doorbell_control, .value = mqd[143] },
+        .{ .offset = registers.hqd_active, .value = 1 },
+    } };
+}
+
+pub const AmdGfx11KiqTransaction = struct {
+    offsets: [14]u32 = .{0} ** 14,
+    values: [14]u32 = .{0} ** 14,
+    count: u8 = 0,
+};
+
+pub fn restoreAmdGfx11Kiq(plan: AmdGfx11KiqPlan, transaction: *const AmdGfx11KiqTransaction, io: AmdRegisterIo) !void {
+    var failed = false;
+    var index: usize = transaction.count;
+    while (index != 0) {
+        index -= 1;
+        io.write(io.context, transaction.offsets[index], transaction.values[index]) catch { failed = true; };
+    }
+    io.write(io.context, plan.writes[0].offset, 0) catch { failed = true; };
+    if (failed) return error.AmdKiqRollbackFailed;
+}
+
+pub fn activateAmdGfx11Kiq(plan: AmdGfx11KiqPlan, io: AmdRegisterIo) !AmdGfx11KiqTransaction {
+    if (plan.count != 17 or plan.writes[0].value != 0x0d or plan.writes[16].offset != plan.writes[1].offset or plan.writes[16].value != 1)
+        return error.InvalidAmdKiqTransaction;
+    if (try io.read(io.context, plan.writes[0].offset) != 0) return error.AmdMesGrbmSelectorBusy;
+    io.write(io.context, plan.writes[0].offset, plan.writes[0].value) catch return error.AmdKiqRegisterWriteFailed;
+    if (try io.read(io.context, plan.writes[0].offset) != plan.writes[0].value) {
+        io.write(io.context, plan.writes[0].offset, 0) catch return error.AmdKiqRollbackFailed;
+        return error.AmdKiqRegisterReadbackMismatch;
+    }
+    var transaction = AmdGfx11KiqTransaction{};
+    for (plan.writes[1..], 0..) |write, write_index| {
+        var found: ?usize = null;
+        for (transaction.offsets[0..transaction.count], 0..) |offset, index| if (offset == write.offset) { found = index; break; };
+        if (found == null) {
+            if (transaction.count == transaction.offsets.len) return error.AmdKiqSnapshotFull;
+            transaction.offsets[transaction.count] = write.offset;
+            transaction.values[transaction.count] = io.read(io.context, write.offset) catch {
+                restoreAmdGfx11Kiq(plan, &transaction, io) catch return error.AmdKiqRollbackFailed;
+                return error.AmdKiqRegisterReadFailed;
+            };
+            transaction.count += 1;
+        }
+        io.write(io.context, write.offset, write.value) catch {
+            restoreAmdGfx11Kiq(plan, &transaction, io) catch return error.AmdKiqRollbackFailed;
+            return error.AmdKiqRegisterWriteFailed;
+        };
+        const observed = io.read(io.context, write.offset) catch {
+            restoreAmdGfx11Kiq(plan, &transaction, io) catch return error.AmdKiqRollbackFailed;
+            return error.AmdKiqRegisterReadFailed;
+        };
+        if (observed != write.value) {
+            restoreAmdGfx11Kiq(plan, &transaction, io) catch return error.AmdKiqRollbackFailed;
+            return error.AmdKiqRegisterReadbackMismatch;
+        }
+        _ = write_index;
+    }
+    io.write(io.context, plan.writes[0].offset, 0) catch {
+        restoreAmdGfx11Kiq(plan, &transaction, io) catch return error.AmdKiqRollbackFailed;
+        return error.AmdKiqRegisterWriteFailed;
+    };
+    if (try io.read(io.context, plan.writes[0].offset) != 0) {
+        restoreAmdGfx11Kiq(plan, &transaction, io) catch return error.AmdKiqRollbackFailed;
+        return error.AmdKiqRegisterReadbackMismatch;
+    }
+    return transaction;
 }
 
 pub const AmdGfx11PreflightEvidence = struct {
@@ -2921,6 +3049,41 @@ pub fn validateAmdGfx11MesActivationSelfTest() !void {
         return error.AmdMesActivationTimeoutRollbackMismatch;
 }
 
+pub fn validateAmdGfx11KiqActivationSelfTest() !void {
+    const gfx_ip = AmdIp{ .hw_id = amd_hw_id.gfx, .major = 11, .instance = 0, .base_count = 2, .bases = .{ 0, 0x100 } ++ .{0} ** 6 };
+    const registers = try resolveAmdGfx11MesRegisters(&gfx_ip, 0x20000);
+    const mqd = try encodeAmdGfx11MesMqd(.kiq, .{
+        .ring = 0x100000, .mqd = 0x110000, .eop = 0x120000, .rptr = 0x130000, .wptr = 0x130008,
+    }, 0x200000);
+    const plan = try planAmdGfx11KiqHqd(registers, &mqd.dwords);
+    if (plan.writes[0].value != 0x0d or plan.writes[1].offset != registers.hqd_active or plan.writes[1].value != 0 or
+        plan.writes[15].offset != registers.hqd_doorbell_control or plan.writes[16].offset != registers.hqd_active or plan.writes[16].value != 1)
+        return error.AmdKiqWriteOrderMismatch;
+    var bank = AmdGartRegisterTestBank{ .count = 15 };
+    bank.offsets[0] = registers.grbm_gfx_cntl;
+    bank.values[0] = 0;
+    var count: usize = 1;
+    for (plan.writes[1..]) |write| if (bank.position(write.offset) == null) {
+        bank.offsets[count] = write.offset;
+        bank.values[count] = 0xa0000000 | @as(u32, @intCast(count));
+        count += 1;
+    };
+    if (count != 15) return error.AmdKiqSnapshotCountMismatch;
+    var original: [15]u32 = undefined;
+    @memcpy(&original, bank.values[0..15]);
+    const transaction = try activateAmdGfx11Kiq(plan, bank.io());
+    if (transaction.count != 14 or bank.values[0] != 0 or bank.values[bank.position(registers.hqd_active).?] != 1 or
+        bank.values[bank.position(registers.hqd_doorbell_control).?] != mqd.dwords[143])
+        return error.AmdKiqActivationMismatch;
+    try restoreAmdGfx11Kiq(plan, &transaction, bank.io());
+    for (original, bank.values[0..15]) |expected, observed| if (expected != observed) return error.AmdKiqExplicitRestoreMismatch;
+
+    bank.fail_write_once = registers.hqd_pq_control;
+    if (activateAmdGfx11Kiq(plan, bank.io())) |_| return error.AmdKiqFailureNotDetected else |err|
+        if (err != error.AmdKiqRegisterWriteFailed) return err;
+    for (original, bank.values[0..15]) |expected, observed| if (expected != observed) return error.AmdKiqFailureRollbackMismatch;
+}
+
 pub fn validateAmdGmc11VmContextSelfTest() !void {
     const plan = AmdGartPlan{
         .family = .v11_0,
@@ -3181,7 +3344,7 @@ pub fn validateAmdGfx11RingResourceSelfTest() !void {
     }, 0x200000);
     if (scheduler.doorbell.assignment != 0x0b or scheduler.doorbell.register_index != 0x16 or scheduler.doorbell.byte_offset != 0x58 or
         scheduler.dwords[128] != 0x110000 or scheduler.dwords[136] != 0x1000 or scheduler.dwords[139] != 0x130000 or
-        scheduler.dwords[141] != 0x130008 or scheduler.dwords[143] != 0x40000058 or scheduler.dwords[145] != 0xd0308909 or
+        scheduler.dwords[141] != 0x130008 or scheduler.dwords[143] != 0x40000058 or scheduler.dwords[145] != 0xd8308909 or
         scheduler.dwords[165] != 0x1200 or scheduler.dwords[167] != 8 or scheduler.dwords[130] != 0)
         return error.AmdGfxMqdEncodingMismatch;
     const kiq = try planAmdGfx11MesDoorbell(.kiq, 0x200000);

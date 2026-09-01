@@ -788,6 +788,14 @@ considera o handshake concluído quando scheduler e KIQ publicam versões não
 zero. Timeout ou readback incoerente restaura imediatamente reset+halt e o
 seletor GRBM neutro. Esse handshake prova vida dos microcontroladores, mas não
 inicializa HQD, não toca doorbell e ainda não habilita command submission.
+A KIQ possui agora um gate posterior, `-Damd-mes-kiq=true`. O plano deriva do
+MQD validado e seleciona exclusivamente `ME3/pipe1/queue0`: força HQD inativo,
+desabilita o doorbell, programa VMID0, bases MQD/ring, RPTR/WPTR, controle e
+estado persistente, reabilita o doorbell e grava `HQD_ACTIVE=1` por último.
+Quatorze registradores distintos são capturados antes das escritas; cada valor
+tem readback e qualquer falha restaura tudo em ordem reversa. Se a ativação da
+KIQ falhar, os dois pipes MES também retornam a reset+halt. Este estágio ainda
+não envia pacotes à KIQ nem considera o scheduler pronto.
 Para VA de 48 bits, o walker segue `PDB2[47:39] → PDB1[38:30] →
 PDB0[29:21] → PTB[20:12]`, com offset `[11:0]`. Cada nível possui até 512
 entradas de 64 bits e ocupa uma página de 4 KiB, conforme a geometria do

@@ -94,6 +94,8 @@ pub const Framebuffer = display.Framebuffer;
 pub fn start(info: BootInfo) noreturn {
     if (build_options.amd_mes_activate and !build_options.amd_mes_mmio)
         panic("AMDGPU MES activation gate requires MES load gate");
+    if (build_options.amd_mes_kiq and !build_options.amd_mes_activate)
+        panic("AMDGPU MES KIQ gate requires MES activation gate");
     serial.write("kernel entry\n");
     syscalls.configureFramebuffer(.{
         .base = info.framebuffer.base,
@@ -675,6 +677,10 @@ pub fn start(info: BootInfo) noreturn {
         gpu.planAmdGfx11MesLoad(.kiq, firmware.kiq, layout.kiq_ucode, layout.kiq_data, registers, true) catch
             panic("AMDGPU MES KIQ load plan invalid")
     else null else null else null else null;
+    const gpu_mes_kiq_plan = if (gpu_gfx_mes_bootstrap != null) blk: {
+        const mqd: *const [512]u32 = @ptrFromInt(gpu_gfx_ring_resources.kiq.mqd);
+        break :blk gpu.planAmdGfx11KiqHqd(gpu_mes_registers.?, mqd) catch panic("AMDGPU MES KIQ HQD plan invalid");
+    } else null;
     const gpu_gmc11_visible_vram = if (gpu_gmc11_memory) |memory| if (gpu_memory_plan.?.vram_bar) |bar|
         gpu.mapAmdGmc11VisibleVram(memory, bar, info.framebuffer.base, info.framebuffer.size) catch panic("AMDGPU visible VRAM mapping invalid")
     else null else null;
@@ -760,6 +766,7 @@ pub fn start(info: BootInfo) noreturn {
     }
     var gpu_mes_loads: u8 = 0;
     var gpu_mes_activation: ?gpu.AmdGfx11MesActivation = null;
+    var gpu_mes_kiq_active = false;
     if (gpu_gart_mmio_transport) |*transport| {
         const psp_ready = (gpu_psp_mailbox_snapshot != null and gpu_psp_mailbox_snapshot.?.state == .sos_alive) or
             gpu_psp_handoff.state == .finished;
@@ -845,6 +852,21 @@ pub fn start(info: BootInfo) noreturn {
                     panic("AMDGPU MES activation handshake failed and returned to halt");
                 };
                 transport.disarm();
+                if (build_options.amd_mes_kiq) {
+                    const kiq_hqd_plan = gpu_mes_kiq_plan orelse panic("AMDGPU MES KIQ HQD plan unavailable");
+                    transport.arm() catch panic("AMDGPU MES KIQ MMIO arming failed");
+                    _ = gpu.activateAmdGfx11Kiq(kiq_hqd_plan, transport.io()) catch {
+                        gpu.haltAmdGfx11Mes(gpu_mes_registers.?, transport.io()) catch {
+                            transport.disarm();
+                            panic("AMDGPU MES KIQ failure could not halt MES");
+                        };
+                        gpu_mes_activation = null;
+                        transport.disarm();
+                        panic("AMDGPU MES KIQ activation failed and rolled back");
+                    };
+                    gpu_mes_kiq_active = true;
+                    transport.disarm();
+                }
             }
         }
     }
@@ -977,6 +999,7 @@ pub fn start(info: BootInfo) noreturn {
     serial.write(" mes-sched-version: "); serial.writeDecimal(if (gpu_mes_activation) |activation| activation.scheduler_version else 0);
     serial.write(" mes-kiq-version: "); serial.writeDecimal(if (gpu_mes_activation) |activation| activation.kiq_version else 0);
     serial.write(" mes-handshake-polls: "); serial.writeDecimal(if (gpu_mes_activation) |activation| activation.polls else 0);
+    serial.write(" mes-kiq-active: "); serial.writeDecimal(@intFromBool(gpu_mes_kiq_active));
     serial.write(" driver: ");
     serial.write(switch (gpu_adapter.driver) {
         .amdgpu => "amdgpu",
