@@ -831,6 +831,12 @@ inicialização oficial. O snapshot agora lê ainda `CGTS_TCC_DISABLE` e
 fora da topologia ou todos os TCCs desabilitados. Com essa máscara e os clocks
 mínimos ATOM, o prefixo verificável de `DEV_INFO` alcança 384 bytes.
 
+Para GC table 1.2+, os caches finais também passam por validação estrita:
+TCP, SQC instruction/data, instâncias GL1, tamanho GL1 e GL2 precisam ser não
+zero; o total GL1 usa multiplicação com overflow verificado. Esses seis campos
+seguem o mapeamento upstream e ampliam o prefixo de `DEV_INFO` para 408 bytes.
+O próximo campo, `mall_size`, depende da tabela MALL separada.
+
 O parser do IP discovery também valida
 e consome agora a tabela GC v1.0–v1.3: assinatura, tamanho, checksum, SE, SA,
 WGP/CU máximo, RB, TCC, wave size, profundidades GS e caches. Esses máximos já

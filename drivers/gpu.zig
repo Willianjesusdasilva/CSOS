@@ -3039,6 +3039,31 @@ pub const AmdGcInfo = struct {
     pub fn maxCuPerShaderArray(self: AmdGcInfo) u32 {
         return 2 * (self.num_wgp0_per_sa + self.num_wgp1_per_sa);
     }
+
+    pub fn cacheInfo(self: AmdGcInfo) !AmdGfx11CacheInfo {
+        if (self.version_minor < 2 or self.tcp_l1_size == 0 or self.num_sqc_per_wgp == 0 or
+            self.sqc_instruction_cache_size == 0 or self.sqc_data_cache_size == 0 or
+            self.gl1c_per_sa == 0 or self.gl1c_size_per_instance == 0 or self.gl2c_per_gpu == 0)
+            return error.InvalidAmdGfx11CacheTopology;
+        return .{
+            .tcp = self.tcp_l1_size,
+            .sqc_per_wgp = self.num_sqc_per_wgp,
+            .sqc_data = self.sqc_data_cache_size,
+            .sqc_instruction = self.sqc_instruction_cache_size,
+            .gl1 = std.math.mul(u32, self.gl1c_per_sa, self.gl1c_size_per_instance) catch
+                return error.InvalidAmdGfx11CacheTopology,
+            .gl2 = self.gl2c_per_gpu,
+        };
+    }
+};
+
+pub const AmdGfx11CacheInfo = struct {
+    tcp: u32,
+    sqc_per_wgp: u32,
+    sqc_data: u32,
+    sqc_instruction: u32,
+    gl1: u32,
+    gl2: u32,
 };
 
 pub const AmdIp = struct {
@@ -7534,6 +7559,7 @@ fn parseAmdGcInfoTable(bytes: []const u8, descriptor: usize) !?AmdGcInfo {
         (result.wave_front_size != 32 and result.wave_front_size != 64) or
         result.maxCuPerShaderArray() == 0 or result.maxCuPerShaderArray() > 128)
         return error.InvalidAmdGcInfoTopology;
+    if (minor >= 2) _ = try result.cacheInfo();
     return result;
 }
 
@@ -7616,6 +7642,10 @@ comptime {
         discovery.gc_info.?.max_gs_threads != 32 or discovery.gc_info.?.wave_front_size != 32 or
         discovery.gc_info.?.num_sqc_per_wgp != 2 or discovery.gc_info.?.sqc_instruction_cache_size != 32)
         @compileError("AMDGPU IP discovery sample decoded incorrectly");
+    const caches = discovery.gc_info.?.cacheInfo() catch @compileError("AMDGPU GC cache sample was rejected");
+    if (caches.tcp != 32 or caches.sqc_per_wgp != 2 or caches.sqc_data != 16 or caches.sqc_instruction != 32 or
+        caches.gl1 != 128 or caches.gl2 != 16)
+        @compileError("AMDGPU GC cache sample decoded incorrectly");
 }
 
 pub fn parseAmdgpuFirmware(bytes: []const u8) !AmdgpuFirmware {

@@ -778,7 +778,8 @@ pub fn start(info: BootInfo) noreturn {
     }
     const gpu_clock_info = if (gpu_atom_firmware_info) |atom| gpu.amdGpuClockInfo(atom) catch null else null;
     const gpu_pcie_link = inventory.pciePathLink(display_device) catch null;
-    if (gpu_adapter.driver == .amdgpu and gpu_gmc11_nbio_registers != null and gpu_ip_discovery.?.gc_info != null and gpu_cu_info != null and gpu_clock_info != null and gpu_pcie_link != null and gpu_atom_vram_info != null) {
+    const gpu_cache_info = if (gpu_ip_discovery.?.gc_info) |topology| topology.cacheInfo() catch null else null;
+    if (gpu_adapter.driver == .amdgpu and gpu_gmc11_nbio_registers != null and gpu_ip_discovery.?.gc_info != null and gpu_cu_info != null and gpu_clock_info != null and gpu_pcie_link != null and gpu_atom_vram_info != null and gpu_cache_info != null) {
         const gfx_ip = gpu_ip_discovery.?.find(gpu.amd_hw_id.gfx, 0) orelse panic("AMDGPU GFX IP missing");
         const strap = gpu_adapter.readRegister(gpu_gmc11_nbio_registers.?.revision_strap) catch panic("AMDGPU revision strap read failed");
         const identity = gpu.decodeAmdGfx11AsicIdentity(gfx_ip, strap) catch panic("AMDGPU ASIC identity unsupported");
@@ -799,6 +800,7 @@ pub fn start(info: BootInfo) noreturn {
             .pcie_width = gpu_pcie_link.?.width,
             .vm_info = gpu.amdGpuVmInfo(),
             .vram_info = gpu_atom_vram_info.?,
+            .cache_info = gpu_cache_info.?,
         });
     } else syscalls.configureAmdGpuInfoProfile(null);
     const gpu_gmc11_memory = if (gpu_gart_registers) |registers| gpu.decodeAmdGmc11MemorySnapshot(
