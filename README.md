@@ -816,6 +816,13 @@ perfil. Com `vram_type` e `vram_bit_width` físicos, o prefixo verificável de
 VCN, e `gc_double_offchip_lds_buf` vem do IP discovery validado; esses campos
 estendem o prefixo para 192 bytes.
 
+Os quatro endereços e quatro tamanhos de buffers NGG permanecem zero: o Linux
+atual também deixa esses campos zerados e o CSOS não alocou tais buffers. Após
+esse bloco, `wave_front_size` vem do IP discovery físico, ampliando o prefixo
+verificável de `DEV_INFO` para 244 bytes. O parser GC passou a preservar também
+`gc_num_gprs` e `gc_num_max_gs_thds`; junto de CU/SA, TCC, profundidades GS e a
+largura PCIe já comprovados, esses dados ampliam o prefixo para 272 bytes.
+
 O parser do IP discovery também valida
 e consome agora a tabela GC v1.0–v1.3: assinatura, tamanho, checksum, SE, SA,
 WGP/CU máximo, RB, TCC, wave size, profundidades GS e caches. Esses máximos já

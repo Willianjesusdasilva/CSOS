@@ -3000,6 +3000,8 @@ pub const AmdGcInfo = struct {
     num_wgp1_per_sa: u32,
     num_rb_per_se: u32,
     num_tcc_blocks: u32,
+    max_gprs: u32 = 0,
+    max_gs_threads: u32 = 0,
     gs_vgt_table_depth: u32,
     gs_prim_buffer_depth: u32,
     double_offchip_lds_buf: u32,
@@ -7489,6 +7491,8 @@ fn parseAmdGcInfoTable(bytes: []const u8, descriptor: usize) !?AmdGcInfo {
         .num_wgp1_per_sa = @intCast(readLittle32(bytes, offset + 20)),
         .num_rb_per_se = @intCast(readLittle32(bytes, offset + 24)),
         .num_tcc_blocks = @intCast(readLittle32(bytes, offset + 28)),
+        .max_gprs = @intCast(readLittle32(bytes, offset + 32)),
+        .max_gs_threads = @intCast(readLittle32(bytes, offset + 36)),
         .gs_vgt_table_depth = @intCast(readLittle32(bytes, offset + 40)),
         .gs_prim_buffer_depth = @intCast(readLittle32(bytes, offset + 44)),
         .double_offchip_lds_buf = @intCast(readLittle32(bytes, offset + 52)),
@@ -7506,7 +7510,8 @@ fn parseAmdGcInfoTable(bytes: []const u8, descriptor: usize) !?AmdGcInfo {
     if (result.num_shader_engines == 0 or result.num_shader_engines > 8 or
         result.num_shader_arrays_per_engine == 0 or result.num_shader_arrays_per_engine > 4 or
         result.num_wgp0_per_sa > 32 or result.num_wgp1_per_sa > 32 or result.num_rb_per_se > 16 or
-        result.num_tcc_blocks > 64 or (result.wave_front_size != 32 and result.wave_front_size != 64) or
+        result.num_tcc_blocks > 64 or result.max_gprs == 0 or result.max_gs_threads == 0 or
+        (result.wave_front_size != 32 and result.wave_front_size != 64) or
         result.maxCuPerShaderArray() == 0 or result.maxCuPerShaderArray() > 128)
         return error.InvalidAmdGcInfoTopology;
     return result;
@@ -7565,6 +7570,8 @@ comptime {
     writeLittle32(&sample, 176, 4);
     writeLittle32(&sample, 180, 2);
     writeLittle32(&sample, 184, 16);
+    writeLittle32(&sample, 188, 1536);
+    writeLittle32(&sample, 192, 32);
     writeLittle32(&sample, 196, 32);
     writeLittle32(&sample, 200, 64);
     writeLittle32(&sample, 208, 512);
@@ -7585,7 +7592,8 @@ comptime {
     const sdma = discovery.find(amd_hw_id.sdma0, 0);
     if (discovery.table_version != 3 or discovery.dies != 1 or discovery.ips != 1 or discovery.base_addresses != 1 or sdma == null or sdma.?.major != 11 or sdma.?.bases[0] != 0x1234 or
         discovery.gc_info == null or discovery.gc_info.?.num_shader_engines != 6 or discovery.gc_info.?.maxCuPerShaderArray() != 16 or
-        discovery.gc_info.?.num_shader_arrays_per_engine != 2 or discovery.gc_info.?.num_tcc_blocks != 16 or discovery.gc_info.?.wave_front_size != 32 or
+        discovery.gc_info.?.num_shader_arrays_per_engine != 2 or discovery.gc_info.?.num_tcc_blocks != 16 or discovery.gc_info.?.max_gprs != 1536 or
+        discovery.gc_info.?.max_gs_threads != 32 or discovery.gc_info.?.wave_front_size != 32 or
         discovery.gc_info.?.num_sqc_per_wgp != 2 or discovery.gc_info.?.sqc_instruction_cache_size != 32)
         @compileError("AMDGPU IP discovery sample decoded incorrectly");
 }
