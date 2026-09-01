@@ -7768,6 +7768,15 @@ pub const AmdAtomFirmwareInfo = struct {
     reserved_kib: u32,
 };
 
+pub const AmdAtomVramInfo = struct {
+    format_revision: u8,
+    content_revision: u8,
+    atom_memory_type: u8,
+    uapi_vram_type: u8,
+    channel_count: u8,
+    width_bits: u16,
+};
+
 pub const AmdGpuClockInfo = struct {
     counter_khz: u32,
     min_engine_khz: u64,
@@ -7850,6 +7859,38 @@ pub fn parseAmdAtomFirmwareInfo(bytes: []const u8) !AmdAtomFirmwareInfo {
     };
 }
 
+pub fn parseAmdAtomVramInfo(bytes: []const u8) !AmdAtomVramInfo {
+    const tables = try amdAtomTables(bytes);
+    if (tables.master.len < 62) return error.AtomVramInfoPointerMissing;
+    const info_offset = @as(usize, readLittle16(tables.master, 60));
+    if (info_offset == 0) return error.AtomVramInfoMissing;
+    const info = try atomTable(tables.image, info_offset, 64);
+    const format = info[2];
+    const content = info[3];
+    if (format != 3 or content != 0) return error.UnsupportedAtomVramInfo;
+    const module_count = info[20];
+    if (module_count == 0 or module_count > 8 or info.len < 64 + @as(usize, module_count) * 68)
+        return error.InvalidAtomVramModules;
+    const atom_type = info[24];
+    const uapi_type: u8 = switch (atom_type) {
+        0x50 => 5, // GDDR5
+        0x60, 0x61, 0x80 => 6, // HBM2/HBM2E/HBM3
+        0x70 => 9, // GDDR6
+        0x81 => 13, // HBM3E
+        else => return error.UnsupportedAtomVramType,
+    };
+    const channels = info[25];
+    if (channels == 0 or channels > 32) return error.InvalidAtomVramChannels;
+    return .{
+        .format_revision = format,
+        .content_revision = content,
+        .atom_memory_type = atom_type,
+        .uapi_vram_type = uapi_type,
+        .channel_count = channels,
+        .width_bits = @as(u16, channels) * 16,
+    };
+}
+
 fn amdAtomTables(bytes: []const u8) !AmdAtomTables {
     if (bytes.len < 0x4a or bytes[0] != 0x55 or bytes[1] != 0xaa) return error.InvalidPciRom;
     const image_bytes = @as(usize, bytes[2]) * 512;
@@ -7884,10 +7925,10 @@ fn readLittle32(bytes: []const u8, offset: usize) usize {
 }
 
 comptime {
-    var atom = [_]u8{0} ** 512;
+    var atom = [_]u8{0} ** 1024;
     atom[0] = 0x55;
     atom[1] = 0xaa;
-    atom[2] = 1;
+    atom[2] = 2;
     writeLittle16(&atom, 0x48, 0x80);
     writeLittle16(&atom, 0x80, 38);
     atom[0x82] = 2;
@@ -7900,6 +7941,7 @@ comptime {
     writeLittle16(&atom, 0xda, 0x120);
     writeLittle16(&atom, 0xcc, 0x160);
     writeLittle16(&atom, 0xd4, 0x1c0);
+    writeLittle16(&atom, 0xfc, 0x200);
     writeLittle16(&atom, 0x120, 12);
     atom[0x122] = 2;
     atom[0x123] = 1;
@@ -7917,6 +7959,12 @@ comptime {
     atom[0x1c2] = 4;
     atom[0x1c3] = 0;
     writeLittle32(&atom, 0x1d0, 10000);
+    writeLittle16(&atom, 0x200, 132);
+    atom[0x202] = 3;
+    atom[0x203] = 0;
+    atom[0x214] = 1;
+    atom[0x218] = 0x70;
+    atom[0x219] = 24;
     const usage = parseAmdAtomVramUsage(&atom) catch @compileError("ATOM VRAM usage sample was rejected");
     if (usage.format_revision != 2 or usage.content_revision != 1 or usage.firmware_start_kib != 0x12340 or
         usage.firmware_kib != 64 or usage.driver_start_kib != null or usage.driver_kib != 20)
@@ -7930,6 +7978,10 @@ comptime {
     if (clocks.counter_khz != 100000 or clocks.min_engine_khz != 2500000 or clocks.max_engine_khz != 2500000 or
         clocks.min_memory_khz != 1200000 or clocks.max_memory_khz != 1200000)
         @compileError("ATOM clocks decoded incorrectly");
+    const vram = parseAmdAtomVramInfo(&atom) catch @compileError("ATOM VRAM info sample was rejected");
+    if (vram.format_revision != 3 or vram.content_revision != 0 or vram.atom_memory_type != 0x70 or
+        vram.uapi_vram_type != 9 or vram.channel_count != 24 or vram.width_bits != 384)
+        @compileError("ATOM VRAM info sample decoded incorrectly");
 }
 
 comptime {

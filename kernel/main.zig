@@ -757,6 +757,7 @@ pub fn start(info: BootInfo) noreturn {
     const gpu_mes_halted = gpu_mes_registers != null and gpu.amdGfx11MesIsHalted(gpu_mes_control);
     var gpu_atom_vram_usage: ?gpu.AmdAtomVramUsage = null;
     var gpu_atom_firmware_info: ?gpu.AmdAtomFirmwareInfo = null;
+    var gpu_atom_vram_info: ?gpu.AmdAtomVramInfo = null;
     var gpu_rom_read = false;
     var gpu_rom_restored = false;
     if (gpu_adapter.rom_bar) |rom| {
@@ -768,6 +769,7 @@ pub fn start(info: BootInfo) noreturn {
         if (gpu_adapter.isAmd()) {
             gpu_atom_vram_usage = gpu.parseAmdAtomVramUsage(bytes[0..rom.size]) catch null;
             gpu_atom_firmware_info = gpu.parseAmdAtomFirmwareInfo(bytes[0..rom.size]) catch null;
+            gpu_atom_vram_info = gpu.parseAmdAtomVramInfo(bytes[0..rom.size]) catch null;
         }
         pages.release(rom_copy, rom_pages) catch panic("GPU expansion ROM buffer release failed");
         const restored = pci.romInfo(gpu_adapter.device, false) orelse panic("GPU expansion ROM restore missing");
@@ -776,7 +778,7 @@ pub fn start(info: BootInfo) noreturn {
     }
     const gpu_clock_info = if (gpu_atom_firmware_info) |atom| gpu.amdGpuClockInfo(atom) catch null else null;
     const gpu_pcie_link = inventory.pciePathLink(display_device) catch null;
-    if (gpu_adapter.driver == .amdgpu and gpu_gmc11_nbio_registers != null and gpu_ip_discovery.?.gc_info != null and gpu_cu_info != null and gpu_clock_info != null and gpu_pcie_link != null) {
+    if (gpu_adapter.driver == .amdgpu and gpu_gmc11_nbio_registers != null and gpu_ip_discovery.?.gc_info != null and gpu_cu_info != null and gpu_clock_info != null and gpu_pcie_link != null and gpu_atom_vram_info != null) {
         const gfx_ip = gpu_ip_discovery.?.find(gpu.amd_hw_id.gfx, 0) orelse panic("AMDGPU GFX IP missing");
         const strap = gpu_adapter.readRegister(gpu_gmc11_nbio_registers.?.revision_strap) catch panic("AMDGPU revision strap read failed");
         const identity = gpu.decodeAmdGfx11AsicIdentity(gfx_ip, strap) catch panic("AMDGPU ASIC identity unsupported");
@@ -796,6 +798,7 @@ pub fn start(info: BootInfo) noreturn {
             .pcie_generation = gpu_pcie_link.?.generation,
             .pcie_width = gpu_pcie_link.?.width,
             .vm_info = gpu.amdGpuVmInfo(),
+            .vram_info = gpu_atom_vram_info.?,
         });
     } else syscalls.configureAmdGpuInfoProfile(null);
     const gpu_gmc11_memory = if (gpu_gart_registers) |registers| gpu.decodeAmdGmc11MemorySnapshot(
@@ -1407,6 +1410,10 @@ pub fn start(info: BootInfo) noreturn {
     serial.writeDecimal(if (gpu_atom_firmware_info) |_| 1 else 0);
     serial.write(" atom-fw-reserved-kib: ");
     serial.writeDecimal(if (gpu_atom_firmware_info) |atom| atom.reserved_kib else 0);
+    serial.write(" atom-vram-type: ");
+    serial.writeDecimal(if (gpu_atom_vram_info) |atom| atom.uapi_vram_type else 0);
+    serial.write(" atom-vram-width: ");
+    serial.writeDecimal(if (gpu_atom_vram_info) |atom| atom.width_bits else 0);
     serial.write(" firmware-tail-bytes: ");
     serial.writeDecimal(if (gpu_gmc11_memory != null) gpu_firmware_tail_bytes else 0);
     serial.write(" memory-training-reserved: ");

@@ -807,6 +807,15 @@ e a última página anunciadas e rejeita o início do hole. Nenhuma capability I
 opcional é anunciada e `ce_ram_size` permanece zero no GFX11; com isso o prefixo
 verificável de `DEV_INFO` alcança 176 bytes sem antecipar o tipo de VRAM.
 
+O parser ATOM também consome agora `vram_info` 3.0 do GFX11 discreto. Ele exige
+tabela completa, 1–8 módulos, tipo conhecido e 1–32 canais; GDDR5, GDDR6,
+HBM2/2E/3 e HBM3E são convertidos para os enums UAPI oficiais, e a largura segue
+o cálculo upstream de 16 bits por canal. Tipo ou topologia inválidos fecham o
+perfil. Com `vram_type` e `vram_bit_width` físicos, o prefixo verificável de
+`DEV_INFO` alcança 184 bytes. VCE harvesting permanece zero porque GFX11 usa
+VCN, e `gc_double_offchip_lds_buf` vem do IP discovery validado; esses campos
+estendem o prefixo para 192 bytes.
+
 O parser do IP discovery também valida
 e consome agora a tabela GC v1.0–v1.3: assinatura, tamanho, checksum, SE, SA,
 WGP/CU máximo, RB, TCC, wave size, profundidades GS e caches. Esses máximos já
