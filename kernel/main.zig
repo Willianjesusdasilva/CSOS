@@ -92,6 +92,8 @@ pub const BootInfo = struct {
 pub const Framebuffer = display.Framebuffer;
 
 pub fn start(info: BootInfo) noreturn {
+    if (build_options.amd_mes_activate and !build_options.amd_mes_mmio)
+        panic("AMDGPU MES activation gate requires MES load gate");
     serial.write("kernel entry\n");
     syscalls.configureFramebuffer(.{
         .base = info.framebuffer.base,
@@ -757,6 +759,7 @@ pub fn start(info: BootInfo) noreturn {
         }
     }
     var gpu_mes_loads: u8 = 0;
+    var gpu_mes_activation: ?gpu.AmdGfx11MesActivation = null;
     if (gpu_gart_mmio_transport) |*transport| {
         const psp_ready = (gpu_psp_mailbox_snapshot != null and gpu_psp_mailbox_snapshot.?.state == .sos_alive) or
             gpu_psp_handoff.state == .finished;
@@ -829,6 +832,20 @@ pub fn start(info: BootInfo) noreturn {
             };
             gpu_mes_loads = 2;
             transport.disarm();
+            if (build_options.amd_mes_activate) {
+                transport.arm() catch panic("AMDGPU MES activation MMIO arming failed");
+                gpu_mes_activation = gpu.activateAmdGfx11Mes(
+                    gpu_mes_registers.?,
+                    gpu_mes_firmware.?.scheduler.ucode_start,
+                    gpu_mes_firmware.?.kiq.ucode_start,
+                    100_000,
+                    transport.io(),
+                ) catch {
+                    transport.disarm();
+                    panic("AMDGPU MES activation handshake failed and returned to halt");
+                };
+                transport.disarm();
+            }
         }
     }
     const gpu_identity = gpu_adapter.identifyChip() catch panic("GPU chipset identification failed");
@@ -956,6 +973,10 @@ pub fn start(info: BootInfo) noreturn {
     serial.write(" mes-halted: "); serial.writeDecimal(@intFromBool(gpu_mes_halted));
     serial.write(" mes-load-plans: "); serial.writeDecimal(@intFromBool(gpu_mes_scheduler_load != null) + @intFromBool(gpu_mes_kiq_load != null));
     serial.write(" mes-loads: "); serial.writeDecimal(gpu_mes_loads);
+    serial.write(" mes-active: "); serial.writeDecimal(if (gpu_mes_activation) |_| 1 else 0);
+    serial.write(" mes-sched-version: "); serial.writeDecimal(if (gpu_mes_activation) |activation| activation.scheduler_version else 0);
+    serial.write(" mes-kiq-version: "); serial.writeDecimal(if (gpu_mes_activation) |activation| activation.kiq_version else 0);
+    serial.write(" mes-handshake-polls: "); serial.writeDecimal(if (gpu_mes_activation) |activation| activation.polls else 0);
     serial.write(" driver: ");
     serial.write(switch (gpu_adapter.driver) {
         .amdgpu => "amdgpu",

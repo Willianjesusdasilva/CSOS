@@ -640,6 +640,7 @@ pub const AmdGfx11MesRegisters = struct {
     data_base_low: u32,
     data_base_high: u32,
     data_bound_low: u32,
+    gp3_low: u32,
 };
 
 pub fn resolveAmdGfx11MesRegisters(ip: *const AmdIp, register_bar_bytes: u64) !AmdGfx11MesRegisters {
@@ -658,6 +659,7 @@ pub fn resolveAmdGfx11MesRegisters(ip: *const AmdIp, register_bar_bytes: u64) !A
         .data_base_low = try resolveAmdRegister(base, 0x5854, register_bar_bytes),
         .data_base_high = try resolveAmdRegister(base, 0x5855, register_bar_bytes),
         .data_bound_low = try resolveAmdRegister(base, 0x585d, register_bar_bytes),
+        .gp3_low = try resolveAmdRegister(base, 0x2849, register_bar_bytes),
     };
 }
 
@@ -773,6 +775,84 @@ pub fn executeAmdGfx11MesLoad(plan: AmdGfx11MesLoadPlan, io: AmdRegisterIo) !Amd
         return error.AmdMesRegisterReadbackMismatch;
     }
     return transaction;
+}
+pub const AmdGfx11MesActivation = struct { scheduler_version: u32, kiq_version: u32, polls: u32 };
+
+fn readAmdGfx11MesVersions(registers: AmdGfx11MesRegisters, io: AmdRegisterIo) ![2]u32 {
+    var versions = [2]u32{ 0, 0 };
+    inline for (0..2) |pipe| {
+        try io.write(io.context, registers.grbm_gfx_cntl, @as(u32, pipe) | (3 << 2));
+        versions[pipe] = try io.read(io.context, registers.gp3_low);
+    }
+    try io.write(io.context, registers.grbm_gfx_cntl, 0);
+    return versions;
+}
+
+fn restoreAmdGfx11MesHalted(registers: AmdGfx11MesRegisters, halted_control: u32, io: AmdRegisterIo) !void {
+    var failed = false;
+    io.write(io.context, registers.mes_control, halted_control) catch { failed = true; };
+    io.write(io.context, registers.grbm_gfx_cntl, 0) catch { failed = true; };
+    if (failed) return error.AmdMesActivationRollbackFailed;
+    const observed = io.read(io.context, registers.mes_control) catch return error.AmdMesActivationRollbackFailed;
+    if (!amdGfx11MesIsHalted(observed)) return error.AmdMesActivationRollbackFailed;
+}
+
+pub fn activateAmdGfx11Mes(
+    registers: AmdGfx11MesRegisters,
+    scheduler_start: u64,
+    kiq_start: u64,
+    poll_limit: u32,
+    io: AmdRegisterIo,
+) !AmdGfx11MesActivation {
+    if (poll_limit == 0 or (scheduler_start & 3) != 0 or (kiq_start & 3) != 0) return error.InvalidAmdMesActivation;
+    const halted_control = try io.read(io.context, registers.mes_control);
+    if (!amdGfx11MesIsHalted(halted_control) or try io.read(io.context, registers.grbm_gfx_cntl) != 0)
+        return error.AmdMesActivationPreconditionFailed;
+    const starts = .{ scheduler_start, kiq_start };
+    inline for (starts, 0..) |start, pipe| {
+        const selector: u32 = @as(u32, @intCast(pipe)) | (3 << 2);
+        io.write(io.context, registers.grbm_gfx_cntl, selector) catch {
+            restoreAmdGfx11MesHalted(registers, halted_control, io) catch return error.AmdMesActivationRollbackFailed;
+            return error.AmdMesRegisterWriteFailed;
+        };
+        const pc = start >> 2;
+        io.write(io.context, registers.program_counter_low, @truncate(pc)) catch {
+            restoreAmdGfx11MesHalted(registers, halted_control, io) catch return error.AmdMesActivationRollbackFailed;
+            return error.AmdMesRegisterWriteFailed;
+        };
+        io.write(io.context, registers.program_counter_high, @truncate(pc >> 32)) catch {
+            restoreAmdGfx11MesHalted(registers, halted_control, io) catch return error.AmdMesActivationRollbackFailed;
+            return error.AmdMesRegisterWriteFailed;
+        };
+    }
+    io.write(io.context, registers.grbm_gfx_cntl, 0) catch {
+        restoreAmdGfx11MesHalted(registers, halted_control, io) catch return error.AmdMesActivationRollbackFailed;
+        return error.AmdMesRegisterWriteFailed;
+    };
+    io.write(io.context, registers.mes_control, 0x0c000000) catch {
+        restoreAmdGfx11MesHalted(registers, halted_control, io) catch return error.AmdMesActivationRollbackFailed;
+        return error.AmdMesRegisterWriteFailed;
+    };
+    const active = io.read(io.context, registers.mes_control) catch {
+        restoreAmdGfx11MesHalted(registers, halted_control, io) catch return error.AmdMesActivationRollbackFailed;
+        return error.AmdMesRegisterReadFailed;
+    };
+    if ((active & 0x4c030000) != 0x0c000000) {
+        restoreAmdGfx11MesHalted(registers, halted_control, io) catch return error.AmdMesActivationRollbackFailed;
+        return error.AmdMesActivationReadbackMismatch;
+    }
+    var polls: u32 = 0;
+    while (polls < poll_limit) : (polls += 1) {
+        const versions = readAmdGfx11MesVersions(registers, io) catch {
+            restoreAmdGfx11MesHalted(registers, halted_control, io) catch return error.AmdMesActivationRollbackFailed;
+            return error.AmdMesVersionReadFailed;
+        };
+        if (versions[0] != 0 and versions[1] != 0)
+            return .{ .scheduler_version = versions[0], .kiq_version = versions[1], .polls = polls + 1 };
+        asm volatile ("pause");
+    }
+    restoreAmdGfx11MesHalted(registers, halted_control, io) catch return error.AmdMesActivationRollbackFailed;
+    return error.AmdMesActivationTimeout;
 }
 
 pub const AmdGfx11PreflightEvidence = struct {
@@ -2409,6 +2489,11 @@ const AmdGartRegisterTestBank = struct {
     acknowledge_after_reads: ?u32 = null,
     acknowledge_reads: u32 = 0,
     acknowledge_mask: u32 = 1,
+    indexed_selector: ?u32 = null,
+    indexed_gp3: ?u32 = null,
+    indexed_versions: [2]u32 = .{ 0, 0 },
+    indexed_ready_after: ?u32 = null,
+    indexed_reads: u32 = 0,
 
     fn position(self: *const AmdGartRegisterTestBank, offset: u32) ?usize {
         for (self.offsets[0..self.count], 0..) |candidate, index| if (candidate == offset) return index;
@@ -2417,6 +2502,15 @@ const AmdGartRegisterTestBank = struct {
     fn read(context: *anyopaque, offset: u32) !u32 {
         const self: *AmdGartRegisterTestBank = @ptrCast(@alignCast(context));
         if (self.fail_read != null and self.fail_read.? == offset) return error.InjectedAmdRegisterReadFailure;
+        if (self.indexed_gp3 != null and offset == self.indexed_gp3.?) {
+            self.indexed_reads += 1;
+            if (self.indexed_ready_after != null and self.indexed_reads < self.indexed_ready_after.?) return 0;
+            const selector_offset = self.indexed_selector orelse return error.UnknownAmdRegister;
+            const selector = self.values[self.position(selector_offset) orelse return error.UnknownAmdRegister];
+            const pipe: usize = selector & 3;
+            if (pipe >= self.indexed_versions.len) return error.UnknownAmdRegister;
+            return self.indexed_versions[pipe];
+        }
         if (self.invalidate_ack != null and self.invalidate_ack.? == offset and self.acknowledge_after_reads != null) {
             self.acknowledge_reads += 1;
             if (self.acknowledge_reads >= self.acknowledge_after_reads.?)
@@ -2793,6 +2887,38 @@ pub fn validateAmdGfx11MesLoadTransactionSelfTest() !void {
         if (err != error.AmdMesRegisterWriteFailed) return err;
     for (original, bank.values[0..10]) |expected, observed| if (expected != observed)
         return error.AmdMesLoadRollbackMismatch;
+}
+
+pub fn validateAmdGfx11MesActivationSelfTest() !void {
+    const gfx_ip = AmdIp{ .hw_id = amd_hw_id.gfx, .major = 11, .instance = 0, .base_count = 2, .bases = .{ 0, 0x100 } ++ .{0} ** 6 };
+    const registers = try resolveAmdGfx11MesRegisters(&gfx_ip, 0x20000);
+    var bank = AmdGartRegisterTestBank{
+        .count = 5,
+        .indexed_selector = registers.grbm_gfx_cntl,
+        .indexed_gp3 = registers.gp3_low,
+        .indexed_versions = .{ 0x51, 0x52 },
+        .indexed_ready_after = 3,
+    };
+    bank.offsets[0] = registers.grbm_gfx_cntl;
+    bank.offsets[1] = registers.mes_control;
+    bank.offsets[2] = registers.program_counter_low;
+    bank.offsets[3] = registers.program_counter_high;
+    bank.offsets[4] = registers.gp3_low;
+    bank.values[1] = 0x40030000;
+    const active = try activateAmdGfx11Mes(registers, 0x3000, 0x4000, 4, bank.io());
+    if (active.scheduler_version != 0x51 or active.kiq_version != 0x52 or active.polls != 2 or
+        bank.values[0] != 0 or bank.values[1] != 0x0c000000)
+        return error.AmdMesActivationHandshakeMismatch;
+
+    bank.values[0] = 0;
+    bank.values[1] = 0x40030000;
+    bank.indexed_versions = .{ 0, 0 };
+    bank.indexed_ready_after = null;
+    bank.indexed_reads = 0;
+    if (activateAmdGfx11Mes(registers, 0x3000, 0x4000, 2, bank.io())) |_| return error.AmdMesActivationTimeoutNotDetected else |err|
+        if (err != error.AmdMesActivationTimeout) return err;
+    if (bank.values[0] != 0 or bank.values[1] != 0x40030000)
+        return error.AmdMesActivationTimeoutRollbackMismatch;
 }
 
 pub fn validateAmdGmc11VmContextSelfTest() !void {

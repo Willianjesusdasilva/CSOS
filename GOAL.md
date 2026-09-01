@@ -1837,8 +1837,9 @@ MES mes_2/mes fallback + mes1 typed selection: implemented; archive validation p
 MES code/data physical staging and bounded GART layout: implemented; GART layout host-tested
 GFX11 MES register resolution, halted-state classification and load write-set: implemented and host-tested
 dual-pipe MES load transaction with readback/rollback and explicit gate: implemented and host-tested
+dual-pipe MES unhalt/version handshake with timeout-to-halt rollback: implemented and host-tested
 real Radeon MMIO lifecycle validation: pending
-real MES register-load validation, queue activation/handshake and command submission: pending
+real MES load/handshake validation, KIQ HQD activation and command submission: pending
 AMD RADV triangle on real hardware: pending
 NVIDIA NVK/compatible-stack triangle on real hardware: pending
 ```

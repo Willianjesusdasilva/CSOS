@@ -780,6 +780,14 @@ simultaneamente `-Damd-gart-mmio=true`, `-Damd-mes-mmio=true` e o PCI ID exato
 em `-Damd-gart-device=0xNNNN`, além de GART ativo e nova confirmação de que MES
 continua halted. Mesmo com esse gate, a transação apenas carrega bases/PC:
 unhalt, ativação dos pipes e doorbells permanecem proibidos.
+O unhalt dos dois pipes ganhou uma transação separada e opt-in por
+`-Damd-mes-activate=true`, que só é aceita junto dos gates de carga MES, GART e
+PCI ID. A transação reprograva os PCs com MES ainda halted, libera pipe0/pipe1
+simultaneamente e consulta `CP_MES_GP3_LO` sob seleção ME3 para cada pipe. Só
+considera o handshake concluído quando scheduler e KIQ publicam versões não
+zero. Timeout ou readback incoerente restaura imediatamente reset+halt e o
+seletor GRBM neutro. Esse handshake prova vida dos microcontroladores, mas não
+inicializa HQD, não toca doorbell e ainda não habilita command submission.
 Para VA de 48 bits, o walker segue `PDB2[47:39] → PDB1[38:30] →
 PDB0[29:21] → PTB[20:12]`, com offset `[11:0]`. Cada nível possui até 512
 entradas de 64 bits e ocupa uma página de 4 KiB, conforme a geometria do
