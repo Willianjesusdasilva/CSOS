@@ -577,10 +577,11 @@ O arquivo `GOAL.md` é a fonte de verdade técnica do roadmap e das prioridades 
 
 Estimativa de progresso em 2026-09-01: **aproximadamente 40% concluído e 60% a
 fazer**. É uma estimativa ponderada por funcionalidade, não uma simples contagem
-de milestones: M0–M13 possuem fundações implementadas, mas M14 ainda não tem
-command submission nem triângulo Vulkan validado em AMD ou NVIDIA, e M15–M30
-continuam majoritariamente pendentes. Testes de host não contam como validação
-de hardware.
+de milestones: M0–M13 possuem fundações implementadas, mas M14 ainda não tem o
+dispatcher/ioctl de command submission nem triângulo Vulkan validado em AMD ou
+NVIDIA, e M15–M30 continuam majoritariamente pendentes. O frame GFX11 de IB e
+fence já é codificado e testado no host; isso não conta como validação de
+hardware.
 
 ---
 
@@ -718,9 +719,12 @@ suporte Vulkan concluído.
 
 A ABI AMDGPU inicial também preserva por BO tamanho, alinhamento, domínio e
 flags de criação, implementa `AMDGPU_GEM_METADATA` (set/get de até 256 bytes) e
-`AMDGPU_GEM_WAIT_IDLE`. Este último só retorna idle porque command submission
-ainda é recusado; `AMDGPU_INFO_ACCEL_WORKING` continua zero. VM e CS não são
-simulados antes de existir page table por processo e ring verificado.
+`AMDGPU_GEM_WAIT_IDLE`. Este último só retorna idle porque o ioctl de command
+submission ainda é recusado; `AMDGPU_INFO_ACCEL_WORKING` continua zero. A VM
+possui isolamento por VMID e page tables testadas no host, e o ring gráfico já
+passa o teste PM4 privado. O encoder de submissão produz o pacote GFX11
+`INDIRECT_BUFFER` para VMIDs 1–7 seguido de `RELEASE_MEM` com fence de 64 bits,
+mas dispatcher, validação de BOs e execução em Radeon real ainda faltam.
 `AMDGPU_GEM_OP_GET_GEM_CREATE_INFO` devolve o descritor de criação original por
 ponteiro de usuário validado, e `AMDGPU_GEM_LIST_HANDLES` enumera tamanho,
 domínio, flags e alinhamento dos BOs ainda abertos. Placement em VRAM continua

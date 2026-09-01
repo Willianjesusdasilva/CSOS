@@ -1841,8 +1841,9 @@ restante:  aproximadamente 60%
 
 M0–M13 possuem fundações implementadas, mas ainda demandam integração e
 validação no sistema completo. M14 está parcial: a preparação AMD GFX11/MES é
-majoritariamente host-tested, command submission e o triângulo RADV real ainda
-faltam, e o caminho NVIDIA/NVK começa depois desse primeiro triângulo AMD.
+majoritariamente host-tested; o frame de IB/fence existe, mas dispatcher/ioctl,
+execução real e o triângulo RADV ainda faltam. O caminho NVIDIA/NVK começa
+depois desse primeiro triângulo AMD.
 M15–M30 permanecem majoritariamente pendentes. Esta estimativa deve ser
 recalculada quando uma milestone passar seus critérios reais; código preparatório
 ou testes somente no host não equivalem a hardware funcional.
@@ -1865,6 +1866,7 @@ GFX11 960-dword clear-state block, GART mapping and gated RLC SRM resume transac
 GFX11 graphics ring0/pointer allocation, post-CSB GART layout and SOC21 doorbell identity: implemented and host-tested
 gated CP_RB0 activation, ME/PFP unhalt and 960-dword clear-state RPTR handshake: implemented and host-tested; Radeon validation pending
 GFX11 graphics PM4 SET_UCONFIG_REG scratch test with RPTR=963 and timeout-to-halt: implemented and host-tested; Radeon validation pending
+GFX11 direct-VMID INDIRECT_BUFFER + 64-bit RELEASE_MEM fence frame: implemented and host-tested; dispatcher/ioctl and Radeon validation pending
 GFX11 ring resource contract and fail-closed preflight: implemented and host-tested
 transactional ring/MQD/EOP/pointer physical allocation: implemented and host-tested
 dual MES scheduler/KIQ GART layout and GFX11 MQD encoding: implemented and host-tested
@@ -1883,16 +1885,17 @@ private scheduler SET_HW_RSRC + QUERY_STATUS transaction with dual-fence/RPTR ti
 revision-gated SET_HW_RSRC_1 + cleaner fence + sequence-2 query: implemented and host-tested
 real Radeon MMIO lifecycle validation: pending
 PSP KM-ring/LOAD_IP_FW, RLC resume and CP graphics resume hardware validation: pending
-real MES load/handshake/KIQ/scheduler resource validation and command submission: pending
+real MES load/handshake/KIQ/scheduler resource validation and userspace command submission: pending
 AMD RADV triangle on real hardware: pending
 NVIDIA NVK/compatible-stack triangle on real hardware: pending
 ```
 
 The branch nodes own physical table pages and map/unmap creates, links, prunes
 and releases them transactionally. GEM_VA and the gate-controlled hardware
-context lifecycle now exist, but require real Radeon validation. Command
-submission is still absent. M14 remains incomplete, and neither AMD nor NVIDIA
-acceleration may be advertised from this checkpoint.
+context lifecycle now exist, but require real Radeon validation. The GFX11
+IB/fence frame is encoded and host-tested; BO-list validation, dispatcher,
+AMDGPU_CS ioctl and hardware execution are still absent. M14 remains incomplete,
+and neither AMD nor NVIDIA acceleration may be advertised from this checkpoint.
 
 CSOS completo quando:
 

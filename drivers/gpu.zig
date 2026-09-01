@@ -1713,6 +1713,42 @@ pub fn testAmdGfx11CpGfxRing(
     return error.AmdCpGfxRingTestTimeout;
 }
 
+pub const AmdGfx11SubmissionFrame = struct {
+    dwords: [12]u32,
+    vmid: u4,
+    ib_dwords: u20,
+    sequence: u64,
+};
+
+pub fn encodeAmdGfx11SubmissionFrame(vmid: u8, ib_address: u64, ib_dwords: u32, fence_address: u64, sequence: u64) !AmdGfx11SubmissionFrame {
+    const gpu_limit: u64 = @as(u64, 1) << 48;
+    if (vmid == 0 or vmid > 7) return error.AmdGfxSubmissionVmidReserved;
+    if (ib_address == 0 or (ib_address & 3) != 0 or ib_address >= gpu_limit or
+        ib_dwords == 0 or ib_dwords > 0x000fffff)
+        return error.InvalidAmdGfxIndirectBuffer;
+    if (fence_address == 0 or (fence_address & 7) != 0 or fence_address >= gpu_limit or sequence == 0)
+        return error.InvalidAmdGfxSubmissionFence;
+    return .{
+        .vmid = @intCast(vmid),
+        .ib_dwords = @intCast(ib_dwords),
+        .sequence = sequence,
+        .dwords = .{
+            amdPacket3(0x3f, 2),
+            @truncate(ib_address),
+            @truncate(ib_address >> 32),
+            ib_dwords | (@as(u32, vmid) << 24),
+            amdPacket3(0x49, 6),
+            0x06603514,
+            0x40000000,
+            @truncate(fence_address),
+            @truncate(fence_address >> 32),
+            @truncate(sequence),
+            @truncate(sequence >> 32),
+            0,
+        },
+    };
+}
+
 pub fn amdGfx11MesIsHalted(control: u32) bool {
     const reset = control & 0x00030000;
     const active = control & 0x0c000000;
@@ -4427,6 +4463,20 @@ pub fn validateAmdGfx11CpGfxResumeSelfTest() !void {
     if ((bank.values[bank.position(registers.me_control).?] & 0x14000000) != 0x14000000 or
         bank.values[bank.position(registers.rb_active).?] != 0)
         return error.AmdCpGfxRingTestTimeoutDidNotStop;
+
+    const submission = try encodeAmdGfx11SubmissionFrame(3, 0x12345678000, 0x321, 0x22334455000, 0x1122334455667788);
+    const expected_submission = [12]u32{
+        0xc0023f00, 0x45678000, 0x123, 0x03000321,
+        0xc0064900, 0x06603514, 0x40000000, 0x34455000,
+        0x223, 0x55667788, 0x11223344, 0,
+    };
+    if (!std.mem.eql(u32, &submission.dwords, &expected_submission) or submission.vmid != 3 or
+        submission.ib_dwords != 0x321 or submission.sequence != 0x1122334455667788)
+        return error.AmdGfxSubmissionFrameMismatch;
+    if (encodeAmdGfx11SubmissionFrame(0, 0x1000, 1, 0x2000, 1)) |_| return error.AmdGfxSystemVmidSubmissionAccepted else |err| if (err != error.AmdGfxSubmissionVmidReserved) return err;
+    if (encodeAmdGfx11SubmissionFrame(8, 0x1000, 1, 0x2000, 1)) |_| return error.AmdGfxMesVmidSubmissionAccepted else |err| if (err != error.AmdGfxSubmissionVmidReserved) return err;
+    if (encodeAmdGfx11SubmissionFrame(1, 0x1001, 1, 0x2000, 1)) |_| return error.AmdGfxMisalignedIbAccepted else |err| if (err != error.InvalidAmdGfxIndirectBuffer) return err;
+    if (encodeAmdGfx11SubmissionFrame(1, 0x1000, 1, 0x2004, 1)) |_| return error.AmdGfxMisalignedFenceAccepted else |err| if (err != error.InvalidAmdGfxSubmissionFence) return err;
 
     @memcpy(bank.values[0..offsets.len], &original);
     pointers = .{0} ** 512;
