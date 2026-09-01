@@ -739,8 +739,11 @@ contexto, incluindo as sentinelas `0` e `~0`; handle futuro ou engine diferente
 falham fechados. `AMDGPU_CS` também aceita os chunks binários oficiais
 `SYNCOBJ_IN` e `SYNCOBJ_OUT`: todas as dependências e saídas são validadas antes
 do doorbell, input não sinalizado retorna timeout e outputs só são sinalizados
-depois do fence físico. Duplicatas, mais de 16 syncobjs e chunks de timeline,
-dependencies ou user-fence ainda não implementados são recusados sem efeitos. O
+depois do fence físico. Os chunks timeline `SYNCOBJ_TIMELINE_WAIT/SIGNAL` também
+são aceitos em entradas oficiais de 16 bytes: waits exigem ponto já atingido,
+signals não podem regredir e ponto zero mantém semântica binária. Flags timeline
+de wait-for-submit, chunks de dependencies e user-fence ainda não implementados
+são recusados sem efeitos; duplicatas e mais de 16 outputs também falham. O
 backend do ring já possui uma transação interna separada do ioctl: exige o ring
 ocioso no WPTR confirmado, grava os 12 dwords com wrap em 1024 slots, publica
 WPTR somente após `mfence`, toca o doorbell autorizado e espera simultaneamente

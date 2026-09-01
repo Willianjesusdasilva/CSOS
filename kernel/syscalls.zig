@@ -751,16 +751,18 @@ fn amdgpuCs(address: u64) u64 {
     const context = amdgpuContextForId(read32(io)) orelse return errno(2);
     const list = amdgpuBoListForHandle(read32(io + 4)) orelse return errno(2);
     const chunk_count = read32(io + 8);
-    if (chunk_count == 0 or chunk_count > 3 or read32(io + 12) != 0) return errno(95);
+    if (chunk_count == 0 or chunk_count > 5 or read32(io + 12) != 0) return errno(95);
     const chunk_pointers_address = read64(io + 16);
     if (!validUserSlice(chunk_pointers_address, @as(u64, chunk_count) * 8)) return errno(14);
     const chunk_pointers: [*]const u8 = @ptrFromInt(chunk_pointers_address);
     var gpu_va: u64 = 0;
     var ib_bytes: u32 = 0;
     var saw_ib = false;
-    var saw_sync_in = false;
+    var saw_binary_in = false;
+    var saw_timeline_in = false;
     var saw_sync_out = false;
     var output_syncobjs: [max_drm_syncobjs]*DrmSyncobj = undefined;
+    var output_points: [max_drm_syncobjs]u64 = .{0} ** max_drm_syncobjs;
     var output_count: usize = 0;
     var chunk_index: usize = 0;
     while (chunk_index < chunk_count) : (chunk_index += 1) {
@@ -783,21 +785,32 @@ fn amdgpuCs(address: u64) u64 {
             saw_ib = true;
             continue;
         }
-        if (chunk_id != 4 and chunk_id != 5) return errno(95);
-        if (length_dw == 0 or length_dw > max_drm_syncobjs or !validUserSlice(data_address, @as(u64, length_dw) * 4))
+        if (chunk_id != 4 and chunk_id != 5 and chunk_id != 8 and chunk_id != 9) return errno(95);
+        const timeline = chunk_id == 8 or chunk_id == 9;
+        const output = chunk_id == 5 or chunk_id == 9;
+        const entry_dwords: u32 = if (timeline) 4 else 1;
+        if (length_dw == 0 or (length_dw % entry_dwords) != 0 or length_dw / entry_dwords > max_drm_syncobjs or
+            !validUserSlice(data_address, @as(u64, length_dw) * 4))
             return errno(22);
-        if ((chunk_id == 4 and saw_sync_in) or (chunk_id == 5 and saw_sync_out)) return errno(17);
-        if (chunk_id == 4) saw_sync_in = true else saw_sync_out = true;
-        const handles: [*]const u8 = @ptrFromInt(data_address);
+        if (output and saw_sync_out) return errno(17);
+        if (!output and ((!timeline and saw_binary_in) or (timeline and saw_timeline_in))) return errno(17);
+        if (output) saw_sync_out = true else if (timeline) saw_timeline_in = true else saw_binary_in = true;
+        const entries: [*]const u8 = @ptrFromInt(data_address);
+        const entry_count = length_dw / entry_dwords;
         var sync_index: usize = 0;
-        while (sync_index < length_dw) : (sync_index += 1) {
-            const object = drmSyncobjForHandle(read32(handles + sync_index * 4)) orelse return errno(22);
-            if (chunk_id == 4) {
-                if (object.point == 0) return errno(62);
+        while (sync_index < entry_count) : (sync_index += 1) {
+            const entry = entries + sync_index * entry_dwords * 4;
+            const object = drmSyncobjForHandle(read32(entry)) orelse return errno(22);
+            const point = if (timeline) read64(entry + 8) else 0;
+            if (timeline and read32(entry + 4) != 0) return errno(95);
+            if (!output) {
+                if ((point == 0 and object.point == 0) or (point != 0 and object.point < point)) return errno(62);
             } else {
+                if (output_count == max_drm_syncobjs or (point != 0 and point < object.point)) return errno(22);
                 var prior: usize = 0;
                 while (prior < output_count) : (prior += 1) if (output_syncobjs[prior] == object) return errno(17);
                 output_syncobjs[output_count] = object;
+                output_points[output_count] = point;
                 output_count += 1;
             }
         }
@@ -818,7 +831,8 @@ fn amdgpuCs(address: u64) u64 {
     context.completed_handle = handle;
     context.hardware_sequence = hardware_sequence;
     var output_index: usize = 0;
-    while (output_index < output_count) : (output_index += 1) output_syncobjs[output_index].point = 1;
+    while (output_index < output_count) : (output_index += 1)
+        output_syncobjs[output_index].point = if (output_points[output_index] == 0) 1 else output_points[output_index];
     const output: [*]u8 = @ptrFromInt(address);
     put64(output, handle);
     return 0;
