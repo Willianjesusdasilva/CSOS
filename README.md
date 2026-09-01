@@ -804,6 +804,14 @@ timeout. A abertura do doorbell valida aperture e offset exatos. Falha de
 escrita ou timeout restaura a transação HQD e força MES para reset+halt. O
 teste está coberto no host, mas ainda precisa ser executado em Radeon real;
 ele não expõe command submission à ABI e não torna aceleração disponível.
+Depois desse fence, `-Damd-mes-scheduler-map=true` pode emitir pela mesma KIQ
+o `MAP_QUEUES` de sete dwords usado pelo upstream para a fila MES scheduler
+(`ME2/pipe0/queue0`, engine 5). O MQD alvo precisa continuar com
+`HQD_ACTIVE=0`, e o ring KIQ precisa estar comprovadamente ocioso em
+RPTR=WPTR=5. O pacote é seguido por outro teste de scratch; somente scratch
+confirmada e RPTR=WPTR=17 contam como sucesso. Timeout restaura a HQD KIQ e
+leva MES a reset+halt. `SET_RESOURCES` não é usado aqui porque pertence ao
+caminho KCQ legado, não ao bootstrap da fila MES scheduler.
 Para VA de 48 bits, o walker segue `PDB2[47:39] → PDB1[38:30] →
 PDB0[29:21] → PTB[20:12]`, com offset `[11:0]`. Cada nível possui até 512
 entradas de 64 bits e ocupa uma página de 4 KiB, conforme a geometria do

@@ -1072,10 +1072,87 @@ pub fn testAmdGfx11Kiq(
     var polls: u32 = 0;
     while (polls < poll_limit) {
         polls += 1;
-        if (try registers.read(registers.context, plan.scratch_offset) == plan.completion_value) return polls;
+        const complete = try registers.read(registers.context, plan.scratch_offset) == plan.completion_value;
+        const consumed = @atomicLoad(u64, &pointers[0], .seq_cst) == plan.packet.len;
+        if (complete and consumed) return polls;
         asm volatile ("pause");
     }
     return error.AmdKiqTestTimeout;
+}
+
+pub const AmdGfx11MesSchedulerMapPlan = struct {
+    packet: [12]u32,
+    scratch_offset: u32,
+    kiq_doorbell_offset: u32,
+    initial_wptr: u64 = 5,
+    final_wptr: u64 = 17,
+};
+
+pub fn planAmdGfx11MesSchedulerMap(
+    registers: AmdGfx11MesRegisters,
+    scheduler: AmdGfx11QueueAddresses,
+    scheduler_doorbell: AmdGfx11Doorbell,
+    kiq_doorbell: AmdGfx11Doorbell,
+    scheduler_mqd: *const [512]u32,
+) !AmdGfx11MesSchedulerMapPlan {
+    if ((registers.scratch0 & 3) != 0 or scheduler_mqd[130] != 0 or scheduler_mqd[128] == 0 or
+        scheduler.mqd == 0 or (scheduler.mqd & 4095) != 0 or scheduler.wptr == 0 or (scheduler.wptr & 7) != 0 or
+        scheduler_doorbell.register_index != 0x16 or kiq_doorbell.register_index != 0x18)
+        return error.InvalidAmdMesSchedulerMap;
+    // MAP_QUEUES for AMDGPU_RING_TYPE_MES: queue0, pipe0, ME2, engine 5,
+    // followed by the same KIQ scratch test used upstream as the completion fence.
+    return .{
+        .packet = .{
+            0xc005a200,
+            0x34080000,
+            @as(u32, scheduler_doorbell.register_index) << 2,
+            @truncate(scheduler.mqd),
+            @truncate(scheduler.mqd >> 32),
+            @truncate(scheduler.wptr),
+            @truncate(scheduler.wptr >> 32),
+            0xc0033700,
+            1 << 16,
+            registers.scratch0 >> 2,
+            0,
+            0xdeadbeef,
+        },
+        .scratch_offset = registers.scratch0,
+        .kiq_doorbell_offset = kiq_doorbell.byte_offset,
+    };
+}
+
+pub fn mapAmdGfx11MesScheduler(
+    plan: AmdGfx11MesSchedulerMapPlan,
+    kiq_ring: *[1024]u32,
+    kiq_pointers: *[2]u64,
+    poll_limit: u32,
+    registers: AmdRegisterIo,
+    doorbells: AmdDoorbellIo,
+) !u32 {
+    if (poll_limit == 0 or plan.initial_wptr + plan.packet.len != plan.final_wptr or
+        plan.final_wptr >= kiq_ring.len or plan.packet[0] != 0xc005a200 or
+        plan.packet[7] != 0xc0033700 or plan.packet[9] != plan.scratch_offset >> 2)
+        return error.InvalidAmdMesSchedulerMapPlan;
+    if (@atomicLoad(u64, &kiq_pointers[1], .seq_cst) != plan.initial_wptr or
+        @atomicLoad(u64, &kiq_pointers[0], .seq_cst) != plan.initial_wptr)
+        return error.AmdKiqRingNotIdle;
+    try registers.write(registers.context, plan.scratch_offset, 0xcafedead);
+    if (try registers.read(registers.context, plan.scratch_offset) != 0xcafedead)
+        return error.AmdKiqScratchReadbackMismatch;
+    const start: usize = @intCast(plan.initial_wptr);
+    @memcpy(kiq_ring[start .. start + plan.packet.len], &plan.packet);
+    @atomicStore(u64, &kiq_pointers[1], plan.final_wptr, .seq_cst);
+    doorbells.write64(doorbells.context, plan.kiq_doorbell_offset, plan.final_wptr) catch
+        return error.AmdKiqDoorbellWriteFailed;
+    var polls: u32 = 0;
+    while (polls < poll_limit) {
+        polls += 1;
+        const complete = try registers.read(registers.context, plan.scratch_offset) == 0xdeadbeef;
+        const consumed = @atomicLoad(u64, &kiq_pointers[0], .seq_cst) == plan.final_wptr;
+        if (complete and consumed) return polls;
+        asm volatile ("pause");
+    }
+    return error.AmdMesSchedulerMapTimeout;
 }
 
 pub const AmdGfx11PreflightEvidence = struct {
@@ -3187,6 +3264,8 @@ const AmdKiqDoorbellTestBank = struct {
     writes: u32 = 0,
     fail: bool = false,
     complete: bool = true,
+    pointers: ?*[2]u64 = null,
+    consumed_wptr: u64 = 0,
 
     fn write64(context: *anyopaque, offset: u32, value: u64) !void {
         const self: *AmdKiqDoorbellTestBank = @ptrCast(@alignCast(context));
@@ -3195,6 +3274,7 @@ const AmdKiqDoorbellTestBank = struct {
         self.writes += 1;
         if (self.complete)
             self.registers.values[self.registers.position(self.scratch_offset) orelse return error.UnknownAmdRegister] = 0xdeadbeef;
+        if (self.complete and self.pointers != null) self.pointers.?[0] = self.consumed_wptr;
     }
 
     fn io(self: *AmdKiqDoorbellTestBank) AmdDoorbellIo {
@@ -3219,9 +3299,11 @@ pub fn validateAmdGfx11KiqRingTestSelfTest() !void {
         .scratch_offset = registers.scratch0,
         .expected_offset = doorbell.byte_offset,
         .expected_wptr = 5,
+        .pointers = &pointers,
+        .consumed_wptr = 5,
     };
     const polls = try testAmdGfx11Kiq(plan, &ring, &pointers, 2, bank.io(), doorbell_bank.io());
-    if (polls != 1 or doorbell_bank.writes != 1 or pointers[0] != 0 or pointers[1] != 5 or
+    if (polls != 1 or doorbell_bank.writes != 1 or pointers[0] != 5 or pointers[1] != 5 or
         !std.mem.eql(u32, ring[0..5], &plan.packet))
         return error.AmdKiqRingTestMismatch;
 
@@ -3234,6 +3316,47 @@ pub fn validateAmdGfx11KiqRingTestSelfTest() !void {
     doorbell_bank.complete = false;
     if (testAmdGfx11Kiq(plan, &ring, &pointers, 2, bank.io(), doorbell_bank.io())) |_| return error.AmdKiqTimeoutNotDetected else |err|
         if (err != error.AmdKiqTestTimeout) return err;
+}
+
+pub fn validateAmdGfx11MesSchedulerMapSelfTest() !void {
+    const gfx_ip = AmdIp{ .hw_id = amd_hw_id.gfx, .major = 11, .instance = 0, .base_count = 2, .bases = .{ 0, 0x100 } ++ .{0} ** 6 };
+    const registers = try resolveAmdGfx11MesRegisters(&gfx_ip, 0x20000);
+    const scheduler = AmdGfx11QueueAddresses{
+        .ring = 0x100000, .mqd = 0x110000, .eop = 0x120000, .rptr = 0x130000, .wptr = 0x130008,
+    };
+    const scheduler_mqd = try encodeAmdGfx11MesMqd(.scheduler, scheduler, 0x200000);
+    const scheduler_doorbell = try planAmdGfx11MesDoorbell(.scheduler, 0x200000);
+    const kiq_doorbell = try planAmdGfx11MesDoorbell(.kiq, 0x200000);
+    const plan = try planAmdGfx11MesSchedulerMap(registers, scheduler, scheduler_doorbell, kiq_doorbell, &scheduler_mqd.dwords);
+    const expected = [12]u32{
+        0xc005a200, 0x34080000, 0x58, 0x110000, 0, 0x130008, 0,
+        0xc0033700, 0x00010000, registers.scratch0 >> 2, 0, 0xdeadbeef,
+    };
+    if (!std.mem.eql(u32, &plan.packet, &expected)) return error.AmdMesSchedulerMapPacketMismatch;
+    var ring = [_]u32{0} ** 1024;
+    var pointers = [2]u64{ 5, 5 };
+    var bank = AmdGartRegisterTestBank{ .count = 1 };
+    bank.offsets[0] = registers.scratch0;
+    var doorbell_bank = AmdKiqDoorbellTestBank{
+        .registers = &bank,
+        .scratch_offset = registers.scratch0,
+        .expected_offset = kiq_doorbell.byte_offset,
+        .expected_wptr = 17,
+        .pointers = &pointers,
+        .consumed_wptr = 17,
+    };
+    const polls = try mapAmdGfx11MesScheduler(plan, &ring, &pointers, 2, bank.io(), doorbell_bank.io());
+    if (polls != 1 or pointers[0] != 17 or pointers[1] != 17 or
+        !std.mem.eql(u32, ring[5..17], &plan.packet))
+        return error.AmdMesSchedulerMapMismatch;
+
+    pointers = .{ 5, 5 };
+    doorbell_bank.complete = false;
+    if (mapAmdGfx11MesScheduler(plan, &ring, &pointers, 2, bank.io(), doorbell_bank.io())) |_| return error.AmdMesSchedulerMapTimeoutNotDetected else |err|
+        if (err != error.AmdMesSchedulerMapTimeout) return err;
+    pointers = .{ 4, 5 };
+    if (mapAmdGfx11MesScheduler(plan, &ring, &pointers, 2, bank.io(), doorbell_bank.io())) |_| return error.AmdMesSchedulerBusyRingAccepted else |err|
+        if (err != error.AmdKiqRingNotIdle) return err;
 }
 
 pub fn validateAmdGmc11VmContextSelfTest() !void {

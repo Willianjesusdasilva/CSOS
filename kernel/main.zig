@@ -98,6 +98,8 @@ pub fn start(info: BootInfo) noreturn {
         panic("AMDGPU MES KIQ gate requires MES activation gate");
     if (build_options.amd_mes_kiq_test and !build_options.amd_mes_kiq)
         panic("AMDGPU MES KIQ test gate requires KIQ activation gate");
+    if (build_options.amd_mes_scheduler_map and !build_options.amd_mes_kiq_test)
+        panic("AMDGPU MES scheduler map gate requires verified KIQ gate");
     serial.write("kernel entry\n");
     syscalls.configureFramebuffer(.{
         .base = info.framebuffer.base,
@@ -770,6 +772,7 @@ pub fn start(info: BootInfo) noreturn {
     var gpu_mes_activation: ?gpu.AmdGfx11MesActivation = null;
     var gpu_mes_kiq_active = false;
     var gpu_mes_kiq_test_polls: u32 = 0;
+    var gpu_mes_scheduler_map_polls: u32 = 0;
     if (gpu_gart_mmio_transport) |*transport| {
         const psp_ready = (gpu_psp_mailbox_snapshot != null and gpu_psp_mailbox_snapshot.?.state == .sos_alive) or
             gpu_psp_handoff.state == .finished;
@@ -900,6 +903,39 @@ pub fn start(info: BootInfo) noreturn {
                             panic("AMDGPU MES KIQ ring test failed and rolled back");
                         };
                         doorbell_transport.disarm();
+                        if (build_options.amd_mes_scheduler_map) {
+                            const scheduler_mqd: *const [512]u32 = @ptrFromInt(gpu_gfx_ring_resources.scheduler.mqd);
+                            const map_plan = gpu.planAmdGfx11MesSchedulerMap(
+                                gpu_mes_registers.?, bootstrap.scheduler, bootstrap.scheduler_doorbell,
+                                bootstrap.kiq_doorbell, scheduler_mqd,
+                            ) catch panic("AMDGPU MES scheduler map plan invalid");
+                            var map_doorbell_transport = gpu.AmdGfx11DoorbellTransport{
+                                .aperture = gpu_memory_plan.?.doorbell_bar,
+                                .expected_offset = bootstrap.kiq_doorbell.byte_offset,
+                                .uncached = true,
+                            };
+                            map_doorbell_transport.authorize(bootstrap.kiq_doorbell) catch
+                                panic("AMDGPU MES scheduler map doorbell authorization rejected");
+                            map_doorbell_transport.arm() catch panic("AMDGPU MES scheduler map doorbell arming failed");
+                            gpu_mes_scheduler_map_polls = gpu.mapAmdGfx11MesScheduler(
+                                map_plan, ring, pointers, 100_000, transport.io(), map_doorbell_transport.io(),
+                            ) catch {
+                                map_doorbell_transport.disarm();
+                                gpu.restoreAmdGfx11Kiq(kiq_hqd_plan, &kiq_transaction, transport.io()) catch {
+                                    transport.disarm();
+                                    panic("AMDGPU MES scheduler map rollback failed");
+                                };
+                                gpu.haltAmdGfx11Mes(gpu_mes_registers.?, transport.io()) catch {
+                                    transport.disarm();
+                                    panic("AMDGPU MES scheduler map failure could not halt MES");
+                                };
+                                gpu_mes_kiq_active = false;
+                                gpu_mes_activation = null;
+                                transport.disarm();
+                                panic("AMDGPU MES scheduler map failed and returned to halt");
+                            };
+                            map_doorbell_transport.disarm();
+                        }
                     }
                     transport.disarm();
                 }
@@ -1037,6 +1073,7 @@ pub fn start(info: BootInfo) noreturn {
     serial.write(" mes-handshake-polls: "); serial.writeDecimal(if (gpu_mes_activation) |activation| activation.polls else 0);
     serial.write(" mes-kiq-active: "); serial.writeDecimal(@intFromBool(gpu_mes_kiq_active));
     serial.write(" mes-kiq-test-polls: "); serial.writeDecimal(gpu_mes_kiq_test_polls);
+    serial.write(" mes-scheduler-map-polls: "); serial.writeDecimal(gpu_mes_scheduler_map_polls);
     serial.write(" driver: ");
     serial.write(switch (gpu_adapter.driver) {
         .amdgpu => "amdgpu",
