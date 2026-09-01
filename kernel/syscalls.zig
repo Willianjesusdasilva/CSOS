@@ -751,7 +751,7 @@ fn amdgpuCs(address: u64) u64 {
     const context = amdgpuContextForId(read32(io)) orelse return errno(2);
     const list = amdgpuBoListForHandle(read32(io + 4)) orelse return errno(2);
     const chunk_count = read32(io + 8);
-    if (chunk_count == 0 or chunk_count > 5 or read32(io + 12) != 0) return errno(95);
+    if (chunk_count == 0 or chunk_count > 6 or read32(io + 12) != 0) return errno(95);
     const chunk_pointers_address = read64(io + 16);
     if (!validUserSlice(chunk_pointers_address, @as(u64, chunk_count) * 8)) return errno(14);
     const chunk_pointers: [*]const u8 = @ptrFromInt(chunk_pointers_address);
@@ -761,6 +761,9 @@ fn amdgpuCs(address: u64) u64 {
     var saw_binary_in = false;
     var saw_timeline_in = false;
     var saw_sync_out = false;
+    var saw_dependencies = false;
+    var saw_scheduled_dependencies = false;
+    var dependency_count: usize = 0;
     var output_syncobjs: [max_drm_syncobjs]*DrmSyncobj = undefined;
     var output_points: [max_drm_syncobjs]u64 = .{0} ** max_drm_syncobjs;
     var output_count: usize = 0;
@@ -783,6 +786,26 @@ fn amdgpuCs(address: u64) u64 {
                 read32(ib + 20) != 0 or read32(ib + 24) != 0 or read32(ib + 28) != 0)
                 return errno(95);
             saw_ib = true;
+            continue;
+        }
+        if (chunk_id == 3 or chunk_id == 7) {
+            if ((chunk_id == 3 and saw_dependencies) or (chunk_id == 7 and saw_scheduled_dependencies)) return errno(17);
+            if (length_dw == 0 or (length_dw % 6) != 0 or dependency_count + length_dw / 6 > 16 or
+                !validUserSlice(data_address, @as(u64, length_dw) * 4))
+                return errno(22);
+            if (chunk_id == 3) saw_dependencies = true else saw_scheduled_dependencies = true;
+            const dependencies: [*]const u8 = @ptrFromInt(data_address);
+            const entry_count = length_dw / 6;
+            var dependency_index: usize = 0;
+            while (dependency_index < entry_count) : (dependency_index += 1) {
+                const dependency = dependencies + dependency_index * 24;
+                if (read32(dependency) != 0 or read32(dependency + 4) != 0 or read32(dependency + 8) != 0)
+                    return errno(95);
+                const dependency_context = amdgpuContextForId(read32(dependency + 12)) orelse return errno(2);
+                const dependency_handle = read64(dependency + 16);
+                if (dependency_handle == 0 or dependency_handle > dependency_context.completed_handle) return errno(22);
+            }
+            dependency_count += entry_count;
             continue;
         }
         if (chunk_id != 4 and chunk_id != 5 and chunk_id != 8 and chunk_id != 9) return errno(95);

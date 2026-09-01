@@ -1874,6 +1874,7 @@ verified-CP AMDGPU_CS endpoint with bound-VMID check and real 64-bit fence seque
 per-context CS handles plus AMDGPU_WAIT_CS for synchronous completed GFX fences: implemented; async/IRQ waits pending
 AMDGPU_CS binary SYNCOBJ_IN/OUT dependencies with validate-before-submit and signal-after-fence ordering: implemented; integration validation pending
 AMDGPU_CS timeline WAIT/SIGNAL chunks with monotonic points and point-zero binary semantics: implemented; wait-for-submit flags pending
+AMDGPU_CS DEPENDENCIES/SCHEDULED_DEPENDENCIES cross-context validation: implemented for completed synchronous GFX handles; async scheduled state pending
 GFX11 ring resource contract and fail-closed preflight: implemented and host-tested
 transactional ring/MQD/EOP/pointer physical allocation: implemented and host-tested
 dual MES scheduler/KIQ GART layout and GFX11 MQD encoding: implemented and host-tested
@@ -1907,8 +1908,8 @@ the full explicit hardware gate, it submits only on the matching bound VMID,
 waits for the real 64-bit fence and then publishes a per-context handle.
 AMDGPU_WAIT_CS resolves completed handles without fabricating pending work;
 binary and timeline syncobj dependencies/outputs are validated atomically around
-that same fence, while wait-for-submit flags and dependency/user-fence chunks
-remain unsupported;
+that same fence; completed cross-context dependencies are also validated, while
+wait-for-submit flags, async scheduled state and user-fence remain unsupported;
 Radeon hardware execution remains
 unvalidated. M14 remains incomplete, and neither AMD nor NVIDIA acceleration may
 be advertised from this checkpoint.

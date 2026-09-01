@@ -742,8 +742,13 @@ do doorbell, input não sinalizado retorna timeout e outputs só são sinalizado
 depois do fence físico. Os chunks timeline `SYNCOBJ_TIMELINE_WAIT/SIGNAL` também
 são aceitos em entradas oficiais de 16 bytes: waits exigem ponto já atingido,
 signals não podem regredir e ponto zero mantém semântica binária. Flags timeline
-de wait-for-submit, chunks de dependencies e user-fence ainda não implementados
-são recusados sem efeitos; duplicatas e mais de 16 outputs também falham. O
+de wait-for-submit ainda não implementadas são recusadas sem efeitos; duplicatas
+e mais de 16 outputs também falham.
+`DEPENDENCIES` e `SCHEDULED_DEPENDENCIES` aceitam até 16 referências oficiais
+de 24 bytes entre contextos. Cada referência precisa ser GFX/instance0/ring0 e
+apontar para handle já concluído; no executor síncrono atual, “scheduled” é
+deliberadamente tão estrito quanto “completed”, pois não há estado pendente
+intermediário confiável. User-fence continua recusado. O
 backend do ring já possui uma transação interna separada do ioctl: exige o ring
 ocioso no WPTR confirmado, grava os 12 dwords com wrap em 1024 slots, publica
 WPTR somente após `mfence`, toca o doorbell autorizado e espera simultaneamente
