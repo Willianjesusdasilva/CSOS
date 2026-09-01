@@ -4814,6 +4814,90 @@ pub fn validateAmdPspRingProtocolSelfTest() !void {
     if (planAmdPsp13RingBootstrap(registers, layout, 0)) |_|
         return error.UnreadyAmdPspRingAccepted
     else |err| if (err != error.AmdPspRingNotReady) return err;
+
+    const MockPspRing = struct {
+        registers: AmdPspRingRegisters,
+        control: u32 = 0x80000000,
+        write_pointer: u32 = 0,
+        ring_low: u32 = 0,
+        ring_high: u32 = 0,
+        ring_size: u32 = 0,
+        response_reads: u32 = 0,
+        complete_commands: bool = true,
+        fail_write_once: ?u32 = null,
+        ring: *[1024]u32,
+        command: *[1024]u32,
+        fence: *u32,
+
+        fn read(context: *anyopaque, offset: u32) !u32 {
+            const self: *@This() = @ptrCast(@alignCast(context));
+            if (offset == self.registers.control) {
+                if ((self.control == 0x00020000 or self.control == 0x00030000) and self.response_reads != 0) {
+                    self.response_reads -= 1;
+                    if (self.response_reads == 0) self.control = 0x80000000;
+                }
+                return self.control;
+            }
+            if (offset == self.registers.write_pointer) return self.write_pointer;
+            if (offset == self.registers.ring_address_low) return self.ring_low;
+            if (offset == self.registers.ring_address_high) return self.ring_high;
+            if (offset == self.registers.ring_size) return self.ring_size;
+            return error.UnknownAmdPspRingRegister;
+        }
+
+        fn write(context: *anyopaque, offset: u32, value: u32) !void {
+            const self: *@This() = @ptrCast(@alignCast(context));
+            if (self.fail_write_once != null and self.fail_write_once.? == offset) {
+                self.fail_write_once = null;
+                return error.InjectedAmdPspRingWriteFailure;
+            }
+            if (offset == self.registers.control) {
+                self.control = value;
+                self.response_reads = 2;
+                return;
+            }
+            if (offset == self.registers.ring_address_low) { self.ring_low = value; return; }
+            if (offset == self.registers.ring_address_high) { self.ring_high = value; return; }
+            if (offset == self.registers.ring_size) { self.ring_size = value; return; }
+            if (offset == self.registers.write_pointer) {
+                const old = self.write_pointer;
+                self.write_pointer = value;
+                if (self.complete_commands) {
+                    self.command[216] = 0;
+                    self.fence.* = self.ring[old + 5];
+                }
+                return;
+            }
+            return error.UnknownAmdPspRingRegister;
+        }
+
+        fn io(self: *@This()) AmdRegisterIo { return .{ .context = self, .read = &read, .write = &write }; }
+    };
+    var buffers: [3][4096]u8 align(4096) = .{.{0} ** 4096} ** 3;
+    const live_staging = AmdPspGttStaging{ .buffer_address = @intFromPtr(&buffers), .buffer_pages = 3 };
+    const ring_memory: *[1024]u32 = @ptrCast(@alignCast(&buffers[0]));
+    const command_memory: *[1024]u32 = @ptrCast(@alignCast(&buffers[1]));
+    const fence_memory: *u32 = @ptrCast(@alignCast(&buffers[2]));
+    var mock = MockPspRing{ .registers = registers, .ring = ring_memory, .command = command_memory, .fence = fence_memory };
+    const activation = try activateAmdPsp13Ring(bootstrap, mock.io(), 4);
+    if (activation.write_pointer != 0 or activation.polls != 2 or mock.ring_size != 4096)
+        return error.AmdPspRingActivationSelfTestFailed;
+    const loaded = try loadAmdPspIpFirmwareSequence(gpu_firmware, layout, live_staging, registers, activation.write_pointer, mock.io(), 4);
+    if (loaded.loaded != 2 or loaded.final_fence != 2 or loaded.final_write_pointer != 32 or
+        mock.write_pointer != 32 or fence_memory.* != 2)
+        return error.AmdPspFirmwareLoadSequenceSelfTestFailed;
+    mock.complete_commands = false;
+    if (loadAmdPspIpFirmwareSequence(gpu_firmware, layout, live_staging, registers, mock.write_pointer, mock.io(), 2)) |_|
+        return error.AmdPspFirmwareLoadTimeoutAccepted
+    else |err| if (err != error.AmdPspLoadIpFirmwareTimeout or mock.control != 0x80000000)
+        return error.AmdPspFirmwareLoadRollbackSelfTestFailed;
+    var failing_mock = MockPspRing{ .registers = registers, .ring = ring_memory, .command = command_memory, .fence = fence_memory };
+    failing_mock.fail_write_once = registers.ring_size;
+    if (activateAmdPsp13Ring(bootstrap, failing_mock.io(), 4)) |_|
+        return error.AmdPspRingBootstrapFailureAccepted
+    else |err| if (err != error.InjectedAmdPspRingWriteFailure or failing_mock.ring_low != 0 or
+        failing_mock.ring_high != 0 or failing_mock.ring_size != 0 or failing_mock.write_pointer != 0)
+        return error.AmdPspRingBootstrapRollbackSelfTestFailed;
 }
 
 fn amdGttPte(address: u64) u64 {
@@ -5084,6 +5168,8 @@ pub const AmdPspLoadIpFirmwareCommand = struct {
     next_write_pointer: u32,
     fence_value: u32,
 };
+pub const AmdPspRingActivation = struct { write_pointer: u32, polls: u32 };
+pub const AmdPspFirmwareLoadResult = struct { loaded: usize, final_write_pointer: u32, final_fence: u32, polls: u32, response_warnings: u32 };
 pub const AmdPspHandoffStep = struct { command: AmdPspBootCommand = .load_sysdrv, source_address: u64 = 0, bytes: u32 = 0 };
 pub const AmdPspHandoffState = enum { empty, ready, staged, submitted, finished, failed };
 pub const AmdPspPreparedCommand = struct {
@@ -5498,6 +5584,105 @@ pub fn encodeAmdPspLoadIpFirmware(
     result.frame[3] = @truncate(layout.fence_mc_address);
     result.frame[4] = @truncate(layout.fence_mc_address >> 32);
     result.frame[5] = fence_value;
+    return result;
+}
+
+pub fn destroyAmdPsp13Ring(registers: AmdPspRingRegisters, io: AmdRegisterIo, poll_limit: u32) !u32 {
+    if (poll_limit == 0) return error.InvalidAmdPspRingPollLimit;
+    try io.write(io.context, registers.control, 0x00030000);
+    var polls: u32 = 0;
+    while (polls < poll_limit) {
+        polls += 1;
+        const control = try io.read(io.context, registers.control);
+        if ((control & 0x8000ffff) == 0x80000000) return polls;
+        asm volatile ("pause");
+    }
+    return error.AmdPspRingDestroyTimeout;
+}
+
+pub fn activateAmdPsp13Ring(bootstrap: AmdPspRingBootstrap, io: AmdRegisterIo, poll_limit: u32) !AmdPspRingActivation {
+    if (poll_limit == 0) return error.InvalidAmdPspRingPollLimit;
+    const snapshot = [5]u32{
+        try io.read(io.context, bootstrap.registers.control),
+        try io.read(io.context, bootstrap.registers.write_pointer),
+        try io.read(io.context, bootstrap.registers.ring_address_low),
+        try io.read(io.context, bootstrap.registers.ring_address_high),
+        try io.read(io.context, bootstrap.registers.ring_size),
+    };
+    if (snapshot[0] != bootstrap.initial_control)
+        return error.AmdPspRingBootstrapStateChanged;
+    var applied: usize = 0;
+    errdefer {
+        if (applied == bootstrap.writes.len) _ = destroyAmdPsp13Ring(bootstrap.registers, io, poll_limit) catch {};
+        io.write(io.context, bootstrap.registers.write_pointer, snapshot[1]) catch {};
+        io.write(io.context, bootstrap.registers.ring_size, snapshot[4]) catch {};
+        io.write(io.context, bootstrap.registers.ring_address_high, snapshot[3]) catch {};
+        io.write(io.context, bootstrap.registers.ring_address_low, snapshot[2]) catch {};
+    }
+    for (bootstrap.writes) |write| {
+        try io.write(io.context, write.offset, write.value);
+        applied += 1;
+        if (write.verify_mask != 0) {
+            const observed = try io.read(io.context, write.offset);
+            if ((observed & write.verify_mask) != (write.value & write.verify_mask)) return error.AmdPspRingBootstrapReadbackFailed;
+        }
+    }
+    var polls: u32 = 0;
+    while (polls < poll_limit) {
+        polls += 1;
+        const control = try io.read(io.context, bootstrap.registers.control);
+        if ((control & 0x8000ffff) == 0x80000000) {
+            const write_pointer = try io.read(io.context, bootstrap.registers.write_pointer);
+            if (write_pointer >= 1024 or (write_pointer & 15) != 0) return error.InvalidAmdPspRingWritePointer;
+            return .{ .write_pointer = write_pointer, .polls = polls };
+        }
+        asm volatile ("pause");
+    }
+    return error.AmdPspRingBootstrapTimeout;
+}
+
+pub fn loadAmdPspIpFirmwareSequence(
+    firmware: AmdGfx11CpFirmwareGpuLayout,
+    layout: AmdPspRingLayout,
+    staging: AmdPspGttStaging,
+    registers: AmdPspRingRegisters,
+    initial_write_pointer: u32,
+    io: AmdRegisterIo,
+    poll_limit: u32,
+) !AmdPspFirmwareLoadResult {
+    if (firmware.count == 0 or firmware.count > firmware.areas.len or poll_limit == 0 or
+        staging.buffer_address == 0 or staging.buffer_pages != 3)
+        return error.InvalidAmdPspFirmwareLoadSequence;
+    var result = AmdPspFirmwareLoadResult{ .loaded = 0, .final_write_pointer = initial_write_pointer, .final_fence = 0, .polls = 0, .response_warnings = 0 };
+    errdefer _ = destroyAmdPsp13Ring(registers, io, poll_limit) catch {};
+    const ring: [*]u32 = @ptrFromInt(staging.buffer_address);
+    const command_page: *[1024]u32 = @ptrFromInt(staging.buffer_address + 4096);
+    const response_status: *volatile const u32 = @ptrFromInt(staging.buffer_address + 4096 + 864);
+    const fence: *volatile u32 = @ptrFromInt(staging.buffer_address + 8192);
+    for (firmware.areas[0..firmware.count]) |area| {
+        if (result.final_fence == std.math.maxInt(u32)) return error.AmdPspFenceOverflow;
+        const fence_value = result.final_fence + 1;
+        const encoded = try encodeAmdPspLoadIpFirmware(area, layout, result.final_write_pointer, fence_value);
+        @memset(command_page, 0);
+        @memcpy(command_page[0..encoded.command.len], &encoded.command);
+        const frame = ring[encoded.ring_dword .. encoded.ring_dword + encoded.frame.len];
+        @memset(frame, 0);
+        @memcpy(frame, &encoded.frame);
+        fence.* = 0;
+        asm volatile ("" ::: .{ .memory = true });
+        try io.write(io.context, registers.write_pointer, encoded.next_write_pointer);
+        var command_polls: u32 = 0;
+        while (command_polls < poll_limit and fence.* != fence_value) {
+            command_polls += 1;
+            asm volatile ("pause");
+        }
+        result.polls +|= command_polls;
+        if (fence.* != fence_value) return error.AmdPspLoadIpFirmwareTimeout;
+        if (response_status.* != 0) result.response_warnings += 1;
+        result.loaded += 1;
+        result.final_write_pointer = encoded.next_write_pointer;
+        result.final_fence = fence_value;
+    }
     return result;
 }
 

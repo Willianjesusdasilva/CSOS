@@ -706,12 +706,6 @@ pub fn start(info: BootInfo) noreturn {
             gpu_psp_gtt, gpu_cp_firmware_staging, control.first_gart_page, gpu_gmc11_gart_window.?.start,
         ) catch panic("AMDGPU CP/RLC firmware GART mapping failed")
     else null;
-    const gpu_psp_ring_control = if (gpu_psp_ring_registers) |registers|
-        gpu_adapter.readRegister(registers.control) catch panic("AMDGPU PSP ring control read failed")
-    else 0;
-    const gpu_psp_ring_bootstrap = if (gpu_psp_ring_registers != null and gpu_psp_ring_layout != null)
-        gpu.planAmdPsp13RingBootstrap(gpu_psp_ring_registers.?, gpu_psp_ring_layout.?, gpu_psp_ring_control) catch null
-    else null;
     const gpu_mes_hw_resources = if (gpu_mes_control_gpu) |control|
         gpu.planAmdGfx11MesHwResources(
             &gpu_ip_discovery.?, control, gpu_memory_plan.?.doorbell_bar.size,
@@ -776,6 +770,8 @@ pub fn start(info: BootInfo) noreturn {
     var gpu_psp_mmio_transport: ?gpu.AmdPspMmioTransport = null;
     var gpu_psp_preflight: ?gpu.AmdPspPreflight = null;
     var gpu_psp_mailbox_waited = false;
+    var gpu_psp_ring_control: u32 = 0;
+    var gpu_psp_ring_bootstrap: ?gpu.AmdPspRingBootstrap = null;
     if (gpu_psp_mailbox_registers) |registers| {
         const command = gpu_adapter.readRegister(registers.command_offset) catch panic("AMDGPU PSP command read failed");
         const sos = gpu_adapter.readRegister(registers.sos_offset) catch panic("AMDGPU PSP sOS read failed");
@@ -812,6 +808,15 @@ pub fn start(info: BootInfo) noreturn {
             }
         }
     }
+    const gpu_psp_ready = (gpu_psp_mailbox_snapshot != null and gpu_psp_mailbox_snapshot.?.state == .sos_alive) or
+        gpu_psp_handoff.state == .finished;
+    if (gpu_psp_ready and gpu_psp_ring_registers != null and gpu_psp_ring_layout != null) {
+        gpu_psp_ring_control = gpu_adapter.readRegister(gpu_psp_ring_registers.?.control) catch
+            panic("AMDGPU PSP ring control read failed");
+        gpu_psp_ring_bootstrap = gpu.planAmdPsp13RingBootstrap(
+            gpu_psp_ring_registers.?, gpu_psp_ring_layout.?, gpu_psp_ring_control,
+        ) catch null;
+    }
     var gpu_mes_loads: u8 = 0;
     var gpu_mes_activation: ?gpu.AmdGfx11MesActivation = null;
     var gpu_mes_kiq_active = false;
@@ -820,15 +825,15 @@ pub fn start(info: BootInfo) noreturn {
     var gpu_mes_scheduler_init_polls: u32 = 0;
     var gpu_mes_scheduler_resource1_polls: u32 = 0;
     var gpu_mes_scheduler_ready = false;
+    var gpu_psp_ring_activation: ?gpu.AmdPspRingActivation = null;
+    var gpu_psp_firmware_load: ?gpu.AmdPspFirmwareLoadResult = null;
     if (gpu_gart_mmio_transport) |*transport| {
-        const psp_ready = (gpu_psp_mailbox_snapshot != null and gpu_psp_mailbox_snapshot.?.state == .sos_alive) or
-            gpu_psp_handoff.state == .finished;
         transport.authorize(.{
             .selected_firmware_entries = gpu_backend_entries,
             .validated_firmware_entries = gpu_validated_entries,
             .security_firmware_entries = gpu_inventory.block(.security).entries,
             .compatible_ip_discovery = gpu_backend_plan.?.gmc == .v11_0,
-            .psp_ready = psp_ready,
+            .psp_ready = gpu_psp_ready,
             .gart_table_bound = gpu_gart_plan.?.table_mc_address != null,
             .gart_window_bound = gpu_gart_plan.?.window_start != null and gpu_gart_plan.?.window_end != null,
             .rollback_registers = gpu_gart_rollback_registers,
@@ -866,10 +871,32 @@ pub fn start(info: BootInfo) noreturn {
                 .unbind = &unbindDrmGpuVm,
             });
         }
-        if (build_options.amd_mes_mmio) {
+        if (build_options.amd_psp_ring) {
             if (!build_options.amd_gart_mmio or !gpu_gmc11_activation_workspace.active or
                 build_options.amd_gart_device == 0 or build_options.amd_gart_device != gpu_adapter.device.device)
-                panic("AMDGPU MES load gate requires matching active GART");
+                panic("AMDGPU PSP ring gate requires matching active GART");
+            const bootstrap = gpu_psp_ring_bootstrap orelse panic("AMDGPU PSP ring bootstrap unavailable");
+            const firmware = gpu_cp_firmware_gpu orelse panic("AMDGPU CP/RLC GPU firmware layout unavailable");
+            transport.arm() catch panic("AMDGPU PSP ring MMIO arming failed");
+            gpu_psp_ring_activation = gpu.activateAmdPsp13Ring(bootstrap, transport.io(), 1_000_000) catch {
+                transport.disarm();
+                panic("AMDGPU PSP KM ring activation failed");
+            };
+            gpu_psp_firmware_load = gpu.loadAmdPspIpFirmwareSequence(
+                firmware, gpu_psp_ring_layout.?, gpu_psp_gtt, gpu_psp_ring_registers.?,
+                gpu_psp_ring_activation.?.write_pointer, transport.io(), 2_100_000,
+            ) catch {
+                transport.disarm();
+                gpu_psp_ring_activation = null;
+                panic("AMDGPU PSP LOAD_IP_FW sequence failed");
+            };
+            transport.disarm();
+        }
+        if (build_options.amd_mes_mmio) {
+            if (!build_options.amd_gart_mmio or !build_options.amd_psp_ring or !gpu_gmc11_activation_workspace.active or
+                gpu_psp_firmware_load == null or gpu_psp_firmware_load.?.loaded != gpu_cp_firmware_gpu.?.count or
+                build_options.amd_gart_device == 0 or build_options.amd_gart_device != gpu_adapter.device.device)
+                panic("AMDGPU MES load gate requires matching GART and loaded CP/RLC firmware");
             const scheduler_plan = gpu_mes_scheduler_load orelse panic("AMDGPU MES scheduler load plan unavailable");
             const kiq_plan = gpu_mes_kiq_load orelse panic("AMDGPU MES KIQ load plan unavailable");
             const current_mes_control = gpu_adapter.readRegister(gpu_mes_registers.?.mes_control) catch
@@ -1173,6 +1200,9 @@ pub fn start(info: BootInfo) noreturn {
     serial.write(" cp-fw-psp-payloads: "); serial.writeDecimal(gpu_cp_firmware_staging.count);
     serial.write(" cp-fw-gart-pages: "); serial.writeDecimal(if (gpu_cp_firmware_gpu) |layout| layout.gart_pages else 0);
     serial.write(" psp-ring-bootstrap: "); serial.writeDecimal(@intFromBool(gpu_psp_ring_bootstrap != null));
+    serial.write(" psp-ring-active: "); serial.writeDecimal(@intFromBool(gpu_psp_ring_activation != null));
+    serial.write(" psp-ip-fw-loaded: "); serial.writeDecimal(if (gpu_psp_firmware_load) |loaded| loaded.loaded else 0);
+    serial.write(" psp-ip-fw-warnings: "); serial.writeDecimal(if (gpu_psp_firmware_load) |loaded| loaded.response_warnings else 0);
     serial.write(" gfx-ring-preflight: "); serial.writeDecimal(@intFromEnum(gpu.preflightAmdGfx11Ring(.{
         .firmware = gpu_gfx_firmware != null,
         .psp = gpu_psp_handoff.state == .finished,

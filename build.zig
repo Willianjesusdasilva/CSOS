@@ -4,6 +4,7 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
     const gpu_firmware = b.option([]const u8, "gpu-firmware", "Firmware archive copied to GPUFW.BIN on the CSOS disk");
     const amd_gart_mmio = b.option(bool, "amd-gart-mmio", "Explicitly arm and commit the validated GMC 11 GART transaction") orelse false;
+    const amd_psp_ring = b.option(bool, "amd-psp-ring", "Explicitly create the PSP KM ring and load validated GFX11 CP/RLC firmware") orelse false;
     const amd_mes_mmio = b.option(bool, "amd-mes-mmio", "Explicitly load validated GFX11 MES firmware while MES remains halted") orelse false;
     const amd_mes_activate = b.option(bool, "amd-mes-activate", "Explicitly unhalt validated GFX11 MES and require both firmware handshakes") orelse false;
     const amd_mes_kiq = b.option(bool, "amd-mes-kiq", "Explicitly activate the validated GFX11 MES KIQ HQD") orelse false;
@@ -15,6 +16,7 @@ pub fn build(b: *std.Build) void {
     const amd_gart_device = std.fmt.parseInt(u16, amd_gart_device_text, 0) catch @panic("invalid -Damd-gart-device PCI ID");
     const build_options = b.addOptions();
     build_options.addOption(bool, "amd_gart_mmio", amd_gart_mmio);
+    build_options.addOption(bool, "amd_psp_ring", amd_psp_ring);
     build_options.addOption(bool, "amd_mes_mmio", amd_mes_mmio);
     build_options.addOption(bool, "amd_mes_activate", amd_mes_activate);
     build_options.addOption(bool, "amd_mes_kiq", amd_mes_kiq);
