@@ -723,8 +723,13 @@ flags de criação, implementa `AMDGPU_GEM_METADATA` (set/get de até 256 bytes)
 submission ainda é recusado; `AMDGPU_INFO_ACCEL_WORKING` continua zero. A VM
 possui isolamento por VMID e page tables testadas no host, e o ring gráfico já
 passa o teste PM4 privado. O encoder de submissão produz o pacote GFX11
-`INDIRECT_BUFFER` para VMIDs 1–7 seguido de `RELEASE_MEM` com fence de 64 bits,
-mas dispatcher, validação de BOs e execução em Radeon real ainda faltam.
+`INDIRECT_BUFFER` para VMIDs 1–7 seguido de `RELEASE_MEM` com fence de 64 bits.
+`AMDGPU_CTX` já aloca, consulta e libera contextos de prioridade não privilegiada;
+`AMDGPU_BO_LIST` cria, atualiza e destrói listas validadas, mantendo os BOs vivos.
+O parser inicial de `AMDGPU_CS` aceita como formato somente um IB GFX simples e
+prova contexto, lista, flags, limites e cobertura GPUVA legível página a página.
+Ele ainda termina em `EOPNOTSUPP`: dispatcher e execução em Radeon real faltam,
+portanto nenhum sequence number ou estado busy é inventado.
 `AMDGPU_GEM_OP_GET_GEM_CREATE_INFO` devolve o descritor de criação original por
 ponteiro de usuário validado, e `AMDGPU_GEM_LIST_HANDLES` enumera tamanho,
 domínio, flags e alinhamento dos BOs ainda abertos. Placement em VRAM continua

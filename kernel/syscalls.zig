@@ -65,6 +65,18 @@ var drm_driver: DrmDriver = .csos;
 var drm_vm_manager = gpu.AmdGpuVmManager{};
 var drm_vm_vmid: u4 = 0;
 var drm_vm_hardware: ?gpu.AmdGpuVmHardwareSession = null;
+const max_amdgpu_contexts = 8;
+const AmdGpuContext = struct { allocated: bool = false, id: u32 = 0, priority: i32 = 0 };
+var amdgpu_contexts: [max_amdgpu_contexts]AmdGpuContext = .{AmdGpuContext{}} ** max_amdgpu_contexts;
+const max_amdgpu_bo_lists = 8;
+const AmdGpuBoList = struct {
+    allocated: bool = false,
+    handle: u32 = 0,
+    count: u8 = 0,
+    handles: [max_drm_objects]u32 = .{0} ** max_drm_objects,
+    priorities: [max_drm_objects]u32 = .{0} ** max_drm_objects,
+};
+var amdgpu_bo_lists: [max_amdgpu_bo_lists]AmdGpuBoList = .{AmdGpuBoList{}} ** max_amdgpu_bo_lists;
 const max_drm_syncobjs = 16;
 const DrmSyncobj = struct { allocated: bool = false, point: u64 = 0 };
 var drm_syncobjs: [max_drm_syncobjs]DrmSyncobj = .{DrmSyncobj{}} ** max_drm_syncobjs;
@@ -132,6 +144,8 @@ pub fn configure(base: u64, size: u64, stack: u64, stack_length: u64, initial_br
     drm_framebuffer_created = false;
     drm_framebuffer_handle = 0;
     drm_syncobjs = .{DrmSyncobj{}} ** max_drm_syncobjs;
+    amdgpu_contexts = .{AmdGpuContext{}} ** max_amdgpu_contexts;
+    amdgpu_bo_lists = .{AmdGpuBoList{}} ** max_amdgpu_bo_lists;
     drm_scanout_framebuffer = 0;
     sockets = .{Socket{}} ** sockets.len;
     vfs.reset();
@@ -366,6 +380,9 @@ fn ioctl(fd: u64, request: u64, address: u64) u64 {
             0xc01864cd => drmSyncobjTimelineSignal(address),
             0xc0206440 => if (drm_driver == .amdgpu) amdgpuGemCreate(address) else errno(25),
             0xc0086441 => if (drm_driver == .amdgpu) amdgpuGemMmap(address) else errno(25),
+            0xc0106442 => if (drm_driver == .amdgpu) amdgpuCtx(address) else errno(25),
+            0xc0186443 => if (drm_driver == .amdgpu) amdgpuBoList(address) else errno(25),
+            0xc0186444 => if (drm_driver == .amdgpu) amdgpuCs(address) else errno(25),
             0x40206445 => if (drm_driver == .amdgpu) amdgpuInfo(address) else errno(25),
             0xc1206446 => if (drm_driver == .amdgpu) amdgpuGemMetadata(address) else errno(25),
             0xc0106447 => if (drm_driver == .amdgpu) amdgpuGemWaitIdle(address) else errno(25),
@@ -620,6 +637,153 @@ fn amdgpuGemMmap(address: u64) u64 {
     return 0;
 }
 
+fn amdgpuCtx(address: u64) u64 {
+    if (!validUserSlice(address, 16)) return errno(14);
+    const io: [*]u8 = @ptrFromInt(address);
+    const op = read32(io);
+    const flags = read32(io + 4);
+    const id = read32(io + 8);
+    const priority: i32 = @bitCast(read32(io + 12));
+    if (flags != 0) return errno(22);
+    if (op == 1) {
+        if (id != 0 or priority < -1023 or priority > 0) return errno(if (priority > 0) 1 else 22);
+        for (&amdgpu_contexts, 0..) |*context, index| if (!context.allocated) {
+            const new_id: u32 = @intCast(index + 1);
+            context.* = .{ .allocated = true, .id = new_id, .priority = priority };
+            @memset(io[0..16], 0);
+            put32(io, new_id);
+            return 0;
+        };
+        return errno(28);
+    }
+    const context = amdgpuContextForId(id) orelse return errno(2);
+    if (priority != 0) return errno(22);
+    if (op == 2) {
+        context.* = .{};
+        return 0;
+    }
+    if (op == 3 or op == 4) {
+        @memset(io[0..16], 0);
+        return 0;
+    }
+    return errno(95);
+}
+
+fn amdgpuContextForId(id: u32) ?*AmdGpuContext {
+    if (id == 0 or id > amdgpu_contexts.len) return null;
+    const context = &amdgpu_contexts[id - 1];
+    return if (context.allocated and context.id == id) context else null;
+}
+
+fn amdgpuBoList(address: u64) u64 {
+    if (!validUserSlice(address, 24)) return errno(14);
+    const io: [*]u8 = @ptrFromInt(address);
+    const operation = read32(io);
+    const requested_handle = read32(io + 4);
+    const count = read32(io + 8);
+    const stride = read32(io + 12);
+    const entries_address = read64(io + 16);
+    if (operation == 1) {
+        if (count != 0 or stride != 0 or entries_address != 0) return errno(22);
+        const list = amdgpuBoListForHandle(requested_handle) orelse return errno(2);
+        list.* = .{};
+        return 0;
+    }
+    if (operation != 0 and operation != 2) return errno(95);
+    if ((operation == 0 and requested_handle != 0) or count == 0 or count > max_drm_objects or stride < 8 or (stride & 3) != 0)
+        return errno(22);
+    const bytes = @as(u64, count) * stride;
+    if (!validUserSlice(entries_address, bytes)) return errno(14);
+    var handles: [max_drm_objects]u32 = .{0} ** max_drm_objects;
+    var priorities: [max_drm_objects]u32 = .{0} ** max_drm_objects;
+    const entries: [*]const u8 = @ptrFromInt(entries_address);
+    var index: usize = 0;
+    while (index < count) : (index += 1) {
+        const entry = entries + index * stride;
+        const handle = read32(entry);
+        if (drmObjectForHandle(handle) == null) return errno(2);
+        var prior: usize = 0;
+        while (prior < index) : (prior += 1) if (handles[prior] == handle) return errno(17);
+        handles[index] = handle;
+        priorities[index] = read32(entry + 4);
+    }
+    var list: *AmdGpuBoList = undefined;
+    if (operation == 2) {
+        list = amdgpuBoListForHandle(requested_handle) orelse return errno(2);
+    } else {
+        var free: ?usize = null;
+        for (amdgpu_bo_lists, 0..) |candidate, candidate_index| if (!candidate.allocated) { free = candidate_index; break; };
+        const list_index = free orelse return errno(28);
+        list = &amdgpu_bo_lists[list_index];
+        list.* = .{ .allocated = true, .handle = @intCast(list_index + 1) };
+    }
+    list.count = @intCast(count);
+    list.handles = handles;
+    list.priorities = priorities;
+    @memset(io[0..24], 0);
+    put32(io, list.handle);
+    return 0;
+}
+
+fn amdgpuBoListForHandle(handle: u32) ?*AmdGpuBoList {
+    if (handle == 0 or handle > amdgpu_bo_lists.len) return null;
+    const list = &amdgpu_bo_lists[handle - 1];
+    return if (list.allocated and list.handle == handle) list else null;
+}
+
+fn amdgpuCs(address: u64) u64 {
+    if (!validUserSlice(address, 24)) return errno(14);
+    const io: [*]const u8 = @ptrFromInt(address);
+    const context = amdgpuContextForId(read32(io)) orelse return errno(2);
+    _ = context;
+    const list = amdgpuBoListForHandle(read32(io + 4)) orelse return errno(2);
+    const chunk_count = read32(io + 8);
+    if (chunk_count != 1 or read32(io + 12) != 0) return errno(95);
+    const chunk_pointers_address = read64(io + 16);
+    if (!validUserSlice(chunk_pointers_address, 8)) return errno(14);
+    const chunk_pointers: [*]const u8 = @ptrFromInt(chunk_pointers_address);
+    const chunk_address = read64(chunk_pointers);
+    if (!validUserSlice(chunk_address, 16)) return errno(14);
+    const chunk: [*]const u8 = @ptrFromInt(chunk_address);
+    if (read32(chunk) != 1 or read32(chunk + 4) != 8) return errno(95);
+    const ib_address = read64(chunk + 8);
+    if (!validUserSlice(ib_address, 32)) return errno(14);
+    const ib: [*]const u8 = @ptrFromInt(ib_address);
+    const flags = read32(ib + 4);
+    const gpu_va = read64(ib + 8);
+    const ib_bytes = read32(ib + 16);
+    if (read32(ib) != 0 or flags != 0 or gpu_va == 0 or (gpu_va & 3) != 0 or
+        ib_bytes == 0 or (ib_bytes & 3) != 0 or ib_bytes > 0x003ffffc or
+        read32(ib + 20) != 0 or read32(ib + 24) != 0 or read32(ib + 28) != 0)
+        return errno(95);
+    if (drm_vm_vmid == 0 or !amdgpuBoListCoversGpuVa(list, gpu_va, ib_bytes)) return errno(22);
+    // Parsing and residency validation are intentionally separated from the
+    // hardware dispatcher. Never return a fake sequence number or mark a BO busy.
+    return errno(95);
+}
+
+fn amdgpuBoListCoversGpuVa(list: *const AmdGpuBoList, address: u64, size: u32) bool {
+    if (address >= (@as(u64, 1) << 48) or size > (@as(u64, 1) << 48) - address) return false;
+    const vm = &drm_vm_manager.vms[drm_vm_vmid - 1];
+    var cursor = address;
+    const end = address + size;
+    while (cursor < end) {
+        var covered: ?gpu.AmdGpuVaMapping = null;
+        for (vm.mappings) |mapping| if (mapping.active and cursor >= mapping.address and cursor - mapping.address < 4096) {
+            covered = mapping;
+            break;
+        };
+        const mapping = covered orelse return false;
+        if ((mapping.flags & 0x2) == 0) return false;
+        var resident = false;
+        var index: usize = 0;
+        while (index < list.count) : (index += 1) if (list.handles[index] == mapping.handle) { resident = true; break; };
+        if (!resident) return false;
+        cursor = @min(end, mapping.address + 4096);
+    }
+    return true;
+}
+
 fn amdgpuGemMetadata(address: u64) u64 {
     if (!validUserSlice(address, 288)) return errno(14);
     const io: [*]u8 = @ptrFromInt(address);
@@ -858,6 +1022,10 @@ fn drmGemClose(address: u64) u64 {
 
 fn drmCloseHandle(handle: u32) u64 {
     const object = drmObjectForHandle(handle) orelse return errno(2);
+    for (amdgpu_bo_lists) |list| if (list.allocated) {
+        var index: usize = 0;
+        while (index < list.count) : (index += 1) if (list.handles[index] == handle) return errno(16);
+    };
     if (drm_vm_vmid != 0) for (drm_vm_manager.vms[drm_vm_vmid - 1].mappings) |mapping|
         if (mapping.active and mapping.handle == handle) return errno(16);
     object.handle_open = false;
