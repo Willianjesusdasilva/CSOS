@@ -812,6 +812,14 @@ RPTR=WPTR=5. O pacote é seguido por outro teste de scratch; somente scratch
 confirmada e RPTR=WPTR=17 contam como sucesso. Timeout restaura a HQD KIQ e
 leva MES a reset+halt. `SET_RESOURCES` não é usado aqui porque pertence ao
 caminho KCQ legado, não ao bootstrap da fila MES scheduler.
+O próximo frame do scheduler, `SET_HW_RSRC`, também já possui preparação
+fail-closed, mas ainda não é emitido. Uma página física zerada é mapeada no
+primeiro slot GART após o firmware e separa contexto do scheduler, query fence,
+completion fence da API e fence final. O encoder reproduz o frame upstream de
+64 dwords, preserva as três listas de bases IP e recusa VMID0 nas máscaras ou
+um conjunto HQD vazio. Máscaras HQD, doorbells agregados e bases reais ainda
+precisam ser derivados da topologia GFX11 detectada antes de habilitar um gate
+de execução; valores inventados não são enviados ao firmware.
 Para VA de 48 bits, o walker segue `PDB2[47:39] → PDB1[38:30] →
 PDB0[29:21] → PTB[20:12]`, com offset `[11:0]`. Cada nível possui até 512
 entradas de 64 bits e ocupa uma página de 4 KiB, conforme a geometria do

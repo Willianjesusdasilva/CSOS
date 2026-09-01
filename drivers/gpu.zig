@@ -628,6 +628,114 @@ pub fn mapAmdMesFirmwareIntoGart(staging: AmdPspGttStaging, firmware: AmdMesFirm
         .gart_pages = @intCast(total_pages),
     };
 }
+
+pub const AmdMesControlResources = struct {
+    page: u64 = 0,
+    allocator: ?AmdGpuVmPageAllocator = null,
+
+    pub fn release(self: *AmdMesControlResources) !void {
+        const allocator = self.allocator orelse return error.AmdMesControlResourcesNotAllocated;
+        if (self.page == 0) return error.AmdMesControlResourcesNotAllocated;
+        try allocator.release(allocator.context, self.page);
+        self.* = .{};
+    }
+};
+
+pub fn allocateAmdMesControlResources(allocator: AmdGpuVmPageAllocator) !AmdMesControlResources {
+    const page = try allocateCheckedAmdGpuVmPage(allocator);
+    errdefer allocator.release(allocator.context, page) catch {};
+    try allocator.zero(allocator.context, page);
+    return .{ .page = page, .allocator = allocator };
+}
+
+pub const AmdMesControlLayout = struct {
+    page: u64,
+    scheduler_context: u64,
+    query_status_fence: u64,
+    api_completion_fence: u64,
+    scheduler_fence: u64,
+    first_gart_page: u16,
+};
+
+pub fn mapAmdMesControlIntoGart(
+    staging: AmdPspGttStaging,
+    firmware: AmdMesFirmwareGpuLayout,
+    resources: AmdMesControlResources,
+    window_start: u64,
+) !AmdMesControlLayout {
+    if (staging.active or staging.page_table_address == 0 or resources.allocator == null or resources.page == 0 or
+        (resources.page & 4095) != 0 or (window_start & 4095) != 0)
+        return error.InvalidAmdMesControlResources;
+    const first_page: u64 = 11 + firmware.gart_pages;
+    if (first_page >= 512) return error.AmdMesControlExceedsGartWindow;
+    const table: [*]u64 = @ptrFromInt(staging.page_table_address);
+    if (table[first_page] != 0) return error.AmdMesControlGartPageAlreadyMapped;
+    table[first_page] = amdGttPte(resources.page);
+    const gpu_page = window_start + first_page * 4096;
+    return .{
+        .page = gpu_page,
+        .scheduler_context = gpu_page,
+        .query_status_fence = gpu_page + 8,
+        .api_completion_fence = gpu_page + 16,
+        .scheduler_fence = gpu_page + 24,
+        .first_gart_page = @intCast(first_page),
+    };
+}
+
+pub const AmdMesHwResourceInput = struct {
+    vmid_mask_mmhub: u32,
+    vmid_mask_gfxhub: u32,
+    compute_hqd_mask: [8]u32,
+    gfx_hqd_mask: [2]u32,
+    sdma_hqd_mask: [2]u32,
+    aggregated_doorbells: [5]u32,
+    gc_base: [8]u32,
+    mmhub_base: [8]u32,
+    osssys_base: [8]u32,
+    gds_size: u32 = 0,
+};
+
+pub const AmdMesHwResourceFrame = struct { dwords: [64]u32 = .{0} ** 64 };
+
+fn putAmdMesU64(frame: *[64]u32, index: usize, value: u64) void {
+    frame[index] = @truncate(value);
+    frame[index + 1] = @truncate(value >> 32);
+}
+
+pub fn encodeAmdMesSetHwResources(input: AmdMesHwResourceInput, control: AmdMesControlLayout) !AmdMesHwResourceFrame {
+    if (control.scheduler_context == 0 or control.query_status_fence == 0 or control.api_completion_fence == 0 or
+        (control.scheduler_context & 7) != 0 or (control.query_status_fence & 7) != 0 or
+        (control.api_completion_fence & 7) != 0 or input.vmid_mask_mmhub == 0 or input.vmid_mask_gfxhub == 0 or
+        (input.vmid_mask_mmhub & 1) != 0 or (input.vmid_mask_gfxhub & 1) != 0)
+        return error.InvalidAmdMesHwResources;
+    var any_hqd = false;
+    for (input.compute_hqd_mask) |mask| any_hqd = any_hqd or mask != 0;
+    for (input.gfx_hqd_mask) |mask| any_hqd = any_hqd or mask != 0;
+    for (input.sdma_hqd_mask) |mask| any_hqd = any_hqd or mask != 0;
+    if (!any_hqd or input.gc_base[0] == 0 or input.mmhub_base[0] == 0 or input.osssys_base[0] == 0)
+        return error.InvalidAmdMesHwResources;
+
+    var result = AmdMesHwResourceFrame{};
+    const frame = &result.dwords;
+    frame[0] = 0x00040001; // scheduler type, SET_HW_RSRC opcode, 64 dwords.
+    frame[1] = input.vmid_mask_mmhub;
+    frame[2] = input.vmid_mask_gfxhub;
+    frame[3] = input.gds_size;
+    frame[4] = 0; // paging VMID remains the reserved system VMID.
+    @memcpy(frame[5..13], &input.compute_hqd_mask);
+    @memcpy(frame[13..15], &input.gfx_hqd_mask);
+    @memcpy(frame[15..17], &input.sdma_hqd_mask);
+    @memcpy(frame[17..22], &input.aggregated_doorbells);
+    putAmdMesU64(frame, 22, control.scheduler_context);
+    putAmdMesU64(frame, 24, control.query_status_fence);
+    @memcpy(frame[26..34], &input.gc_base);
+    @memcpy(frame[34..42], &input.mmhub_base);
+    @memcpy(frame[42..50], &input.osssys_base);
+    putAmdMesU64(frame, 50, control.api_completion_fence);
+    putAmdMesU64(frame, 52, 1);
+    frame[54] = 0x5; // disable_reset | disable_mes_log, matching the upstream base policy.
+    return result;
+}
 pub const AmdGfx11MesRegisters = struct {
     grbm_gfx_cntl: u32,
     mes_control: u32,
@@ -1566,7 +1674,7 @@ pub const AmdIp = struct {
     bases: [8]u64 = .{0} ** 8,
 };
 
-pub const amd_hw_id = struct { pub const smu: u16 = 1; pub const gfx: u16 = 11; pub const mmhub: u16 = 34; pub const sdma0: u16 = 42; pub const sdma1: u16 = 43; pub const sdma2: u16 = 44; pub const sdma3: u16 = 45; pub const nbif: u16 = 108; pub const psp: u16 = 255; };
+pub const amd_hw_id = struct { pub const smu: u16 = 1; pub const gfx: u16 = 11; pub const mmhub: u16 = 34; pub const osssys: u16 = 40; pub const sdma0: u16 = 42; pub const sdma1: u16 = 43; pub const sdma2: u16 = 44; pub const sdma3: u16 = 45; pub const nbif: u16 = 108; pub const psp: u16 = 255; };
 
 pub const AmdBackendPlan = struct { psp: AmdPspPlan, gmc: GmcFamily, gfx: GfxFamily, sdma: SdmaFamily };
 pub const AmdMemoryPlan = struct {
@@ -3359,6 +3467,42 @@ pub fn validateAmdGfx11MesSchedulerMapSelfTest() !void {
         if (err != error.AmdKiqRingNotIdle) return err;
 }
 
+pub fn validateAmdMesSetHwResourcesSelfTest() !void {
+    const input = AmdMesHwResourceInput{
+        .vmid_mask_mmhub = 0xff00,
+        .vmid_mask_gfxhub = 0xfffe,
+        .compute_hqd_mask = .{ 0xfc, 0xfc } ++ .{0} ** 6,
+        .gfx_hqd_mask = .{ 0xfc, 0 },
+        .sdma_hqd_mask = .{ 0xfc, 0xfc },
+        .aggregated_doorbells = .{ 0x100, 0x101, 0x102, 0x103, 0x104 },
+        .gc_base = .{ 0x100, 0x200, 0x300, 0x400, 0x500, 0, 0, 0 },
+        .mmhub_base = .{ 0x600, 0x700, 0x800, 0x900, 0xa00, 0, 0, 0 },
+        .osssys_base = .{ 0xb00, 0xc00, 0xd00, 0xe00, 0xf00, 0, 0, 0 },
+    };
+    const control = AmdMesControlLayout{
+        .page = 0x200f000, .scheduler_context = 0x200f000, .query_status_fence = 0x200f008,
+        .api_completion_fence = 0x200f010, .scheduler_fence = 0x200f018, .first_gart_page = 15,
+    };
+    const frame = try encodeAmdMesSetHwResources(input, control);
+    if (frame.dwords[0] != 0x00040001 or frame.dwords[1] != 0xff00 or frame.dwords[2] != 0xfffe or
+        frame.dwords[5] != 0xfc or frame.dwords[13] != 0xfc or frame.dwords[15] != 0xfc or
+        frame.dwords[17] != 0x100 or frame.dwords[21] != 0x104 or
+        frame.dwords[22] != 0x200f000 or frame.dwords[24] != 0x200f008 or
+        frame.dwords[26] != 0x100 or frame.dwords[34] != 0x600 or frame.dwords[42] != 0xb00 or
+        frame.dwords[50] != 0x200f010 or frame.dwords[52] != 1 or frame.dwords[54] != 5 or frame.dwords[63] != 0)
+        return error.AmdMesHwResourceFrameMismatch;
+    var invalid = input;
+    invalid.vmid_mask_gfxhub |= 1;
+    if (encodeAmdMesSetHwResources(invalid, control)) |_| return error.AmdMesSystemVmidExposed else |err|
+        if (err != error.InvalidAmdMesHwResources) return err;
+    invalid = input;
+    invalid.compute_hqd_mask = .{0} ** 8;
+    invalid.gfx_hqd_mask = .{0} ** 2;
+    invalid.sdma_hqd_mask = .{0} ** 2;
+    if (encodeAmdMesSetHwResources(invalid, control)) |_| return error.AmdMesEmptyHqdResourcesAccepted else |err|
+        if (err != error.InvalidAmdMesHwResources) return err;
+}
+
 pub fn validateAmdGmc11VmContextSelfTest() !void {
     const plan = AmdGartPlan{
         .family = .v11_0,
@@ -3655,6 +3799,19 @@ pub fn validateAmdGfx11RingResourceSelfTest() !void {
     if (firmware_layout.scheduler_ucode != 0x200b000 or firmware_layout.kiq_data != 0x200e000 or firmware_layout.gart_pages != 4 or
         gart_table[11] != amdGttPte(@intFromPtr(&bootstrap_pool.storage[0])) or gart_table[14] != amdGttPte(@intFromPtr(&bootstrap_pool.storage[3])))
         return error.AmdMesFirmwareGartLayoutMismatch;
+    var control_resources = try allocateAmdMesControlResources(bootstrap_pool.pageAllocator());
+    const control_layout = try mapAmdMesControlIntoGart(.{
+        .page_table_address = @intFromPtr(&gart_table), .page_table_pages = 1,
+        .buffer_address = 0x800000, .buffer_pages = 3,
+    }, firmware_layout, control_resources, 0x2000000);
+    if (control_layout.first_gart_page != 15 or control_layout.page != 0x200f000 or
+        control_layout.scheduler_context != 0x200f000 or control_layout.query_status_fence != 0x200f008 or
+        control_layout.api_completion_fence != 0x200f010 or control_layout.scheduler_fence != 0x200f018 or
+        gart_table[15] != amdGttPte(control_resources.page))
+        return error.AmdMesControlGartLayoutMismatch;
+    const control_bytes: *const [4096]u8 = @ptrFromInt(control_resources.page);
+    for (control_bytes) |byte| if (byte != 0) return error.AmdMesControlPageNotZero;
+    try control_resources.release();
     try bootstrap_resources.release();
     for (bootstrap_pool.allocated) |allocated| if (allocated) return error.AmdGfxMesBootstrapReleaseLeak;
 

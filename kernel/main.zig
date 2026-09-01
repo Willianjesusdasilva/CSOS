@@ -572,6 +572,10 @@ pub fn start(info: BootInfo) noreturn {
         gpu.allocateAmdGfx11RingResources(gpu.physicalAmdGpuVmPageAllocator(&pages)) catch
             panic("AMDGPU GFX11 ring resource allocation failed")
     else gpu.AmdGfx11RingResources{};
+    const gpu_mes_control_resources = if (gpu_gfx_firmware != null)
+        gpu.allocateAmdMesControlResources(gpu.physicalAmdGpuVmPageAllocator(&pages)) catch
+            panic("AMDGPU MES control resource allocation failed")
+    else gpu.AmdMesControlResources{};
     const gpu_memory_plan = if (gpu_backend_plan) |plan| gpu.planAmdMemory(gpu_adapter.bars, gpu_adapter.register_bar, plan.gmc) catch
         panic("AMDGPU memory apertures invalid") else null;
     const gpu_psp_gtt = if (gpu_memory_plan != null) gpu.prepareAmdPspGtt(&pages) catch panic("AMDGPU PSP GTT staging failed") else gpu.AmdPspGttStaging{};
@@ -672,6 +676,11 @@ pub fn start(info: BootInfo) noreturn {
     const gpu_mes_firmware_gpu = if (gpu_mes_firmware != null and gpu_gmc11_gart_window != null)
         gpu.mapAmdMesFirmwareIntoGart(gpu_psp_gtt, gpu_mes_firmware_staging, gpu_gmc11_gart_window.?.start) catch
             panic("AMDGPU MES firmware GART mapping failed")
+    else null;
+    const gpu_mes_control_gpu = if (gpu_mes_firmware_gpu != null)
+        gpu.mapAmdMesControlIntoGart(
+            gpu_psp_gtt, gpu_mes_firmware_gpu.?, gpu_mes_control_resources, gpu_gmc11_gart_window.?.start,
+        ) catch panic("AMDGPU MES control GART mapping failed")
     else null;
     const gpu_mes_scheduler_load = if (gpu_mes_halted) if (gpu_mes_firmware) |firmware| if (gpu_mes_firmware_gpu) |layout| if (gpu_mes_registers) |registers|
         gpu.planAmdGfx11MesLoad(.scheduler, firmware.scheduler, layout.scheduler_ucode, layout.scheduler_data, registers, true) catch
@@ -1064,6 +1073,7 @@ pub fn start(info: BootInfo) noreturn {
     serial.write(" mes-ring0-db: "); serial.writeDecimal(if (gpu_gfx_mes_bootstrap) |bootstrap| bootstrap.scheduler_doorbell.register_index else 0);
     serial.write(" mes-ring1-db: "); serial.writeDecimal(if (gpu_gfx_mes_bootstrap) |bootstrap| bootstrap.kiq_doorbell.register_index else 0);
     serial.write(" mes-fw-gart-pages: "); serial.writeDecimal(if (gpu_mes_firmware_gpu) |layout| layout.gart_pages else 0);
+    serial.write(" mes-control-gart-page: "); serial.writeDecimal(if (gpu_mes_control_gpu) |layout| layout.first_gart_page else 0);
     serial.write(" mes-halted: "); serial.writeDecimal(@intFromBool(gpu_mes_halted));
     serial.write(" mes-load-plans: "); serial.writeDecimal(@intFromBool(gpu_mes_scheduler_load != null) + @intFromBool(gpu_mes_kiq_load != null));
     serial.write(" mes-loads: "); serial.writeDecimal(gpu_mes_loads);
