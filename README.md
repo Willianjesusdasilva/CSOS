@@ -145,6 +145,11 @@ AMD Radeon continua como o primeiro backend de referência devido ao ecossistema
 
 O trabalho compartilhado de DRM/KMS, memória, sincronização e ABI deve ser reutilizado pelos dois backends. O segundo backend não deve atrasar a construção do primeiro caminho Vulkan funcional, mas M14 só estará completo após validar hardware AMD e NVIDIA suportado.
 
+O alvo não é apenas detectar uma placa NVIDIA ou obter framebuffer. Suporte
+NVIDIA significa inicialização, gerenciamento de memória, filas, sincronização
+e um triângulo Vulkan em uma GeForce real suportada. Até essa validação existir,
+o backend permanece experimental e não pode ser anunciado como funcional.
+
 ---
 
 # Autoconfiguração de Hardware
@@ -569,6 +574,13 @@ M30  Final Integration
 Steam Runtime, Steam e CS2 são deliberadamente as últimas etapas funcionais. Antes delas, o sistema deve estar utilizável, estável e validado com display, GPU AMD/NVIDIA, SDL, hardware discovery, ciclo de processos, standby, UI e otimizações mensuráveis.
 
 O arquivo `GOAL.md` é a fonte de verdade técnica do roadmap e das prioridades de implementação.
+
+Estimativa de progresso em 2026-09-01: **aproximadamente 40% concluído e 60% a
+fazer**. É uma estimativa ponderada por funcionalidade, não uma simples contagem
+de milestones: M0–M13 possuem fundações implementadas, mas M14 ainda não tem
+command submission nem triângulo Vulkan validado em AMD ou NVIDIA, e M15–M30
+continuam majoritariamente pendentes. Testes de host não contam como validação
+de hardware.
 
 ---
 

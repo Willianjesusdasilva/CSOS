@@ -570,6 +570,11 @@ Vulkan
 
 NVIDIA GeForce tambÃ©m faz parte do escopo oficial. Reutilizar implementaÃ§Ãµes maduras e nÃ£o criar um driver NVIDIA completo em Zig. AMD permanece como primeiro backend de referÃªncia para evitar desenvolver duas stacks incompletas em paralelo; apÃ³s o primeiro triÃ¢ngulo Vulkan, validar o mesmo caminho em hardware NVIDIA suportado antes de considerar M14 concluÃ­da.
 
+NVIDIA não é objetivo opcional nem apenas compatibilidade de display. A
+aceitação exige inicialização, memória, filas, sincronização e Vulkan reais em
+uma GeForce explicitamente suportada. Detecção PCI, framebuffer ou um backend
+compilável não satisfazem esse requisito.
+
 ---
 
 # Linux ABI
@@ -1823,6 +1828,24 @@ M30 final integration
 
 Steam and CS2 are intentionally last. They must not be used as acceptance
 criteria for earlier milestones.
+
+## Current progress estimate
+
+Snapshot em 2026-09-01, ponderado pela funcionalidade necessária para a
+Definition of Done:
+
+```text
+concluído: aproximadamente 40%
+restante:  aproximadamente 60%
+```
+
+M0–M13 possuem fundações implementadas, mas ainda demandam integração e
+validação no sistema completo. M14 está parcial: a preparação AMD GFX11/MES é
+majoritariamente host-tested, command submission e o triângulo RADV real ainda
+faltam, e o caminho NVIDIA/NVK começa depois desse primeiro triângulo AMD.
+M15–M30 permanecem majoritariamente pendentes. Esta estimativa deve ser
+recalculada quando uma milestone passar seus critérios reais; código preparatório
+ou testes somente no host não equivalem a hardware funcional.
 
 Current M14 checkpoint:
 
