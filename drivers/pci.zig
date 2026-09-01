@@ -15,7 +15,13 @@ pub const Device = struct {
     header_type: u8,
     msi: bool,
     msix: bool,
+    secondary_bus: u8 = 0,
+    subordinate_bus: u8 = 0,
+    pcie_generation: u8 = 0,
+    pcie_width: u8 = 0,
 };
+
+pub const PcieLink = struct { generation: u8, width: u8 };
 
 pub const Inventory = struct {
     devices: [max_devices]Device = undefined,
@@ -42,6 +48,32 @@ pub const Inventory = struct {
         return null;
     }
 
+    pub fn pciePathLink(self: *const Inventory, endpoint: Device) !PcieLink {
+        if (endpoint.pcie_generation == 0 or endpoint.pcie_width == 0) return error.PcieEndpointCapabilityMissing;
+        var result = PcieLink{ .generation = endpoint.pcie_generation, .width = endpoint.pcie_width };
+        var child_bus = endpoint.bus;
+        var depth: u8 = 0;
+        while (child_bus != 0) : (depth += 1) {
+            if (depth == 32) return error.PcieBridgeHierarchyCycle;
+            var parent: ?Device = null;
+            for (self.devices[0..self.count]) |candidate| {
+                if (candidate.class != 0x06 or candidate.subclass != 0x04 or candidate.secondary_bus == 0 or
+                    child_bus < candidate.secondary_bus or child_bus > candidate.subordinate_bus)
+                    continue;
+                if (parent == null or candidate.subordinate_bus - candidate.secondary_bus <
+                    parent.?.subordinate_bus - parent.?.secondary_bus)
+                    parent = candidate;
+            }
+            const bridge = parent orelse return error.PcieUpstreamBridgeMissing;
+            if (bridge.pcie_generation == 0 or bridge.pcie_width == 0) return error.PcieBridgeCapabilityMissing;
+            result.generation = @min(result.generation, bridge.pcie_generation);
+            result.width = @min(result.width, bridge.pcie_width);
+            if (bridge.bus == child_bus) return error.PcieBridgeHierarchyCycle;
+            child_bus = bridge.bus;
+        }
+        return result;
+    }
+
     fn scanBus(self: *Inventory, bus: u8) void {
         if (self.visited_buses[bus]) return;
         self.visited_buses[bus] = true;
@@ -61,6 +93,7 @@ pub const Inventory = struct {
         const subclass = read8(bus, slot, function, 0x0a);
         const header_type = read8(bus, slot, function, 0x0e) & 0x7f;
         const probe = Device{ .bus = bus, .slot = slot, .function = function, .vendor = vendor, .device = 0, .revision = 0, .subsystem_vendor = 0, .subsystem_device = 0, .class = class, .subclass = subclass, .programming_interface = 0, .header_type = header_type, .msi = false, .msix = false };
+        const pcie_link = pcieLinkCapability(probe);
         self.devices[self.count] = .{
             .bus = bus,
             .slot = slot,
@@ -76,6 +109,10 @@ pub const Inventory = struct {
             .header_type = header_type,
             .msi = capabilityOffset(probe, 0x05) != null,
             .msix = capabilityOffset(probe, 0x11) != null,
+            .secondary_bus = if (class == 0x06 and subclass == 0x04) read8(bus, slot, function, 0x19) else 0,
+            .subordinate_bus = if (class == 0x06 and subclass == 0x04) read8(bus, slot, function, 0x1a) else 0,
+            .pcie_generation = if (pcie_link) |link| link.generation else 0,
+            .pcie_width = if (pcie_link) |link| link.width else 0,
         };
         self.count += 1;
         if (class == 0x06 and subclass == 0x04) self.scanBus(read8(bus, slot, function, 0x19));
@@ -91,6 +128,36 @@ pub fn capabilityOffset(device: Device, wanted: u8) ?u8 {
         offset = read8(device.bus, device.slot, device.function, offset + 1) & 0xfc;
     }
     return null;
+}
+
+pub fn pcieLinkCapability(device: Device) ?PcieLink {
+    const offset = capabilityOffset(device, 0x10) orelse return null;
+    if (offset > 0xf0) return null;
+    const capabilities = read32(device.bus, device.slot, device.function, offset + 0x0c);
+    const generation: u8 = @truncate(capabilities & 0x0f);
+    const width: u8 = @truncate((capabilities >> 4) & 0x3f);
+    if (generation == 0 or generation > 6 or (width != 1 and width != 2 and width != 4 and width != 8 and width != 12 and width != 16 and width != 32))
+        return null;
+    return .{ .generation = generation, .width = width };
+}
+
+comptime {
+    const empty = Device{ .bus = 0, .slot = 0, .function = 0, .vendor = 0, .device = 0, .revision = 0, .subsystem_vendor = 0, .subsystem_device = 0, .class = 0, .subclass = 0, .programming_interface = 0, .header_type = 0, .msi = false, .msix = false };
+    const endpoint = Device{ .bus = 4, .slot = 0, .function = 0, .vendor = 0x1002, .device = 0x744c, .revision = 0, .subsystem_vendor = 0, .subsystem_device = 0, .class = 3, .subclass = 0, .programming_interface = 0, .header_type = 0, .msi = false, .msix = false, .pcie_generation = 5, .pcie_width = 16 };
+    const middle = Device{ .bus = 2, .slot = 1, .function = 0, .vendor = 0x1022, .device = 1, .revision = 0, .subsystem_vendor = 0, .subsystem_device = 0, .class = 6, .subclass = 4, .programming_interface = 0, .header_type = 1, .msi = false, .msix = false, .secondary_bus = 4, .subordinate_bus = 4, .pcie_generation = 4, .pcie_width = 8 };
+    const root = Device{ .bus = 0, .slot = 1, .function = 0, .vendor = 0x1022, .device = 2, .revision = 0, .subsystem_vendor = 0, .subsystem_device = 0, .class = 6, .subclass = 4, .programming_interface = 0, .header_type = 1, .msi = false, .msix = false, .secondary_bus = 2, .subordinate_bus = 8, .pcie_generation = 5, .pcie_width = 16 };
+    var inventory = Inventory{};
+    inventory.devices[0] = root;
+    inventory.devices[1] = middle;
+    inventory.devices[2] = endpoint;
+    inventory.count = 3;
+    const link = inventory.pciePathLink(endpoint) catch @compileError("PCIe path capability sample rejected");
+    if (link.generation != 4 or link.width != 8) @compileError("PCIe path capability intersection mismatch");
+    var root_endpoint = empty;
+    root_endpoint.pcie_generation = 4;
+    root_endpoint.pcie_width = 16;
+    const root_link = inventory.pciePathLink(root_endpoint) catch @compileError("root-bus PCIe endpoint rejected");
+    if (root_link.generation != 4 or root_link.width != 16) @compileError("root-bus PCIe capability mismatch");
 }
 
 pub fn enableMsi(device: Device, vector: u8, destination_apic: u8) !void {

@@ -795,7 +795,11 @@ memória, VA e demais campos físicos. O mesmo snapshot lê agora
 `CC_RB_BACKEND_DISABLE` e `GC_USER_RB_BACKEND_DISABLE`, cruza o harvesting
 global de render backends com as SAs ativas e amplia o prefixo verificável de
 `DEV_INFO` para 132 bytes, incluindo máscara de RBs, total físico de pipes e os
-oito contextos de hardware definidos pelo GFX11 suportado. O parser do IP discovery também valida
+oito contextos de hardware definidos pelo GFX11 suportado. A enumeração PCI
+preserva ainda geração e largura máximas anunciadas por endpoints e bridges;
+o caminho até a GPU escolhe o menor limite de cada nível, detecta hierarquia
+ausente/cíclica e amplia `DEV_INFO` para 136 bytes com `pcie_gen`. A largura é
+retida no perfil para o campo UAPI posterior. O parser do IP discovery também valida
 e consome agora a tabela GC v1.0–v1.3: assinatura, tamanho, checksum, SE, SA,
 WGP/CU máximo, RB, TCC, wave size, profundidades GS e caches. Esses máximos já
 fazem parte do perfil DRM e são obrigatórios para publicar GFX, mas não são
