@@ -761,6 +761,14 @@ upstream com 1024 dwords, MQD alinhado a página, EOP de 2048 bytes, ponteiros d
 64 bits e doorbell obrigatório. O preflight permanece fechado enquanto
 qualquer um desses recursos, PSP, GART ou GPUVM não estiver pronto; ele ainda
 não programa o ring nem autoriza command submission.
+PFP, ME, MEC e RLC também possuem agora seleção e parsing próprios para o
+caminho pós-sOS. O formato legado separa a jump table MEC; o formato RS64
+separa instruções e stacks e exige que PFP/ME/MEC usem o mesmo formato. O
+staging físico produz payloads alinhados a 4 KiB com os tipos PSP oficiais,
+incluindo duas stacks de PFP/ME, quatro de MEC e os componentes adicionais dos
+cabeçalhos RLC 2.1–2.5. Alocação parcial é revertida e a máscara DMA de 44 bits
+é obrigatória. Este checkpoint ainda não envia `LOAD_IP_FW` ao ring PSP e não
+significa que RLC ou os command processors estejam ativos.
 As duas filas exigidas pelo bootstrap — scheduler MES ring0 e KIQ ring1 — agora
 recebem, cada uma, páginas físicas separadas para ring, MQD, EOP e ponteiros.
 As oito páginas nascem zeradas abaixo da máscara DMA de 44 bits e são liberadas

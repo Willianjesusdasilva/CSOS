@@ -218,6 +218,35 @@ pub const Firmware = struct {
         return .{ .scheduler = scheduler, .kiq = selected_kiq, .scheduler_v2 = scheduler_v2 != null };
     }
 
+    pub fn amdGfx11CpFirmwareSet(self: Firmware, selection: Selection) !AmdGfx11CpFirmwareSet {
+        var result = AmdGfx11CpFirmwareSet{};
+        var iterator = self.selected(selection);
+        while (try iterator.next()) |entry| {
+            const role = classifyAmdGfxFirmware(entry.name) orelse continue;
+            switch (role) {
+                .pfp => {
+                    if (result.pfp != null) return error.DuplicateAmdCpFirmware;
+                    result.pfp = try parseAmdCpFirmware(entry.data, .pfp);
+                },
+                .me => {
+                    if (result.me != null) return error.DuplicateAmdCpFirmware;
+                    result.me = try parseAmdCpFirmware(entry.data, .me);
+                },
+                .mec => {
+                    if (result.mec != null) return error.DuplicateAmdCpFirmware;
+                    result.mec = try parseAmdCpFirmware(entry.data, .mec);
+                },
+                .rlc => {
+                    if (result.rlc != null) return error.DuplicateAmdRlcFirmware;
+                    result.rlc = try parseAmdRlcFirmware(entry.data);
+                },
+                else => {},
+            }
+        }
+        try result.validate();
+        return result;
+    }
+
     pub fn stageAmdSecurity(self: Firmware, selection: Selection, pages: *physical.Allocator) !AmdFirmwareStaging {
         var result = AmdFirmwareStaging{};
         errdefer result.release(pages);
@@ -352,6 +381,75 @@ pub const AmdMesFirmware = struct {
     data_start: u64,
 };
 pub const AmdMesFirmwareSet = struct { scheduler: AmdMesFirmware, kiq: AmdMesFirmware, scheduler_v2: bool };
+pub const AmdCpFirmwareKind = enum { pfp, me, mec };
+pub const AmdCpFirmwareFormat = enum { legacy, rs64 };
+pub const AmdCpFirmware = struct {
+    kind: AmdCpFirmwareKind,
+    format: AmdCpFirmwareFormat,
+    ucode_version: u32,
+    feature_version: u32,
+    instruction: []const u8,
+    data: []const u8 = &.{},
+    jump_table: []const u8 = &.{},
+    start_address: u64 = 0,
+};
+pub const AmdRlcFirmwarePayload = struct { kind: AmdPspGfxFirmwareType = .rlc_g, data: []const u8 = &.{} };
+pub const AmdRlcFirmware = struct {
+    ucode_version: u32,
+    feature_version: u32,
+    header_minor: u16,
+    count: usize = 0,
+    payloads: [11]AmdRlcFirmwarePayload = .{AmdRlcFirmwarePayload{}} ** 11,
+};
+pub const AmdGfx11CpFirmwareSet = struct {
+    pfp: ?AmdCpFirmware = null,
+    me: ?AmdCpFirmware = null,
+    mec: ?AmdCpFirmware = null,
+    rlc: ?AmdRlcFirmware = null,
+
+    pub fn validate(self: *const AmdGfx11CpFirmwareSet) !void {
+        const pfp = self.pfp orelse return error.RequiredAmdCpFirmwareMissing;
+        const me = self.me orelse return error.RequiredAmdCpFirmwareMissing;
+        const mec = self.mec orelse return error.RequiredAmdCpFirmwareMissing;
+        _ = self.rlc orelse return error.RequiredAmdRlcFirmwareMissing;
+        if (pfp.format != me.format or pfp.format != mec.format) return error.MixedAmdCpFirmwareFormats;
+        if (pfp.format == .rs64 and (pfp.data.len == 0 or me.data.len == 0 or mec.data.len == 0))
+            return error.AmdCpRs64StackMissing;
+        if (pfp.format == .legacy and mec.jump_table.len == 0) return error.AmdCpMecJumpTableMissing;
+    }
+};
+pub const AmdPspGfxFirmwareType = enum(u32) {
+    cp_me = 1, cp_pfp = 2, cp_mec = 4, cp_mec_me1 = 5, rlc_g = 8,
+    rlc_v = 7, rlc_restore_gpm = 20, rlc_restore_srm = 21, rlc_restore_cntl = 22,
+    rlc_p = 25, rlc_iram = 26, global_tap_delays = 27, se0_tap_delays = 28, se1_tap_delays = 29,
+    rlc_dram_boot = 48, se2_tap_delays = 65, se3_tap_delays = 66,
+    rs64_pfp = 87, rs64_me = 88, rs64_mec = 89,
+    rs64_pfp_p0_stack = 90, rs64_pfp_p1_stack = 91,
+    rs64_me_p0_stack = 92, rs64_me_p1_stack = 93,
+    rs64_mec_p0_stack = 94, rs64_mec_p1_stack = 95,
+    rs64_mec_p2_stack = 96, rs64_mec_p3_stack = 97,
+    rlc_iram_core1 = 98, rlc_dram_boot_core1 = 99,
+};
+pub const AmdPspIpFirmwareArea = struct { kind: AmdPspGfxFirmwareType = .cp_me, address: u64 = 0, pages: u64 = 0, bytes: u32 = 0 };
+pub const AmdPspIpFirmwarePayload = struct { kind: AmdPspGfxFirmwareType = .cp_me, data: []const u8 = &.{} };
+pub const AmdGfx11CpFirmwarePlan = struct {
+    count: usize = 0,
+    payloads: [22]AmdPspIpFirmwarePayload = .{AmdPspIpFirmwarePayload{}} ** 22,
+};
+pub const AmdGfx11CpFirmwareStaging = struct {
+    count: usize = 0,
+    areas: [22]AmdPspIpFirmwareArea = .{AmdPspIpFirmwareArea{}} ** 22,
+
+    pub fn release(self: *AmdGfx11CpFirmwareStaging, pages: *physical.Allocator) void {
+        var index = self.count;
+        while (index != 0) {
+            index -= 1;
+            const area = self.areas[index];
+            if (area.pages != 0) pages.release(area.address, area.pages) catch {};
+        }
+        self.* = .{};
+    }
+};
 pub const AmdMesPayloadArea = struct { address: u64 = 0, pages: u64 = 0, bytes: usize = 0 };
 pub const AmdMesStagedImage = struct { ucode: AmdMesPayloadArea = .{}, data: AmdMesPayloadArea = .{} };
 pub const AmdMesFirmwareStaging = struct {
@@ -1681,6 +1779,180 @@ pub fn classifyAmdGfxFirmware(name: []const u8) ?AmdGfxFirmwareRole {
     if (endsWith(name, "_mes1.bin")) return .mes_kiq;
     if (endsWith(name, "_mes.bin") or endsWith(name, "_mes_2.bin")) return .mes_scheduler;
     return null;
+}
+
+fn amdFirmwareSlice(image: []const u8, offset: usize, bytes: usize) ![]const u8 {
+    if (bytes == 0 or offset > image.len or bytes > image.len - offset) return error.InvalidAmdGfxFirmwarePayload;
+    return image[offset .. offset + bytes];
+}
+
+pub fn parseAmdCpFirmware(image: []const u8, kind: AmdCpFirmwareKind) !AmdCpFirmware {
+    const common = try parseAmdgpuFirmware(image);
+    if (common.ip_version_major != 11 or common.ucode_version == 0) return error.InvalidAmdCpFirmwareIdentity;
+    if (common.header_version_major == 2) {
+        // gfx_firmware_header_v2_0 is the RS64 container used by GFX11.
+        if (common.header_version_minor != 0 or image.len < 60 or readLittle32(image, 4) < 60)
+            return error.UnsupportedAmdCpFirmwareHeader;
+        const instruction_offset = readLittle32(image, 40);
+        const instruction_bytes = readLittle32(image, 36);
+        if (instruction_offset != readLittle32(image, 24) or instruction_bytes != common.payload.len)
+            return error.InconsistentAmdCpRs64Payload;
+        const instruction = try amdFirmwareSlice(image, instruction_offset, instruction_bytes);
+        const data = try amdFirmwareSlice(image, readLittle32(image, 48), readLittle32(image, 44));
+        return .{
+            .kind = kind,
+            .format = .rs64,
+            .ucode_version = common.ucode_version,
+            .feature_version = @intCast(readLittle32(image, 32)),
+            .instruction = instruction,
+            .data = data,
+            .start_address = readLittle64(image, 52),
+        };
+    }
+    if (common.header_version_major != 1 or common.header_version_minor != 0 or image.len < 44 or readLittle32(image, 4) < 44)
+        return error.UnsupportedAmdCpFirmwareHeader;
+    const jump_offset_dwords: usize = readLittle32(image, 36);
+    const jump_dwords: usize = readLittle32(image, 40);
+    if (kind != .mec and (jump_offset_dwords != 0 or jump_dwords != 0)) return error.UnexpectedAmdCpJumpTable;
+    if (kind == .mec) {
+        const jump_offset = std.math.mul(usize, jump_offset_dwords, 4) catch return error.InvalidAmdGfxFirmwarePayload;
+        const jump_bytes = std.math.mul(usize, jump_dwords, 4) catch return error.InvalidAmdGfxFirmwarePayload;
+        if (jump_bytes == 0 or jump_offset > common.payload.len or jump_bytes > common.payload.len - jump_offset)
+            return error.InvalidAmdGfxFirmwarePayload;
+        if (jump_offset + jump_bytes != common.payload.len) return error.InvalidAmdCpMecJumpTable;
+        return .{
+            .kind = kind,
+            .format = .legacy,
+            .ucode_version = common.ucode_version,
+            .feature_version = @intCast(readLittle32(image, 32)),
+            .instruction = common.payload[0..jump_offset],
+            .jump_table = common.payload[jump_offset .. jump_offset + jump_bytes],
+        };
+    }
+    return .{
+        .kind = kind,
+        .format = .legacy,
+        .ucode_version = common.ucode_version,
+        .feature_version = @intCast(readLittle32(image, 32)),
+        .instruction = common.payload,
+    };
+}
+
+pub fn parseAmdRlcFirmware(image: []const u8) !AmdRlcFirmware {
+    const common = try parseAmdgpuFirmware(image);
+    if (common.ip_version_major != 11 or common.ucode_version == 0) return error.InvalidAmdRlcFirmwareIdentity;
+    if (common.header_version_major != 2 or image.len < 104 or readLittle32(image, 4) < 104)
+        return error.UnsupportedAmdRlcFirmwareHeader;
+    if (common.header_version_minor > 5) return error.UnsupportedAmdRlcFirmwareHeader;
+    var result = AmdRlcFirmware{
+        .ucode_version = common.ucode_version,
+        .feature_version = @intCast(readLittle32(image, 32)),
+        .header_minor = common.header_version_minor,
+    };
+    try appendAmdRlcPayload(&result, .rlc_g, common.payload);
+    const minor = common.header_version_minor;
+    if (minor >= 1) {
+        if (image.len < 156 or readLittle32(image, 4) < 156) return error.InvalidAmdRlcFirmwareHeader;
+        try appendOptionalAmdRlcPayload(&result, image, .rlc_restore_cntl, 120, 116);
+        try appendOptionalAmdRlcPayload(&result, image, .rlc_restore_gpm, 136, 132);
+        try appendOptionalAmdRlcPayload(&result, image, .rlc_restore_srm, 152, 148);
+    }
+    if (minor >= 2) {
+        if (image.len < 172 or readLittle32(image, 4) < 172) return error.InvalidAmdRlcFirmwareHeader;
+        try appendOptionalAmdRlcPayload(&result, image, .rlc_iram, 160, 156);
+        try appendOptionalAmdRlcPayload(&result, image, .rlc_dram_boot, 168, 164);
+    }
+    if (minor == 3) {
+        if (image.len < 204 or readLittle32(image, 4) < 204) return error.InvalidAmdRlcFirmwareHeader;
+        try appendOptionalAmdRlcPayload(&result, image, .rlc_p, 184, 180);
+        try appendOptionalAmdRlcPayload(&result, image, .rlc_v, 200, 196);
+    } else if (minor == 4) {
+        if (image.len < 244 or readLittle32(image, 4) < 244) return error.InvalidAmdRlcFirmwareHeader;
+        try appendOptionalAmdRlcPayload(&result, image, .global_tap_delays, 208, 204);
+        try appendOptionalAmdRlcPayload(&result, image, .se0_tap_delays, 216, 212);
+        try appendOptionalAmdRlcPayload(&result, image, .se1_tap_delays, 224, 220);
+        try appendOptionalAmdRlcPayload(&result, image, .se2_tap_delays, 232, 228);
+        try appendOptionalAmdRlcPayload(&result, image, .se3_tap_delays, 240, 236);
+    } else if (minor == 5) {
+        if (image.len < 188 or readLittle32(image, 4) < 188) return error.InvalidAmdRlcFirmwareHeader;
+        try appendOptionalAmdRlcPayload(&result, image, .rlc_iram_core1, 176, 172);
+        try appendOptionalAmdRlcPayload(&result, image, .rlc_dram_boot_core1, 184, 180);
+    }
+    return result;
+}
+
+fn appendAmdRlcPayload(result: *AmdRlcFirmware, kind: AmdPspGfxFirmwareType, payload: []const u8) !void {
+    if (payload.len == 0 or result.count == result.payloads.len) return error.InvalidAmdRlcFirmwarePayload;
+    result.payloads[result.count] = .{ .kind = kind, .data = payload };
+    result.count += 1;
+}
+
+fn appendOptionalAmdRlcPayload(result: *AmdRlcFirmware, image: []const u8, kind: AmdPspGfxFirmwareType, offset_field: usize, size_field: usize) !void {
+    const bytes = readLittle32(image, size_field);
+    if (bytes == 0) return;
+    try appendAmdRlcPayload(result, kind, try amdFirmwareSlice(image, readLittle32(image, offset_field), bytes));
+}
+
+fn appendAmdPspIpFirmware(staging: *AmdGfx11CpFirmwareStaging, kind: AmdPspGfxFirmwareType, payload: []const u8, pages: *physical.Allocator) !void {
+    if (staging.count == staging.areas.len or payload.len == 0 or payload.len > std.math.maxInt(u32))
+        return error.InvalidAmdPspIpFirmwarePlan;
+    const page_count: u64 = @intCast((payload.len + 4095) / 4096);
+    const address = pages.allocate(page_count) orelse return error.OutOfMemory;
+    if (address >= (@as(u64, 1) << 44) or page_count > (((@as(u64, 1) << 44) - address) / 4096)) {
+        pages.release(address, page_count) catch {};
+        return error.AmdPspIpFirmwareOutsideDmaMask;
+    }
+    const target: [*]u8 = @ptrFromInt(address);
+    @memset(target[0 .. page_count * 4096], 0);
+    @memcpy(target[0..payload.len], payload);
+    staging.areas[staging.count] = .{ .kind = kind, .address = address, .pages = page_count, .bytes = @intCast(payload.len) };
+    staging.count += 1;
+}
+
+fn appendAmdPspIpFirmwarePlan(plan: *AmdGfx11CpFirmwarePlan, kind: AmdPspGfxFirmwareType, payload: []const u8) !void {
+    if (plan.count == plan.payloads.len or payload.len == 0 or payload.len > std.math.maxInt(u32))
+        return error.InvalidAmdPspIpFirmwarePlan;
+    plan.payloads[plan.count] = .{ .kind = kind, .data = payload };
+    plan.count += 1;
+}
+
+pub fn planAmdGfx11CpFirmwareSet(set: AmdGfx11CpFirmwareSet) !AmdGfx11CpFirmwarePlan {
+    try set.validate();
+    const pfp = set.pfp.?;
+    const me = set.me.?;
+    const mec = set.mec.?;
+    var result = AmdGfx11CpFirmwarePlan{};
+    if (pfp.format == .rs64) {
+        try appendAmdPspIpFirmwarePlan(&result, .rs64_pfp, pfp.instruction);
+        try appendAmdPspIpFirmwarePlan(&result, .rs64_pfp_p0_stack, pfp.data);
+        try appendAmdPspIpFirmwarePlan(&result, .rs64_pfp_p1_stack, pfp.data);
+        try appendAmdPspIpFirmwarePlan(&result, .rs64_me, me.instruction);
+        try appendAmdPspIpFirmwarePlan(&result, .rs64_me_p0_stack, me.data);
+        try appendAmdPspIpFirmwarePlan(&result, .rs64_me_p1_stack, me.data);
+        try appendAmdPspIpFirmwarePlan(&result, .rs64_mec, mec.instruction);
+        try appendAmdPspIpFirmwarePlan(&result, .rs64_mec_p0_stack, mec.data);
+        try appendAmdPspIpFirmwarePlan(&result, .rs64_mec_p1_stack, mec.data);
+        try appendAmdPspIpFirmwarePlan(&result, .rs64_mec_p2_stack, mec.data);
+        try appendAmdPspIpFirmwarePlan(&result, .rs64_mec_p3_stack, mec.data);
+    } else {
+        try appendAmdPspIpFirmwarePlan(&result, .cp_pfp, pfp.instruction);
+        try appendAmdPspIpFirmwarePlan(&result, .cp_me, me.instruction);
+        try appendAmdPspIpFirmwarePlan(&result, .cp_mec, mec.instruction);
+        try appendAmdPspIpFirmwarePlan(&result, .cp_mec_me1, mec.jump_table);
+    }
+    const rlc = set.rlc.?;
+    for (rlc.payloads[0..rlc.count]) |payload|
+        try appendAmdPspIpFirmwarePlan(&result, payload.kind, payload.data);
+    return result;
+}
+
+pub fn stageAmdGfx11CpFirmwareSet(set: AmdGfx11CpFirmwareSet, pages: *physical.Allocator) !AmdGfx11CpFirmwareStaging {
+    const plan = try planAmdGfx11CpFirmwareSet(set);
+    var result = AmdGfx11CpFirmwareStaging{};
+    errdefer result.release(pages);
+    for (plan.payloads[0..plan.count]) |payload|
+        try appendAmdPspIpFirmware(&result, payload.kind, payload.data, pages);
+    return result;
 }
 
 pub fn parseAmdMesFirmware(image: []const u8) !AmdMesFirmware {
@@ -5634,6 +5906,100 @@ pub fn parseAmdgpuFirmware(bytes: []const u8) !AmdgpuFirmware {
 pub fn validateAmdgpuFirmware(bytes: []const u8) !void { _ = try parseAmdgpuFirmware(bytes); }
 
 pub fn validateAmdGfx11FirmwarePreflightSelfTest() !void {
+    var cp_image = [_]u8{0} ** 68;
+    writeLittle32(&cp_image, 0, cp_image.len);
+    writeLittle32(&cp_image, 4, 60);
+    writeLittle16(&cp_image, 8, 2);
+    writeLittle16(&cp_image, 12, 11);
+    writeLittle32(&cp_image, 16, 0x1234);
+    writeLittle32(&cp_image, 20, 4);
+    writeLittle32(&cp_image, 24, 60);
+    writeLittle32(&cp_image, 32, 7);
+    writeLittle32(&cp_image, 36, 4);
+    writeLittle32(&cp_image, 40, 60);
+    writeLittle32(&cp_image, 44, 4);
+    writeLittle32(&cp_image, 48, 64);
+    writeLittle32(&cp_image, 52, 0x1000);
+    cp_image[60] = 0xaa;
+    cp_image[64] = 0xbb;
+    const pfp = try parseAmdCpFirmware(&cp_image, .pfp);
+    const me = try parseAmdCpFirmware(&cp_image, .me);
+    const mec = try parseAmdCpFirmware(&cp_image, .mec);
+    if (pfp.format != .rs64 or pfp.feature_version != 7 or pfp.instruction.len != 4 or pfp.data.len != 4 or
+        pfp.instruction[0] != 0xaa or pfp.data[0] != 0xbb or pfp.start_address != 0x1000)
+        return error.AmdCpFirmwareParserSelfTestFailed;
+
+    var rlc_image = [_]u8{0} ** 108;
+    writeLittle32(&rlc_image, 0, rlc_image.len);
+    writeLittle32(&rlc_image, 4, 104);
+    writeLittle16(&rlc_image, 8, 2);
+    writeLittle16(&rlc_image, 12, 11);
+    writeLittle32(&rlc_image, 16, 0x5678);
+    writeLittle32(&rlc_image, 20, 4);
+    writeLittle32(&rlc_image, 24, 104);
+    writeLittle32(&rlc_image, 32, 9);
+    rlc_image[104] = 0xcc;
+    const rlc = try parseAmdRlcFirmware(&rlc_image);
+    var cp_set = AmdGfx11CpFirmwareSet{ .pfp = pfp, .me = me, .mec = mec, .rlc = rlc };
+    try cp_set.validate();
+    if (rlc.feature_version != 9 or rlc.header_minor != 0 or rlc.count != 1 or
+        rlc.payloads[0].kind != .rlc_g or rlc.payloads[0].data.len != 4 or rlc.payloads[0].data[0] != 0xcc)
+        return error.AmdRlcFirmwareParserSelfTestFailed;
+    var rlc_v24 = [_]u8{0} ** 268;
+    writeLittle32(&rlc_v24, 0, rlc_v24.len);
+    writeLittle32(&rlc_v24, 4, 244);
+    writeLittle16(&rlc_v24, 8, 2);
+    writeLittle16(&rlc_v24, 10, 4);
+    writeLittle16(&rlc_v24, 12, 11);
+    writeLittle32(&rlc_v24, 16, 1);
+    writeLittle32(&rlc_v24, 20, 4);
+    writeLittle32(&rlc_v24, 24, 244);
+    inline for (0..5) |index| {
+        writeLittle32(&rlc_v24, 204 + index * 8, 4);
+        writeLittle32(&rlc_v24, 208 + index * 8, 248 + index * 4);
+    }
+    const parsed_v24 = try parseAmdRlcFirmware(&rlc_v24);
+    if (parsed_v24.count != 6 or parsed_v24.payloads[1].kind != .global_tap_delays or
+        parsed_v24.payloads[5].kind != .se3_tap_delays)
+        return error.AmdRlcExtendedPayloadSelfTestFailed;
+    const rs64_plan = try planAmdGfx11CpFirmwareSet(cp_set);
+    if (rs64_plan.count != 12 or rs64_plan.payloads[0].kind != .rs64_pfp or
+        rs64_plan.payloads[10].kind != .rs64_mec_p3_stack or rs64_plan.payloads[11].kind != .rlc_g)
+        return error.AmdCpRs64FirmwarePlanSelfTestFailed;
+    var extended_set = cp_set;
+    extended_set.rlc = parsed_v24;
+    const extended_plan = try planAmdGfx11CpFirmwareSet(extended_set);
+    if (extended_plan.count != 17 or extended_plan.payloads[12].kind != .global_tap_delays or
+        extended_plan.payloads[16].kind != .se3_tap_delays)
+        return error.AmdRlcFirmwarePlanSelfTestFailed;
+    var legacy_image = [_]u8{0} ** 48;
+    writeLittle32(&legacy_image, 0, legacy_image.len);
+    writeLittle32(&legacy_image, 4, 44);
+    writeLittle16(&legacy_image, 8, 1);
+    writeLittle16(&legacy_image, 12, 11);
+    writeLittle32(&legacy_image, 16, 1);
+    writeLittle32(&legacy_image, 20, 4);
+    writeLittle32(&legacy_image, 24, 44);
+    var legacy_mec_image = [_]u8{0} ** 52;
+    @memcpy(legacy_mec_image[0..44], legacy_image[0..44]);
+    writeLittle32(&legacy_mec_image, 0, legacy_mec_image.len);
+    writeLittle32(&legacy_mec_image, 20, 8);
+    writeLittle32(&legacy_mec_image, 36, 1);
+    writeLittle32(&legacy_mec_image, 40, 1);
+    const legacy_set = AmdGfx11CpFirmwareSet{
+        .pfp = try parseAmdCpFirmware(&legacy_image, .pfp),
+        .me = try parseAmdCpFirmware(&legacy_image, .me),
+        .mec = try parseAmdCpFirmware(&legacy_mec_image, .mec),
+        .rlc = rlc,
+    };
+    const legacy_plan = try planAmdGfx11CpFirmwareSet(legacy_set);
+    if (legacy_plan.count != 5 or legacy_plan.payloads[0].kind != .cp_pfp or
+        legacy_plan.payloads[3].kind != .cp_mec_me1 or legacy_plan.payloads[4].kind != .rlc_g)
+        return error.AmdCpLegacyFirmwarePlanSelfTestFailed;
+    cp_set.me.?.format = .legacy;
+    if (cp_set.validate()) |_| return error.MixedAmdCpFirmwareFormatsAccepted else |err|
+        if (err != error.MixedAmdCpFirmwareFormats) return err;
+
     var image = [_]u8{0} ** 80;
     writeLittle32(&image, 0, image.len);
     writeLittle32(&image, 4, 72);

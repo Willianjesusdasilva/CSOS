@@ -569,6 +569,14 @@ pub fn start(info: BootInfo) noreturn {
             gpu_selection orelse panic("AMDGPU firmware selection missing"),
         ) catch panic("AMDGPU MES firmware selection failed")
     else null;
+    const gpu_cp_firmware = if (gpu_gfx_firmware != null)
+        (gpu_firmware orelse panic("AMDGPU firmware archive missing")).amdGfx11CpFirmwareSet(
+            gpu_selection orelse panic("AMDGPU firmware selection missing"),
+        ) catch panic("AMDGPU CP/RLC firmware selection failed")
+    else null;
+    const gpu_cp_firmware_staging = if (gpu_cp_firmware) |firmware|
+        gpu.stageAmdGfx11CpFirmwareSet(firmware, &pages) catch panic("AMDGPU CP/RLC firmware staging failed")
+    else gpu.AmdGfx11CpFirmwareStaging{};
     const gpu_mes_firmware_staging = if (gpu_mes_firmware) |firmware|
         gpu.stageAmdMesFirmwareSet(firmware, &pages) catch panic("AMDGPU MES firmware staging failed")
     else gpu.AmdMesFirmwareStaging{};
@@ -1143,6 +1151,8 @@ pub fn start(info: BootInfo) noreturn {
     serial.write(" psp-transfer: "); serial.writeDecimal(gpu_psp_handoff.transfer_address);
     serial.write(" psp-state: "); serial.writeDecimal(@intFromEnum(gpu_psp_handoff.state));
     serial.write(" gfx-fw-typed: "); serial.writeDecimal(if (gpu_gfx_firmware) |manifest| manifest.entries else 0);
+    serial.write(" cp-fw-format: "); serial.writeDecimal(if (gpu_cp_firmware) |firmware| @intFromEnum(firmware.pfp.?.format) + 1 else 0);
+    serial.write(" cp-fw-psp-payloads: "); serial.writeDecimal(gpu_cp_firmware_staging.count);
     serial.write(" gfx-ring-preflight: "); serial.writeDecimal(@intFromEnum(gpu.preflightAmdGfx11Ring(.{
         .firmware = gpu_gfx_firmware != null,
         .psp = gpu_psp_handoff.state == .finished,
