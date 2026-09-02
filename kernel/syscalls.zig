@@ -46,6 +46,8 @@ const DrmObject = struct {
     handle: u32 = 0,
     size: u64 = 0,
     physical_address: u64 = 0,
+    gpu_address: u64 = 0,
+    vram_backed: bool = false,
     pages: u64 = 0,
     map_offset: u64 = 0,
     alignment: u64 = 0,
@@ -70,6 +72,14 @@ pub const AmdGpuCsEndpoint = struct {
     submit: *const fn (*anyopaque, u4, u64, u32) anyerror!u64,
 };
 var amdgpu_cs_endpoint: ?AmdGpuCsEndpoint = null;
+pub const AmdGpuVramEndpoint = struct {
+    context: *anyopaque,
+    allocate: *const fn (*anyopaque, u64, u64) anyerror!gpu.AmdVramAllocation,
+    release: *const fn (*anyopaque, gpu.AmdVramAllocation) anyerror!void,
+    reserved_bytes: *const fn (*anyopaque) u64,
+    largest_free_bytes: *const fn (*anyopaque) u64,
+};
+var amdgpu_vram_endpoint: ?AmdGpuVramEndpoint = null;
 pub const AmdGpuInfoProfile = struct {
     pci_device: u16,
     pci_revision: u8,
@@ -101,6 +111,22 @@ fn amdgpuAbiTestSubmit(_: *anyopaque, vmid: u4, address: u64, dwords: u32) !u64 
     if (vmid != 1 or address != 0x4000 or dwords != 4) return error.InvalidAmdGpuAbiTestSubmission;
     amdgpu_abi_test_dispatches += 1;
     return 0x100 + amdgpu_abi_test_dispatches;
+}
+fn amdgpuAbiTestVramAllocate(raw: *anyopaque, bytes: u64, alignment: u64) !gpu.AmdVramAllocation {
+    const allocator: *gpu.AmdVramAllocator = @ptrCast(@alignCast(raw));
+    return allocator.allocatePinned(bytes, alignment);
+}
+fn amdgpuAbiTestVramRelease(raw: *anyopaque, allocation: gpu.AmdVramAllocation) !void {
+    const allocator: *gpu.AmdVramAllocator = @ptrCast(@alignCast(raw));
+    try allocator.releasePinned(allocation);
+}
+fn amdgpuAbiTestVramReserved(raw: *anyopaque) u64 {
+    const allocator: *gpu.AmdVramAllocator = @ptrCast(@alignCast(raw));
+    return allocator.reservedBytes();
+}
+fn amdgpuAbiTestVramLargestFree(raw: *anyopaque) u64 {
+    const allocator: *gpu.AmdVramAllocator = @ptrCast(@alignCast(raw));
+    return allocator.largestFreeBytes();
 }
 const max_amdgpu_contexts = 8;
 const AmdGpuContext = struct {
@@ -214,6 +240,7 @@ pub fn configureDrmGpuVmHardware(hardware: ?gpu.AmdGpuVmHardware) void {
     drm_vm_hardware = if (hardware) |value| .{ .hardware = value } else null;
 }
 pub fn configureAmdGpuCsEndpoint(endpoint: ?AmdGpuCsEndpoint) void { amdgpu_cs_endpoint = endpoint; }
+pub fn configureAmdGpuVramEndpoint(endpoint: ?AmdGpuVramEndpoint) void { amdgpu_vram_endpoint = endpoint; }
 pub fn configureAmdGpuInfoProfile(profile: ?AmdGpuInfoProfile) void { amdgpu_info_profile = profile; }
 pub fn configureAmdGpuMemoryProfile(profile: ?AmdGpuMemoryProfile) void { amdgpu_memory_profile = profile; }
 
@@ -653,13 +680,25 @@ fn amdgpuGemCreate(address: u64) u64 {
     const domains = read64(io + 16);
     const flags = read64(io + 24);
     if (size == 0 or size > drm_object_stride or (alignment != 0 and (alignment > 4096 or (alignment & (alignment - 1)) != 0))) return errno(22);
-    // Until GART/VRAM placement exists, only CPU and page-backed GTT candidates
-    // are accepted. Claiming VRAM here would make RADV infer false residency.
-    if (domains == 0 or (domains & ~@as(u64, 0x3)) != 0 or (flags & ~@as(u64, 0x5)) != 0) return errno(95);
+    if (domains == 0 or (domains & ~@as(u64, 0x7)) != 0 or (flags & ~@as(u64, 0x5)) != 0) return errno(95);
     var free_index: ?usize = null;
     for (drm_objects, 0..) |object, index| if (!object.allocated) { free_index = index; break; };
     const object_index = free_index orelse return errno(12);
     const page_count = (size + 4095) / 4096;
+    if ((domains & 0x4) != 0) if (amdgpu_vram_endpoint) |endpoint| {
+        const allocation = endpoint.allocate(endpoint.context, page_count * 4096, if (alignment == 0) 4096 else alignment) catch null;
+        if (allocation) |vram| {
+            const memory: [*]u8 = @ptrFromInt(vram.cpu_address);
+            @memset(memory[0..@intCast(vram.bytes)], 0);
+            const handle: u32 = @intCast(object_index + 1);
+            drm_objects[object_index] = .{ .allocated = true, .handle_open = true, .handle = handle, .size = size, .physical_address = vram.cpu_address, .gpu_address = vram.mc_address, .vram_backed = true, .pages = page_count, .map_offset = @as(u64, @intCast(object_index)) * drm_object_stride, .alignment = if (alignment == 0) 4096 else alignment, .domains = 0x4, .allocation_flags = flags };
+            put32(io, handle);
+            put32(io + 4, 0);
+            drm_allocations += 1;
+            return 0;
+        }
+        if ((domains & 0x3) == 0) return errno(12);
+    } else if ((domains & 0x3) == 0) return errno(19);
     const pages = drm_pages orelse return errno(19);
     const allocation = pages.allocate(page_count) orelse return errno(12);
     if (allocation >= (@as(u64, 1) << 44) or page_count > ((@as(u64, 1) << 44) - allocation) / 4096) {
@@ -669,7 +708,7 @@ fn amdgpuGemCreate(address: u64) u64 {
     const memory: [*]u8 = @ptrFromInt(allocation);
     @memset(memory[0..@intCast(page_count * 4096)], 0);
     const handle: u32 = @intCast(object_index + 1);
-    drm_objects[object_index] = .{ .allocated = true, .handle_open = true, .handle = handle, .size = size, .physical_address = allocation, .pages = page_count, .map_offset = @as(u64, @intCast(object_index)) * drm_object_stride, .alignment = if (alignment == 0) 4096 else alignment, .domains = domains, .allocation_flags = flags };
+    drm_objects[object_index] = .{ .allocated = true, .handle_open = true, .handle = handle, .size = size, .physical_address = allocation, .gpu_address = allocation, .pages = page_count, .map_offset = @as(u64, @intCast(object_index)) * drm_object_stride, .alignment = if (alignment == 0) 4096 else alignment, .domains = domains & 0x3, .allocation_flags = flags };
     put32(io, handle);
     put32(io + 4, 0);
     drm_allocations += 1;
@@ -933,15 +972,27 @@ fn amdgpuWaitCs(address: u64) u64 {
 }
 
 pub fn validateAmdGpuDrmAbiSelfTest() !void {
-    var memory: [1280]u8 align(8) = .{0} ** 1280;
+    var memory: [16384]u8 align(4096) = .{0} ** 16384;
     var test_pages = physical.Allocator{ .free_pages = 255, .total_pages = 256, .installed_pages = 256 };
     configure(@intFromPtr(&memory), memory.len, 0, 0, @intFromPtr(&memory) + memory.len, @intFromPtr(&memory) + memory.len, @intFromPtr(&memory), @intFromPtr(&memory) + memory.len);
     configureDrm(.amdgpu);
     configureDrmMemory(&test_pages);
+    var test_vram = try gpu.AmdVramAllocator.init(.{
+        .cpu_start = @intFromPtr(&memory),
+        .cpu_end = @intFromPtr(&memory) + memory.len - 1,
+        .mc_start = 0x100000,
+        .mc_end = 0x100000 + memory.len - 1,
+        .bytes = memory.len,
+        .framebuffer_mc_start = 0x100000,
+        .framebuffer_mc_end = 0x100fff,
+    });
+    test_vram.sealFirmwareMap();
+    configureAmdGpuVramEndpoint(.{ .context = &test_vram, .allocate = &amdgpuAbiTestVramAllocate, .release = &amdgpuAbiTestVramRelease, .reserved_bytes = &amdgpuAbiTestVramReserved, .largest_free_bytes = &amdgpuAbiTestVramLargestFree });
     defer {
         amdgpu_cs_endpoint = null;
         amdgpu_info_profile = null;
         amdgpu_memory_profile = null;
+        amdgpu_vram_endpoint = null;
         drm_pages = null;
         amdgpu_contexts = .{AmdGpuContext{}} ** max_amdgpu_contexts;
         amdgpu_bo_lists = .{AmdGpuBoList{}} ** max_amdgpu_bo_lists;
@@ -953,7 +1004,7 @@ pub fn validateAmdGpuDrmAbiSelfTest() !void {
     const base: [*]u8 = &memory;
     put32(base, 1);
     if (amdgpuCtx(@intFromPtr(base)) != 0 or read32(base) != 1) return error.AmdGpuCtxAllocateAbiMismatch;
-    drm_objects[0] = .{ .allocated = true, .handle_open = true, .handle = 1, .size = 4096, .physical_address = @intFromPtr(base + 512), .pages = 1, .domains = 2 };
+    drm_objects[0] = .{ .allocated = true, .handle_open = true, .handle = 1, .size = 4096, .physical_address = @intFromPtr(base + 512), .gpu_address = @intFromPtr(base + 512), .pages = 1, .domains = 2 };
     put32(base + 32, 1);
     put32(base + 36, 0);
     put32(base + 48, 0);
@@ -1008,19 +1059,29 @@ pub fn validateAmdGpuDrmAbiSelfTest() !void {
         read32(base + 624) != 4 or read32(base + 628) != 4 or read32(base + 632) != 1)
         return error.AmdGpuHwIpInfoAbiMismatch;
     if (read32(base + 636) != 0x0b0002) return error.AmdGpuHwIpDiscoveryVersionAbiMismatch;
-    configureAmdGpuMemoryProfile(.{ .vram_bytes = 12 * 1024 * 1024 * 1024, .visible_vram_bytes = 256 * 1024 * 1024, .reserved_vram_bytes = 16 * 1024 * 1024 });
+    configureAmdGpuMemoryProfile(.{ .vram_bytes = 12 * 1024 * 1024 * 1024, .visible_vram_bytes = memory.len, .reserved_vram_bytes = 4096 });
     put32(base + 568, 95);
     put32(base + 572, 0x19);
     if (amdgpuInfo(@intFromPtr(base + 560)) != errno(95)) return error.AmdGpuMemoryInfoPartialAccepted;
     put32(base + 568, 96);
     if (amdgpuInfo(@intFromPtr(base + 560)) != 0 or
-        read64(base + 608) != 12 * 1024 * 1024 * 1024 or read64(base + 616) != 0 or
-        read64(base + 624) != 16 * 1024 * 1024 or read64(base + 632) != 0 or
-        read64(base + 640) != 256 * 1024 * 1024 or read64(base + 648) != 0 or
-        read64(base + 656) != 16 * 1024 * 1024 or read64(base + 664) != 0 or
+        read64(base + 608) != 12 * 1024 * 1024 * 1024 or read64(base + 616) != 12288 or
+        read64(base + 624) != 4096 or read64(base + 632) != 12288 or
+        read64(base + 640) != 16384 or read64(base + 648) != 12288 or
+        read64(base + 656) != 4096 or read64(base + 664) != 12288 or
         read64(base + 672) != 1024 * 1024 or read64(base + 680) != 1024 * 1024 or
         read64(base + 688) != 4096 or read64(base + 696) != 255 * 4096)
         return error.AmdGpuMemoryInfoAbiMismatch;
+    put64(base + 1100, 4096);
+    put64(base + 1108, 4096);
+    put64(base + 1116, 4);
+    put64(base + 1124, 0);
+    if (amdgpuGemCreate(@intFromPtr(base + 1100)) != 0 or read32(base + 1100) != 2 or
+        !drm_objects[1].vram_backed or drm_objects[1].domains != 4 or drm_objects[1].gpu_address != 0x103000 or
+        drm_objects[1].physical_address != @intFromPtr(base + 12288) or test_vram.reservedBytes() != 8192)
+        return error.AmdGpuVramGemCreateAbiMismatch;
+    if (drmCloseHandle(2) != 0 or test_vram.reservedBytes() != 4096)
+        return error.AmdGpuVramGemReleaseAbiMismatch;
     put32(base + 568, 20);
     put32(base + 572, 0x16);
     if (amdgpuInfo(@intFromPtr(base + 560)) != 0 or read32(base + 608) != 0x744c or read32(base + 612) != 3 or
@@ -1215,6 +1276,30 @@ fn syncAmdGpuVmAfterUnmap() !void {
     try session.syncAfterUnmap(drm_vm_vmid, mappings_remain);
 }
 
+fn mapAmdGpuObjectPage(object: *const DrmObject, handle: u32, va: u64, bo_offset: u64, flags: u32) !void {
+    const gpu_page = object.gpu_address + bo_offset;
+    if (object.vram_backed)
+        try drm_vm_manager.mapVramPage(drm_vm_vmid, handle, va, bo_offset, object.size, gpu_page, flags)
+    else
+        try drm_vm_manager.mapSystemPage(drm_vm_vmid, handle, va, bo_offset, object.size, gpu_page, flags);
+}
+
+fn unmapAmdGpuObjectPage(object: *const DrmObject, va: u64, bo_offset: u64, flags: u32) !void {
+    const gpu_page = object.gpu_address + bo_offset;
+    if (object.vram_backed)
+        try drm_vm_manager.unmapVramPage(drm_vm_vmid, va, gpu_page, flags)
+    else
+        try drm_vm_manager.unmapSystemPage(drm_vm_vmid, va, gpu_page, flags);
+}
+
+fn validateAmdGpuObjectPage(object: *const DrmObject, handle: u32, va: u64, bo_offset: u64) !u32 {
+    const gpu_page = object.gpu_address + bo_offset;
+    return if (object.vram_backed)
+        drm_vm_manager.validateVramPageMapping(drm_vm_vmid, handle, va, bo_offset, gpu_page)
+    else
+        drm_vm_manager.validateSystemPageMapping(drm_vm_vmid, handle, va, bo_offset, gpu_page);
+}
+
 fn amdgpuGemVa(address: u64, extended: bool) u64 {
     const input_size: u64 = if (extended) 64 else 40;
     if (!validUserSlice(address, input_size)) return errno(14);
@@ -1231,18 +1316,18 @@ fn amdgpuGemVa(address: u64, extended: bool) u64 {
     if (map_size == 0 or (va_address & 4095) != 0 or (bo_offset & 4095) != 0 or (map_size & 4095) != 0)
         return errno(22);
     const object = drmObjectForHandle(handle) orelse return errno(2);
-    if ((object.domains & 0x2) == 0 or bo_offset > object.size or map_size > object.size - bo_offset) return errno(22);
+    if ((object.domains & 0x6) == 0 or bo_offset > object.size or map_size > object.size - bo_offset) return errno(22);
 
     if (operation == 1) {
         if (flags == 0 or (flags & ~@as(u32, 0x0e)) != 0) return errno(95);
         _ = ensureAmdGpuVm() catch |err| return amdGpuVmErrno(err);
         var mapped: u64 = 0;
         while (mapped < map_size) : (mapped += 4096) {
-            drm_vm_manager.mapSystemPage(drm_vm_vmid, handle, va_address + mapped, bo_offset + mapped, object.size, object.physical_address + bo_offset + mapped, flags) catch |err| {
+            mapAmdGpuObjectPage(object, handle, va_address + mapped, bo_offset + mapped, flags) catch |err| {
                 var rollback = mapped;
                 while (rollback != 0) {
                     rollback -= 4096;
-                    drm_vm_manager.unmapSystemPage(drm_vm_vmid, va_address + rollback, object.physical_address + bo_offset + rollback, flags) catch {};
+                    unmapAmdGpuObjectPage(object, va_address + rollback, bo_offset + rollback, flags) catch {};
                 }
                 return amdGpuVmErrno(err);
             };
@@ -1251,7 +1336,7 @@ fn amdgpuGemVa(address: u64, extended: bool) u64 {
             var rollback = mapped;
             while (rollback != 0) {
                 rollback -= 4096;
-                drm_vm_manager.unmapSystemPage(drm_vm_vmid, va_address + rollback, object.physical_address + bo_offset + rollback, flags) catch {};
+                unmapAmdGpuObjectPage(object, va_address + rollback, bo_offset + rollback, flags) catch {};
             }
             if (drm_vm_hardware) |*session| if (session.bound_vmid != 0)
                 session.hardware.invalidate(session.hardware.context, drm_vm_vmid) catch {};
@@ -1261,25 +1346,24 @@ fn amdgpuGemVa(address: u64, extended: bool) u64 {
     }
     if (operation != 2 or flags != 0) return errno(95);
     if (drm_vm_vmid == 0) return errno(2);
-    var mapping_flags: [32]u32 = .{0} ** 32;
-    const page_count = map_size / 4096;
-    if (page_count > mapping_flags.len) return errno(28);
+    var mapped_flags: ?u32 = null;
     var checked: u64 = 0;
     while (checked < map_size) : (checked += 4096) {
-        mapping_flags[@intCast(checked / 4096)] = drm_vm_manager.validateSystemPageMapping(drm_vm_vmid, handle, va_address + checked, bo_offset + checked,
-            object.physical_address + bo_offset + checked) catch |err| return amdGpuVmErrno(err);
+        const page_flags = validateAmdGpuObjectPage(object, handle, va_address + checked, bo_offset + checked) catch |err| return amdGpuVmErrno(err);
+        if (mapped_flags) |expected| {
+            if (page_flags != expected) return errno(22);
+        } else mapped_flags = page_flags;
     }
+    const page_flags = mapped_flags orelse return errno(2);
     var unmapped: u64 = 0;
     while (unmapped < map_size) : (unmapped += 4096) {
-        const page_flags = mapping_flags[@intCast(unmapped / 4096)];
-        drm_vm_manager.unmapSystemPage(drm_vm_vmid, va_address + unmapped, object.physical_address + bo_offset + unmapped, page_flags) catch |err|
+        unmapAmdGpuObjectPage(object, va_address + unmapped, bo_offset + unmapped, page_flags) catch |err|
             return amdGpuVmErrno(err);
     }
     syncAmdGpuVmAfterUnmap() catch |err| {
         var restore: u64 = 0;
-        while (restore < unmapped) : (restore += 4096) drm_vm_manager.mapSystemPage(
-            drm_vm_vmid, handle, va_address + restore, bo_offset + restore, object.size,
-            object.physical_address + bo_offset + restore, mapping_flags[@intCast(restore / 4096)],
+        while (restore < unmapped) : (restore += 4096) mapAmdGpuObjectPage(
+            object, handle, va_address + restore, bo_offset + restore, page_flags,
         ) catch {};
         if (drm_vm_hardware) |*session| if (session.bound_vmid != 0)
             session.hardware.invalidate(session.hardware.context, drm_vm_vmid) catch {};
@@ -1410,17 +1494,24 @@ fn amdgpuInfo(address: u64) u64 {
             return errno(19);
         const pages = drm_pages orelse return errno(19);
         var gtt_usage: u64 = 0;
-        for (drm_objects) |object| {
-            if (object.allocated) gtt_usage += object.pages * 4096;
-        }
+        for (drm_objects) |object| if (object.allocated) {
+            if (!object.vram_backed) gtt_usage += object.pages * 4096;
+        };
         const gtt_free = pages.free_pages * 4096;
         const gtt_total = gtt_free + gtt_usage;
+        const vram_reserved = if (amdgpu_vram_endpoint) |endpoint| endpoint.reserved_bytes(endpoint.context) else memory.reserved_vram_bytes;
+        const vram_free = if (amdgpu_vram_endpoint != null and vram_reserved <= memory.visible_vram_bytes) memory.visible_vram_bytes - vram_reserved else 0;
+        const vram_max = if (amdgpu_vram_endpoint) |endpoint| @min(endpoint.largest_free_bytes(endpoint.context), drm_object_stride) else 0;
         const output: [*]u8 = @ptrFromInt(return_address);
         @memset(output[0..96], 0);
         put64(output, memory.vram_bytes);
-        put64(output + 16, memory.reserved_vram_bytes);
+        put64(output + 8, vram_free);
+        put64(output + 16, vram_reserved);
+        put64(output + 24, vram_max);
         put64(output + 32, memory.visible_vram_bytes);
-        put64(output + 48, memory.reserved_vram_bytes);
+        put64(output + 40, vram_free);
+        put64(output + 48, vram_reserved);
+        put64(output + 56, vram_max);
         put64(output + 64, gtt_total);
         put64(output + 72, gtt_total);
         put64(output + 80, gtt_usage);
@@ -1605,7 +1696,9 @@ fn drmCloseHandle(handle: u32) u64 {
 
 fn releaseDrmObject(object: *DrmObject) void {
     if (object.allocated and object.physical_address != 0 and object.pages != 0) {
-        if (drm_pages) |pages| pages.release(object.physical_address, object.pages) catch {};
+        if (object.vram_backed) {
+            if (amdgpu_vram_endpoint) |endpoint| endpoint.release(endpoint.context, .{ .cpu_address = object.physical_address, .mc_address = object.gpu_address, .bytes = object.pages * 4096 }) catch {};
+        } else if (drm_pages) |pages| pages.release(object.physical_address, object.pages) catch {};
         drm_releases += 1;
     }
     object.* = .{};
@@ -1630,7 +1723,7 @@ fn resetDrmVm() void {
             break;
         };
         const bo = object orelse break;
-        drm_vm_manager.unmapSystemPage(drm_vm_vmid, mapping.address, bo.physical_address + mapping.bo_offset, mapping.flags) catch break;
+        unmapAmdGpuObjectPage(bo, mapping.address, mapping.bo_offset, mapping.flags) catch break;
     }
     drm_vm_manager.dematerialize(drm_vm_vmid) catch return;
     drm_vm_manager.release(drm_vm_vmid) catch return;

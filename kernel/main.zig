@@ -63,6 +63,26 @@ const GpuCsRuntime = struct {
 };
 var gpu_cs_runtime = GpuCsRuntime{};
 
+fn allocateDrmAmdVram(raw: *anyopaque, bytes: u64, alignment: u64) !gpu.AmdVramAllocation {
+    const allocator: *gpu.AmdVramAllocator = @ptrCast(@alignCast(raw));
+    return allocator.allocatePinned(bytes, alignment);
+}
+
+fn releaseDrmAmdVram(raw: *anyopaque, allocation: gpu.AmdVramAllocation) !void {
+    const allocator: *gpu.AmdVramAllocator = @ptrCast(@alignCast(raw));
+    try allocator.releasePinned(allocation);
+}
+
+fn drmAmdVramReservedBytes(raw: *anyopaque) u64 {
+    const allocator: *gpu.AmdVramAllocator = @ptrCast(@alignCast(raw));
+    return allocator.reservedBytes();
+}
+
+fn drmAmdVramLargestFreeBytes(raw: *anyopaque) u64 {
+    const allocator: *gpu.AmdVramAllocator = @ptrCast(@alignCast(raw));
+    return allocator.largestFreeBytes();
+}
+
 fn submitDrmAmdGpuCs(raw: *anyopaque, vmid: u4, ib_address: u64, ib_dwords: u32) !u64 {
     const runtime: *GpuCsRuntime = @ptrCast(@alignCast(raw));
     if (!runtime.active or !gpu_vm_runtime.active or !gpu_vm_runtime.context.bound or
@@ -944,7 +964,17 @@ pub fn start(info: BootInfo) noreturn {
             .visible_vram_bytes = gpu_gmc11_visible_vram.?.bytes,
             .reserved_vram_bytes = gpu_vram_allocator.?.reservedBytes(),
         });
-    } else syscalls.configureAmdGpuMemoryProfile(null);
+        if (gpu_vram_allocator) |*allocator| syscalls.configureAmdGpuVramEndpoint(.{
+            .context = allocator,
+            .allocate = &allocateDrmAmdVram,
+            .release = &releaseDrmAmdVram,
+            .reserved_bytes = &drmAmdVramReservedBytes,
+            .largest_free_bytes = &drmAmdVramLargestFreeBytes,
+        });
+    } else {
+        syscalls.configureAmdGpuMemoryProfile(null);
+        syscalls.configureAmdGpuVramEndpoint(null);
+    }
     var gpu_psp_mailbox_snapshot: ?gpu.AmdPspMailboxSnapshot = null;
     var gpu_psp_mmio_transport: ?gpu.AmdPspMmioTransport = null;
     var gpu_psp_preflight: ?gpu.AmdPspPreflight = null;

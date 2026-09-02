@@ -860,12 +860,13 @@ de 448 bytes, mantendo o padding zerado. Isso completa o conteúdo de
 
 `AMDGPU_INFO_MEMORY` também implementa a estrutura UAPI oficial de 96 bytes.
 Ela publica a VRAM física descoberta pelo GMC, a porção visível pelo BAR e as
-reservas pinned realmente registradas. Como GEM ainda não possui placement em
-VRAM, `usable_heap_size` e `max_allocation` dessas duas heaps permanecem zero;
-isso impede RADV de inferir uma residência inexistente. A heap GTT é
-page-backed e calculada a cada consulta a partir das páginas livres e dos BOs
-ativos, com `heap_usage` real e alocação máxima limitada simultaneamente pela
-memória disponível e pelo limite de 16 MiB de cada objeto DRM.
+reservas pinned realmente registradas. GEM agora aceita o domínio VRAM oficial
+`0x4`, aloca na janela visível selada e preserva separadamente o endereço CPU
+do BAR e o endereço MC consumido pela GPU. O GPUVM usa PTE VRAM sem os atributos
+`SYSTEM/SNOOPED`; mmap usa o endereço CPU, e fechamento do handle devolve a
+reserva ao allocator. `usable_heap_size`, `heap_usage` e `max_allocation` passam
+a acompanhar dinamicamente esse estado real. A heap GTT continua page-backed e
+é calculada a cada consulta a partir das páginas livres e dos BOs ativos.
 
 O parser do IP discovery também valida
 e consome agora a tabela GC v1.0–v1.3: assinatura, tamanho, checksum, SE, SA,
@@ -874,17 +875,21 @@ fazem parte do perfil DRM e são obrigatórios para publicar GFX, mas não são
 confundidos com o bitmap de CUs realmente ativos após harvesting.
 `AMDGPU_GEM_OP_GET_GEM_CREATE_INFO` devolve o descritor de criação original por
 ponteiro de usuário validado, e `AMDGPU_GEM_LIST_HANDLES` enumera tamanho,
-domínio, flags e alinhamento dos BOs ainda abertos. Placement em VRAM continua
-recusado; somente BO page-backed no domínio GTT pode entrar no GPUVM atual.
+domínio, flags e alinhamento dos BOs ainda abertos. Placement em VRAM visível e
+BO page-backed no domínio GTT podem entrar no GPUVM atual; VRAM não visível
+ainda não possui mecanismo de cópia/clear e não é anunciada como capacidade
+alocável.
 
 O núcleo do GPUVM direto agora possui um allocator para VMIDs 1–7 (VMID0
 permanece reservado ao sistema); VMIDs 8–15 ficam reservados ao MES conforme
-o particionamento GMC11 upstream. Cada VM aceita até 32 intervalos. Map valida alinhamento de
+o particionamento GMC11 upstream. Cada VM rastreia as 4096 páginas necessárias
+para mapear integralmente um GEM máximo de 16 MiB. Map valida alinhamento de
 4 KiB, limites do BO, flags R/W/X, overflow e o VA hole de 48 bits; overlap é
 rejeitado dentro da VM, enquanto o mesmo VA pode existir isoladamente em outra
 VM. Release remove todos os mappings antes de reciclar o VMID.
 `AMDGPU_GEM_VA` aceita as estruturas UAPI atual (64 bytes) e legada (40 bytes)
-para MAP/UNMAP imediato de páginas GTT. MAP é transacional entre todas as
+para MAP/UNMAP imediato de páginas GTT ou VRAM conforme o backing do BO. MAP é
+transacional entre todas as
 páginas pedidas e aceita apenas R/W/X já codificados pelo GFX11; timeline,
 delayed update, PRT, MTYPE e operações CLEAR/REPLACE retornam erro enquanto não
 forem reais. UNMAP pré-valida o intervalo inteiro, e fechar um BO ainda mapeado

@@ -3621,15 +3621,33 @@ fn amdGpuVmSystemPde(address: u64, flags: u64) !u64 {
 }
 
 pub fn amdGpuVmSystemPte(address: u64, mapping_flags: u32) !u64 {
+    return amdGpuVmPte(address, mapping_flags, true);
+}
+
+pub fn amdGpuVmVramPte(address: u64, mapping_flags: u32) !u64 {
+    return amdGpuVmPte(address, mapping_flags, false);
+}
+
+fn amdGpuVmPte(address: u64, mapping_flags: u32, system: bool) !u64 {
     const allowed_flags: u32 = (1 << 1) | (1 << 2) | (1 << 3);
     if (address == 0 or (address & 4095) != 0 or (address & ~amd_gpu_page_address_mask) != 0 or
         mapping_flags == 0 or (mapping_flags & ~allowed_flags) != 0)
         return error.InvalidAmdGpuVmPte;
-    var value = (address & amd_gpu_page_address_mask) | amd_gpu_pte_valid | amd_gpu_pte_system | amd_gpu_pte_snooped;
+    var value = (address & amd_gpu_page_address_mask) | amd_gpu_pte_valid;
+    if (system) value |= amd_gpu_pte_system | amd_gpu_pte_snooped;
     if ((mapping_flags & (1 << 1)) != 0) value |= amd_gpu_pte_readable;
     if ((mapping_flags & (1 << 2)) != 0) value |= amd_gpu_pte_writeable;
     if ((mapping_flags & (1 << 3)) != 0) value |= amd_gpu_pte_executable;
     return value;
+}
+
+comptime {
+    const system = amdGpuVmSystemPte(0x200000, (1 << 1) | (1 << 2)) catch @compileError("system PTE rejected");
+    const vram = amdGpuVmVramPte(0x300000, (1 << 1) | (1 << 2)) catch @compileError("VRAM PTE rejected");
+    if ((system & (amd_gpu_pte_system | amd_gpu_pte_snooped)) != (amd_gpu_pte_system | amd_gpu_pte_snooped))
+        @compileError("system PTE lost SYSTEM/SNOOPED");
+    if ((vram & (amd_gpu_pte_system | amd_gpu_pte_snooped)) != 0)
+        @compileError("VRAM PTE falsely uses system memory attributes");
 }
 
 fn allocateAmdGpuVmTreeChild(tree: *const AmdGpuVmPageTree, prior: []const u64) !u64 {
@@ -3648,8 +3666,16 @@ fn allocateAmdGpuVmTreeChild(tree: *const AmdGpuVmPageTree, prior: []const u64) 
 }
 
 pub fn linkAmdGpuVmPageTree(tree: *AmdGpuVmPageTree, path: AmdGpuVmPagePath, physical_page: u64, mapping_flags: u32) !void {
+    return linkAmdGpuVmPageTreeBacking(tree, path, physical_page, mapping_flags, true);
+}
+
+pub fn linkAmdGpuVmVramPageTree(tree: *AmdGpuVmPageTree, path: AmdGpuVmPagePath, mc_page: u64, mapping_flags: u32) !void {
+    return linkAmdGpuVmPageTreeBacking(tree, path, mc_page, mapping_flags, false);
+}
+
+fn linkAmdGpuVmPageTreeBacking(tree: *AmdGpuVmPageTree, path: AmdGpuVmPagePath, physical_page: u64, mapping_flags: u32, system: bool) !void {
     if (tree.root_page == 0 or tree.allocator == null) return error.AmdGpuVmPageTablesNotAllocated;
-    const pte_value = try amdGpuVmSystemPte(physical_page, mapping_flags);
+    const pte_value = try amdGpuVmPte(physical_page, mapping_flags, system);
     const old_pdb1 = tree.branches.findPdb1(path);
     const old_pdb0 = tree.branches.findPdb0(path);
     const old_ptb = tree.branches.findPtb(path);
@@ -3772,7 +3798,9 @@ pub fn unlinkAmdGpuVmPage(tables: *const AmdGpuVmPageTables, path: AmdGpuVmPageP
 pub const AmdGpuVm = struct {
     allocated: bool = false,
     vmid: u4 = 0,
-    mappings: [32]AmdGpuVaMapping = .{AmdGpuVaMapping{}} ** 32,
+    // One tracked entry per 4 KiB PTE; a 16 MiB GEM object therefore needs
+    // 4096 entries when mapped in full.
+    mappings: [4096]AmdGpuVaMapping = .{AmdGpuVaMapping{}} ** 4096,
     page_tree: AmdGpuVmPageTree = .{},
 };
 pub const AmdGpuVmManager = struct {
@@ -3833,6 +3861,14 @@ pub const AmdGpuVmManager = struct {
     }
 
     pub fn mapSystemPage(self: *AmdGpuVmManager, vmid: u4, handle: u32, address: u64, bo_offset: u64, bo_size: u64, physical_page: u64, flags: u32) !void {
+        return self.mapBackingPage(vmid, handle, address, bo_offset, bo_size, physical_page, flags, true);
+    }
+
+    pub fn mapVramPage(self: *AmdGpuVmManager, vmid: u4, handle: u32, address: u64, bo_offset: u64, bo_size: u64, mc_page: u64, flags: u32) !void {
+        return self.mapBackingPage(vmid, handle, address, bo_offset, bo_size, mc_page, flags, false);
+    }
+
+    fn mapBackingPage(self: *AmdGpuVmManager, vmid: u4, handle: u32, address: u64, bo_offset: u64, bo_size: u64, physical_page: u64, flags: u32, system: bool) !void {
         const vm = try self.get(vmid);
         if (vm.page_tree.root_page == 0) return error.AmdGpuVmPageTablesNotAllocated;
         try self.map(vmid, handle, address, 4096, bo_offset, bo_size, flags);
@@ -3840,13 +3876,21 @@ pub const AmdGpuVmManager = struct {
             self.unmap(vmid, address, 4096) catch {};
             return err;
         };
-        linkAmdGpuVmPageTree(&vm.page_tree, path, physical_page, flags) catch |err| {
+        (if (system) linkAmdGpuVmPageTree(&vm.page_tree, path, physical_page, flags) else linkAmdGpuVmVramPageTree(&vm.page_tree, path, physical_page, flags)) catch |err| {
             self.unmap(vmid, address, 4096) catch {};
             return err;
         };
     }
 
     pub fn unmapSystemPage(self: *AmdGpuVmManager, vmid: u4, address: u64, physical_page: u64, flags: u32) !void {
+        return self.unmapBackingPage(vmid, address, physical_page, flags, true);
+    }
+
+    pub fn unmapVramPage(self: *AmdGpuVmManager, vmid: u4, address: u64, mc_page: u64, flags: u32) !void {
+        return self.unmapBackingPage(vmid, address, mc_page, flags, false);
+    }
+
+    fn unmapBackingPage(self: *AmdGpuVmManager, vmid: u4, address: u64, physical_page: u64, flags: u32, system: bool) !void {
         const vm = try self.get(vmid);
         var found = false;
         for (vm.mappings) |mapping| if (mapping.active and mapping.address == address and mapping.size == 4096) {
@@ -3856,11 +3900,19 @@ pub const AmdGpuVmManager = struct {
         };
         if (!found) return error.AmdGpuVaMappingNotFound;
         const path = try amdGpuVmPagePath(address);
-        try unlinkAmdGpuVmPageTree(&vm.page_tree, path, try amdGpuVmSystemPte(physical_page, flags));
+        try unlinkAmdGpuVmPageTree(&vm.page_tree, path, try amdGpuVmPte(physical_page, flags, system));
         try self.unmap(vmid, address, 4096);
     }
 
     pub fn validateSystemPageMapping(self: *AmdGpuVmManager, vmid: u4, handle: u32, address: u64, bo_offset: u64, physical_page: u64) !u32 {
+        return self.validateBackingPageMapping(vmid, handle, address, bo_offset, physical_page, true);
+    }
+
+    pub fn validateVramPageMapping(self: *AmdGpuVmManager, vmid: u4, handle: u32, address: u64, bo_offset: u64, mc_page: u64) !u32 {
+        return self.validateBackingPageMapping(vmid, handle, address, bo_offset, mc_page, false);
+    }
+
+    fn validateBackingPageMapping(self: *AmdGpuVmManager, vmid: u4, handle: u32, address: u64, bo_offset: u64, physical_page: u64, system: bool) !u32 {
         const vm = try self.get(vmid);
         var flags: ?u32 = null;
         for (vm.mappings) |mapping| if (mapping.active and mapping.handle == handle and mapping.address == address and
@@ -3873,7 +3925,7 @@ pub const AmdGpuVmManager = struct {
         const path = try amdGpuVmPagePath(address);
         const ptb_index = vm.page_tree.branches.findPtb(path) orelse return error.AmdGpuVmBranchNotFound;
         const ptb: [*]const u64 = @ptrFromInt(vm.page_tree.branches.ptb_nodes[ptb_index].page);
-        if (ptb[path.ptb] != try amdGpuVmSystemPte(physical_page, mapping_flags)) return error.AmdGpuVmPteMismatch;
+        if (ptb[path.ptb] != try amdGpuVmPte(physical_page, mapping_flags, system)) return error.AmdGpuVmPteMismatch;
         return mapping_flags;
     }
 
@@ -3971,6 +4023,26 @@ pub const AmdVramAllocator = struct {
         for (self.reservations[0..self.reservation_count]) |reservation|
             total += reservation.end - reservation.start + 1;
         return total;
+    }
+
+    pub fn largestFreeBytes(self: *const AmdVramAllocator) u64 {
+        var largest: u64 = 0;
+        var cursor = self.visible.mc_start;
+        while (cursor <= self.visible.mc_end) {
+            var next: ?AmdVramRange = null;
+            for (self.reservations[0..self.reservation_count]) |reservation| {
+                if (reservation.end < cursor) continue;
+                if (next == null or reservation.start < next.?.start) next = reservation;
+            }
+            const used = next orelse {
+                largest = @max(largest, self.visible.mc_end - cursor + 1);
+                break;
+            };
+            if (used.start > cursor) largest = @max(largest, used.start - cursor);
+            if (used.end == std.math.maxInt(u64)) break;
+            cursor = used.end + 1;
+        }
+        return largest;
     }
 
     pub fn allocatePinned(self: *AmdVramAllocator, bytes: u64, alignment: u64) !AmdVramAllocation {
@@ -5821,19 +5893,23 @@ pub fn validateAmdGpuVmPageTablesSelfTest() !void {
     try manager.mapSystemPage(vm.vmid, 1, 0x200000000, 0, 0x1000, vm_data_page, 1 << 1);
     try manager.mapSystemPage(vm.vmid, 2, 0x10000000000, 0, 0x1000, vm_data_page, 1 << 1);
     try manager.mapSystemPage(vm.vmid, 3, 0x200001000, 0, 0x1000, vm_data_page, 1 << 1);
+    try manager.mapVramPage(vm.vmid, 4, 0x200002000, 0, 0x1000, 0x400000, (1 << 1) | (1 << 2));
     var branch_counts = vm.page_tree.branches.counts();
-    if (branch_counts.pdb1 != 2 or branch_counts.pdb0 != 2 or branch_counts.ptb != 2 or branch_counts.mapped_pages != 3)
+    if (branch_counts.pdb1 != 2 or branch_counts.pdb0 != 2 or branch_counts.ptb != 2 or branch_counts.mapped_pages != 4)
         return error.AmdGpuVmDynamicBranchMaterializationMismatch;
     var active_mappings: usize = 0;
     for (vm.mappings) |mapping| if (mapping.active) {
         active_mappings += 1;
     };
-    if (active_mappings != 3) return error.AmdGpuVmDynamicMappingCountMismatch;
+    if (active_mappings != 4) return error.AmdGpuVmDynamicMappingCountMismatch;
     if (manager.dematerialize(vm.vmid)) return error.AmdGpuVmDematerializedWithMappings else |err| if (err != error.AmdGpuVmMappingsStillActive) return err;
     if (try manager.validateSystemPageMapping(vm.vmid, 1, 0x200000000, 0, vm_data_page) != 1 << 1)
         return error.AmdGpuVmMappingValidationFlagsMismatch;
     if (manager.validateSystemPageMapping(vm.vmid, 99, 0x200000000, 0, vm_data_page)) |_| return error.AmdGpuVmWrongHandleValidated else |err| if (err != error.AmdGpuVaMappingNotFound) return err;
     if (manager.validateSystemPageMapping(vm.vmid, 1, 0x200000000, 0, vm_data_page + 4096)) |_| return error.AmdGpuVmWrongPhysicalPageValidated else |err| if (err != error.AmdGpuVmPteMismatch) return err;
+    if (try manager.validateVramPageMapping(vm.vmid, 4, 0x200002000, 0, 0x400000) != (1 << 1) | (1 << 2))
+        return error.AmdGpuVmVramMappingValidationMismatch;
+    try manager.unmapVramPage(vm.vmid, 0x200002000, 0x400000, (1 << 1) | (1 << 2));
     try manager.unmapSystemPage(vm.vmid, 0x200000000, vm_data_page, 1 << 1);
     const vm_path = try amdGpuVmPagePath(0x200000000);
     const vm_ptb_index = vm.page_tree.branches.findPtb(vm_path) orelse return error.AmdGpuVmSharedPtbPrunedEarly;
