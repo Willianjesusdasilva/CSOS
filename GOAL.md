@@ -20,6 +20,12 @@ O sistema operacional vem primeiro. Steam, Steam Runtime e CS2 são as últimas 
 
 AMD Radeon e NVIDIA GeForce são requisitos oficiais, não alternativas opcionais.
 
+O instalador deve detectar e selecionar automaticamente um backend suportado
+para a GPU presente. AMD e NVIDIA devem funcionar de forma independente; uma
+máquina de um fabricante não pode exigir uma GPU auxiliar do outro. Em sistemas
+híbridos, a escolha da GPU de display/jogo deve ser explícita e registrada em
+`hardware.csc`.
+
 A ordem interna evita duas stacks incompletas em paralelo:
 
 ```text
@@ -49,7 +55,7 @@ AMD permanece como primeiro backend de referência. O trabalho NVIDIA começa de
 
 ## Progresso atual
 
-Snapshot em 2026-09-01, ponderado por funcionalidade real:
+Snapshot em 2026-09-02, ponderado por funcionalidade real:
 
 ```text
 concluído: aproximadamente 40%
@@ -63,8 +69,9 @@ Esta porcentagem não é uma contagem simples de milestones. M0–M13 têm bases
 1. Validar command submission e RADV no caminho AMD GFX11 em hardware real; habilitar shadow/CSA/userq somente quando o mecanismo correspondente existir.
 2. Validar o primeiro triângulo AMD/RADV em Radeon real suportada.
 3. Adaptar a infraestrutura compartilhada para NVIDIA e validar Nouveau/NVK ou stack compatível em GeForce real suportada.
-4. Completar SDL, autoconfiguração, estabilidade, lifecycle e interface do SO.
-5. Somente então trabalhar em Steam Runtime, Steam e CS2.
+4. Integrar a seleção AMD/NVIDIA ao instalador e ao `hardware.csc`, incluindo o caso híbrido suportado.
+5. Completar SDL, autoconfiguração, estabilidade, lifecycle e interface do SO.
+6. Somente então trabalhar em Steam Runtime, Steam e CS2.
 
 ## Definition of Done
 
@@ -77,6 +84,7 @@ NVMe + filesystem
 USB mouse/teclado + rede + áudio + display
 AMD/RADV Vulkan em hardware real
 NVIDIA/NVK ou stack compatível Vulkan em hardware real
+seleção automática e independente do backend AMD/NVIDIA suportado
 hardware discovery + hardware.csc + autotune
 GAME/MATCH + freeze/standby/reclaim/resume
 interface do sistema funcional

@@ -143,6 +143,12 @@ NVIDIA GeForce
 
 AMD Radeon continua como o primeiro backend de referência devido ao ecossistema aberto de AMDGPU, Mesa e RADV. NVIDIA GeForce é igualmente um requisito oficial do produto, reutilizando a stack madura disponível — driver aberto/Nouveau, NVK ou componentes oficiais redistribuíveis quando tecnicamente necessários e compatíveis com o projeto.
 
+A instalação deve detectar o fabricante presente e selecionar automaticamente o
+backend suportado. Uma máquina NVIDIA não pode depender da presença de uma GPU
+AMD, e uma máquina AMD não pode depender da presença de uma GPU NVIDIA. Sistemas
+híbridos devem escolher explicitamente a GPU de display/jogo sem anunciar uma
+combinação que ainda não tenha sido validada em hardware real.
+
 O trabalho compartilhado de DRM/KMS, memória, sincronização e ABI deve ser reutilizado pelos dois backends. O segundo backend não deve atrasar a construção do primeiro caminho Vulkan funcional, mas M14 só estará completo após validar hardware AMD e NVIDIA suportado.
 
 Ordem de implementação: primeiro obter um triângulo AMD/RADV em hardware real;
@@ -579,7 +585,7 @@ Steam Runtime, Steam e CS2 são deliberadamente as últimas etapas funcionais. A
 
 O arquivo `GOAL.md` é a fonte de verdade técnica do roadmap e das prioridades de implementação.
 
-Estimativa de progresso em 2026-09-01: **aproximadamente 40% concluído e 60% a
+Estimativa de progresso em 2026-09-02: **aproximadamente 40% concluído e 60% a
 fazer**. É uma estimativa ponderada por funcionalidade, não uma simples contagem
 de milestones: M0–M13 possuem fundações implementadas, mas M14 ainda não tem
 command submission nem triângulo Vulkan validados em AMD ou NVIDIA, e M15–M30
@@ -1333,6 +1339,11 @@ AMD Radeon e NVIDIA GeForce são requisitos oficiais. AMD é o primeiro backend
 de referência; depois do primeiro triângulo RADV, o caminho NVIDIA deve ser
 validado com NVK/stack compatível em hardware explicitamente suportado. M14 não
 será considerada concluída com apenas um dos fabricantes.
+
+O instalador e o perfil `hardware.csc` deverão registrar fabricante, PCI ID,
+família, driver e backend Vulkan selecionados. O suporte NVIDIA não é um bônus
+pós-CS2: ele integra M14 e precisa estar funcional antes de SDL, interface e
+Steam/CS2 serem considerados concluídos no produto final.
 
 O suporte será registrado por fabricante, família de GPU e caminho Vulkan.
 Detecção PCI ou display básico não bastam: cada entrada só pode ser marcada
