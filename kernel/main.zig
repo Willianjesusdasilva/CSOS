@@ -938,6 +938,13 @@ pub fn start(info: BootInfo) noreturn {
             panic("AMDGPU GART bootstrap write-set validation failed");
         gpu_gart_mmio_transport = .{ .adapter = &gpu_adapter, .uncached = true };
     }
+    if (gpu_gmc11_memory != null and gpu_gmc11_visible_vram != null and gpu_vram_allocator != null) {
+        syscalls.configureAmdGpuMemoryProfile(.{
+            .vram_bytes = gpu_gmc11_memory.?.vram_bytes,
+            .visible_vram_bytes = gpu_gmc11_visible_vram.?.bytes,
+            .reserved_vram_bytes = gpu_vram_allocator.?.reservedBytes(),
+        });
+    } else syscalls.configureAmdGpuMemoryProfile(null);
     var gpu_psp_mailbox_snapshot: ?gpu.AmdPspMailboxSnapshot = null;
     var gpu_psp_mmio_transport: ?gpu.AmdPspMmioTransport = null;
     var gpu_psp_preflight: ?gpu.AmdPspPreflight = null;

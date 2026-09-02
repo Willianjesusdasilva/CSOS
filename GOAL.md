@@ -41,7 +41,7 @@ AMD permanece como primeiro backend de referência. O trabalho NVIDIA começa de
 ## Ordem das milestones
 
 - [x] **M0–M13 — fundações do SO:** build, boot, memória, CPU/SMP, scheduler, userspace, ABI Linux inicial, BusyBox, PCIe, NVMe, filesystem, USB/xHCI, rede e áudio possuem fundações implementadas; integração e validação final ainda continuam.
-- [ ] **M14 — GPU AMD/NVIDIA + Vulkan:** parcial. A preparação AMD GFX11 e `AMDGPU_INFO_DEV_INFO` completo, capacidade PCIe combinada, contrato GPUVA de 48 bits, tipo/largura de VRAM via ATOM, clocks e snapshots físicos de CUs/RBs/TCC/UMCs ativos possuem implementação e testes de host. Shadow/CSA/userq permanecem corretamente desabilitados; execução Radeon real e triângulo RADV ainda faltam. NVIDIA/NVK vem depois do primeiro triângulo AMD e também exige validação real.
+- [ ] **M14 — GPU AMD/NVIDIA + Vulkan:** parcial. A preparação AMD GFX11, `AMDGPU_INFO_DEV_INFO` completo e `AMDGPU_INFO_MEMORY` com inventário físico de VRAM/VRAM visível e heap GTT page-backed possuem implementação e testes de host. VRAM ainda não é anunciada como heap utilizável porque GEM não possui placement real nela. Capacidade PCIe combinada, contrato GPUVA de 48 bits, tipo/largura de VRAM via ATOM, clocks e snapshots físicos de CUs/RBs/TCC/UMCs ativos também estão cobertos. Shadow/CSA/userq permanecem corretamente desabilitados; execução Radeon real e triângulo RADV ainda faltam. NVIDIA/NVK vem depois do primeiro triângulo AMD e também exige validação real.
 - [ ] **M15 — SDL:** vídeo, input e áudio sobre o caminho funcional do SO.
 - [ ] **M16 — hardware discovery/autotune:** detectar hardware e produzir `/system/config/hardware.csc`.
 - [ ] **M17 — otimização para jogos:** scheduler, IRQ, input, rede, NVMe, áudio, GAME e MATCH medidos contra baseline.
@@ -66,7 +66,7 @@ Esta porcentagem não é uma contagem simples de milestones. M0–M13 têm bases
 
 ## Próxima rota
 
-1. Validar command submission e RADV no caminho AMD GFX11 em hardware real; habilitar shadow/CSA/userq somente quando o mecanismo correspondente existir.
+1. Implementar placement GEM real em VRAM, conectar sua contabilidade a `AMDGPU_INFO_MEMORY` e então validar command submission/RADV no caminho AMD GFX11 em hardware real; habilitar shadow/CSA/userq somente quando o mecanismo correspondente existir.
 2. Validar o primeiro triângulo AMD/RADV em Radeon real suportada.
 3. Adaptar a infraestrutura compartilhada para NVIDIA e validar Nouveau/NVK ou stack compatível em GeForce real suportada.
 4. Integrar a seleção AMD/NVIDIA ao instalador e ao `hardware.csc`, incluindo o caso híbrido suportado.

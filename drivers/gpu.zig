@@ -3966,6 +3966,13 @@ pub const AmdVramAllocator = struct {
         self.firmware_map_sealed = true;
     }
 
+    pub fn reservedBytes(self: *const AmdVramAllocator) u64 {
+        var total: u64 = 0;
+        for (self.reservations[0..self.reservation_count]) |reservation|
+            total += reservation.end - reservation.start + 1;
+        return total;
+    }
+
     pub fn allocatePinned(self: *AmdVramAllocator, bytes: u64, alignment: u64) !AmdVramAllocation {
         if (!self.firmware_map_sealed) return error.AmdVramFirmwareMapIncomplete;
         if (bytes == 0 or alignment < 4096 or !std.math.isPowerOfTwo(alignment)) return error.InvalidAmdVramAllocation;

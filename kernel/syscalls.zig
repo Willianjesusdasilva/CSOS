@@ -90,6 +90,12 @@ pub const AmdGpuInfoProfile = struct {
     mall_size: u64,
 };
 var amdgpu_info_profile: ?AmdGpuInfoProfile = null;
+pub const AmdGpuMemoryProfile = struct {
+    vram_bytes: u64,
+    visible_vram_bytes: u64,
+    reserved_vram_bytes: u64,
+};
+var amdgpu_memory_profile: ?AmdGpuMemoryProfile = null;
 var amdgpu_abi_test_dispatches: u32 = 0;
 fn amdgpuAbiTestSubmit(_: *anyopaque, vmid: u4, address: u64, dwords: u32) !u64 {
     if (vmid != 1 or address != 0x4000 or dwords != 4) return error.InvalidAmdGpuAbiTestSubmission;
@@ -209,6 +215,7 @@ pub fn configureDrmGpuVmHardware(hardware: ?gpu.AmdGpuVmHardware) void {
 }
 pub fn configureAmdGpuCsEndpoint(endpoint: ?AmdGpuCsEndpoint) void { amdgpu_cs_endpoint = endpoint; }
 pub fn configureAmdGpuInfoProfile(profile: ?AmdGpuInfoProfile) void { amdgpu_info_profile = profile; }
+pub fn configureAmdGpuMemoryProfile(profile: ?AmdGpuMemoryProfile) void { amdgpu_memory_profile = profile; }
 
 pub fn configureMmap(protect_hook: ?*const fn (u64, u64, bool, bool) callconv(.c) bool, unmap_hook: ?*const fn (u64, u64) callconv(.c) bool, device_hook: ?*const fn (u64, u64, u64, bool) callconv(.c) bool) void {
     mmap_protect_hook = protect_hook;
@@ -927,11 +934,15 @@ fn amdgpuWaitCs(address: u64) u64 {
 
 pub fn validateAmdGpuDrmAbiSelfTest() !void {
     var memory: [1280]u8 align(8) = .{0} ** 1280;
+    var test_pages = physical.Allocator{ .free_pages = 255, .total_pages = 256, .installed_pages = 256 };
     configure(@intFromPtr(&memory), memory.len, 0, 0, @intFromPtr(&memory) + memory.len, @intFromPtr(&memory) + memory.len, @intFromPtr(&memory), @intFromPtr(&memory) + memory.len);
     configureDrm(.amdgpu);
+    configureDrmMemory(&test_pages);
     defer {
         amdgpu_cs_endpoint = null;
         amdgpu_info_profile = null;
+        amdgpu_memory_profile = null;
+        drm_pages = null;
         amdgpu_contexts = .{AmdGpuContext{}} ** max_amdgpu_contexts;
         amdgpu_bo_lists = .{AmdGpuBoList{}} ** max_amdgpu_bo_lists;
         drm_syncobjs = .{DrmSyncobj{}} ** max_drm_syncobjs;
@@ -942,7 +953,7 @@ pub fn validateAmdGpuDrmAbiSelfTest() !void {
     const base: [*]u8 = &memory;
     put32(base, 1);
     if (amdgpuCtx(@intFromPtr(base)) != 0 or read32(base) != 1) return error.AmdGpuCtxAllocateAbiMismatch;
-    drm_objects[0] = .{ .allocated = true, .handle_open = true, .handle = 1, .size = 4096, .physical_address = @intFromPtr(base + 512), .domains = 2 };
+    drm_objects[0] = .{ .allocated = true, .handle_open = true, .handle = 1, .size = 4096, .physical_address = @intFromPtr(base + 512), .pages = 1, .domains = 2 };
     put32(base + 32, 1);
     put32(base + 36, 0);
     put32(base + 48, 0);
@@ -997,6 +1008,19 @@ pub fn validateAmdGpuDrmAbiSelfTest() !void {
         read32(base + 624) != 4 or read32(base + 628) != 4 or read32(base + 632) != 1)
         return error.AmdGpuHwIpInfoAbiMismatch;
     if (read32(base + 636) != 0x0b0002) return error.AmdGpuHwIpDiscoveryVersionAbiMismatch;
+    configureAmdGpuMemoryProfile(.{ .vram_bytes = 12 * 1024 * 1024 * 1024, .visible_vram_bytes = 256 * 1024 * 1024, .reserved_vram_bytes = 16 * 1024 * 1024 });
+    put32(base + 568, 95);
+    put32(base + 572, 0x19);
+    if (amdgpuInfo(@intFromPtr(base + 560)) != errno(95)) return error.AmdGpuMemoryInfoPartialAccepted;
+    put32(base + 568, 96);
+    if (amdgpuInfo(@intFromPtr(base + 560)) != 0 or
+        read64(base + 608) != 12 * 1024 * 1024 * 1024 or read64(base + 616) != 0 or
+        read64(base + 624) != 16 * 1024 * 1024 or read64(base + 632) != 0 or
+        read64(base + 640) != 256 * 1024 * 1024 or read64(base + 648) != 0 or
+        read64(base + 656) != 16 * 1024 * 1024 or read64(base + 664) != 0 or
+        read64(base + 672) != 1024 * 1024 or read64(base + 680) != 1024 * 1024 or
+        read64(base + 688) != 4096 or read64(base + 696) != 255 * 4096)
+        return error.AmdGpuMemoryInfoAbiMismatch;
     put32(base + 568, 20);
     put32(base + 572, 0x16);
     if (amdgpuInfo(@intFromPtr(base + 560)) != 0 or read32(base + 608) != 0x744c or read32(base + 612) != 3 or
@@ -1372,6 +1396,35 @@ fn amdgpuInfo(address: u64) u64 {
         if (count >= 24) put32(output + 20, 4);
         if (count >= 28) put32(output + 24, 1);
         if (count >= 32) put32(output + 28, (@as(u32, gfx.gfx_major) << 16) | (@as(u32, gfx.gfx_minor) << 8) | gfx.gfx_revision);
+        return 0;
+    }
+    if (query == 0x19) {
+        // drm_amdgpu_memory_info: three 32-byte drm_amdgpu_heap_info
+        // records (VRAM, CPU-visible VRAM and page-backed GTT). VRAM is
+        // inventory-only until GEM placement can really allocate it.
+        if (return_size != 96) return errno(95);
+        if (!validUserSlice(return_address, 96)) return errno(14);
+        const memory = amdgpu_memory_profile orelse return errno(19);
+        if (memory.vram_bytes == 0 or memory.visible_vram_bytes == 0 or
+            memory.visible_vram_bytes > memory.vram_bytes or memory.reserved_vram_bytes > memory.visible_vram_bytes)
+            return errno(19);
+        const pages = drm_pages orelse return errno(19);
+        var gtt_usage: u64 = 0;
+        for (drm_objects) |object| {
+            if (object.allocated) gtt_usage += object.pages * 4096;
+        }
+        const gtt_free = pages.free_pages * 4096;
+        const gtt_total = gtt_free + gtt_usage;
+        const output: [*]u8 = @ptrFromInt(return_address);
+        @memset(output[0..96], 0);
+        put64(output, memory.vram_bytes);
+        put64(output + 16, memory.reserved_vram_bytes);
+        put64(output + 32, memory.visible_vram_bytes);
+        put64(output + 48, memory.reserved_vram_bytes);
+        put64(output + 64, gtt_total);
+        put64(output + 72, gtt_total);
+        put64(output + 80, gtt_usage);
+        put64(output + 88, @min(gtt_free, drm_object_stride));
         return 0;
     }
     if (query == 0x16) {

@@ -858,6 +858,15 @@ agora a estrutura UAPI completa de 444 bytes e sua forma naturalmente alinhada
 de 448 bytes, mantendo o padding zerado. Isso completa o conteúdo de
 `AMDGPU_INFO_DEV_INFO` sem anunciar capacidades inexistentes.
 
+`AMDGPU_INFO_MEMORY` também implementa a estrutura UAPI oficial de 96 bytes.
+Ela publica a VRAM física descoberta pelo GMC, a porção visível pelo BAR e as
+reservas pinned realmente registradas. Como GEM ainda não possui placement em
+VRAM, `usable_heap_size` e `max_allocation` dessas duas heaps permanecem zero;
+isso impede RADV de inferir uma residência inexistente. A heap GTT é
+page-backed e calculada a cada consulta a partir das páginas livres e dos BOs
+ativos, com `heap_usage` real e alocação máxima limitada simultaneamente pela
+memória disponível e pelo limite de 16 MiB de cada objeto DRM.
+
 O parser do IP discovery também valida
 e consome agora a tabela GC v1.0–v1.3: assinatura, tamanho, checksum, SE, SA,
 WGP/CU máximo, RB, TCC, wave size, profundidades GS e caches. Esses máximos já
