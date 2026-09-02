@@ -1053,6 +1053,11 @@ pub fn validateAmdGpuDrmAbiSelfTest() !void {
     if (amdgpuInfo(@intFromPtr(base + 560)) != 0 or read64(base + 1016) != 96 * 1024 * 1024 or
         read32(base + 1024) != 0)
         return error.AmdGpuDevInfoMallAbiMismatch;
+    put32(base + 568, 448);
+    if (amdgpuInfo(@intFromPtr(base + 560)) != 0 or read32(base + 1028) != 0 or
+        read32(base + 1032) != 0 or read32(base + 1036) != 0 or read32(base + 1040) != 0 or
+        read32(base + 1044) != 0 or read32(base + 1048) != 0)
+        return error.AmdGpuDevInfoUnsupportedQueueCapabilityLeaked;
     if (amdgpuCs(@intFromPtr(base + 160)) != 0 or read64(base + 160) != 1 or amdgpu_abi_test_dispatches != 1)
         return error.AmdGpuCsDispatchAbiMismatch;
     put64(base + 192, 1);
@@ -1371,9 +1376,10 @@ fn amdgpuInfo(address: u64) u64 {
     }
     if (query == 0x16) {
         if (!gfx_available) return errno(19);
-        // The prefix through cu_bitmap is physically known. Reject partial
-        // fields and larger requests until the remaining memory/VA data exists.
-        if (return_size != 20 and return_size != 120 and return_size != 132 and return_size != 136 and return_size != 176 and return_size != 184 and return_size != 192 and return_size != 244 and return_size != 272 and return_size != 384 and return_size != 408 and return_size != 420) return errno(95);
+        // Accept only field boundaries that have been audited, plus the full
+        // naturally aligned UAPI structure. This avoids returning a partial
+        // scalar while still supporting current userspace's sizeof request.
+        if (return_size != 20 and return_size != 120 and return_size != 132 and return_size != 136 and return_size != 176 and return_size != 184 and return_size != 192 and return_size != 244 and return_size != 272 and return_size != 384 and return_size != 408 and return_size != 420 and return_size != 444 and return_size != 448) return errno(95);
         if (!validUserSlice(return_address, return_size)) return errno(14);
         const gfx = profile.?;
         const output: [*]u8 = @ptrFromInt(return_address);
@@ -1479,7 +1485,7 @@ fn amdgpuInfo(address: u64) u64 {
             put32(output + 400, gfx.cache_info.gl1);
             put32(output + 404, gfx.cache_info.gl2);
         }
-        if (return_size == 420) {
+        if (return_size >= 420) {
             put32(output + 184, 0);
             put32(output + 188, gfx.topology.double_offchip_lds_buf);
             put32(output + 240, gfx.topology.wave_front_size);
@@ -1502,6 +1508,8 @@ fn amdgpuInfo(address: u64) u64 {
             put64(output + 408, gfx.mall_size);
             put32(output + 416, 0);
         }
+        // 420..443 remain zero unless CP shadowing and user queues are really
+        // enabled. 444..447 are ABI tail padding and were cleared above.
         return 0;
     }
     return errno(22);

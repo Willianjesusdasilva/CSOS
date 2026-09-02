@@ -844,6 +844,14 @@ verificado; MALL ausente ou zero fecha o perfil. A máscara alta de RB permanece
 zero porque o backend suportado possui menos de 32 pipes. Assim, `DEV_INFO`
 alcança 420 bytes.
 
+Os campos finais shadow/CSA só são preenchidos pelo upstream quando CP graphics
+shadowing está realmente habilitado. Esse mecanismo ainda não está ativo no
+CSOS, e user queues também não possuem ioctl utilizável; por isso tamanhos,
+alinhamentos e `userq_ip_mask` permanecem zero deliberadamente. O ioctl aceita
+agora a estrutura UAPI completa de 444 bytes e sua forma naturalmente alinhada
+de 448 bytes, mantendo o padding zerado. Isso completa o conteúdo de
+`AMDGPU_INFO_DEV_INFO` sem anunciar capacidades inexistentes.
+
 O parser do IP discovery também valida
 e consome agora a tabela GC v1.0–v1.3: assinatura, tamanho, checksum, SE, SA,
 WGP/CU máximo, RB, TCC, wave size, profundidades GS e caches. Esses máximos já
