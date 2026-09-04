@@ -69,7 +69,8 @@ Esta porcentagem não é uma contagem simples de milestones. M0–M13 têm bases
 ## Próxima rota
 
 O alinhamento GEM de 2 MiB exigido pelo ring GFX11 foi implementado nos caminhos
-VRAM e GTT. Testes de host cobrem allocator físico e GEM VRAM; ainda é preciso
+VRAM e GTT. Testes de host cobrem allocator físico, GEM VRAM e, em Windows com
+memória baixa, GEM GTT/fallback por VRAM esgotada; ainda é preciso
 validar GEM GTT/fallback em Ring 3 e a alocação pelo RADV real, conforme
 `docs/radv-bringup-audit.md`. Isso não equivale a execução da stack real.
 

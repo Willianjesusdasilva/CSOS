@@ -1385,6 +1385,60 @@ pub fn validateAmdGpuDrmAbiSelfTest() !void {
         return error.AmdGpuSyncobjSignalOrderingMismatch;
 }
 
+pub fn validateAmdGpuGttAlignmentSelfTest(storage: []u8) !void {
+    const start = @intFromPtr(storage.ptr);
+    if (storage.len < 4 * 1024 * 1024 or (start & 0x1fffff) != 0 or start >= (@as(u64, 1) << 44))
+        return error.InvalidGttTestStorage;
+    var io: [128]u8 = .{0} ** 128;
+    const base: [*]u8 = &io;
+    configure(@intFromPtr(base), io.len, 0, 0, 0, 0, 0, 0);
+    var pages = physical.Allocator{ .range_count = 1, .free_pages = 1023 };
+    pages.ranges[0] = .{ .next = start + 4096, .end = start + 4 * 1024 * 1024 };
+    configureDrmMemory(&pages);
+    // All of this tiny VRAM aperture belongs to scanout, forcing the actual
+    // allocator failure branch (not simply an absent VRAM endpoint).
+    var vram = try gpu.AmdVramAllocator.init(.{
+        .cpu_start = start, .cpu_end = start + 4095, .mc_start = 0x100000,
+        .mc_end = 0x100fff, .bytes = 4096,
+        .framebuffer_mc_start = 0x100000, .framebuffer_mc_end = 0x100fff,
+    });
+    vram.sealFirmwareMap();
+    configureAmdGpuVramEndpoint(.{ .context = &vram, .allocate = &amdgpuAbiTestVramAllocate,
+        .release = &amdgpuAbiTestVramRelease, .reserved_bytes = &amdgpuAbiTestVramReserved,
+        .largest_free_bytes = &amdgpuAbiTestVramLargestFree });
+    defer {
+        releaseAllDrmObjects();
+        drm_pages = null;
+        amdgpu_vram_endpoint = null;
+    }
+    for ([_]u64{ 2, 6 }) |domain| {
+        @memset(storage[4096..], 0xa5);
+        put64(base, 8192);
+        put64(base + 8, 0x200000);
+        put64(base + 16, domain);
+        put64(base + 24, amdgpu_gem_create_cpu_gtt_uswc);
+        if (amdgpuGemCreate(@intFromPtr(base)) != 0) return error.AlignedGttCreateFailed;
+        const handle = read32(base);
+        const object = &drm_objects[handle - 1];
+        if (object.vram_backed or object.physical_address != start + 0x200000 or object.gpu_address != object.physical_address or
+            object.alignment != 0x200000 or object.domains != 2 or pages.free_pages != 1021)
+            return error.AlignedGttBackingMismatch;
+        for (storage[0x200000..0x202000]) |byte| if (byte != 0) return error.AlignedGttNotCleared;
+        if (storage[0x1fffff] != 0xa5 or storage[0x202000] != 0xa5) return error.AlignedGttPaddingModified;
+        put32(base + 32, handle);
+        put32(base + 36, 0);
+        put64(base + 40, @intFromPtr(base + 64));
+        if (amdgpuGemOp(@intFromPtr(base + 32)) != 0 or read64(base + 72) != 0x200000 or read64(base + 80) != 2)
+            return error.AlignedGttGemOpMismatch;
+        put64(base, 8192);
+        if (amdgpuGemCreate(@intFromPtr(base)) != errno(12) or pages.free_pages != 1021)
+            return error.AlignedGttExhaustionMismatch;
+        if (drmGemClose(@intFromPtr(base + 32)) != 0 or pages.free_pages != 1023 or pages.returned_count != 0 or
+            pages.ranges[0].next != start + 4096 or vram.reservedBytes() != 4096)
+            return error.AlignedGttReleaseMismatch;
+    }
+}
+
 fn validateAmdGpuGemAlignmentSelfTest() !void {
     var storage: [16384]u8 align(4096) = undefined;
     var io: [128]u8 = .{0} ** 128;

@@ -33,8 +33,14 @@ Testes de host verificam o allocator físico com alinhamento de 2 MiB, split e
 merge dos fragmentos, accounting, falta de espaço e overflow. O handler GEM
 real é testado com VRAM sintética: endereço MC de 2 MiB, GEM_OP, falta de um
 segundo slot alinhado, liberação e normalização de 64 bytes para uma página.
-Ainda falta executar o caminho GEM GTT/fallback completo em Ring 3 e a
-alocação do ring pelo RADV real; os testes de allocator não substituem isso.
+O teste de host Windows também reserva memória baixa para executar o handler
+GEM GTT sem relaxar o limite físico de 44 bits. Ele verifica GTT direto e
+fallback após esgotamento do allocator VRAM real: endereço de 2 MiB, GEM_OP,
+limpeza somente do BO, padding intacto, falta de espaço e devolução integral
+na liberação. Esse teste é explicitamente ignorado em hosts não Windows;
+os demais testes de alinhamento continuam portáveis.
+Ainda falta executar GEM GTT/fallback em Ring 3 e a alocação do ring pelo
+RADV real; os testes de host não substituem isso.
 
 ### Critérios de verificação
 
