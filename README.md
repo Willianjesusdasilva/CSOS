@@ -876,6 +876,16 @@ as versões dos firmwares gráficos são obrigatórias. O kernel implementa agor
 instância e índice zero são aceitos, e a consulta permanece fechada até o
 backend GFX físico estar disponível; versões sintéticas não são publicadas.
 
+O `address32_hi` exigido pelo Mesa não é um ioctl: o libdrm o calcula a partir
+dos intervalos de VA devolvidos por `DEV_INFO`. Com o low-VA do CSOS começando
+em `0x10000` e alcançando pelo menos 4 GiB, seu `vamgr_32` produz corretamente
+`address32_hi = 0`; não existe dado adicional a inventar no kernel. O mesmo
+levantamento confirmou que o RADV atual exige DRM 3.54. O CSOS anuncia 3.54
+somente quando command submission, perfil físico, memória, firmware e allocator
+VRAM estão todos instalados; antes desse gate permanece em 3.0. O bit
+`AMDGPU_INFO_ACCEL_WORKING` continua zero até validação Radeon real, portanto a
+versão por si só não libera falsamente o driver Vulkan.
+
 O parser do IP discovery também valida
 e consome agora a tabela GC v1.0–v1.3: assinatura, tamanho, checksum, SE, SA,
 WGP/CU máximo, RB, TCC, wave size, profundidades GS e caches. Esses máximos já

@@ -492,7 +492,11 @@ fn drmVersion(address: u64) u64 {
     const date_address = read64(output + 40);
     const description_length = read64(output + 48);
     const description_address = read64(output + 56);
-    put32(output + 0, if (drm_driver == .amdgpu) 3 else 1); put32(output + 4, 0); put32(output + 8, 0);
+    const amdgpu_minor: u32 = if (amdgpu_cs_endpoint != null and amdgpu_info_profile != null and
+        amdgpu_memory_profile != null and amdgpu_firmware_profile != null and amdgpu_vram_endpoint != null) 54 else 0;
+    put32(output + 0, if (drm_driver == .amdgpu) 3 else 1);
+    put32(output + 4, if (drm_driver == .amdgpu) amdgpu_minor else 0);
+    put32(output + 8, 0);
     const driver_name = switch (drm_driver) { .csos => "csosdrm", .amdgpu => "amdgpu", .nouveau => "nouveau" };
     const driver_description = switch (drm_driver) { .csos => "CSOS display DRM", .amdgpu => "AMD GPU", .nouveau => "NVIDIA GPU" };
     if (!copyDrmString(name_address, name_length, driver_name)) return errno(14);
@@ -1011,6 +1015,9 @@ pub fn validateAmdGpuDrmAbiSelfTest() !void {
         drm_vm_vmid = 0;
     }
     const base: [*]u8 = &memory;
+    @memset(base[1100..1164], 0);
+    if (drmVersion(@intFromPtr(base + 1100)) != 0 or read32(base + 1100) != 3 or read32(base + 1104) != 0)
+        return error.AmdGpuDrmVersionLeakedBeforePhysicalGate;
     put32(base, 1);
     if (amdgpuCtx(@intFromPtr(base)) != 0 or read32(base) != 1) return error.AmdGpuCtxAllocateAbiMismatch;
     drm_objects[0] = .{ .allocated = true, .handle_open = true, .handle = 1, .size = 4096, .physical_address = @intFromPtr(base + 512), .gpu_address = @intFromPtr(base + 512), .pages = 1, .domains = 2 };
@@ -1091,6 +1098,9 @@ pub fn validateAmdGpuDrmAbiSelfTest() !void {
     if (amdgpuInfo(@intFromPtr(base + 560)) != errno(22)) return error.AmdGpuFirmwareEngineIndexAccepted;
     put32(base + 584, 0);
     configureAmdGpuMemoryProfile(.{ .vram_bytes = 12 * 1024 * 1024 * 1024, .visible_vram_bytes = memory.len, .reserved_vram_bytes = 4096 });
+    @memset(base[1100..1164], 0);
+    if (drmVersion(@intFromPtr(base + 1100)) != 0 or read32(base + 1100) != 3 or read32(base + 1104) != 54 or read32(base + 1108) != 0)
+        return error.AmdGpuDrmVersionAbiMismatch;
     put32(base + 568, 95);
     put32(base + 572, 0x19);
     if (amdgpuInfo(@intFromPtr(base + 560)) != errno(95)) return error.AmdGpuMemoryInfoPartialAccepted;
