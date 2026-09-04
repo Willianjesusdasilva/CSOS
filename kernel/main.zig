@@ -83,6 +83,14 @@ fn drmAmdVramLargestFreeBytes(raw: *anyopaque) u64 {
     return allocator.largestFreeBytes();
 }
 
+fn drmAmdAccelerationReady(raw: *anyopaque) bool {
+    const runtime: *GpuCsRuntime = @ptrCast(@alignCast(raw));
+    return runtime.active and !runtime.queue.stopped and gpu_vm_runtime.active and
+        gpu_gmc11_activation_workspace.active and runtime.mmio != null and
+        runtime.doorbell != null and runtime.plan != null and runtime.ring != null and
+        runtime.pointers != null and runtime.fence != null and runtime.fence_gpu != 0;
+}
+
 fn submitDrmAmdGpuCs(raw: *anyopaque, vmid: u4, ibs: []const gpu.AmdGfx11IndirectBuffer) !u64 {
     const runtime: *GpuCsRuntime = @ptrCast(@alignCast(raw));
     if (!runtime.active or !gpu_vm_runtime.active or !gpu_vm_runtime.context.bound or
@@ -1437,7 +1445,7 @@ pub fn start(info: BootInfo) noreturn {
                 .queue = .{ .committed_wptr = 963 },
                 .active = true,
             };
-            syscalls.configureAmdGpuCsEndpoint(.{ .context = &gpu_cs_runtime, .submit = &submitDrmAmdGpuCs });
+            syscalls.configureAmdGpuCsEndpoint(.{ .context = &gpu_cs_runtime, .submit = &submitDrmAmdGpuCs, .acceleration_ready = &drmAmdAccelerationReady });
             gpu_cp_gfx_ready = true;
         }
     }

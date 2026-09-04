@@ -745,7 +745,7 @@ A ABI AMDGPU inicial também preserva por BO tamanho, alinhamento, domínio e
 flags de criação, implementa `AMDGPU_GEM_METADATA` (set/get de até 256 bytes) e
 `AMDGPU_GEM_WAIT_IDLE`. Este último retorna idle e o domínio corrente porque a
 submissão aceita ainda espera o fence físico antes de retornar;
-`AMDGPU_INFO_ACCEL_WORKING` continua zero. A VM
+`AMDGPU_INFO_ACCEL_WORKING` reflete a saúde do backend após o gate físico. A VM
 possui isolamento por VMID e page tables testadas no host, e o ring gráfico já
 passa o teste PM4 privado. O encoder de submissão produz até 192 pacotes GFX11
 `INDIRECT_BUFFER` para VMIDs 1–7 seguidos de `RELEASE_MEM` com fence de 64 bits.
@@ -915,8 +915,15 @@ em `0x10000` e alcançando pelo menos 4 GiB, seu `vamgr_32` produz corretamente
 levantamento confirmou que o RADV atual exige DRM 3.54. O CSOS anuncia 3.54
 somente quando command submission, perfil físico, memória, firmware e allocator
 VRAM estão todos instalados; antes desse gate permanece em 3.0. O bit
-`AMDGPU_INFO_ACCEL_WORKING` continua zero até validação Radeon real, portanto a
-versão por si só não libera falsamente o driver Vulkan.
+`AMDGPU_INFO_ACCEL_WORKING` exige também um callback de saúde instalado somente
+após o teste PM4 físico, com fila não parada, GART e runtime VM ativos. Sem o
+callback ou ao perder a fila, o bit retorna zero. Perfis incompletos de memória
+ou firmware também impedem ativação. Esse bit significa backend operacional,
+não triângulo Vulkan validado: o libdrm o exige antes de inicializar o RADV,
+então condicioná-lo ao triângulo impediria a própria validação. Testes de host
+cobrem ausência de callback, backend inativo, ativação, perda de firmware,
+perda de saúde e remoção do endpoint; não representam prova em Radeon real.
+A auditoria usa o [libdrm 773536b1](https://gitlab.freedesktop.org/mesa/drm/-/blob/773536b1e5dde694dd743815528aff8bb2cf2cc3/amdgpu/amdgpu_device.c).
 
 O parser do IP discovery também valida
 e consome agora a tabela GC v1.0–v1.3: assinatura, tamanho, checksum, SE, SA,

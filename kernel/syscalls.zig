@@ -80,6 +80,9 @@ var drm_vm_hardware: ?gpu.AmdGpuVmHardwareSession = null;
 pub const AmdGpuCsEndpoint = struct {
     context: *anyopaque,
     submit: *const fn (*anyopaque, u4, []const gpu.AmdGfx11IndirectBuffer) anyerror!u64,
+    // Absent for preparatory/test endpoints. Production installs this only
+    // after the physical PM4 test; it must track runtime loss of the queue.
+    acceleration_ready: ?*const fn (*anyopaque) bool = null,
 };
 var amdgpu_cs_endpoint: ?AmdGpuCsEndpoint = null;
 pub const AmdGpuVramEndpoint = struct {
@@ -131,6 +134,11 @@ fn amdgpuAbiTestSubmit(_: *anyopaque, vmid: u4, ibs: []const gpu.AmdGfx11Indirec
         return error.InvalidAmdGpuAbiTestSubmission;
     amdgpu_abi_test_dispatches += 1;
     return 0x100 + amdgpu_abi_test_dispatches;
+}
+
+fn amdgpuAbiTestAccelerationReady(raw: *anyopaque) bool {
+    const ready: *const u8 = @ptrCast(raw);
+    return ready.* != 0;
 }
 fn amdgpuAbiTestVramAllocate(raw: *anyopaque, bytes: u64, alignment: u64) !gpu.AmdVramAllocation {
     const allocator: *gpu.AmdVramAllocator = @ptrCast(@alignCast(raw));
@@ -1165,6 +1173,28 @@ pub fn validateAmdGpuDrmAbiSelfTest() !void {
     if (amdgpuInfo(@intFromPtr(base + 560)) != errno(22)) return error.AmdGpuFirmwareEngineIndexAccepted;
     put32(base + 584, 0);
     configureAmdGpuMemoryProfile(.{ .vram_bytes = 12 * 1024 * 1024 * 1024, .visible_vram_bytes = memory.len, .reserved_vram_bytes = 4096 });
+    put32(base + 568, 4);
+    put32(base + 572, 0);
+    if (amdgpuInfo(@intFromPtr(base + 560)) != 0 or read32(base + 608) != 0)
+        return error.AmdGpuAccelerationLeakedWithoutReadinessCallback;
+    configureAmdGpuCsEndpoint(.{ .context = &endpoint_cookie, .submit = &amdgpuAbiTestSubmit, .acceleration_ready = &amdgpuAbiTestAccelerationReady });
+    if (amdgpuInfo(@intFromPtr(base + 560)) != 0 or read32(base + 608) != 0)
+        return error.AmdGpuAccelerationLeakedBeforePhysicalTest;
+    endpoint_cookie = 1;
+    if (amdgpuInfo(@intFromPtr(base + 560)) != 0 or read32(base + 608) != 1)
+        return error.AmdGpuAccelerationReadyNotReported;
+    const saved_firmware = amdgpu_firmware_profile;
+    amdgpu_firmware_profile = null;
+    if (amdgpuInfo(@intFromPtr(base + 560)) != 0 or read32(base + 608) != 0)
+        return error.AmdGpuAccelerationLeakedWithoutFirmware;
+    amdgpu_firmware_profile = saved_firmware;
+    endpoint_cookie = 0;
+    if (amdgpuInfo(@intFromPtr(base + 560)) != 0 or read32(base + 608) != 0)
+        return error.AmdGpuAccelerationStaleAfterQueueLoss;
+    configureAmdGpuCsEndpoint(null);
+    if (amdgpuInfo(@intFromPtr(base + 560)) != 0 or read32(base + 608) != 0)
+        return error.AmdGpuAccelerationStaleAfterEndpointRemoval;
+    configureAmdGpuCsEndpoint(.{ .context = &endpoint_cookie, .submit = &amdgpuAbiTestSubmit });
     @memset(base[1100..1164], 0);
     if (drmVersion(@intFromPtr(base + 1100)) != 0 or read32(base + 1100) != 3 or read32(base + 1104) != 54 or read32(base + 1108) != 0)
         return error.AmdGpuDrmVersionAbiMismatch;
@@ -1599,14 +1629,6 @@ fn amdgpuInfo(address: u64) u64 {
     const return_size = read32(input + 8);
     const query = read32(input + 12);
     if (return_address == 0 or return_size == 0) return errno(22);
-    if (query == 0) {
-        const count = @min(return_size, 4);
-        if (!validUserSlice(return_address, count)) return errno(14);
-        const output: [*]u8 = @ptrFromInt(return_address);
-        // Keep false until the complete Radeon Vulkan path is hardware-tested.
-        @memset(output[0..count], 0);
-        return 0;
-    }
     const ip_type = read32(input + 16);
     const ip_instance = read32(input + 20);
     const profile = amdgpu_info_profile;
@@ -1623,6 +1645,25 @@ fn amdgpuInfo(address: u64) u64 {
         profile.?.pci_device != 0 and profile.?.pci_device != 0xffff and profile.?.gfx_major == 11 and
         profile.?.topology.num_shader_engines != 0 and profile.?.topology.num_shader_arrays_per_engine != 0 and
         profile.?.topology.maxCuPerShaderArray() != 0 and profile.?.topology.max_gprs != 0 and profile.?.topology.max_gs_threads != 0;
+    if (query == 0) {
+        const count = @min(return_size, 4);
+        if (!validUserSlice(return_address, count)) return errno(14);
+        const output: [*]u8 = @ptrFromInt(return_address);
+        @memset(output[0..count], 0);
+        // libdrm checks this before it can initialize RADV. It means the
+        // acceleration backend is operational, not that Vulkan is certified.
+        if (gfx_available and drm_pages != null and amdgpu_vram_endpoint != null) {
+            if (amdgpu_memory_profile) |memory| if (amdgpu_firmware_profile) |firmware| {
+                const endpoint = amdgpu_cs_endpoint.?;
+                if (memory.vram_bytes != 0 and memory.visible_vram_bytes != 0 and
+                    memory.visible_vram_bytes <= memory.vram_bytes and memory.reserved_vram_bytes <= memory.visible_vram_bytes and
+                    firmware.me.version != 0 and firmware.mec.version != 0 and firmware.pfp.version != 0) {
+                    if (endpoint.acceleration_ready) |ready| output[0] = @intFromBool(ready(endpoint.context));
+                }
+            };
+        }
+        return 0;
+    }
     if (query == 4) {
         if (!gfx_available) return errno(19);
         const dword_offset = read32(input + 16);
