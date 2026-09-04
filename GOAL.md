@@ -68,6 +68,11 @@ Esta porcentagem não é uma contagem simples de milestones. M0–M13 têm bases
 
 ## Próxima rota
 
+Prioridade imediata: o novo teste opt-in `-Ddrm-amdgpu-abi-test=true` passa pelo
+DRM em Ring 3, mas revela uma página não recuperada na checagem posterior.
+Isolar e corrigir essa falha antes de declarar o teste completo aprovado;
+exigir `CSOS M17 process reclaim ready` no runner limitado.
+
 O alinhamento GEM de 2 MiB exigido pelo ring GFX11 foi implementado nos caminhos
 VRAM e GTT. Testes de host cobrem allocator físico, GEM VRAM e, em Windows com
 memória baixa, GEM GTT/fallback por VRAM esgotada; ainda é preciso

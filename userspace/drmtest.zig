@@ -143,7 +143,10 @@ pub export fn _start() callconv(.naked) noreturn {
         \\testq %%rax, %%rax
         \\jne 1f
         \\cmpl $1, version(%%rip)
+        \\je 4f
+        \\cmpl $3, version(%%rip)
         \\jne 1f
+        \\4:
         \\cmpq $6, version+16(%%rip)
         \\je 2f
         \\cmpq $7, version+16(%%rip)
@@ -447,7 +450,7 @@ pub export fn _start() callconv(.naked) noreturn {
         \\cmpq %%rax, name(%%rip)
         \\jne 3f
         \\movq $4096, amd_create(%%rip)
-        \\movq $4096, amd_create+8(%%rip)
+        \\movq $2097152, amd_create+8(%%rip)
         \\movq $2, amd_create+16(%%rip)
         \\movq $4, amd_create+24(%%rip)
         \\movq $16, %%rax
@@ -502,7 +505,7 @@ pub export fn _start() callconv(.naked) noreturn {
         \\jne 1f
         \\cmpq $4096, amd_create_info(%%rip)
         \\jne 1f
-        \\cmpq $4096, amd_create_info+8(%%rip)
+        \\cmpq $2097152, amd_create_info+8(%%rip)
         \\jne 1f
         \\cmpq $2, amd_create_info+16(%%rip)
         \\jne 1f
@@ -606,7 +609,10 @@ pub export fn _start() callconv(.naked) noreturn {
         \\testq %%rax, %%rax
         \\jne 1f
         \\cmpl $1, render_version(%%rip)
+        \\je 5f
+        \\cmpl $3, render_version(%%rip)
         \\jne 1f
+        \\5:
         \\movq $0x13, capability(%%rip)
         \\movq $16, %%rax
         \\movq %%r12, %%rdi

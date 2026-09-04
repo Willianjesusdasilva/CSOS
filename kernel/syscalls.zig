@@ -2061,7 +2061,10 @@ fn resetDrmVm() void {
         const bo = object orelse break;
         unmapAmdGpuObjectPage(bo, mapping.address, mapping.bo_offset, mapping.flags) catch break;
     }
-    drm_vm_manager.dematerialize(drm_vm_vmid) catch return;
+    drm_vm_manager.dematerialize(drm_vm_vmid) catch |err| {
+        serial.write("DRM VM cleanup failed: "); serial.write(@errorName(err)); serial.write("\n");
+        return;
+    };
     drm_vm_manager.release(drm_vm_vmid) catch return;
     drm_vm_vmid = 0;
 }

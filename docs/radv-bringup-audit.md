@@ -53,6 +53,22 @@ RADV real; os testes de host não substituem isso.
    MC alinhado, GEM_OP, falha por falta de espaço e liberação da reserva.
 5. Testar também GTT e fallback VRAM/GTT para não anunciar alinhamento falso.
 
+## Regressão observada em Ring 3
+
+`zig build run -Ddrm-amdgpu-abi-test=true -- -SmokeTestSeconds 15 -ExpectSerial "CSOS M17 process reclaim ready"`
+seleciona a ABI AMDGPU somente durante `drmtest`, antes da inicialização da GPU,
+e restaura o driver detectado em seguida. Não altera PCI nem ativa aceleração.
+O programa passou GEM GTT com alinhamento de 2 MiB e GEM_OP, além dos ioctls AMD
+já existentes. Foi necessário corrigir o teste de versão para aceitar major 3
+do AMDGPU, além de major 1 dos outros backends.
+
+Contudo, a verificação posterior de recuperação falhou: 50099 páginas livres
+antes, 50098 depois. A execução NÃO está aprovada integralmente. A causa dessa
+página pendente ainda precisa ser isolada; os diagnósticos adicionados não
+reportaram falha de dematerialização da VM DRM. O teste é opt-in e o padrão
+não altera o driver. Próxima ação: corrigir a recuperação sem relaxar a
+igualdade de contagem e repetir exigindo o marcador M17, não só o marcador DRM.
+
 ## Gate de aceleração
 
 `amdgpu_device_initialize` aborta se `AMDGPU_INFO_ACCEL_WORKING` for zero.

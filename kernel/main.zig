@@ -365,6 +365,10 @@ pub fn start(info: BootInfo) noreturn {
     serial.write("CSOS M14 userspace framebuffer mmap ready\n");
     const drm_guard: *const volatile u32 = @ptrFromInt(info.framebuffer.base + 16380);
     const drm_guard_before = drm_guard.*;
+    if (build_options.drm_amdgpu_abi_test) {
+        serial.write("AMDGPU Ring 3 ABI test override: no hardware acceleration\n");
+        syscalls.configureDrm(.amdgpu);
+    }
     process.runDrmTest(mapper.root, &pages) catch {
         serial.write("DRM last request: ");
         serial.writeDecimal(syscalls.drm_last_request);
@@ -374,8 +378,11 @@ pub fn start(info: BootInfo) noreturn {
         panic("Linux DRM core userspace failed");
     };
     mapper.activate();
-    const expected_drm_ioctls: u64 = if (display_device.vendor == 0x1002) 44 else 35;
-    const expected_drm_objects: u64 = if (display_device.vendor == 0x1002) 4 else 3;
+    if (build_options.drm_amdgpu_abi_test) syscalls.configureDrm(switch (display_device.vendor) {
+        0x1002 => .amdgpu, 0x10de => .nouveau, else => .csos,
+    });
+    const expected_drm_ioctls: u64 = if (display_device.vendor == 0x1002 or build_options.drm_amdgpu_abi_test) 44 else 35;
+    const expected_drm_objects: u64 = if (display_device.vendor == 0x1002 or build_options.drm_amdgpu_abi_test) 4 else 3;
     if (syscalls.drm_ioctls != expected_drm_ioctls or syscalls.drm_mmaps != 2) panic("Linux DRM ioctl coverage failed");
     if (syscalls.drm_allocations != expected_drm_objects or syscalls.drm_releases != expected_drm_objects) panic("DRM backing memory lifecycle failed");
     if (drm_guard.* != drm_guard_before) panic("DRM buffer aliased firmware framebuffer");
@@ -393,7 +400,11 @@ pub fn start(info: BootInfo) noreturn {
     const shell_arguments = [_][]const u8{ "/bin/busybox", "sh", "-c", "echo BusyBox shell ready" };
     process.runBusyBox(mapper.root, &pages, &shell_arguments) catch panic("BusyBox sh failed");
     mapper.activate();
-    if (pages.free_pages != userspace_pages_before) panic("userspace page reclaim mismatch");
+    if (pages.free_pages != userspace_pages_before) {
+        serial.write("userspace free pages before: "); serial.writeDecimal(userspace_pages_before);
+        serial.write(" after: "); serial.writeDecimal(pages.free_pages); serial.write("\n");
+        panic("userspace page reclaim mismatch");
+    }
     serial.write("userspace reclaimed pages: ");
     serial.writeDecimal(pages.reclaimed_pages);
     serial.write("\nCSOS M17 process reclaim ready\n");
