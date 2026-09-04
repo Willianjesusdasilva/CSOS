@@ -659,6 +659,16 @@ pub fn start(info: BootInfo) noreturn {
         ) catch panic("AMDGPU CP/RLC firmware selection failed")
     else
         null;
+    if (gpu_cp_firmware) |firmware| {
+        const me = firmware.me orelse panic("AMDGPU ME firmware profile missing");
+        const mec = firmware.mec orelse panic("AMDGPU MEC firmware profile missing");
+        const pfp = firmware.pfp orelse panic("AMDGPU PFP firmware profile missing");
+        syscalls.configureAmdGpuFirmwareProfile(.{
+            .me = .{ .version = me.ucode_version, .feature = me.feature_version },
+            .mec = .{ .version = mec.ucode_version, .feature = mec.feature_version },
+            .pfp = .{ .version = pfp.ucode_version, .feature = pfp.feature_version },
+        });
+    } else syscalls.configureAmdGpuFirmwareProfile(null);
     const gpu_cp_firmware_staging = if (gpu_cp_firmware) |firmware|
         gpu.stageAmdGfx11CpFirmwareSet(firmware, &pages) catch panic("AMDGPU CP/RLC firmware staging failed")
     else

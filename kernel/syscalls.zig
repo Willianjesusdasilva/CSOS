@@ -106,6 +106,13 @@ pub const AmdGpuMemoryProfile = struct {
     reserved_vram_bytes: u64,
 };
 var amdgpu_memory_profile: ?AmdGpuMemoryProfile = null;
+pub const AmdGpuFirmwareVersion = struct { version: u32, feature: u32 };
+pub const AmdGpuFirmwareProfile = struct {
+    me: AmdGpuFirmwareVersion,
+    mec: AmdGpuFirmwareVersion,
+    pfp: AmdGpuFirmwareVersion,
+};
+var amdgpu_firmware_profile: ?AmdGpuFirmwareProfile = null;
 var amdgpu_abi_test_dispatches: u32 = 0;
 fn amdgpuAbiTestSubmit(_: *anyopaque, vmid: u4, address: u64, dwords: u32) !u64 {
     if (vmid != 1 or address != 0x4000 or dwords != 4) return error.InvalidAmdGpuAbiTestSubmission;
@@ -243,6 +250,7 @@ pub fn configureAmdGpuCsEndpoint(endpoint: ?AmdGpuCsEndpoint) void { amdgpu_cs_e
 pub fn configureAmdGpuVramEndpoint(endpoint: ?AmdGpuVramEndpoint) void { amdgpu_vram_endpoint = endpoint; }
 pub fn configureAmdGpuInfoProfile(profile: ?AmdGpuInfoProfile) void { amdgpu_info_profile = profile; }
 pub fn configureAmdGpuMemoryProfile(profile: ?AmdGpuMemoryProfile) void { amdgpu_memory_profile = profile; }
+pub fn configureAmdGpuFirmwareProfile(profile: ?AmdGpuFirmwareProfile) void { amdgpu_firmware_profile = profile; }
 
 pub fn configureMmap(protect_hook: ?*const fn (u64, u64, bool, bool) callconv(.c) bool, unmap_hook: ?*const fn (u64, u64) callconv(.c) bool, device_hook: ?*const fn (u64, u64, u64, bool) callconv(.c) bool) void {
     mmap_protect_hook = protect_hook;
@@ -992,6 +1000,7 @@ pub fn validateAmdGpuDrmAbiSelfTest() !void {
         amdgpu_cs_endpoint = null;
         amdgpu_info_profile = null;
         amdgpu_memory_profile = null;
+        amdgpu_firmware_profile = null;
         amdgpu_vram_endpoint = null;
         drm_pages = null;
         amdgpu_contexts = .{AmdGpuContext{}} ** max_amdgpu_contexts;
@@ -1059,6 +1068,28 @@ pub fn validateAmdGpuDrmAbiSelfTest() !void {
         read32(base + 624) != 4 or read32(base + 628) != 4 or read32(base + 632) != 1)
         return error.AmdGpuHwIpInfoAbiMismatch;
     if (read32(base + 636) != 0x0b0002) return error.AmdGpuHwIpDiscoveryVersionAbiMismatch;
+    configureAmdGpuFirmwareProfile(.{
+        .me = .{ .version = 0x1020304, .feature = 11 },
+        .mec = .{ .version = 0x2030405, .feature = 12 },
+        .pfp = .{ .version = 0x3040506, .feature = 13 },
+    });
+    put32(base + 568, 8);
+    put32(base + 572, 0x0e);
+    put32(base + 576, 0x04);
+    put32(base + 580, 0);
+    put32(base + 584, 0);
+    put32(base + 588, 0);
+    if (amdgpuInfo(@intFromPtr(base + 560)) != 0 or read32(base + 608) != 0x1020304 or read32(base + 612) != 11)
+        return error.AmdGpuMeFirmwareInfoAbiMismatch;
+    put32(base + 576, 0x08);
+    if (amdgpuInfo(@intFromPtr(base + 560)) != 0 or read32(base + 608) != 0x2030405 or read32(base + 612) != 12)
+        return error.AmdGpuMecFirmwareInfoAbiMismatch;
+    put32(base + 576, 0x05);
+    if (amdgpuInfo(@intFromPtr(base + 560)) != 0 or read32(base + 608) != 0x3040506 or read32(base + 612) != 13)
+        return error.AmdGpuPfpFirmwareInfoAbiMismatch;
+    put32(base + 584, 1);
+    if (amdgpuInfo(@intFromPtr(base + 560)) != errno(22)) return error.AmdGpuFirmwareEngineIndexAccepted;
+    put32(base + 584, 0);
     configureAmdGpuMemoryProfile(.{ .vram_bytes = 12 * 1024 * 1024 * 1024, .visible_vram_bytes = memory.len, .reserved_vram_bytes = 4096 });
     put32(base + 568, 95);
     put32(base + 572, 0x19);
@@ -1480,6 +1511,23 @@ fn amdgpuInfo(address: u64) u64 {
         if (count >= 24) put32(output + 20, 4);
         if (count >= 28) put32(output + 24, 1);
         if (count >= 32) put32(output + 28, (@as(u32, gfx.gfx_major) << 16) | (@as(u32, gfx.gfx_minor) << 8) | gfx.gfx_revision);
+        return 0;
+    }
+    if (query == 0x0e) {
+        if (!gfx_available) return errno(19);
+        if (return_size != 8 or !validUserSlice(return_address, 8)) return errno(if (return_size == 8) 14 else 95);
+        if (read32(input + 28) != 0 or ip_instance != 0 or read32(input + 24) != 0) return errno(22);
+        const firmware = amdgpu_firmware_profile orelse return errno(19);
+        const selected = switch (ip_type) {
+            0x04 => firmware.me,
+            0x05 => firmware.pfp,
+            0x08 => firmware.mec,
+            else => return errno(95),
+        };
+        if (selected.version == 0) return errno(19);
+        const output: [*]u8 = @ptrFromInt(return_address);
+        put32(output, selected.version);
+        put32(output + 4, selected.feature);
         return 0;
     }
     if (query == 0x19) {

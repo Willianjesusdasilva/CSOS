@@ -585,7 +585,7 @@ Steam Runtime, Steam e CS2 são deliberadamente as últimas etapas funcionais. A
 
 O arquivo `GOAL.md` é a fonte de verdade técnica do roadmap e das prioridades de implementação.
 
-Estimativa de progresso em 2026-09-02: **aproximadamente 40% concluído e 60% a
+Estimativa de progresso em 2026-09-04: **aproximadamente 40% concluído e 60% a
 fazer**. É uma estimativa ponderada por funcionalidade, não uma simples contagem
 de milestones: M0–M13 possuem fundações implementadas, mas M14 ainda não tem
 command submission nem triângulo Vulkan validados em AMD ou NVIDIA, e M15–M30
@@ -867,6 +867,14 @@ do BAR e o endereço MC consumido pela GPU. O GPUVM usa PTE VRAM sem os atributo
 reserva ao allocator. `usable_heap_size`, `heap_usage` e `max_allocation` passam
 a acompanhar dinamicamente esse estado real. A heap GTT continua page-backed e
 é calculada a cada consulta a partir das páginas livres e dos BOs ativos.
+
+A auditoria do caminho de inicialização do Mesa/RADV em
+`ac_query_gpu_info()` mostrou que, depois de `DEV_INFO` e da enumeração de IP,
+as versões dos firmwares gráficos são obrigatórias. O kernel implementa agora
+`AMDGPU_INFO_FW_VERSION` para ME, MEC e PFP, retornando `ucode_version` e
+`feature_version` extraídos dos blobs GFX11 já selecionados e validados. Apenas
+instância e índice zero são aceitos, e a consulta permanece fechada até o
+backend GFX físico estar disponível; versões sintéticas não são publicadas.
 
 O parser do IP discovery também valida
 e consome agora a tabela GC v1.0–v1.3: assinatura, tamanho, checksum, SE, SA,

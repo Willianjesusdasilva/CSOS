@@ -41,7 +41,7 @@ AMD permanece como primeiro backend de referência. O trabalho NVIDIA começa de
 ## Ordem das milestones
 
 - [x] **M0–M13 — fundações do SO:** build, boot, memória, CPU/SMP, scheduler, userspace, ABI Linux inicial, BusyBox, PCIe, NVMe, filesystem, USB/xHCI, rede e áudio possuem fundações implementadas; integração e validação final ainda continuam.
-- [ ] **M14 — GPU AMD/NVIDIA + Vulkan:** parcial. A preparação AMD GFX11, `AMDGPU_INFO_DEV_INFO` completo e `AMDGPU_INFO_MEMORY` possuem implementação e testes de host. GEM aceita placement real na VRAM visível, mantém endereços CPU/MC separados, instala PTEs GPUVA sem atributos de memória de sistema e atualiza uso/capacidade das heaps VRAM e GTT. Capacidade PCIe combinada, contrato GPUVA de 48 bits, tipo/largura de VRAM via ATOM, clocks e snapshots físicos de CUs/RBs/TCC/UMCs ativos também estão cobertos. VRAM não visível ainda não é alocável. Shadow/CSA/userq permanecem corretamente desabilitados; execução Radeon real e triângulo RADV ainda faltam. NVIDIA/NVK vem depois do primeiro triângulo AMD e também exige validação real.
+- [ ] **M14 — GPU AMD/NVIDIA + Vulkan:** parcial. A preparação AMD GFX11, `AMDGPU_INFO_DEV_INFO`, `AMDGPU_INFO_MEMORY` e as consultas obrigatórias de firmware ME/MEC/PFP possuem implementação e testes de host. As versões vêm dos blobs GFX11 selecionados e validados. GEM aceita placement real na VRAM visível, mantém endereços CPU/MC separados, instala PTEs GPUVA sem atributos de memória de sistema e atualiza uso/capacidade das heaps VRAM e GTT. Capacidade PCIe combinada, contrato GPUVA de 48 bits, tipo/largura de VRAM via ATOM, clocks e snapshots físicos de CUs/RBs/TCC/UMCs ativos também estão cobertos. VRAM não visível ainda não é alocável. Shadow/CSA/userq permanecem corretamente desabilitados; execução Radeon real e triângulo RADV ainda faltam. NVIDIA/NVK vem depois do primeiro triângulo AMD e também exige validação real.
 - [ ] **M15 — SDL:** vídeo, input e áudio sobre o caminho funcional do SO.
 - [ ] **M16 — hardware discovery/autotune:** detectar hardware e produzir `/system/config/hardware.csc`.
 - [ ] **M17 — otimização para jogos:** scheduler, IRQ, input, rede, NVMe, áudio, GAME e MATCH medidos contra baseline.
@@ -55,7 +55,7 @@ AMD permanece como primeiro backend de referência. O trabalho NVIDIA começa de
 
 ## Progresso atual
 
-Snapshot em 2026-09-02, ponderado por funcionalidade real:
+Snapshot em 2026-09-04, ponderado por funcionalidade real:
 
 ```text
 concluído: aproximadamente 40%
@@ -66,7 +66,7 @@ Esta porcentagem não é uma contagem simples de milestones. M0–M13 têm bases
 
 ## Próxima rota
 
-1. Auditar as próximas consultas/ioctls exigidos pelo RADV e validar command submission no caminho AMD GFX11 em hardware real; habilitar shadow/CSA/userq somente quando o mecanismo correspondente existir.
+1. Implementar o contrato `address32_hi` usado pelo libdrm, corrigir a versão DRM anunciada somente conforme a ABI realmente coberta e continuar a auditoria das consultas/ioctls exigidas pelo RADV; então validar command submission no caminho AMD GFX11 em hardware real.
 2. Validar o primeiro triângulo AMD/RADV em Radeon real suportada.
 3. Adaptar a infraestrutura compartilhada para NVIDIA e validar Nouveau/NVK ou stack compatível em GeForce real suportada.
 4. Integrar a seleção AMD/NVIDIA ao instalador e ao `hardware.csc`, incluindo o caso híbrido suportado.
