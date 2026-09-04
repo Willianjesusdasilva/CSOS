@@ -159,6 +159,11 @@ O alvo não é apenas detectar uma placa NVIDIA ou obter framebuffer. Suporte
 NVIDIA significa inicialização, gerenciamento de memória, filas, sincronização
 e um triângulo Vulkan em uma GeForce real suportada. Até essa validação existir,
 o backend permanece experimental e não pode ser anunciado como funcional.
+O instalador e o sistema instalado devem funcionar em uma máquina somente com
+GPU NVIDIA, sem depender de firmware, hardware ou inicialização AMD. A família
+GeForce e a combinação de driver/backend Vulkan efetivamente validadas devem
+ser registradas; outras famílias permanecem experimentais até repetirem a mesma
+prova em hardware real.
 
 ---
 
@@ -897,6 +902,17 @@ domínio, flags e alinhamento dos BOs ainda abertos. Placement em VRAM visível 
 BO page-backed no domínio GTT podem entrar no GPUVM atual; VRAM não visível
 ainda não possui mecanismo de cópia/clear e não é anunciada como capacidade
 alocável.
+
+Os flags de criação usados pelo RADV possuem comportamento explícito.
+`NO_CPU_ACCESS` impede tanto `GEM_MMAP` quanto mapeamento direto por offset;
+`VRAM_CLEARED` é satisfeito pelo clear integral feito antes de publicar o
+handle; `EXPLICIT_SYNC` corresponde ao caminho que usa apenas dependências e
+fences declarados; e `DISCARDABLE` é preservado como autorização de descarte,
+embora o CSOS ainda não faça eviction. `VM_ALWAYS_VALID` é aceito somente para
+domínios acessíveis pela GPU: no modelo atual de uma VM por processo, sem
+migração e com page tables estáveis, o BO permanece válido até unmap ou close.
+Solicitar acesso e não acesso de CPU simultaneamente, ou `VM_ALWAYS_VALID` em
+memória somente CPU, é rejeitado.
 
 O núcleo do GPUVM direto agora possui um allocator para VMIDs 1–7 (VMID0
 permanece reservado ao sistema); VMIDs 8–15 ficam reservados ao MES conforme

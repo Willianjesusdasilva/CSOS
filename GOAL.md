@@ -19,6 +19,8 @@ O sistema operacional vem primeiro. Steam, Steam Runtime e CS2 são as últimas 
 ## GPU AMD e NVIDIA
 
 AMD Radeon e NVIDIA GeForce são requisitos oficiais, não alternativas opcionais.
+O produto final deve inicializar e executar Vulkan em uma máquina somente com
+GPU NVIDIA, sem depender da presença ou inicialização de hardware AMD.
 
 O instalador deve detectar e selecionar automaticamente um backend suportado
 para a GPU presente. AMD e NVIDIA devem funcionar de forma independente; uma
@@ -41,7 +43,7 @@ AMD permanece como primeiro backend de referência. O trabalho NVIDIA começa de
 ## Ordem das milestones
 
 - [x] **M0–M13 — fundações do SO:** build, boot, memória, CPU/SMP, scheduler, userspace, ABI Linux inicial, BusyBox, PCIe, NVMe, filesystem, USB/xHCI, rede e áudio possuem fundações implementadas; integração e validação final ainda continuam.
-- [ ] **M14 — GPU AMD/NVIDIA + Vulkan:** parcial. A preparação AMD GFX11, `AMDGPU_INFO_DEV_INFO`, `AMDGPU_INFO_MEMORY` e as consultas obrigatórias de firmware ME/MEC/PFP possuem implementação e testes de host. As versões vêm dos blobs GFX11 selecionados e validados. O contrato GPUVA já faz o libdrm derivar `address32_hi = 0`, e DRM 3.54 só é anunciado quando os perfis físico/memória/firmware, allocator VRAM e command submission estão instalados; `ACCEL_WORKING` continua zero até validação Radeon real. GEM aceita placement real na VRAM visível, mantém endereços CPU/MC separados, instala PTEs GPUVA sem atributos de memória de sistema e atualiza uso/capacidade das heaps VRAM e GTT. Capacidade PCIe combinada, tipo/largura de VRAM via ATOM, clocks e snapshots físicos de CUs/RBs/TCC/UMCs ativos também estão cobertos. VRAM não visível ainda não é alocável. Shadow/CSA/userq permanecem corretamente desabilitados; execução Radeon real e triângulo RADV ainda faltam. NVIDIA/NVK vem depois do primeiro triângulo AMD e também exige validação real.
+- [ ] **M14 — GPU AMD/NVIDIA + Vulkan:** parcial. A preparação AMD GFX11, `AMDGPU_INFO_DEV_INFO`, `AMDGPU_INFO_MEMORY` e as consultas obrigatórias de firmware ME/MEC/PFP possuem implementação e testes de host. As versões vêm dos blobs GFX11 selecionados e validados. O contrato GPUVA já faz o libdrm derivar `address32_hi = 0`, e DRM 3.54 só é anunciado quando os perfis físico/memória/firmware, allocator VRAM e command submission estão instalados; `ACCEL_WORKING` continua zero até validação Radeon real. GEM aceita placement real na VRAM visível, mantém endereços CPU/MC separados, instala PTEs GPUVA sem atributos de memória de sistema, atualiza uso/capacidade das heaps VRAM e GTT e aplica semântica explícita aos flags de criação usados pelo RADV. Capacidade PCIe combinada, tipo/largura de VRAM via ATOM, clocks e snapshots físicos de CUs/RBs/TCC/UMCs ativos também estão cobertos. VRAM não visível ainda não é alocável. Shadow/CSA/userq permanecem corretamente desabilitados; execução Radeon real e triângulo RADV ainda faltam. Depois do triângulo AMD, NVIDIA/NVK ou stack compatível deve funcionar de forma independente em uma máquina somente NVIDIA e também exige validação real de inicialização, memória, filas, sincronização e triângulo Vulkan.
 - [ ] **M15 — SDL:** vídeo, input e áudio sobre o caminho funcional do SO.
 - [ ] **M16 — hardware discovery/autotune:** detectar hardware e produzir `/system/config/hardware.csc`.
 - [ ] **M17 — otimização para jogos:** scheduler, IRQ, input, rede, NVMe, áudio, GAME e MATCH medidos contra baseline.
@@ -66,9 +68,9 @@ Esta porcentagem não é uma contagem simples de milestones. M0–M13 têm bases
 
 ## Próxima rota
 
-1. Implementar com semântica real os flags de criação GEM usados pelo RADV (`NO_CPU_ACCESS`, `VRAM_CLEARED`, `EXPLICIT_SYNC`, `VM_ALWAYS_VALID` e `DISCARDABLE`) e continuar a auditoria dos ioctls; então validar command submission no caminho AMD GFX11 em hardware real.
+1. Adaptar `AMDGPU_CS` ao BO list inline usado pelo RADV atual, preservando a validação de residência e os BOs `VM_ALWAYS_VALID`; continuar a auditoria dos ioctls e então validar command submission no caminho AMD GFX11 em hardware real.
 2. Validar o primeiro triângulo AMD/RADV em Radeon real suportada.
-3. Adaptar a infraestrutura compartilhada para NVIDIA e validar Nouveau/NVK ou stack compatível em GeForce real suportada.
+3. Adaptar a infraestrutura compartilhada para NVIDIA e validar Nouveau/NVK ou stack compatível em uma máquina somente com GeForce suportada, incluindo inicialização, memória, filas, sincronização e triângulo Vulkan.
 4. Integrar a seleção AMD/NVIDIA ao instalador e ao `hardware.csc`, incluindo o caso híbrido suportado.
 5. Completar SDL, autoconfiguração, estabilidade, lifecycle e interface do SO.
 6. Somente então trabalhar em Steam Runtime, Steam e CS2.

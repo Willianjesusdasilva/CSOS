@@ -39,6 +39,16 @@ var network_stack: ?*net.Stack = null;
 var framebuffer = Framebuffer{};
 const max_drm_objects = 8;
 const drm_object_stride: u64 = 16 * 1024 * 1024;
+const amdgpu_gem_create_cpu_access_required: u64 = 1 << 0;
+const amdgpu_gem_create_no_cpu_access: u64 = 1 << 1;
+const amdgpu_gem_create_cpu_gtt_uswc: u64 = 1 << 2;
+const amdgpu_gem_create_vram_cleared: u64 = 1 << 3;
+const amdgpu_gem_create_vm_always_valid: u64 = 1 << 6;
+const amdgpu_gem_create_explicit_sync: u64 = 1 << 7;
+const amdgpu_gem_create_discardable: u64 = 1 << 12;
+const amdgpu_gem_create_supported = amdgpu_gem_create_cpu_access_required | amdgpu_gem_create_no_cpu_access |
+    amdgpu_gem_create_cpu_gtt_uswc | amdgpu_gem_create_vram_cleared | amdgpu_gem_create_vm_always_valid |
+    amdgpu_gem_create_explicit_sync | amdgpu_gem_create_discardable;
 const DrmObject = struct {
     allocated: bool = false,
     handle_open: bool = false,
@@ -692,7 +702,10 @@ fn amdgpuGemCreate(address: u64) u64 {
     const domains = read64(io + 16);
     const flags = read64(io + 24);
     if (size == 0 or size > drm_object_stride or (alignment != 0 and (alignment > 4096 or (alignment & (alignment - 1)) != 0))) return errno(22);
-    if (domains == 0 or (domains & ~@as(u64, 0x7)) != 0 or (flags & ~@as(u64, 0x5)) != 0) return errno(95);
+    if (domains == 0 or (domains & ~@as(u64, 0x7)) != 0 or (flags & ~amdgpu_gem_create_supported) != 0) return errno(95);
+    if ((flags & (amdgpu_gem_create_cpu_access_required | amdgpu_gem_create_no_cpu_access)) ==
+        (amdgpu_gem_create_cpu_access_required | amdgpu_gem_create_no_cpu_access) or
+        (flags & amdgpu_gem_create_vm_always_valid) != 0 and (domains & 0x6) == 0) return errno(22);
     var free_index: ?usize = null;
     for (drm_objects, 0..) |object, index| if (!object.allocated) { free_index = index; break; };
     const object_index = free_index orelse return errno(12);
@@ -732,6 +745,7 @@ fn amdgpuGemMmap(address: u64) u64 {
     const io: [*]u8 = @ptrFromInt(address);
     if (read32(io + 4) != 0) return errno(22);
     const object = drmObjectForHandle(read32(io)) orelse return errno(2);
+    if ((object.allocation_flags & amdgpu_gem_create_no_cpu_access) != 0) return errno(1);
     put64(io, object.map_offset);
     return 0;
 }
@@ -1123,6 +1137,28 @@ pub fn validateAmdGpuDrmAbiSelfTest() !void {
         return error.AmdGpuVramGemCreateAbiMismatch;
     if (drmCloseHandle(2) != 0 or test_vram.reservedBytes() != 4096)
         return error.AmdGpuVramGemReleaseAbiMismatch;
+    @memset(base[12288..16384], 0xa5);
+    put64(base + 1100, 4096);
+    put64(base + 1108, 4096);
+    put64(base + 1116, 4);
+    put64(base + 1124, amdgpu_gem_create_no_cpu_access | amdgpu_gem_create_vram_cleared |
+        amdgpu_gem_create_vm_always_valid | amdgpu_gem_create_explicit_sync | amdgpu_gem_create_discardable);
+    if (amdgpuGemCreate(@intFromPtr(base + 1100)) != 0 or read32(base + 1100) != 2 or
+        drm_objects[1].allocation_flags != 0x10ca or base[12288] != 0)
+        return error.AmdGpuRadvGemFlagsAbiMismatch;
+    put32(base + 1140, 2);
+    put32(base + 1144, 0);
+    if (amdgpuGemMmap(@intFromPtr(base + 1140)) != errno(1) or drmObjectForMap(drm_objects[1].map_offset, 4096) != null)
+        return error.AmdGpuNoCpuAccessMappingAccepted;
+    if (drmCloseHandle(2) != 0) return error.AmdGpuRadvGemFlagsReleaseMismatch;
+    put64(base + 1100, 4096);
+    put64(base + 1108, 4096);
+    put64(base + 1116, 4);
+    put64(base + 1124, amdgpu_gem_create_cpu_access_required | amdgpu_gem_create_no_cpu_access);
+    if (amdgpuGemCreate(@intFromPtr(base + 1100)) != errno(22)) return error.AmdGpuConflictingCpuAccessFlagsAccepted;
+    put64(base + 1116, 1);
+    put64(base + 1124, amdgpu_gem_create_vm_always_valid);
+    if (amdgpuGemCreate(@intFromPtr(base + 1100)) != errno(22)) return error.AmdGpuCpuOnlyAlwaysValidAccepted;
     put32(base + 568, 20);
     put32(base + 572, 0x16);
     if (amdgpuInfo(@intFromPtr(base + 560)) != 0 or read32(base + 608) != 0x744c or read32(base + 612) != 3 or
@@ -1794,7 +1830,7 @@ fn drmObjectForHandle(handle: u32) ?*DrmObject {
 }
 fn drmObjectForMap(offset: u64, length: u64) ?*DrmObject {
     for (&drm_objects) |*object| {
-        if (object.allocated and offset >= object.map_offset and offset - object.map_offset <= object.size and length <= object.size - (offset - object.map_offset)) return object;
+        if (object.allocated and (object.allocation_flags & amdgpu_gem_create_no_cpu_access) == 0 and offset >= object.map_offset and offset - object.map_offset <= object.size and length <= object.size - (offset - object.map_offset)) return object;
     }
     return null;
 }
