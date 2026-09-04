@@ -8,7 +8,7 @@
 
 Esta auditoria é de código, não execução de Mesa no CSOS nem prova de GPU real.
 
-## Bloqueio confirmado: alinhamento do ring GFX11
+## Alinhamento do ring GFX11
 
 Em `src/amd/vulkan/radv_queue.c`, `radv_update_preamble_cs` aloca os
 `ge_rings_bo` de GFX11 com alinhamento de **2 MiB**, domínio VRAM e flags
@@ -17,19 +17,26 @@ Em `src/amd/vulkan/radv_queue.c`, `radv_update_preamble_cs` aloca os
 o alinhamento para `request.phys_alignment`; o libdrm, em `amdgpu_bo.c`, o copia
 para `drm_amdgpu_gem_create.in.alignment`.
 
-O CSOS, em `kernel/syscalls.zig:amdgpuGemCreate`, rejeita alinhamento maior que
+Antes da correção, `kernel/syscalls.zig:amdgpuGemCreate` rejeitava alinhamento maior que
 4096 antes de consultar o allocator VRAM. Portanto essa alocação retorna
 `EINVAL` mesmo com firmware, GART e CP operacionais. Isso bloqueia a preparação
 da fila gráfica; não é apenas uma otimização opcional.
 
 O allocator `AmdVramAllocator.allocatePinned` já aceita potências de dois
 maiores que uma página e alinha o endereço MC. O allocator físico usado no
-caminho GTT ainda só oferece alocação contígua sem parâmetro de alinhamento.
-Não basta remover a condição do ioctl: o fallback GTT precisa respeitar o
-mesmo contrato, e o alinhamento reportado por GEM_OP deve corresponder ao
-endereço realmente reservado.
+caminho GTT agora oferece `allocateAligned`: preserva prefixo e sufixo livres,
+mantém a lista ordenada e rejeita overflow antes de mutar o estado. GEM usa o
+alinhamento normalizado (no mínimo uma página) tanto na VRAM quanto no GTT,
+incluindo fallback VRAM/GTT, e o preserva no BO para GEM_OP.
 
-### Próximo incremento e critérios de verificação
+Testes de host verificam o allocator físico com alinhamento de 2 MiB, split e
+merge dos fragmentos, accounting, falta de espaço e overflow. O handler GEM
+real é testado com VRAM sintética: endereço MC de 2 MiB, GEM_OP, falta de um
+segundo slot alinhado, liberação e normalização de 64 bytes para uma página.
+Ainda falta executar o caminho GEM GTT/fallback completo em Ring 3 e a
+alocação do ring pelo RADV real; os testes de allocator não substituem isso.
+
+### Critérios de verificação
 
 1. Acrescentar alocação física alinhada com preservação dos fragmentos livres,
    accounting e liberação corretos; não desperdiçar silenciosamente o padding.

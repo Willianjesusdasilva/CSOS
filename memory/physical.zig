@@ -47,15 +47,30 @@ pub const Allocator = struct {
     }
 
     pub fn allocate(self: *Allocator, count: u64) ?u64 {
-        if (count == 0) return null;
+        return self.allocateAligned(count, page_size);
+    }
+
+    pub fn allocateAligned(self: *Allocator, count: u64, alignment: u64) ?u64 {
+        if (count == 0 or count > (~@as(u64, 0)) / page_size or
+            alignment < page_size or (alignment & (alignment - 1)) != 0) return null;
         const bytes = count * page_size;
         var returned_index: usize = 0;
         while (returned_index < self.returned_count) : (returned_index += 1) {
-            const range = &self.returned[returned_index];
-            if (range.end - range.next < bytes) continue;
-            const address = range.next;
-            range.next += bytes;
-            if (range.next == range.end) {
+            const range = self.returned[returned_index];
+            const address = alignedFit(range, bytes, alignment) orelse continue;
+            const end = address + bytes;
+            if (address != range.next and end != range.end) {
+                if (self.returned_count == self.returned.len) continue;
+                var shift = self.returned_count;
+                while (shift > returned_index + 1) : (shift -= 1) self.returned[shift] = self.returned[shift - 1];
+                self.returned[returned_index] = .{ .next = range.next, .end = address };
+                self.returned[returned_index + 1] = .{ .next = end, .end = range.end };
+                self.returned_count += 1;
+            } else if (address != range.next) {
+                self.returned[returned_index].end = address;
+            } else if (end != range.end) {
+                self.returned[returned_index].next = end;
+            } else {
                 var shift = returned_index;
                 while (shift + 1 < self.returned_count) : (shift += 1) self.returned[shift] = self.returned[shift + 1];
                 self.returned_count -= 1;
@@ -64,9 +79,19 @@ pub const Allocator = struct {
             return address;
         }
         for (self.ranges[0..self.range_count]) |*range| {
-            if (range.end - range.next < bytes) continue;
-            const address = range.next;
-            range.next += bytes;
+            const address = alignedFit(range.*, bytes, alignment) orelse continue;
+            if (address != range.next) {
+                // Preserve padding in the sorted free list, without counting
+                // it as reclaimed or allocated memory.
+                if (self.returned_count == self.returned.len) continue;
+                var index: usize = 0;
+                while (index < self.returned_count and self.returned[index].next < range.next) : (index += 1) {}
+                var shift = self.returned_count;
+                while (shift > index) : (shift -= 1) self.returned[shift] = self.returned[shift - 1];
+                self.returned[index] = .{ .next = range.next, .end = address };
+                self.returned_count += 1;
+            }
+            range.next = address + bytes;
             self.free_pages -= count;
             return address;
         }
@@ -74,7 +99,7 @@ pub const Allocator = struct {
     }
 
     pub fn release(self: *Allocator, address: u64, count: u64) !void {
-        if (count == 0 or (address & (page_size - 1)) != 0) return error.InvalidRelease;
+        if (count == 0 or count > (~@as(u64, 0)) / page_size or (address & (page_size - 1)) != 0) return error.InvalidRelease;
         const bytes = count * page_size;
         const end = address +% bytes;
         if (end <= address) return error.InvalidRelease;
@@ -123,3 +148,36 @@ pub const Allocator = struct {
         return self.ranges[0..self.range_count];
     }
 };
+
+fn alignedFit(range: Range, bytes: u64, alignment: u64) ?u64 {
+    if (range.next > (~@as(u64, 0)) - (alignment - 1)) return null;
+    const address = (range.next + alignment - 1) & ~(alignment - 1);
+    if (address > range.end or bytes > range.end - address) return null;
+    return address;
+}
+
+pub fn validateAlignedAllocationSelfTest() !void {
+    var allocator = Allocator{ .range_count = 1, .free_pages = 1023 };
+    allocator.ranges[0] = .{ .next = 0x1000, .end = 0x400000 };
+    const address = allocator.allocateAligned(2, 0x200000) orelse return error.AlignedAllocationFailed;
+    if (address != 0x200000 or allocator.free_pages != 1021 or allocator.reclaimed_pages != 0 or
+        allocator.returned_count != 1 or allocator.returned[0].next != 0x1000 or allocator.returned[0].end != address)
+        return error.AlignedAllocationPaddingLost;
+    try allocator.release(address, 2);
+    if (allocator.free_pages != 1023 or allocator.ranges[0].next != 0x1000 or allocator.returned_count != 0)
+        return error.AlignedAllocationReleaseMismatch;
+    allocator.range_count = 0;
+    allocator.returned_count = 1;
+    allocator.returned[0] = .{ .next = 0x1000, .end = 0x400000 };
+    if (allocator.allocateAligned(2, 0x200000) != address or allocator.returned_count != 2)
+        return error.AlignedReturnedRangeSplitFailed;
+    try allocator.release(address, 2);
+    if (allocator.returned_count != 1 or allocator.returned[0].next != 0x1000 or
+        allocator.returned[0].end != 0x400000 or allocator.free_pages != 1023)
+        return error.AlignedReturnedRangeMergeFailed;
+    if (allocator.allocateAligned(1024, 0x200000) != null or allocator.allocateAligned(1, 6000) != null or
+        allocator.allocateAligned(~@as(u64, 0), 4096) != null or allocator.free_pages != 1023)
+        return error.AlignedInvalidAllocationMutatedState;
+    allocator.returned[0] = .{ .next = 0xfffffffffffff000, .end = 0xffffffffffffffff };
+    if (allocator.allocateAligned(1, 0x200000) != null) return error.AlignedAddressOverflowAccepted;
+}

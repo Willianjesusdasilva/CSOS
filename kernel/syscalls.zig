@@ -712,10 +712,11 @@ fn amdgpuGemCreate(address: u64) u64 {
     if (!validUserSlice(address, 32)) return errno(14);
     const io: [*]u8 = @ptrFromInt(address);
     const size = read64(io);
-    const alignment = read64(io + 8);
+    const requested_alignment = read64(io + 8);
+    const alignment = @max(@as(u64, 4096), requested_alignment);
     const domains = read64(io + 16);
     const flags = read64(io + 24);
-    if (size == 0 or size > drm_object_stride or (alignment != 0 and (alignment > 4096 or (alignment & (alignment - 1)) != 0))) return errno(22);
+    if (size == 0 or size > drm_object_stride or (requested_alignment != 0 and (requested_alignment & (requested_alignment - 1)) != 0)) return errno(22);
     if (domains == 0 or (domains & ~@as(u64, 0x7)) != 0 or (flags & ~amdgpu_gem_create_supported) != 0) return errno(95);
     if ((flags & (amdgpu_gem_create_cpu_access_required | amdgpu_gem_create_no_cpu_access)) ==
         (amdgpu_gem_create_cpu_access_required | amdgpu_gem_create_no_cpu_access) or
@@ -725,12 +726,12 @@ fn amdgpuGemCreate(address: u64) u64 {
     const object_index = free_index orelse return errno(12);
     const page_count = (size + 4095) / 4096;
     if ((domains & 0x4) != 0) if (amdgpu_vram_endpoint) |endpoint| {
-        const allocation = endpoint.allocate(endpoint.context, page_count * 4096, if (alignment == 0) 4096 else alignment) catch null;
+        const allocation = endpoint.allocate(endpoint.context, page_count * 4096, alignment) catch null;
         if (allocation) |vram| {
             const memory: [*]u8 = @ptrFromInt(vram.cpu_address);
             @memset(memory[0..@intCast(vram.bytes)], 0);
             const handle: u32 = @intCast(object_index + 1);
-            drm_objects[object_index] = .{ .allocated = true, .handle_open = true, .handle = handle, .size = size, .physical_address = vram.cpu_address, .gpu_address = vram.mc_address, .vram_backed = true, .pages = page_count, .map_offset = @as(u64, @intCast(object_index)) * drm_object_stride, .alignment = if (alignment == 0) 4096 else alignment, .domains = 0x4, .allocation_flags = flags };
+            drm_objects[object_index] = .{ .allocated = true, .handle_open = true, .handle = handle, .size = size, .physical_address = vram.cpu_address, .gpu_address = vram.mc_address, .vram_backed = true, .pages = page_count, .map_offset = @as(u64, @intCast(object_index)) * drm_object_stride, .alignment = alignment, .domains = 0x4, .allocation_flags = flags };
             put32(io, handle);
             put32(io + 4, 0);
             drm_allocations += 1;
@@ -739,7 +740,7 @@ fn amdgpuGemCreate(address: u64) u64 {
         if ((domains & 0x3) == 0) return errno(12);
     } else if ((domains & 0x3) == 0) return errno(19);
     const pages = drm_pages orelse return errno(19);
-    const allocation = pages.allocate(page_count) orelse return errno(12);
+    const allocation = pages.allocateAligned(page_count, alignment) orelse return errno(12);
     if (allocation >= (@as(u64, 1) << 44) or page_count > ((@as(u64, 1) << 44) - allocation) / 4096) {
         pages.release(allocation, page_count) catch {};
         return errno(12);
@@ -747,7 +748,7 @@ fn amdgpuGemCreate(address: u64) u64 {
     const memory: [*]u8 = @ptrFromInt(allocation);
     @memset(memory[0..@intCast(page_count * 4096)], 0);
     const handle: u32 = @intCast(object_index + 1);
-    drm_objects[object_index] = .{ .allocated = true, .handle_open = true, .handle = handle, .size = size, .physical_address = allocation, .gpu_address = allocation, .pages = page_count, .map_offset = @as(u64, @intCast(object_index)) * drm_object_stride, .alignment = if (alignment == 0) 4096 else alignment, .domains = domains & 0x3, .allocation_flags = flags };
+    drm_objects[object_index] = .{ .allocated = true, .handle_open = true, .handle = handle, .size = size, .physical_address = allocation, .gpu_address = allocation, .pages = page_count, .map_offset = @as(u64, @intCast(object_index)) * drm_object_stride, .alignment = alignment, .domains = domains & 0x3, .allocation_flags = flags };
     put32(io, handle);
     put32(io + 4, 0);
     drm_allocations += 1;
@@ -1048,6 +1049,8 @@ fn amdgpuWaitCs(address: u64) u64 {
 }
 
 pub fn validateAmdGpuDrmAbiSelfTest() !void {
+    try physical.validateAlignedAllocationSelfTest();
+    try validateAmdGpuGemAlignmentSelfTest();
     try vfs.validateDrmPciIdentitySelfTest();
     var memory: [16384]u8 align(4096) = .{0} ** 16384;
     var test_pages = physical.Allocator{ .free_pages = 255, .total_pages = 256, .installed_pages = 256 };
@@ -1380,6 +1383,51 @@ pub fn validateAmdGpuDrmAbiSelfTest() !void {
     put64(base + 296, @intFromPtr(base + 256));
     if (amdgpuCs(@intFromPtr(base + 280)) != 0 or drm_syncobjs[0].point != 1 or read64(base + 512) != 2 or amdgpu_abi_test_dispatches != 2)
         return error.AmdGpuSyncobjSignalOrderingMismatch;
+}
+
+fn validateAmdGpuGemAlignmentSelfTest() !void {
+    var storage: [16384]u8 align(4096) = undefined;
+    var io: [128]u8 = .{0} ** 128;
+    const base: [*]u8 = &io;
+    configure(@intFromPtr(base), io.len, 0, 0, 0, 0, 0, 0);
+    var allocator = try gpu.AmdVramAllocator.init(.{
+        .cpu_start = @intFromPtr(&storage), .cpu_end = @intFromPtr(&storage) + storage.len - 1,
+        .mc_start = 0x1ff000, .mc_end = 0x202fff, .bytes = storage.len,
+        .framebuffer_mc_start = 0x1ff000, .framebuffer_mc_end = 0x1fffff,
+    });
+    allocator.sealFirmwareMap();
+    configureAmdGpuVramEndpoint(.{ .context = &allocator, .allocate = &amdgpuAbiTestVramAllocate,
+        .release = &amdgpuAbiTestVramRelease, .reserved_bytes = &amdgpuAbiTestVramReserved,
+        .largest_free_bytes = &amdgpuAbiTestVramLargestFree });
+    defer { amdgpu_vram_endpoint = null; drm_objects = .{DrmObject{}} ** max_drm_objects; }
+    put64(base, 4096);
+    put64(base + 8, 0x200000);
+    put64(base + 16, 4);
+    put64(base + 24, amdgpu_gem_create_discardable);
+    if (amdgpuGemCreate(@intFromPtr(base)) != 0) return error.AmdGpuAlignedVramCreateFailed;
+    const handle = read32(base);
+    const object = &drm_objects[handle - 1];
+    if (!object.vram_backed or object.gpu_address != 0x200000 or object.alignment != 0x200000)
+        return error.AmdGpuAlignedVramAddressMismatch;
+    put32(base + 32, handle);
+    put32(base + 36, 0);
+    put64(base + 40, @intFromPtr(base + 64));
+    if (amdgpuGemOp(@intFromPtr(base + 32)) != 0 or read64(base + 72) != 0x200000)
+        return error.AmdGpuAlignedGemOpMismatch;
+    put64(base, 4096);
+    if (amdgpuGemCreate(@intFromPtr(base)) != errno(12)) return error.AmdGpuAlignedVramExhaustionMismatch;
+    put32(base + 32, handle);
+    if (drmGemClose(@intFromPtr(base + 32)) != 0 or allocator.reservedBytes() != 4096)
+        return error.AmdGpuAlignedVramReleaseFailed;
+    put64(base, 4096);
+    put64(base + 8, 6000);
+    if (amdgpuGemCreate(@intFromPtr(base)) != errno(22) or allocator.reservedBytes() != 4096)
+        return error.AmdGpuInvalidAlignmentAccepted;
+    put64(base + 8, 64);
+    if (amdgpuGemCreate(@intFromPtr(base)) != 0) return error.AmdGpuSmallAlignmentNotNormalized;
+    put32(base + 32, read32(base));
+    if (drm_objects[read32(base) - 1].alignment != 4096 or drmGemClose(@intFromPtr(base + 32)) != 0)
+        return error.AmdGpuNormalizedAlignmentMismatch;
 }
 
 fn amdgpuBoListCoversGpuVa(list: *const AmdGpuBoList, address: u64, size: u32) bool {

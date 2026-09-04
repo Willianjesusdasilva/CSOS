@@ -68,11 +68,10 @@ Esta porcentagem não é uma contagem simples de milestones. M0–M13 têm bases
 
 ## Próxima rota
 
-Bloqueio confirmado por auditoria upstream: o ring gráfico GFX11 do RADV pede
-alinhamento GEM de 2 MiB, mas o ioctl atual rejeita valores acima de 4 KiB.
-Corrigir os caminhos VRAM e GTT conforme `docs/radv-bringup-audit.md` antes de
-esperar que a preparação da fila RADV funcione. Auditoria de código não equivale
-a execução da stack real.
+O alinhamento GEM de 2 MiB exigido pelo ring GFX11 foi implementado nos caminhos
+VRAM e GTT. Testes de host cobrem allocator físico e GEM VRAM; ainda é preciso
+validar GEM GTT/fallback em Ring 3 e a alocação pelo RADV real, conforme
+`docs/radv-bringup-audit.md`. Isso não equivale a execução da stack real.
 
 1. Executar o libdrm/RADV real sobre a identidade PCI Linux implementada, corrigir somente incompatibilidades observadas e validar command submission no caminho AMD GFX11 em hardware real.
 2. Validar o primeiro triângulo AMD/RADV em Radeon real suportada.

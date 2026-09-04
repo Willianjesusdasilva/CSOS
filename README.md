@@ -742,7 +742,12 @@ ainda precisa ser validada em hardware, portanto isso não conta como triângulo
 Vulkan.
 
 A ABI AMDGPU inicial também preserva por BO tamanho, alinhamento, domínio e
-flags de criação, implementa `AMDGPU_GEM_METADATA` (set/get de até 256 bytes) e
+flags de criação. GEM aceita alinhamentos em potência de dois acima de 4 KiB,
+incluindo os 2 MiB exigidos pelo ring GFX11 do RADV. VRAM e GTT recebem o mesmo
+alinhamento normalizado; o allocator físico preserva o padding como memória
+livre. Testes de host cobrem o allocator e GEM VRAM, sem substituir validação
+do RADV real. A ABI implementa também
+`AMDGPU_GEM_METADATA` (set/get de até 256 bytes) e
 `AMDGPU_GEM_WAIT_IDLE`. Este último retorna idle e o domínio corrente porque a
 submissão aceita ainda espera o fence físico antes de retornar;
 `AMDGPU_INFO_ACCEL_WORKING` reflete a saúde do backend após o gate físico. A VM
