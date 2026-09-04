@@ -735,9 +735,11 @@ suporte Vulkan concluído.
 Os nós DRM agora também expõem a identidade PCI Linux compartilhada exigida
 pelo libdrm: major/minor de `card0` e `renderD128`, árvore mínima em
 `/sys/dev/char`, `uevent`, IDs reais de vendor/device/subsystem e vínculo ao
-subsistema PCI por `readlink`/`readlinkat`. O teste de host cobre o contrato;
-a descoberta pelo libdrm e o RADV reais no CSOS ainda precisa ser validada em
-hardware, portanto isso não conta como triângulo Vulkan.
+subsistema PCI por `readlink`/`readlinkat`. Testes de host e Ring 3 cobrem
+`fstat`, os dois números de dispositivo, leitura dos atributos sysfs e resolução
+do subsistema pela ABI Linux do CSOS. A descoberta pelo libdrm e o RADV reais
+ainda precisa ser validada em hardware, portanto isso não conta como triângulo
+Vulkan.
 
 A ABI AMDGPU inicial também preserva por BO tamanho, alinhamento, domínio e
 flags de criação, implementa `AMDGPU_GEM_METADATA` (set/get de até 256 bytes) e

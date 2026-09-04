@@ -1,5 +1,12 @@
 pub export const device_path: [15]u8 = "/dev/dri/card0\x00".*;
 pub export const render_path: [20]u8 = "/dev/dri/renderD128\x00".*;
+pub export const pci_vendor_path: [34]u8 = "/sys/dev/char/226:0/device/vendor\x00".*;
+pub export const pci_uevent_path: [34]u8 = "/sys/dev/char/226:0/device/uevent\x00".*;
+pub export const pci_subsystem_path: [37]u8 = "/sys/dev/char/226:0/device/subsystem\x00".*;
+pub export const pci_subsystem_target: [19]u8 = "../../../../bus/pci".*;
+pub export const pci_slot_prefix: [14]u8 = "PCI_SLOT_NAME=".*;
+pub export var stat_buffer: [144]u8 = .{0} ** 144;
+pub export var pci_attribute: [64]u8 = .{0} ** 64;
 pub export var version: [64]u8 = .{0} ** 64;
 pub export var render_version: [64]u8 = .{0} ** 64;
 pub export var name: [16]u8 = .{0} ** 16;
@@ -55,6 +62,79 @@ pub export fn _start() callconv(.naked) noreturn {
         \\testq %%rax, %%rax
         \\js 1f
         \\movq %%rax, %%r12
+        \\movq $5, %%rax
+        \\movq %%r12, %%rdi
+        \\leaq stat_buffer(%%rip), %%rsi
+        \\syscall
+        \\testq %%rax, %%rax
+        \\jne 1f
+        \\movl stat_buffer+24(%%rip), %%eax
+        \\andl $0xf000, %%eax
+        \\cmpl $0x2000, %%eax
+        \\jne 1f
+        \\cmpq $0xe200, stat_buffer+40(%%rip)
+        \\jne 1f
+        \\movq $89, %%rax
+        \\leaq pci_subsystem_path(%%rip), %%rdi
+        \\leaq pci_attribute(%%rip), %%rsi
+        \\movq $64, %%rdx
+        \\syscall
+        \\cmpq $19, %%rax
+        \\jne 1f
+        \\leaq pci_attribute(%%rip), %%rsi
+        \\leaq pci_subsystem_target(%%rip), %%rdi
+        \\movq $19, %%rcx
+        \\repe cmpsb
+        \\jne 1f
+        \\movq $257, %%rax
+        \\movq $-100, %%rdi
+        \\leaq pci_vendor_path(%%rip), %%rsi
+        \\xorq %%rdx, %%rdx
+        \\syscall
+        \\testq %%rax, %%rax
+        \\js 1f
+        \\movq %%rax, %%r15
+        \\movq $0, %%rax
+        \\movq %%r15, %%rdi
+        \\leaq pci_attribute(%%rip), %%rsi
+        \\movq $64, %%rdx
+        \\syscall
+        \\cmpq $7, %%rax
+        \\jne 1f
+        \\cmpw $0x7830, pci_attribute(%%rip)
+        \\jne 1f
+        \\cmpb $10, pci_attribute+6(%%rip)
+        \\jne 1f
+        \\movq $3, %%rax
+        \\movq %%r15, %%rdi
+        \\syscall
+        \\testq %%rax, %%rax
+        \\jne 1f
+        \\movq $257, %%rax
+        \\movq $-100, %%rdi
+        \\leaq pci_uevent_path(%%rip), %%rsi
+        \\xorq %%rdx, %%rdx
+        \\syscall
+        \\testq %%rax, %%rax
+        \\js 1f
+        \\movq %%rax, %%r15
+        \\movq $0, %%rax
+        \\movq %%r15, %%rdi
+        \\leaq pci_attribute(%%rip), %%rsi
+        \\movq $64, %%rdx
+        \\syscall
+        \\cmpq $14, %%rax
+        \\jle 1f
+        \\leaq pci_attribute(%%rip), %%rsi
+        \\leaq pci_slot_prefix(%%rip), %%rdi
+        \\movq $14, %%rcx
+        \\repe cmpsb
+        \\jne 1f
+        \\movq $3, %%rax
+        \\movq %%r15, %%rdi
+        \\syscall
+        \\testq %%rax, %%rax
+        \\jne 1f
         \\movq $16, %%rax
         \\movq %%r12, %%rdi
         \\movq $0xc0406400, %%rsi
@@ -510,6 +590,14 @@ pub export fn _start() callconv(.naked) noreturn {
         \\testq %%rax, %%rax
         \\js 1f
         \\movq %%rax, %%r12
+        \\movq $5, %%rax
+        \\movq %%r12, %%rdi
+        \\leaq stat_buffer(%%rip), %%rsi
+        \\syscall
+        \\testq %%rax, %%rax
+        \\jne 1f
+        \\cmpq $0xe280, stat_buffer+40(%%rip)
+        \\jne 1f
         \\movq $16, %%rax
         \\movq %%r12, %%rdi
         \\movq $0xc0406400, %%rsi
