@@ -1494,6 +1494,20 @@ pub const AmdGfx11CuInfo = struct {
     tcc_disabled_mask: u32,
 };
 
+pub const amd_gfx11_gb_addr_config_offset: u32 = 0x98f8;
+
+pub fn validateAmdGfx11GbAddrConfig(value: u32, topology: AmdGcInfo) !u32 {
+    const defined_mask: u32 = 0x0c1807ff;
+    if (value == 0 or (value & ~defined_mask) != 0 or (value & 0x38) != 0)
+        return error.InvalidAmdGfx11GbAddrConfig;
+    const addressable_shader_engines = @as(u32, 1) << @intCast((value >> 19) & 0x3);
+    const addressable_rbs_per_se = @as(u32, 1) << @intCast((value >> 26) & 0x3);
+    if (addressable_shader_engines < topology.num_shader_engines or
+        addressable_rbs_per_se < topology.num_rb_per_se)
+        return error.AmdGfx11GbAddrConfigTopologyMismatch;
+    return value;
+}
+
 pub fn resolveAmdGfx11CuRegisters(ip: *const AmdIp, register_bar_bytes: u64) !AmdGfx11CuRegisters {
     if (ip.hw_id != amd_hw_id.gfx or ip.instance != 0 or ip.major != 11 or ip.base_count <= 1 or ip.bases[0] == 0 or ip.bases[1] == 0)
         return error.AmdGfx11CuRegisterBaseMissing;
@@ -1617,6 +1631,15 @@ comptime {
         .double_offchip_lds_buf = 512,
         .wave_front_size = 32,
     };
+    const gb_addr_config = validateAmdGfx11GbAddrConfig(0x04180383, topology) catch
+        @compileError("GFX11 GB_ADDR_CONFIG validation failed");
+    if (gb_addr_config != 0x04180383) @compileError("GFX11 GB_ADDR_CONFIG value mismatch");
+    if (validateAmdGfx11GbAddrConfig(0x0418038b, topology)) |_|
+        @compileError("GFX11 GB_ADDR_CONFIG invalid interleave accepted")
+    else |_| {}
+    if (validateAmdGfx11GbAddrConfig(0x04000383, topology)) |_|
+        @compileError("GFX11 GB_ADDR_CONFIG topology mismatch accepted")
+    else |_| {}
     var factory_wgp = [_]u16{0} ** 16;
     var user_wgp = [_]u16{0} ** 16;
     factory_wgp[0] = 1;

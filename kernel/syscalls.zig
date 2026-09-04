@@ -101,6 +101,7 @@ pub const AmdGpuInfoProfile = struct {
     gfx_revision: u8,
     topology: gpu.AmdGcInfo,
     cu_info: gpu.AmdGfx11CuInfo,
+    gb_addr_config: u32,
     clocks: gpu.AmdGpuClockInfo,
     pcie_generation: u8,
     pcie_width: u8,
@@ -1116,12 +1117,22 @@ pub fn validateAmdGpuDrmAbiSelfTest() !void {
     const test_vm_info = gpu.amdGpuVmInfo();
     const test_vram_info = gpu.AmdAtomVramInfo{ .format_revision = 3, .content_revision = 0, .atom_memory_type = 0x70, .uapi_vram_type = 9, .channel_count = 24, .width_bits = 384 };
     const test_cache_info = try test_topology.cacheInfo();
-    configureAmdGpuInfoProfile(.{ .pci_device = 0, .pci_revision = 0, .chip_revision = 0, .external_revision = 0, .family = 145, .gfx_major = 11, .gfx_minor = 0, .gfx_revision = 2, .topology = test_topology, .cu_info = test_cu_info, .clocks = test_clocks, .pcie_generation = 4, .pcie_width = 16, .vm_info = test_vm_info, .vram_info = test_vram_info, .cache_info = test_cache_info, .mall_size = 96 * 1024 * 1024 });
+    configureAmdGpuInfoProfile(.{ .pci_device = 0, .pci_revision = 0, .chip_revision = 0, .external_revision = 0, .family = 145, .gfx_major = 11, .gfx_minor = 0, .gfx_revision = 2, .topology = test_topology, .cu_info = test_cu_info, .gb_addr_config = 0x04180383, .clocks = test_clocks, .pcie_generation = 4, .pcie_width = 16, .vm_info = test_vm_info, .vram_info = test_vram_info, .cache_info = test_cache_info, .mall_size = 96 * 1024 * 1024 });
     if (amdgpuInfo(@intFromPtr(base + 560)) != 0 or read32(base + 608) != 0) return error.AmdGpuHwIpAcceptedInvalidPhysicalProfile;
-    configureAmdGpuInfoProfile(.{ .pci_device = 0x744c, .pci_revision = 0xc8, .chip_revision = 3, .external_revision = 0x13, .family = 145, .gfx_major = 11, .gfx_minor = 0, .gfx_revision = 2, .topology = test_topology, .cu_info = test_cu_info, .clocks = test_clocks, .pcie_generation = 4, .pcie_width = 16, .vm_info = test_vm_info, .vram_info = test_vram_info, .cache_info = test_cache_info, .mall_size = 96 * 1024 * 1024 });
+    configureAmdGpuInfoProfile(.{ .pci_device = 0x744c, .pci_revision = 0xc8, .chip_revision = 3, .external_revision = 0x13, .family = 145, .gfx_major = 11, .gfx_minor = 0, .gfx_revision = 2, .topology = test_topology, .cu_info = test_cu_info, .gb_addr_config = 0x04180383, .clocks = test_clocks, .pcie_generation = 4, .pcie_width = 16, .vm_info = test_vm_info, .vram_info = test_vram_info, .cache_info = test_cache_info, .mall_size = 96 * 1024 * 1024 });
     if (amdgpuInfo(@intFromPtr(base + 560)) != 0 or read32(base + 608) != 1) return error.AmdGpuHwIpCountAbiMismatch;
+    put32(base + 572, 4);
+    put32(base + 576, gpu.amd_gfx11_gb_addr_config_offset / 4);
+    put32(base + 580, 1);
+    put32(base + 584, 0xffffffff);
+    put32(base + 588, 0);
+    if (amdgpuInfo(@intFromPtr(base + 560)) != 0 or read32(base + 608) != 0x04180383)
+        return error.AmdGpuGbAddrConfigMmrAbiMismatch;
+    put32(base + 576, 0);
+    if (amdgpuInfo(@intFromPtr(base + 560)) != errno(22)) return error.AmdGpuArbitraryMmrReadAccepted;
     put32(base + 568, 40);
     put32(base + 572, 2);
+    put32(base + 576, 0);
     put32(base + 580, 0);
     if (amdgpuInfo(@intFromPtr(base + 560)) != 0 or read32(base + 608) != 11 or read32(base + 612) != 0 or
         read32(base + 624) != 4 or read32(base + 628) != 4 or read32(base + 632) != 1)
@@ -1603,11 +1614,25 @@ fn amdgpuInfo(address: u64) u64 {
         profile.?.vram_info.uapi_vram_type != 0 and profile.?.vram_info.width_bits != 0 and
         profile.?.cache_info.tcp != 0 and profile.?.cache_info.sqc_per_wgp != 0 and
         profile.?.cache_info.gl1 != 0 and profile.?.cache_info.gl2 != 0 and
-        profile.?.mall_size != 0 and
+        profile.?.mall_size != 0 and profile.?.gb_addr_config != 0 and
         profile.?.clocks.counter_khz != 0 and profile.?.clocks.max_engine_khz != 0 and profile.?.clocks.max_memory_khz != 0 and
         profile.?.pci_device != 0 and profile.?.pci_device != 0xffff and profile.?.gfx_major == 11 and
         profile.?.topology.num_shader_engines != 0 and profile.?.topology.num_shader_arrays_per_engine != 0 and
         profile.?.topology.maxCuPerShaderArray() != 0 and profile.?.topology.max_gprs != 0 and profile.?.topology.max_gs_threads != 0;
+    if (query == 4) {
+        if (!gfx_available) return errno(19);
+        const dword_offset = read32(input + 16);
+        const count = read32(input + 20);
+        const instance = read32(input + 24);
+        const flags = read32(input + 28);
+        if (dword_offset != gpu.amd_gfx11_gb_addr_config_offset / 4 or count != 1 or
+            instance != 0xffffffff or flags != 0 or return_size != 4)
+            return errno(22);
+        if (!validUserSlice(return_address, 4)) return errno(14);
+        const output: [*]u8 = @ptrFromInt(return_address);
+        put32(output, profile.?.gb_addr_config);
+        return 0;
+    }
     if (query == 3) {
         if (return_size < 4 or !validUserSlice(return_address, 4)) return errno(14);
         const output: [*]u8 = @ptrFromInt(return_address);

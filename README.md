@@ -820,6 +820,15 @@ o caminho até a GPU escolhe o menor limite de cada nível, detecta hierarquia
 ausente/cíclica e amplia `DEV_INFO` para 136 bytes com `pcie_gen`. A largura é
 retida no perfil para o campo UAPI posterior.
 
+A inicialização do Mesa também exige `AMDGPU_INFO_READ_MMR_REG` para
+`GB_ADDR_CONFIG` mesmo em GFX11. O boot lê o registro físico em `0x98f8`, rejeita
+bits reservados, interleave diferente dos 256 bytes exigidos por RDNA e uma
+capacidade de SE/RB incompatível com a topologia descoberta. O ioctl expõe
+somente o pedido oficial de um dword em `0x263e`, instância broadcast e flags
+zero; qualquer outra leitura MMR continua bloqueada. Assim o RADV recebe o valor
+real usado pelo addrlib para calcular tiling, sem transformar o ioctl em acesso
+arbitrário ao MMIO.
+
 O contrato GPUVA publicado é derivado do page walker já implementado: reserva
 inferior de 64 KiB, janela baixa até o hole canônico de 48 bits, alinhamento,
 fragmento PTE e página GART de 4 KiB. O teste em compile-time confirma a primeira

@@ -780,6 +780,13 @@ pub fn start(info: BootInfo) noreturn {
         gpu.probeAmdGfx11CuInfo(&gpu_adapter, gpu_cu_registers.?, gpu_ip_discovery.?.gc_info.?) catch panic("AMDGPU active CU probe failed")
     else
         null;
+    const gpu_gb_addr_config = if (gpu_adapter.driver == .amdgpu and gpu_ip_discovery.?.gc_info != null)
+        gpu.validateAmdGfx11GbAddrConfig(
+            gpu_adapter.readRegister(gpu.amd_gfx11_gb_addr_config_offset) catch panic("AMDGPU GB_ADDR_CONFIG read failed"),
+            gpu_ip_discovery.?.gc_info.?,
+        ) catch panic("AMDGPU GB_ADDR_CONFIG invalid")
+    else
+        null;
     const gpu_mes_control = if (gpu_mes_registers) |registers|
         gpu_adapter.readRegister(registers.mes_control) catch panic("AMDGPU MES control read failed")
     else
@@ -809,7 +816,7 @@ pub fn start(info: BootInfo) noreturn {
     const gpu_clock_info = if (gpu_atom_firmware_info) |atom| gpu.amdGpuClockInfo(atom) catch null else null;
     const gpu_pcie_link = inventory.pciePathLink(display_device) catch null;
     const gpu_cache_info = if (gpu_ip_discovery.?.gc_info) |topology| topology.cacheInfo() catch null else null;
-    if (gpu_adapter.driver == .amdgpu and gpu_gmc11_nbio_registers != null and gpu_ip_discovery.?.gc_info != null and gpu_ip_discovery.?.mall_size != null and gpu_cu_info != null and gpu_clock_info != null and gpu_pcie_link != null and gpu_atom_vram_info != null and gpu_cache_info != null) {
+    if (gpu_adapter.driver == .amdgpu and gpu_gmc11_nbio_registers != null and gpu_ip_discovery.?.gc_info != null and gpu_ip_discovery.?.mall_size != null and gpu_cu_info != null and gpu_gb_addr_config != null and gpu_clock_info != null and gpu_pcie_link != null and gpu_atom_vram_info != null and gpu_cache_info != null) {
         const gfx_ip = gpu_ip_discovery.?.find(gpu.amd_hw_id.gfx, 0) orelse panic("AMDGPU GFX IP missing");
         const strap = gpu_adapter.readRegister(gpu_gmc11_nbio_registers.?.revision_strap) catch panic("AMDGPU revision strap read failed");
         const identity = gpu.decodeAmdGfx11AsicIdentity(gfx_ip, strap) catch panic("AMDGPU ASIC identity unsupported");
@@ -825,6 +832,7 @@ pub fn start(info: BootInfo) noreturn {
             .gfx_revision = gfx_ip.revision,
             .topology = gpu_ip_discovery.?.gc_info.?,
             .cu_info = gpu_cu_info.?,
+            .gb_addr_config = gpu_gb_addr_config.?,
             .clocks = gpu_clock_info.?,
             .pcie_generation = gpu_pcie_link.?.generation,
             .pcie_width = gpu_pcie_link.?.width,
