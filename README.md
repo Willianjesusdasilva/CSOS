@@ -1471,6 +1471,19 @@ Para executar:
 zig build run
 ```
 
+Para uma validação curta e sem janela, com encerramento automático ao atingir
+o marcador DRM ou expirar o prazo:
+
+```bash
+zig build run -- -SmokeTestSeconds 30
+```
+
+O runner salva logs serial/stderr únicos em `zig-out`, encerra somente o QEMU
+que iniciou e retorna falha se o marcador não aparecer. `-ExpectSerial` permite
+selecionar outro marcador. O sucesso comprova apenas o trecho de boot até esse
+marcador, não o SO completo nem Vulkan. Sem `-SmokeTestSeconds`, a execução
+continua interativa e deve ser encerrada depois do uso.
+
 O target de execução deve gerar a imagem necessária e iniciar o ambiente de desenvolvimento através do QEMU.
 
 Os requisitos exatos podem mudar enquanto o projeto estiver em desenvolvimento.

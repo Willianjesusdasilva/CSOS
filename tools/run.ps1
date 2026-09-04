@@ -5,8 +5,12 @@ param(
     [string]$GpuFirmware,
     [switch]$UsbAudio,
     [switch]$ResetDisk,
-    [string]$AudioBackend = 'none'
+    [string]$AudioBackend = 'none',
+    [ValidateRange(0, 300)][int]$SmokeTestSeconds = 0,
+    [string]$ExpectSerial = 'CSOS M14 userspace DRM core ready'
 )
+
+$ErrorActionPreference = 'Stop'
 
 $qemu = Get-Command qemu-system-x86_64 -ErrorAction SilentlyContinue
 if (-not $qemu) {
@@ -46,5 +50,54 @@ if ($UsbAudio) {
     $audioArguments += 'usb-audio,bus=xhci.0,audiodev=audio0'
 }
 
-& $qemu.FullName -machine q35 -smp 4 -m 256M -drive "if=pflash,format=raw,readonly=on,file=$localOvmf" -drive "format=raw,file=fat:rw:$esp" -drive "if=none,id=nvme0,format=raw,file=$nvmeDisk" -device "nvme,drive=nvme0,serial=CSOS0001" -device "qemu-xhci,id=xhci" -device "usb-kbd,bus=xhci.0" -device "usb-mouse,bus=xhci.0" @audioArguments -netdev "user,id=net0" -device "e1000e,netdev=net0" -monitor "tcp:127.0.0.1:4444,server=on,wait=off" -serial stdio -no-reboot
+$qemuArguments = @(
+    '-machine', 'q35', '-smp', '4', '-m', '256M',
+    '-drive', "if=pflash,format=raw,readonly=on,file=$localOvmf",
+    '-drive', "format=raw,file=fat:rw:$esp",
+    '-drive', "if=none,id=nvme0,format=raw,file=$nvmeDisk",
+    '-device', 'nvme,drive=nvme0,serial=CSOS0001',
+    '-device', 'qemu-xhci,id=xhci', '-device', 'usb-kbd,bus=xhci.0',
+    '-device', 'usb-mouse,bus=xhci.0'
+) + $audioArguments + @('-netdev', 'user,id=net0', '-device', 'e1000e,netdev=net0', '-no-reboot')
+
+if ($SmokeTestSeconds -gt 0) {
+    if ([string]::IsNullOrWhiteSpace($ExpectSerial)) { throw 'ExpectSerial must not be empty' }
+    $runId = [Guid]::NewGuid().ToString('N')
+    $serialLog = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\zig-out\smoke-$runId.serial.log"))
+    $errorLog = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\zig-out\smoke-$runId.stderr.log"))
+    $qemuArguments += @('-display', 'none', '-monitor', 'none', '-serial', "file:$serialLog")
+    # Start-Process joins ArgumentList into a Windows command line. Quote each
+    # argument explicitly so installation/workspace paths with spaces survive.
+    $quotedArguments = $qemuArguments | ForEach-Object { '"' + $_.Replace('"', '\"') + '"' }
+    $testProcess = $null
+    $testResult = 124
+    try {
+        $testProcess = Start-Process -FilePath $qemu.FullName -ArgumentList $quotedArguments -PassThru -WindowStyle Hidden -RedirectStandardError $errorLog
+        $timer = [Diagnostics.Stopwatch]::StartNew()
+        while ($timer.Elapsed.TotalSeconds -lt $SmokeTestSeconds) {
+            $serialText = ''
+            if (Test-Path -LiteralPath $serialLog) {
+                $stream = [IO.File]::Open($serialLog, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+                $reader = New-Object IO.StreamReader($stream)
+                try { $serialText = $reader.ReadToEnd() } finally { $reader.Dispose() }
+            }
+            if ($serialText.Contains($ExpectSerial)) { $testResult = 0; break }
+            if ($testProcess.HasExited) { $testResult = 1; break }
+            Start-Sleep -Milliseconds 200
+        }
+    } finally {
+        if ($null -ne $testProcess) {
+            if (-not $testProcess.HasExited) { Stop-Process -Id $testProcess.Id -Force }
+            $testProcess.WaitForExit()
+            $testProcess.Dispose()
+        }
+        Write-Output "Serial log: $serialLog"
+        Write-Output "QEMU stderr: $errorLog"
+    }
+    if ($testResult -eq 0) { Write-Output "Observed serial marker: $ExpectSerial" }
+    else { Write-Output "Serial marker not observed within the bounded run: $ExpectSerial" }
+    exit $testResult
+}
+
+& $qemu.FullName @qemuArguments -monitor "tcp:127.0.0.1:4444,server=on,wait=off" -serial stdio
 exit $LASTEXITCODE
