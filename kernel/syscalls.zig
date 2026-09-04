@@ -79,7 +79,7 @@ var drm_vm_vmid: u4 = 0;
 var drm_vm_hardware: ?gpu.AmdGpuVmHardwareSession = null;
 pub const AmdGpuCsEndpoint = struct {
     context: *anyopaque,
-    submit: *const fn (*anyopaque, u4, u64, u32) anyerror!u64,
+    submit: *const fn (*anyopaque, u4, []const gpu.AmdGfx11IndirectBuffer) anyerror!u64,
 };
 var amdgpu_cs_endpoint: ?AmdGpuCsEndpoint = null;
 pub const AmdGpuVramEndpoint = struct {
@@ -124,8 +124,10 @@ pub const AmdGpuFirmwareProfile = struct {
 };
 var amdgpu_firmware_profile: ?AmdGpuFirmwareProfile = null;
 var amdgpu_abi_test_dispatches: u32 = 0;
-fn amdgpuAbiTestSubmit(_: *anyopaque, vmid: u4, address: u64, dwords: u32) !u64 {
-    if (vmid != 1 or address != 0x4000 or dwords != 4) return error.InvalidAmdGpuAbiTestSubmission;
+fn amdgpuAbiTestSubmit(_: *anyopaque, vmid: u4, ibs: []const gpu.AmdGfx11IndirectBuffer) !u64 {
+    if (vmid != 1 or ibs.len == 0 or ibs.len > 2) return error.InvalidAmdGpuAbiTestSubmission;
+    for (ibs, 0..) |ib, index| if (ib.address != 0x4000 + index * 16 or ib.dwords != 4)
+        return error.InvalidAmdGpuAbiTestSubmission;
     amdgpu_abi_test_dispatches += 1;
     return 0x100 + amdgpu_abi_test_dispatches;
 }
@@ -853,13 +855,12 @@ fn amdgpuCs(address: u64) u64 {
     var list: ?*const AmdGpuBoList = null;
     if (list_handle != 0) list = amdgpuBoListForHandle(list_handle) orelse return errno(2);
     const chunk_count = read32(io + 8);
-    if (chunk_count == 0 or chunk_count > 7 or read32(io + 12) != 0) return errno(95);
+    if (chunk_count == 0 or chunk_count > gpu.max_amd_gfx11_submission_ibs + 8 or read32(io + 12) != 0) return errno(95);
     const chunk_pointers_address = read64(io + 16);
     if (!validUserSlice(chunk_pointers_address, @as(u64, chunk_count) * 8)) return errno(14);
     const chunk_pointers: [*]const u8 = @ptrFromInt(chunk_pointers_address);
-    var gpu_va: u64 = 0;
-    var ib_bytes: u32 = 0;
-    var saw_ib = false;
+    var ibs: [gpu.max_amd_gfx11_submission_ibs]gpu.AmdGfx11IndirectBuffer = undefined;
+    var ib_count: usize = 0;
     var saw_binary_in = false;
     var saw_timeline_in = false;
     var saw_sync_out = false;
@@ -879,16 +880,17 @@ fn amdgpuCs(address: u64) u64 {
         const length_dw = read32(chunk + 4);
         const data_address = read64(chunk + 8);
         if (chunk_id == 1) {
-            if (saw_ib or length_dw != 8 or !validUserSlice(data_address, 32)) return errno(95);
+            if (ib_count == ibs.len or length_dw != 8 or !validUserSlice(data_address, 32)) return errno(95);
             const ib: [*]const u8 = @ptrFromInt(data_address);
             const flags = read32(ib + 4);
-            gpu_va = read64(ib + 8);
-            ib_bytes = read32(ib + 16);
+            const gpu_va = read64(ib + 8);
+            const ib_bytes = read32(ib + 16);
             if (read32(ib) != 0 or flags != 0 or gpu_va == 0 or (gpu_va & 3) != 0 or
                 ib_bytes == 0 or (ib_bytes & 3) != 0 or ib_bytes > 0x003ffffc or
                 read32(ib + 20) != 0 or read32(ib + 24) != 0 or read32(ib + 28) != 0)
                 return errno(95);
-            saw_ib = true;
+            ibs[ib_count] = .{ .address = gpu_va, .dwords = ib_bytes / 4 };
+            ib_count += 1;
             continue;
         }
         if (chunk_id == 2) {
@@ -960,11 +962,13 @@ fn amdgpuCs(address: u64) u64 {
             }
         }
     }
-    if (!saw_ib) return errno(95);
-    if (drm_vm_vmid == 0 or !amdgpuBoListCoversGpuVa(list orelse &inline_list, gpu_va, ib_bytes)) return errno(22);
+    if (ib_count == 0) return errno(95);
+    if (drm_vm_vmid == 0) return errno(22);
+    for (ibs[0..ib_count]) |ib|
+        if (!amdgpuBoListCoversGpuVa(list orelse &inline_list, ib.address, ib.dwords * 4)) return errno(22);
     const endpoint = amdgpu_cs_endpoint orelse return errno(95);
     if (context.next_handle == ~@as(u64, 0)) return errno(75);
-    const hardware_sequence = endpoint.submit(endpoint.context, drm_vm_vmid, gpu_va, ib_bytes / 4) catch |err| return switch (err) {
+    const hardware_sequence = endpoint.submit(endpoint.context, drm_vm_vmid, ibs[0..ib_count]) catch |err| return switch (err) {
         error.AmdGfxSubmissionQueueStopped, error.AmdGfxSubmissionRingNotIdle => errno(16),
         error.AmdGfxSubmissionTimeout, error.AmdGfxSubmissionDoorbellFailed,
         error.AmdCpGfxStopFailed => errno(5),
@@ -1268,9 +1272,19 @@ pub fn validateAmdGpuDrmAbiSelfTest() !void {
     put32(base + 2096, 6);
     put32(base + 2100, 6);
     put64(base + 2104, @intFromPtr(base + 2064));
+    put64(base + 2136, 0);
+    put64(base + 2144, 0x4010);
+    put32(base + 2152, 16);
+    put32(base + 2156, 0);
+    put32(base + 2160, 0);
+    put32(base + 2164, 0);
+    put32(base + 2176, 1);
+    put32(base + 2180, 8);
+    put64(base + 2184, @intFromPtr(base + 2136));
     put64(base + 2112, @intFromPtr(base + 128));
-    put64(base + 2120, @intFromPtr(base + 2096));
-    put32(base + 168, 2);
+    put64(base + 2120, @intFromPtr(base + 2176));
+    put64(base + 2128, @intFromPtr(base + 2096));
+    put32(base + 168, 3);
     put64(base + 176, @intFromPtr(base + 2112));
     if (amdgpuCs(@intFromPtr(base + 160)) != errno(22) or amdgpu_abi_test_dispatches != 0)
         return error.AmdGpuPersistentAndInlineBoListAccepted;

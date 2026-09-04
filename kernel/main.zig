@@ -83,7 +83,7 @@ fn drmAmdVramLargestFreeBytes(raw: *anyopaque) u64 {
     return allocator.largestFreeBytes();
 }
 
-fn submitDrmAmdGpuCs(raw: *anyopaque, vmid: u4, ib_address: u64, ib_dwords: u32) !u64 {
+fn submitDrmAmdGpuCs(raw: *anyopaque, vmid: u4, ibs: []const gpu.AmdGfx11IndirectBuffer) !u64 {
     const runtime: *GpuCsRuntime = @ptrCast(@alignCast(raw));
     if (!runtime.active or !gpu_vm_runtime.active or !gpu_vm_runtime.context.bound or
         gpu_vm_runtime.context.vmid != vmid)
@@ -94,9 +94,9 @@ fn submitDrmAmdGpuCs(raw: *anyopaque, vmid: u4, ib_address: u64, ib_dwords: u32)
     defer mmio.disarm();
     try doorbell.arm();
     defer doorbell.disarm();
-    const result = try gpu.submitAmdGfx11IndirectBuffer(
+    const result = try gpu.submitAmdGfx11IndirectBuffers(
         runtime.plan.?, &runtime.queue, runtime.ring.?, runtime.pointers.?, runtime.fence.?,
-        runtime.fence_gpu, vmid, ib_address, ib_dwords, 2_100_000, mmio.io(), doorbell.io(),
+        runtime.fence_gpu, vmid, ibs, 2_100_000, mmio.io(), doorbell.io(),
     );
     return result.sequence;
 }

@@ -738,12 +738,13 @@ flags de criação, implementa `AMDGPU_GEM_METADATA` (set/get de até 256 bytes)
 submissão aceita ainda espera o fence físico antes de retornar;
 `AMDGPU_INFO_ACCEL_WORKING` continua zero. A VM
 possui isolamento por VMID e page tables testadas no host, e o ring gráfico já
-passa o teste PM4 privado. O encoder de submissão produz o pacote GFX11
-`INDIRECT_BUFFER` para VMIDs 1–7 seguido de `RELEASE_MEM` com fence de 64 bits.
+passa o teste PM4 privado. O encoder de submissão produz até 192 pacotes GFX11
+`INDIRECT_BUFFER` para VMIDs 1–7 seguidos de `RELEASE_MEM` com fence de 64 bits.
 `AMDGPU_CTX` já aloca, consulta e libera contextos de prioridade não privilegiada;
 `AMDGPU_BO_LIST` cria, atualiza e destrói listas validadas, mantendo os BOs vivos.
-O parser inicial de `AMDGPU_CS` aceita como formato somente um IB GFX simples e
-prova contexto, lista, flags, limites e cobertura GPUVA legível página a página.
+O parser de `AMDGPU_CS` aceita até 192 chunks IB GFX, o limite de uma submissão
+do RADV atual, e prova individualmente engine, instância, ring, flags, tamanho,
+alinhamento e cobertura GPUVA legível página a página antes de tocar o hardware.
 Além dos handles persistentes de `AMDGPU_BO_LIST`, ele aceita o chunk
 `AMDGPU_CHUNK_ID_BO_HANDLES` de 24 bytes emitido pelo RADV atual, copia e valida
 as entradas de 8 bytes apenas durante a submissão, limita prioridades ao máximo
@@ -771,10 +772,12 @@ apontar para handle já concluído; no executor síncrono atual, “scheduled”
 deliberadamente tão estrito quanto “completed”, pois não há estado pendente
 intermediário confiável. O
 backend do ring já possui uma transação interna separada do ioctl: exige o ring
-ocioso no WPTR confirmado, grava os 12 dwords com wrap em 1024 slots, publica
-WPTR somente após `mfence`, toca o doorbell autorizado e espera simultaneamente
-RPTR e fence de 64 bits. Sequence só avança após ambas as confirmações; falha de
-doorbell ou timeout marca a fila como parada e desativa o CP.
+ocioso no WPTR confirmado, grava em ordem quatro dwords por IB e oito dwords do
+fence final, com wrap em 1024 slots, publica WPTR somente após `mfence`, toca o
+doorbell autorizado e espera simultaneamente RPTR e fence de 64 bits. O frame
+máximo possui 776 dwords e cabe integralmente no ring. Sequence só avança após
+ambas as confirmações; falha de doorbell ou timeout marca a fila como parada e
+desativa o CP, sem publicar conclusão parcial.
 
 `zig build test` agora inclui um artefato host específico para a ABI DRM AMDGPU.
 Ele executa os handlers reais de CTX, BO_LIST, CS, WAIT_CS e syncobj em buffers

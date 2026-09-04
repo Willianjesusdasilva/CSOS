@@ -1871,40 +1871,54 @@ pub fn testAmdGfx11CpGfxRing(
     return error.AmdCpGfxRingTestTimeout;
 }
 
+pub const max_amd_gfx11_submission_ibs: usize = 192;
+pub const AmdGfx11IndirectBuffer = struct { address: u64, dwords: u32 };
 pub const AmdGfx11SubmissionFrame = struct {
-    dwords: [12]u32,
+    dwords: [max_amd_gfx11_submission_ibs * 4 + 8]u32,
+    dword_count: u16,
     vmid: u4,
-    ib_dwords: u20,
+    ib_count: u8,
     sequence: u64,
 };
 
 pub fn encodeAmdGfx11SubmissionFrame(vmid: u8, ib_address: u64, ib_dwords: u32, fence_address: u64, sequence: u64) !AmdGfx11SubmissionFrame {
+    const ibs = [_]AmdGfx11IndirectBuffer{.{ .address = ib_address, .dwords = ib_dwords }};
+    return encodeAmdGfx11SubmissionFrames(vmid, &ibs, fence_address, sequence);
+}
+
+pub fn encodeAmdGfx11SubmissionFrames(vmid: u8, ibs: []const AmdGfx11IndirectBuffer, fence_address: u64, sequence: u64) !AmdGfx11SubmissionFrame {
     const gpu_limit: u64 = @as(u64, 1) << 48;
     if (vmid == 0 or vmid > 7) return error.AmdGfxSubmissionVmidReserved;
-    if (ib_address == 0 or (ib_address & 3) != 0 or ib_address >= gpu_limit or
-        ib_dwords == 0 or ib_dwords > 0x000fffff)
+    if (ibs.len == 0 or ibs.len > max_amd_gfx11_submission_ibs) return error.InvalidAmdGfxIndirectBuffer;
+    for (ibs) |ib| if (ib.address == 0 or (ib.address & 3) != 0 or ib.address >= gpu_limit or
+        ib.dwords == 0 or ib.dwords > 0x000fffff)
         return error.InvalidAmdGfxIndirectBuffer;
     if (fence_address == 0 or (fence_address & 7) != 0 or fence_address >= gpu_limit or sequence == 0)
         return error.InvalidAmdGfxSubmissionFence;
-    return .{
+    var frame = AmdGfx11SubmissionFrame{
+        .dwords = .{0} ** (max_amd_gfx11_submission_ibs * 4 + 8),
+        .dword_count = @intCast(ibs.len * 4 + 8),
         .vmid = @intCast(vmid),
-        .ib_dwords = @intCast(ib_dwords),
+        .ib_count = @intCast(ibs.len),
         .sequence = sequence,
-        .dwords = .{
-            amdPacket3(0x3f, 2),
-            @truncate(ib_address),
-            @truncate(ib_address >> 32),
-            ib_dwords | (@as(u32, vmid) << 24),
-            amdPacket3(0x49, 6),
-            0x06603514,
-            0x40000000,
-            @truncate(fence_address),
-            @truncate(fence_address >> 32),
-            @truncate(sequence),
-            @truncate(sequence >> 32),
-            0,
-        },
     };
+    var cursor: usize = 0;
+    for (ibs) |ib| {
+        frame.dwords[cursor] = amdPacket3(0x3f, 2);
+        frame.dwords[cursor + 1] = @truncate(ib.address);
+        frame.dwords[cursor + 2] = @truncate(ib.address >> 32);
+        frame.dwords[cursor + 3] = ib.dwords | (@as(u32, vmid) << 24);
+        cursor += 4;
+    }
+    frame.dwords[cursor] = amdPacket3(0x49, 6);
+    frame.dwords[cursor + 1] = 0x06603514;
+    frame.dwords[cursor + 2] = 0x40000000;
+    frame.dwords[cursor + 3] = @truncate(fence_address);
+    frame.dwords[cursor + 4] = @truncate(fence_address >> 32);
+    frame.dwords[cursor + 5] = @truncate(sequence);
+    frame.dwords[cursor + 6] = @truncate(sequence >> 32);
+    frame.dwords[cursor + 7] = 0;
+    return frame;
 }
 
 pub const AmdGfx11SubmissionQueue = struct {
@@ -1929,17 +1943,34 @@ pub fn submitAmdGfx11IndirectBuffer(
     io: AmdRegisterIo,
     doorbells: AmdDoorbellIo,
 ) !AmdGfx11SubmissionResult {
+    const ibs = [_]AmdGfx11IndirectBuffer{.{ .address = ib_address, .dwords = ib_dwords }};
+    return submitAmdGfx11IndirectBuffers(plan, queue, ring, pointers, fence, fence_address, vmid, &ibs, poll_limit, io, doorbells);
+}
+
+pub fn submitAmdGfx11IndirectBuffers(
+    plan: AmdGfx11CpGfxPlan,
+    queue: *AmdGfx11SubmissionQueue,
+    ring: *[1024]u32,
+    pointers: *[512]u64,
+    fence: *u64,
+    fence_address: u64,
+    vmid: u8,
+    ibs: []const AmdGfx11IndirectBuffer,
+    poll_limit: u32,
+    io: AmdRegisterIo,
+    doorbells: AmdDoorbellIo,
+) !AmdGfx11SubmissionResult {
     if (queue.stopped) return error.AmdGfxSubmissionQueueStopped;
-    if (poll_limit == 0 or queue.next_sequence == 0 or queue.committed_wptr > std.math.maxInt(u64) - 12)
-        return error.InvalidAmdGfxSubmissionQueue;
+    if (poll_limit == 0 or queue.next_sequence == 0) return error.InvalidAmdGfxSubmissionQueue;
     const rptr = @atomicLoad(u64, &pointers[0], .seq_cst);
     const wptr = @atomicLoad(u64, &pointers[1], .seq_cst);
     if (rptr != queue.committed_wptr or wptr != queue.committed_wptr) return error.AmdGfxSubmissionRingNotIdle;
     const sequence = queue.next_sequence;
-    const frame = try encodeAmdGfx11SubmissionFrame(vmid, ib_address, ib_dwords, fence_address, sequence);
+    const frame = try encodeAmdGfx11SubmissionFrames(vmid, ibs, fence_address, sequence);
+    if (queue.committed_wptr > std.math.maxInt(u64) - @as(u64, frame.dword_count)) return error.InvalidAmdGfxSubmissionQueue;
     @atomicStore(u64, fence, 0, .seq_cst);
-    for (frame.dwords, 0..) |dword, index| ring[@intCast((wptr + index) & 1023)] = dword;
-    const final_wptr = wptr + frame.dwords.len;
+    for (frame.dwords[0..frame.dword_count], 0..) |dword, index| ring[@intCast((wptr + index) & 1023)] = dword;
+    const final_wptr = wptr + frame.dword_count;
     asm volatile ("mfence" ::: .{ .memory = true });
     @atomicStore(u64, &pointers[1], final_wptr, .seq_cst);
     asm volatile ("mfence" ::: .{ .memory = true });
@@ -4859,9 +4890,23 @@ pub fn validateAmdGfx11CpGfxResumeSelfTest() !void {
         0xc0064900, 0x06603514, 0x40000000, 0x34455000,
         0x223, 0x55667788, 0x11223344, 0,
     };
-    if (!std.mem.eql(u32, &submission.dwords, &expected_submission) or submission.vmid != 3 or
-        submission.ib_dwords != 0x321 or submission.sequence != 0x1122334455667788)
+    if (!std.mem.eql(u32, submission.dwords[0..submission.dword_count], &expected_submission) or submission.vmid != 3 or
+        submission.ib_count != 1 or submission.sequence != 0x1122334455667788)
         return error.AmdGfxSubmissionFrameMismatch;
+    const multiple_ibs = [_]AmdGfx11IndirectBuffer{
+        .{ .address = 0x12345678000, .dwords = 0x321 },
+        .{ .address = 0x22334456000, .dwords = 0x123 },
+    };
+    const multiple_submission = try encodeAmdGfx11SubmissionFrames(3, &multiple_ibs, 0x22334455000, 7);
+    const expected_multiple = [16]u32{
+        0xc0023f00, 0x45678000, 0x123, 0x03000321,
+        0xc0023f00, 0x34456000, 0x223, 0x03000123,
+        0xc0064900, 0x06603514, 0x40000000, 0x34455000,
+        0x223, 7, 0, 0,
+    };
+    if (multiple_submission.ib_count != 2 or multiple_submission.dword_count != expected_multiple.len or
+        !std.mem.eql(u32, multiple_submission.dwords[0..multiple_submission.dword_count], &expected_multiple))
+        return error.AmdGfxMultipleSubmissionFrameMismatch;
     if (encodeAmdGfx11SubmissionFrame(0, 0x1000, 1, 0x2000, 1)) |_| return error.AmdGfxSystemVmidSubmissionAccepted else |err| if (err != error.AmdGfxSubmissionVmidReserved) return err;
     if (encodeAmdGfx11SubmissionFrame(8, 0x1000, 1, 0x2000, 1)) |_| return error.AmdGfxMesVmidSubmissionAccepted else |err| if (err != error.AmdGfxSubmissionVmidReserved) return err;
     if (encodeAmdGfx11SubmissionFrame(1, 0x1001, 1, 0x2000, 1)) |_| return error.AmdGfxMisalignedIbAccepted else |err| if (err != error.InvalidAmdGfxIndirectBuffer) return err;
@@ -4886,6 +4931,17 @@ pub fn validateAmdGfx11CpGfxResumeSelfTest() !void {
         queue.next_sequence != 2 or queue.committed_wptr != 975 or queue.stopped or fence != 1 or
         !std.mem.eql(u32, ring[963..975], &expected_transaction))
         return error.AmdGfxSubmissionTransactionMismatch;
+
+    doorbell.expected_wptr = 991;
+    doorbell.fence_value = 2;
+    const submitted_multiple = try submitAmdGfx11IndirectBuffers(
+        plan, &queue, &ring, &pointers, &fence, 0x22334455000, 3, &multiple_ibs, 2, bank.io(), doorbell.io(),
+    );
+    var expected_multiple_transaction = expected_multiple;
+    expected_multiple_transaction[13] = 2;
+    if (submitted_multiple.sequence != 2 or submitted_multiple.final_wptr != 991 or queue.next_sequence != 3 or
+        queue.committed_wptr != 991 or fence != 2 or !std.mem.eql(u32, ring[975..991], &expected_multiple_transaction))
+        return error.AmdGfxMultipleSubmissionTransactionMismatch;
 
     queue = .{ .next_sequence = 9, .committed_wptr = 1018 };
     pointers[0] = 1018;
