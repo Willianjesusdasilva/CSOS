@@ -254,6 +254,7 @@ pub fn configureFramebuffer(info: Framebuffer) void {
 }
 
 pub fn configureDrm(driver: DrmDriver) void { drm_driver = driver; }
+pub fn configureDrmPci(identity: vfs.DrmPciIdentity) void { vfs.configureDrmPci(identity); }
 pub fn configureDrmMemory(pages: *physical.Allocator) void { drm_pages = pages; }
 pub fn configureDrmGpuVmHardware(hardware: ?gpu.AmdGpuVmHardware) void {
     if (drm_vm_hardware != null and drm_vm_hardware.?.bound_vmid != 0) return;
@@ -324,6 +325,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         63 => uname(arg1),
         72 => fcntl(arg1, arg2, arg3),
         79 => getcwd(arg1, arg2),
+        89 => readlinkat(@bitCast(@as(i64, -100)), arg1, arg2, arg3),
         96 => writeTime(arg1, 16),
         102, 104 => 0,
         105, 106 => if (arg1 == 0) 0 else errno(1),
@@ -334,6 +336,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         228 => writeTime(arg2, 16),
         257 => openat(arg1, arg2, arg3),
         262 => stat(arg2, arg3, @bitCast(arg1)),
+        267 => readlinkat(@bitCast(arg1), arg2, arg3, arg4),
         else => unsupported(number),
     };
 }
@@ -1037,6 +1040,7 @@ fn amdgpuWaitCs(address: u64) u64 {
 }
 
 pub fn validateAmdGpuDrmAbiSelfTest() !void {
+    try vfs.validateDrmPciIdentitySelfTest();
     var memory: [16384]u8 align(4096) = .{0} ** 16384;
     var test_pages = physical.Allocator{ .free_pages = 255, .total_pages = 256, .installed_pages = 256 };
     configure(@intFromPtr(&memory), memory.len, 0, 0, @intFromPtr(&memory) + memory.len, @intFromPtr(&memory) + memory.len, @intFromPtr(&memory), @intFromPtr(&memory) + memory.len);
@@ -2135,10 +2139,19 @@ fn writeStat(address: u64, info: vfs.Info) u64 {
     put64(bytes + 8, 1);
     put64(bytes + 16, 1);
     put32(bytes + 24, info.mode);
+    put64(bytes + 40, info.rdev);
     put64(bytes + 48, info.size);
     put64(bytes + 56, 4096);
     put64(bytes + 64, (info.size + 511) / 512);
     return 0;
+}
+
+fn readlinkat(directory_fd: i64, path_address: u64, output_address: u64, length: u64) u64 {
+    var path_buffer: [256]u8 = undefined;
+    const path = userString(path_address, &path_buffer) orelse return errno(14);
+    if (!validUserSlice(output_address, length)) return errno(14);
+    const output: [*]u8 = @ptrFromInt(output_address);
+    return vfs.readLinkAt(directory_fd, path, output[0..@intCast(length)]) catch |err| vfsError(err);
 }
 
 fn lseek(fd: u64, raw_offset: u64, whence: u64) u64 {

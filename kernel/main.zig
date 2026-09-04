@@ -215,6 +215,15 @@ pub fn start(info: BootInfo) noreturn {
         0x10de => .nouveau,
         else => .csos,
     });
+    syscalls.configureDrmPci(.{
+        .bus = display_device.bus,
+        .slot = display_device.slot,
+        .function = display_device.function,
+        .vendor = display_device.vendor,
+        .device = display_device.device,
+        .subsystem_vendor = display_device.subsystem_vendor,
+        .subsystem_device = display_device.subsystem_device,
+    });
 
     smp.prepare(mapper.root) catch panic("SMP trampoline failed");
     const bsp_id = apic.id();
