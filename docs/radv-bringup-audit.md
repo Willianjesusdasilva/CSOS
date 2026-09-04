@@ -69,6 +69,21 @@ reportaram falha de dematerialização da VM DRM. O teste é opt-in e o padrão
 não altera o driver. Próxima ação: corrigir a recuperação sem relaxar a
 igualdade de contagem e repetir exigindo o marcador M17, não só o marcador DRM.
 
+### Revalidação da regressão
+
+A imagem sem instrumentação voltou a falhar com 50099 → 50098 páginas.
+Uma imagem com duas mensagens temporárias em `resetDrmVm` mostrou incremento
+de 47749 para 47750 páginas na dematerialização e passou pelo marcador M17.
+Removidas as mensagens, a falha de uma página retornou. As mensagens temporárias
+não foram mantidas: alterar o layout/tempo da imagem não constitui correção.
+Essa comparação enfraquece a hipótese de simplesmente faltar liberar a raiz
+DRM, mas não identifica a causa. A próxima investigação deve rastrear as
+alocações/liberações por endereço e fase, incluindo fragmentação e page tables
+CPU; não compensar a contagem nem descartar a página como custo esperado.
+Logs locais preservados em `zig-out`: `smoke-7e553ec48c9b4d5c9c7abe72b9abedb0.serial.log`
+(instrumentado, passou) e `smoke-71668f1bc9294576bc1f07c37b19e1ec.serial.log`
+(sem instrumentação, falhou). Ambos os QEMUs foram encerrados pelo runner.
+
 ## Gate de aceleração
 
 `amdgpu_device_initialize` aborta se `AMDGPU_INFO_ACCEL_WORKING` for zero.
