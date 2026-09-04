@@ -848,7 +848,10 @@ fn amdgpuCs(address: u64) u64 {
     if (!validUserSlice(address, 24)) return errno(14);
     const io: [*]const u8 = @ptrFromInt(address);
     const context = amdgpuContextForId(read32(io)) orelse return errno(2);
-    const list = amdgpuBoListForHandle(read32(io + 4)) orelse return errno(2);
+    const list_handle = read32(io + 4);
+    var inline_list = AmdGpuBoList{};
+    var list: ?*const AmdGpuBoList = null;
+    if (list_handle != 0) list = amdgpuBoListForHandle(list_handle) orelse return errno(2);
     const chunk_count = read32(io + 8);
     if (chunk_count == 0 or chunk_count > 7 or read32(io + 12) != 0) return errno(95);
     const chunk_pointers_address = read64(io + 16);
@@ -895,9 +898,16 @@ fn amdgpuCs(address: u64) u64 {
             const fence_offset = read32(fence_data + 4);
             const fence_object = drmObjectForHandle(fence_handle) orelse return errno(2);
             if (fence_object.size != 4096 or (fence_object.domains & 2) == 0 or fence_object.physical_address == 0 or
-                (fence_offset & 7) != 0 or fence_offset > 4096 - 8 or !amdgpuBoListContains(list, fence_handle))
+                (fence_offset & 7) != 0 or fence_offset > 4096 - 8 or !amdgpuBoIsResident(list orelse &inline_list, fence_handle))
                 return errno(22);
             user_fence = @ptrFromInt(fence_object.physical_address + fence_offset);
+            continue;
+        }
+        if (chunk_id == 6) {
+            if (list != null) return errno(22);
+            const result = amdgpuCsInlineBoList(data_address, length_dw, &inline_list);
+            if (result != 0) return result;
+            list = &inline_list;
             continue;
         }
         if (chunk_id == 3 or chunk_id == 7) {
@@ -951,7 +961,7 @@ fn amdgpuCs(address: u64) u64 {
         }
     }
     if (!saw_ib) return errno(95);
-    if (drm_vm_vmid == 0 or !amdgpuBoListCoversGpuVa(list, gpu_va, ib_bytes)) return errno(22);
+    if (drm_vm_vmid == 0 or !amdgpuBoListCoversGpuVa(list orelse &inline_list, gpu_va, ib_bytes)) return errno(22);
     const endpoint = amdgpu_cs_endpoint orelse return errno(95);
     if (context.next_handle == ~@as(u64, 0)) return errno(75);
     const hardware_sequence = endpoint.submit(endpoint.context, drm_vm_vmid, gpu_va, ib_bytes / 4) catch |err| return switch (err) {
@@ -974,10 +984,34 @@ fn amdgpuCs(address: u64) u64 {
     return 0;
 }
 
-fn amdgpuBoListContains(list: *const AmdGpuBoList, handle: u32) bool {
+fn amdgpuCsInlineBoList(address: u64, length_dw: u32, list: *AmdGpuBoList) u64 {
+    if (length_dw < 6) return errno(22);
+    if (!validUserSlice(address, @as(u64, length_dw) * 4)) return errno(14);
+    const input: [*]const u8 = @ptrFromInt(address);
+    const count = read32(input + 8);
+    const stride = read32(input + 12);
+    const entries_address = read64(input + 16);
+    if (count > max_drm_objects or stride != 8) return errno(22);
+    list.* = .{ .allocated = true };
+    if (count == 0) return 0;
+    if (!validUserSlice(entries_address, @as(u64, count) * 8)) return errno(14);
+    const entries: [*]const u8 = @ptrFromInt(entries_address);
+    var index: usize = 0;
+    while (index < count) : (index += 1) {
+        const handle = read32(entries + index * 8);
+        if (drmObjectForHandle(handle) == null) return errno(2);
+        list.handles[index] = handle;
+        list.priorities[index] = @min(read32(entries + index * 8 + 4), 32);
+    }
+    list.count = @intCast(count);
+    return 0;
+}
+
+fn amdgpuBoIsResident(list: *const AmdGpuBoList, handle: u32) bool {
     var index: usize = 0;
     while (index < list.count) : (index += 1) if (list.handles[index] == handle) return true;
-    return false;
+    const object = drmObjectForHandle(handle) orelse return false;
+    return (object.allocation_flags & amdgpu_gem_create_vm_always_valid) != 0;
 }
 
 fn amdgpuWaitCs(address: u64) u64 {
@@ -1220,8 +1254,33 @@ pub fn validateAmdGpuDrmAbiSelfTest() !void {
         read32(base + 1032) != 0 or read32(base + 1036) != 0 or read32(base + 1040) != 0 or
         read32(base + 1044) != 0 or read32(base + 1048) != 0)
         return error.AmdGpuDevInfoUnsupportedQueueCapabilityLeaked;
+    put32(base + 2048, 1);
+    put32(base + 2052, 99);
+    put32(base + 2064, ~@as(u32, 0));
+    put32(base + 2068, ~@as(u32, 0));
+    put32(base + 2072, 1);
+    put32(base + 2076, 8);
+    put64(base + 2080, @intFromPtr(base + 2048));
+    var parsed_inline_list = AmdGpuBoList{};
+    if (amdgpuCsInlineBoList(@intFromPtr(base + 2064), 6, &parsed_inline_list) != 0 or
+        parsed_inline_list.count != 1 or parsed_inline_list.handles[0] != 1 or parsed_inline_list.priorities[0] != 32)
+        return error.AmdGpuInlineBoListParseMismatch;
+    put32(base + 2096, 6);
+    put32(base + 2100, 6);
+    put64(base + 2104, @intFromPtr(base + 2064));
+    put64(base + 2112, @intFromPtr(base + 128));
+    put64(base + 2120, @intFromPtr(base + 2096));
+    put32(base + 168, 2);
+    put64(base + 176, @intFromPtr(base + 2112));
+    if (amdgpuCs(@intFromPtr(base + 160)) != errno(22) or amdgpu_abi_test_dispatches != 0)
+        return error.AmdGpuPersistentAndInlineBoListAccepted;
+    put32(base + 164, 0);
     if (amdgpuCs(@intFromPtr(base + 160)) != 0 or read64(base + 160) != 1 or amdgpu_abi_test_dispatches != 1)
         return error.AmdGpuCsDispatchAbiMismatch;
+    var empty_list = AmdGpuBoList{ .allocated = true };
+    drm_objects[0].allocation_flags |= amdgpu_gem_create_vm_always_valid;
+    if (!amdgpuBoListCoversGpuVa(&empty_list, 0x4000, 16)) return error.AmdGpuAlwaysValidBoNotResident;
+    drm_objects[0].allocation_flags &= ~amdgpu_gem_create_vm_always_valid;
     put64(base + 192, 1);
     put64(base + 200, 0);
     put32(base + 208, 0);
@@ -1277,10 +1336,7 @@ fn amdgpuBoListCoversGpuVa(list: *const AmdGpuBoList, address: u64, size: u32) b
         };
         const mapping = covered orelse return false;
         if ((mapping.flags & 0x2) == 0) return false;
-        var resident = false;
-        var index: usize = 0;
-        while (index < list.count) : (index += 1) if (list.handles[index] == mapping.handle) { resident = true; break; };
-        if (!resident) return false;
+        if (!amdgpuBoIsResident(list, mapping.handle)) return false;
         cursor = @min(end, mapping.address + 4096);
     }
     return true;

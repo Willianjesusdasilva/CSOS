@@ -744,6 +744,12 @@ passa o teste PM4 privado. O encoder de submissão produz o pacote GFX11
 `AMDGPU_BO_LIST` cria, atualiza e destrói listas validadas, mantendo os BOs vivos.
 O parser inicial de `AMDGPU_CS` aceita como formato somente um IB GFX simples e
 prova contexto, lista, flags, limites e cobertura GPUVA legível página a página.
+Além dos handles persistentes de `AMDGPU_BO_LIST`, ele aceita o chunk
+`AMDGPU_CHUNK_ID_BO_HANDLES` de 24 bytes emitido pelo RADV atual, copia e valida
+as entradas de 8 bytes apenas durante a submissão, limita prioridades ao máximo
+32 do AMDGPU e rejeita a presença simultânea das duas formas de lista. Um BO
+`VM_ALWAYS_VALID` mapeado na VM é considerado residente mesmo quando não aparece
+na lista temporária, coerente com seu vínculo estável até unmap ou close.
 Sem backend CP verificado ele termina em `EOPNOTSUPP`, sem inventar sequence
 number ou estado busy. Quando o gate completo de GART/PSP/RLC/MES/CP e o teste
 PM4 passam, o kernel instala um endpoint tipado que também exige o mesmo VMID
