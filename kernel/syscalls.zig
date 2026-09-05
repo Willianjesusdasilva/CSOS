@@ -320,8 +320,11 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         12 => brk(arg1),
         13 => rtSigaction(arg3),
         14 => rtSigprocmask(arg3, arg4),
-        16 => ioctl(arg1, arg2, arg3),
+        // Linux ioctl's command is unsigned int. musl passes its signed int
+        // API argument sign-extended; upper register bits are not command bits.
+        16 => ioctl(arg1, @truncate(arg2), arg3),
         20 => writev(arg1, arg2, arg3),
+        21 => access(arg1, @truncate(arg2)),
         33 => duplicate(arg1, arg2),
         39 => 1,
         40 => sendfile(arg1, arg2, arg3, arg4),
@@ -443,14 +446,22 @@ fn duplicate(old_fd: u64, new_fd: u64) u64 {
 
 fn fcntl(fd: u64, command: u64, argument: u64) u64 {
     return switch (command) {
-        0, 1030 => vfs.duplicateMinimum(@intCast(fd), @intCast(argument)) catch |err| vfsError(err),
-        1, 3 => 0,
-        2, 4 => 0,
+        0, 1030 => blk: {
+            const copy = vfs.duplicateMinimum(@intCast(fd), @intCast(argument)) catch |err| break :blk vfsError(err);
+            if (command == 1030) vfs.setDescriptorFlags(copy, 1) catch |err| break :blk vfsError(err);
+            break :blk copy;
+        },
+        1 => vfs.descriptorFlags(@intCast(fd)) catch |err| vfsError(err),
+        2 => blk: {
+            vfs.setDescriptorFlags(@intCast(fd), @truncate(argument)) catch |err| break :blk vfsError(err);
+            break :blk 0;
+        },
+        3, 4 => 0,
         else => errno(22),
     };
 }
 
-fn ioctl(fd: u64, request: u64, address: u64) u64 {
+fn ioctl(fd: u64, request: u32, address: u64) u64 {
     if (vfs.isFramebuffer(@intCast(fd))) {
         const result = switch (request) {
             0x4600 => framebufferVariable(address),
@@ -1491,8 +1502,8 @@ fn amdgpuBoListCoversGpuVa(list: *const AmdGpuBoList, address: u64, size: u32) b
     const end = address + size;
     while (cursor < end) {
         var covered: ?gpu.AmdGpuVaMapping = null;
-        for (vm.mappings) |mapping| if (mapping.active and cursor >= mapping.address and cursor - mapping.address < 4096) {
-            covered = mapping;
+        for (&vm.mappings) |*mapping| if (mapping.active and cursor >= mapping.address and cursor - mapping.address < 4096) {
+            covered = mapping.*;
             break;
         };
         const mapping = covered orelse return false;
@@ -1563,7 +1574,7 @@ fn syncAmdGpuVmAfterUnmap() !void {
     const session = if (drm_vm_hardware) |*value| value else return;
     if (drm_vm_vmid == 0) return;
     var mappings_remain = false;
-    for (drm_vm_manager.vms[drm_vm_vmid - 1].mappings) |mapping| if (mapping.active) {
+    for (&drm_vm_manager.vms[drm_vm_vmid - 1].mappings) |*mapping| if (mapping.active) {
         mappings_remain = true;
         break;
     };
@@ -2023,7 +2034,7 @@ fn drmCloseHandle(handle: u32) u64 {
         var index: usize = 0;
         while (index < list.count) : (index += 1) if (list.handles[index] == handle) return errno(16);
     };
-    if (drm_vm_vmid != 0) for (drm_vm_manager.vms[drm_vm_vmid - 1].mappings) |mapping|
+    if (drm_vm_vmid != 0) for (&drm_vm_manager.vms[drm_vm_vmid - 1].mappings) |*mapping|
         if (mapping.active and mapping.handle == handle) return errno(16);
     object.handle_open = false;
     if (!object.framebuffer_reference) releaseDrmObject(object);
@@ -2048,8 +2059,8 @@ fn resetDrmVm() void {
     const vm = &drm_vm_manager.vms[drm_vm_vmid - 1];
     while (true) {
         var active: ?gpu.AmdGpuVaMapping = null;
-        for (vm.mappings) |mapping| if (mapping.active) {
-            active = mapping;
+        for (&vm.mappings) |*mapping| if (mapping.active) {
+            active = mapping.*;
             break;
         };
         const mapping = active orelse break;
@@ -2272,6 +2283,16 @@ fn stat(path_address: u64, output_address: u64, directory_fd: i64) u64 {
     return writeStat(output_address, info);
 }
 
+fn access(path_address: u64, mode: u32) u64 {
+    if ((mode & ~@as(u32, 7)) != 0) return errno(22);
+    var path_buffer: [256]u8 = undefined;
+    const path = userString(path_address, &path_buffer) orelse return errno(14);
+    _ = vfs.infoAt(-100, path) catch |err| return vfsError(err);
+    // F_OK is needed by libdrm's node classification. Permission queries
+    // need the future credential/mount access policy; do not fake success.
+    return if (mode == 0) 0 else errno(95);
+}
+
 fn fstat(fd: u64, output_address: u64) u64 {
     if (fd <= 2) return writeStat(output_address, .{ .mode = 0o020666, .size = 0, .directory = false });
     const info = vfs.infoFd(@intCast(fd)) catch |err| return vfsError(err);
@@ -2461,10 +2482,11 @@ fn brk(requested: u64) u64 {
 }
 
 fn mmap(requested: u64, length: u64, protection: u64, flags: u64, fd: u64, file_offset: u64) u64 {
+    if (length > ~@as(u64, 0) - 4095) return errno(12);
     if (length == 0 or (file_offset & 4095) != 0 or (protection & 2) != 0 and (protection & 4) != 0) return errno(22);
     const anonymous = (flags & 0x20) != 0;
     const framebuffer_device = !anonymous and vfs.isFramebuffer(@intCast(fd));
-    const drm_device = !anonymous and vfs.isDrmPrimary(@intCast(fd));
+    const drm_device = !anonymous and vfs.isDrm(@intCast(fd));
     if (framebuffer_device or drm_device) {
         const drm_object = if (drm_device) drmObjectForMap(file_offset, length) else null;
         if ((flags & 1) == 0 or (protection & 4) != 0 or (drm_device and drm_object == null) or (!drm_device and (file_offset > framebuffer.size or length > framebuffer.size - file_offset))) return errno(22);
@@ -2480,7 +2502,12 @@ fn mmap(requested: u64, length: u64, protection: u64, flags: u64, fd: u64, file_
     }
     if (!anonymous and (flags & 2) == 0) return errno(22);
     const aligned_length = (length + 4095) & ~@as(u64, 4095);
-    const address = if (requested != 0) requested else (mmap_next + 4095) & ~@as(u64, 4095);
+    // Without MAP_FIXED the address is a hint, not a requirement. musl's
+    // allocator probes adjacent addresses, including below this arena.
+    const hint = requested & ~@as(u64, 4095);
+    const hint_fits = hint >= mmap_next and hint <= mmap_limit and aligned_length <= mmap_limit - hint;
+    const address = if ((flags & 0x10) != 0) requested else if (requested != 0 and hint_fits) hint else (mmap_next + 4095) & ~@as(u64, 4095);
+    if ((address & 4095) != 0) return errno(22);
     if (address < mmap_next or address > mmap_limit or aligned_length > mmap_limit - address) return errno(12);
     const hook = mmap_protect_hook orelse return errno(12);
     const target: [*]u8 = @ptrFromInt(address);
@@ -2497,6 +2524,7 @@ fn mmap(requested: u64, length: u64, protection: u64, flags: u64, fd: u64, file_
 
 fn mprotect(address: u64, length: u64, protection: u64) u64 {
     if ((address & 4095) != 0 or length == 0 or ((protection & 2) != 0 and (protection & 4) != 0)) return errno(22);
+    if (length > ~@as(u64, 0) - 4095) return errno(12);
     const aligned_length = (length + 4095) & ~@as(u64, 4095);
     if (!mmapRegion(address, aligned_length)) return errno(12);
     const hook = mmap_protect_hook orelse return errno(12);
@@ -2507,6 +2535,7 @@ fn mprotect(address: u64, length: u64, protection: u64) u64 {
 
 fn munmap(address: u64, length: u64) u64 {
     if ((address & 4095) != 0 or length == 0) return errno(22);
+    if (length > ~@as(u64, 0) - 4095) return errno(22);
     const aligned_length = (length + 4095) & ~@as(u64, 4095);
     if (!mmapRegion(address, aligned_length)) return errno(22);
     const hook = mmap_unmap_hook orelse return errno(22);

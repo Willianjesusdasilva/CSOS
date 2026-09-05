@@ -63,6 +63,28 @@ const GpuCsRuntime = struct {
 };
 var gpu_cs_runtime = GpuCsRuntime{};
 
+fn validateRadvProbe(root: u64, pages: *physical.Allocator) void {
+    const before = pages.free_pages;
+    const objects = process.shared_objects_loaded;
+    const relocations = process.symbol_relocations;
+    const tls = process.tls_modules;
+    process.runRadvLoaderProbe(root, pages) catch |err| {
+        serial.write("RADV dynamic loader error: ");
+        serial.write(@errorName(err));
+        if (syscalls.exitStatus()) |status| {
+            serial.write(" exit status: ");
+            serial.writeDecimal(status);
+        }
+        serial.write("\n");
+        panic("RADV dynamic loader probe failed");
+    };
+    if (pages.free_pages != before) panic("RADV loader page reclaim mismatch");
+    if (process.shared_objects_loaded < objects + 5) panic("RADV dependency chain incomplete");
+    if (process.symbol_relocations == relocations) panic("RADV symbol relocations missing");
+    if (process.tls_modules == tls) panic("RADV TLS module missing");
+    serial.write("RADV dynamic loader ready\n");
+}
+
 fn allocateDrmAmdVram(raw: *anyopaque, bytes: u64, alignment: u64) !gpu.AmdVramAllocation {
     const allocator: *gpu.AmdVramAllocator = @ptrCast(@alignCast(raw));
     return allocator.allocatePinned(bytes, alignment);
@@ -381,12 +403,22 @@ pub fn start(info: BootInfo) noreturn {
     if (build_options.drm_amdgpu_abi_test) syscalls.configureDrm(switch (display_device.vendor) {
         0x1002 => .amdgpu, 0x10de => .nouveau, else => .csos,
     });
-    const expected_drm_ioctls: u64 = if (display_device.vendor == 0x1002 or build_options.drm_amdgpu_abi_test) 44 else 35;
-    const expected_drm_objects: u64 = if (display_device.vendor == 0x1002 or build_options.drm_amdgpu_abi_test) 4 else 3;
-    if (syscalls.drm_ioctls != expected_drm_ioctls or syscalls.drm_mmaps != 2) panic("Linux DRM ioctl coverage failed");
+    const expected_drm_ioctls: u64 = if (display_device.vendor == 0x1002 or build_options.drm_amdgpu_abi_test) 55 else 35;
+    const expected_drm_objects: u64 = if (display_device.vendor == 0x1002 or build_options.drm_amdgpu_abi_test) 5 else 3;
+    const expected_drm_mmaps: u64 = if (display_device.vendor == 0x1002 or build_options.drm_amdgpu_abi_test) 4 else 2;
+    if (syscalls.drm_ioctls != expected_drm_ioctls or syscalls.drm_mmaps != expected_drm_mmaps) panic("Linux DRM ioctl coverage failed");
     if (syscalls.drm_allocations != expected_drm_objects or syscalls.drm_releases != expected_drm_objects) panic("DRM backing memory lifecycle failed");
     if (drm_guard.* != drm_guard_before) panic("DRM buffer aliased firmware framebuffer");
     serial.write("CSOS M14 userspace DRM core ready\n");
+    if (build_options.libdrm_probe and !build_options.libdrm_probe_after_gpu) {
+        process.runLibdrmProbe(mapper.root, &pages) catch |err| {
+            serial.write("libdrm process error: "); serial.write(@errorName(err));
+            serial.write(" ioctl request: "); serial.writeDecimal(syscalls.drm_last_request);
+            serial.write(" result: "); serial.writeDecimal(syscalls.drm_last_result); serial.write("\n");
+            panic("real libdrm probe failed");
+        };
+        mapper.activate();
+    }
     const echo_arguments = [_][]const u8{ "/bin/busybox", "echo", "BusyBox userspace ready" };
     process.runBusyBox(mapper.root, &pages, &echo_arguments) catch panic("BusyBox echo failed");
     mapper.activate();
@@ -470,8 +502,13 @@ pub fn start(info: BootInfo) noreturn {
         state_offset += state_size;
     }
     serial.write("FAT16 write ready\n");
+    vfs.validateRuntimeLibraryAliasesSelfTest() catch panic("VFS runtime library alias self-test failed");
     vfs.mount(&volume);
     vfs.reset();
+    if (build_options.radv_runtime) {
+        vfs.validateRuntimeLibrariesSelfTest() catch panic("VFS RADV runtime files self-test failed");
+        serial.write("RADV runtime files ready\n");
+    }
     const state_fd = vfs.openAt(-100, "/state.txt", 0) catch panic("VFS large file open failed");
     state_offset = 0;
     while (state_offset < state.len) {
@@ -492,6 +529,9 @@ pub fn start(info: BootInfo) noreturn {
     if (process.versioned_symbols == 0) panic("dynamic symbol version resolution missing");
     if (pages.free_pages != dynamic_pages_before) panic("dynamic loader page reclaim mismatch");
     serial.write("Linux filesystem shared object ready\nLinux dynamic userspace ready\n");
+    if (build_options.radv_loader_probe and !build_options.radv_probe_after_gpu) {
+        validateRadvProbe(mapper.root, &pages);
+    }
     const persist_arguments = [_][]const u8{ "/bin/busybox", "sh", "-c", "echo userspace-persisted > /user.txt" };
     process.runBusyBox(mapper.root, &pages, &persist_arguments) catch panic("userspace filesystem failed");
     mapper.activate();
@@ -843,7 +883,10 @@ pub fn start(info: BootInfo) noreturn {
     }
     const gpu_clock_info = if (gpu_atom_firmware_info) |atom| gpu.amdGpuClockInfo(atom) catch null else null;
     const gpu_pcie_link = inventory.pciePathLink(display_device) catch null;
-    const gpu_cache_info = if (gpu_ip_discovery.?.gc_info) |topology| topology.cacheInfo() catch null else null;
+    const gpu_cache_info = if (gpu_ip_discovery) |*discovery|
+        if (discovery.gc_info) |topology| topology.cacheInfo() catch null else null
+    else
+        null;
     if (gpu_adapter.driver == .amdgpu and gpu_gmc11_nbio_registers != null and gpu_ip_discovery.?.gc_info != null and gpu_ip_discovery.?.mall_size != null and gpu_cu_info != null and gpu_gb_addr_config != null and gpu_clock_info != null and gpu_pcie_link != null and gpu_atom_vram_info != null and gpu_cache_info != null) {
         const gfx_ip = gpu_ip_discovery.?.find(gpu.amd_hw_id.gfx, 0) orelse panic("AMDGPU GFX IP missing");
         const strap = gpu_adapter.readRegister(gpu_gmc11_nbio_registers.?.revision_strap) catch panic("AMDGPU revision strap read failed");
@@ -1761,6 +1804,21 @@ pub fn start(info: BootInfo) noreturn {
     serial.writeDecimal(initial_pixels);
     serial.write("\nCSOS M14 GPU discovery baseline ready\n");
     serial.write("CSOS M14 display baseline ready\n");
+    if (build_options.radv_probe_after_gpu) {
+        serial.write("Running RADV probe after GPU preparation\n");
+        validateRadvProbe(mapper.root, &pages);
+    }
+    if (build_options.libdrm_probe_after_gpu) {
+        const probe_pages_before = pages.free_pages;
+        serial.write("Running real libdrm probe after GPU initialization\n");
+        process.runLibdrmProbe(mapper.root, &pages) catch |err| {
+            serial.write("post-GPU libdrm process error: "); serial.write(@errorName(err)); serial.write("\n");
+            panic("post-GPU libdrm probe failed");
+        };
+        mapper.activate();
+        if (pages.free_pages != probe_pages_before) panic("post-GPU libdrm page reclaim mismatch");
+        serial.write("CSOS post-GPU libdrm reclaim ready\n");
+    }
     var current_profile = hardware_profile.build(cpu_profile, .{
         .logical_cpus = @intCast(madt.cpu_count),
         .memory_pages = pages.installed_pages,

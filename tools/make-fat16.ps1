@@ -2,7 +2,12 @@ param(
     [Parameter(Mandatory = $true)][string]$Path,
     [string]$SharedLibrary,
     [string]$ExtraLibrary,
-    [string]$GpuFirmware
+    [string]$GpuFirmware,
+    [string]$RadvRuntime,
+    [string]$LibdrmAmdgpu,
+    [string]$Libdrm,
+    [string]$Zlib,
+    [string]$Libc
 )
 
 $sectorSize = 512
@@ -116,6 +121,43 @@ try {
         $writer.Write([uint32]$firmware.Length)
         $stream.Position = $dataStart * $sectorSize + ($nextFreeCluster - 2) * $clusterBytes
         $writer.Write($firmware)
+        $nextFreeCluster += $clusterCount
+    }
+    $runtimeFiles = @(
+        @{ Path = $RadvRuntime; Name = 'RADV    SO ' },
+        @{ Path = $LibdrmAmdgpu; Name = 'DRMAMD  SO1' },
+        @{ Path = $Libdrm; Name = 'LIBDRM  SO2' },
+        @{ Path = $Zlib; Name = 'LIBZ    SO1' },
+        @{ Path = $Libc; Name = 'LIBC    SO ' }
+    )
+    $runtimeEntry = if ($GpuFirmware) { 4 } else { 3 }
+    foreach ($runtimeFile in $runtimeFiles) {
+        if (-not $runtimeFile.Path) { continue }
+        $library = [IO.File]::ReadAllBytes($runtimeFile.Path)
+        if ($library.Length -eq 0 -or $library.Length -gt 32MB) { throw "$($runtimeFile.Path) has an invalid runtime size" }
+        $clusterBytes = $sectorSize * $sectorsPerCluster
+        $clusterCount = [int][Math]::Ceiling($library.Length / $clusterBytes)
+        $lastCluster = $nextFreeCluster + $clusterCount - 1
+        $availableLastCluster = [Math]::Min(0xFFEF, [int](($sectorCount - $dataStart) / $sectorsPerCluster) + 1)
+        if ($lastCluster -gt $availableLastCluster) { throw "$($runtimeFile.Path) does not fit on the CSOS disk" }
+        foreach ($fatStart in @(1, 1 + $fatSectors)) {
+            for ($index = 0; $index -lt $clusterCount; $index++) {
+                $cluster = $nextFreeCluster + $index
+                $next = if ($index + 1 -eq $clusterCount) { 0xFFFF } else { $cluster + 1 }
+                $stream.Position = $fatStart * $sectorSize + $cluster * 2
+                $writer.Write([uint16]$next)
+            }
+        }
+        $stream.Position = $rootStart * $sectorSize + $runtimeEntry * 32
+        $writer.Write([Text.Encoding]::ASCII.GetBytes($runtimeFile.Name))
+        $writer.Write([byte]0x20)
+        $writer.Write([byte[]]::new(14))
+        $writer.Write([uint16]$nextFreeCluster)
+        $writer.Write([uint32]$library.Length)
+        $stream.Position = $dataStart * $sectorSize + ($nextFreeCluster - 2) * $clusterBytes
+        $writer.Write($library)
+        $nextFreeCluster += $clusterCount
+        $runtimeEntry += 1
     }
 } finally {
     $stream.Dispose()

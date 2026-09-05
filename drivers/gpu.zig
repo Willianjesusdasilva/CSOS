@@ -3855,6 +3855,8 @@ pub const AmdGpuVm = struct {
     // One tracked entry per 4 KiB PTE; a 16 MiB GEM object therefore needs
     // 4096 entries when mapped in full.
     mappings: [4096]AmdGpuVaMapping = .{AmdGpuVaMapping{}} ** 4096,
+    // Iterate this table by reference: value iteration can put a full copy
+    // on the 64 KiB syscall stack in Debug builds.
     page_tree: AmdGpuVmPageTree = .{},
 };
 pub const AmdGpuVmManager = struct {
@@ -3882,7 +3884,7 @@ pub const AmdGpuVmManager = struct {
 
     pub fn dematerialize(self: *AmdGpuVmManager, vmid: u4) !void {
         const vm = try self.get(vmid);
-        for (vm.mappings) |mapping| if (mapping.active) return error.AmdGpuVmMappingsStillActive;
+        for (&vm.mappings) |*mapping| if (mapping.active) return error.AmdGpuVmMappingsStillActive;
         try dematerializeAmdGpuVmPageTree(&vm.page_tree);
     }
 
@@ -3894,7 +3896,7 @@ pub const AmdGpuVmManager = struct {
             return error.InvalidAmdGpuVaMapping;
         const end = std.math.add(u64, address, size - 1) catch return error.InvalidAmdGpuVaMapping;
         if (end >= 0x0000800000000000) return error.InvalidAmdGpuVaMapping;
-        for (vm.mappings) |mapping| if (mapping.active) {
+        for (&vm.mappings) |*mapping| if (mapping.active) {
             const mapping_end = mapping.address + mapping.size - 1;
             if (!(end < mapping.address or address > mapping_end)) return error.AmdGpuVaOverlap;
         };
@@ -3947,7 +3949,7 @@ pub const AmdGpuVmManager = struct {
     fn unmapBackingPage(self: *AmdGpuVmManager, vmid: u4, address: u64, physical_page: u64, flags: u32, system: bool) !void {
         const vm = try self.get(vmid);
         var found = false;
-        for (vm.mappings) |mapping| if (mapping.active and mapping.address == address and mapping.size == 4096) {
+        for (&vm.mappings) |*mapping| if (mapping.active and mapping.address == address and mapping.size == 4096) {
             if (mapping.flags != flags) return error.AmdGpuVmMappingFlagsMismatch;
             found = true;
             break;
@@ -3969,7 +3971,7 @@ pub const AmdGpuVmManager = struct {
     fn validateBackingPageMapping(self: *AmdGpuVmManager, vmid: u4, handle: u32, address: u64, bo_offset: u64, physical_page: u64, system: bool) !u32 {
         const vm = try self.get(vmid);
         var flags: ?u32 = null;
-        for (vm.mappings) |mapping| if (mapping.active and mapping.handle == handle and mapping.address == address and
+        for (&vm.mappings) |*mapping| if (mapping.active and mapping.handle == handle and mapping.address == address and
             mapping.size == 4096 and mapping.bo_offset == bo_offset)
         {
             flags = mapping.flags;

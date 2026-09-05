@@ -3,6 +3,11 @@ param(
     [Parameter(Mandatory = $true)][string]$SharedLibrary,
     [Parameter(Mandatory = $true)][string]$ExtraLibrary,
     [string]$GpuFirmware,
+    [string]$RadvRuntime,
+    [string]$LibdrmAmdgpu,
+    [string]$Libdrm,
+    [string]$Zlib,
+    [string]$Libc,
     [switch]$UsbAudio,
     [switch]$ResetDisk,
     [string]$AudioBackend = 'none',
@@ -11,6 +16,9 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+if ($RadvRuntime -and (-not $LibdrmAmdgpu -or -not $Libdrm -or -not $Zlib -or -not $Libc)) {
+    throw 'RadvRuntime requires LibdrmAmdgpu, Libdrm, Zlib, and Libc runtime paths.'
+}
 
 $qemu = Get-Command qemu-system-x86_64 -ErrorAction SilentlyContinue
 if (-not $qemu) {
@@ -38,8 +46,9 @@ Copy-Item -Force -LiteralPath $EfiBinary -Destination (Join-Path $bootDir 'BOOTX
 $localOvmf = Join-Path $PSScriptRoot '..\zig-out\OVMF_CODE.fd'
 Copy-Item -Force -LiteralPath $ovmf -Destination $localOvmf
 $nvmeDisk = Join-Path $PSScriptRoot '..\zig-out\nvme.img'
-if ($ResetDisk -or $GpuFirmware -or -not (Test-Path -LiteralPath $nvmeDisk)) {
-    & (Join-Path $PSScriptRoot 'make-fat16.ps1') -Path $nvmeDisk -SharedLibrary $SharedLibrary -ExtraLibrary $ExtraLibrary -GpuFirmware $GpuFirmware
+if ($ResetDisk -or $GpuFirmware -or $RadvRuntime -or -not (Test-Path -LiteralPath $nvmeDisk)) {
+    & (Join-Path $PSScriptRoot 'make-fat16.ps1') -Path $nvmeDisk -SharedLibrary $SharedLibrary -ExtraLibrary $ExtraLibrary -GpuFirmware $GpuFirmware `
+        -RadvRuntime $RadvRuntime -LibdrmAmdgpu $LibdrmAmdgpu -Libdrm $Libdrm -Zlib $Zlib -Libc $Libc
 }
 
 $audioArguments = @()

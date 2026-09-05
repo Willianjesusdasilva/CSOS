@@ -13,6 +13,8 @@ Kernel CSOS
    ↓
 Userspace compatível com Linux
    ↓
+GPU AMD/RADV ou NVIDIA/NVK (backend independente)
+   ↓
 Vulkan
    ↓
 Steam
@@ -54,15 +56,23 @@ Se não, provavelmente não pertence ao CSOS.
 
 # Objetivos
 
-Ordem de prioridade:
+Ordem de implementação e validação:
 
-1. Counter-Strike 2 funcionar
-2. Estabilidade
-3. Frametime consistente
-4. Baixa latência de input
-5. Melhores 1% / 0.1% lows
-6. FPS médio
-7. Boot e consumo mínimos
+1. SO funcional e estável: boot, memória, processos, armazenamento, entrada, rede, áudio e recuperação
+2. Display e Vulkan em AMD Radeon e NVIDIA GeForce suportadas
+3. SDL, autoconfiguração e interface utilizável do SO
+4. Steam Runtime, Steam e Counter-Strike 2, somente após a base funcional
+5. Frametime consistente, baixa latência de input e melhores 1% / 0.1% lows
+6. FPS médio, boot e consumo mínimos
+
+AMD é o primeiro caminho de validação gráfica; NVIDIA é obrigatória antes de
+concluir M14, não uma extensão opcional para depois de Steam/CS2.
+
+Decisão de produto: uma GeForce suportada deve conseguir instalar, iniciar e
+usar o CSOS sem uma Radeon presente. O suporte NVIDIA só será considerado
+funcional depois de uma prova reproduzível em hardware real que cubra display,
+memória, filas, sincronização e um triângulo Vulkan. Detecção PCI, framebuffer,
+build do NVK ou testes executados apenas no host não satisfazem esse requisito.
 
 O CSOS não pretende se tornar uma distribuição Linux de uso geral.
 
@@ -164,6 +174,10 @@ GPU NVIDIA, sem depender de firmware, hardware ou inicialização AMD. A famíli
 GeForce e a combinação de driver/backend Vulkan efetivamente validadas devem
 ser registradas; outras famílias permanecem experimentais até repetirem a mesma
 prova em hardware real.
+
+O requisito NVIDIA não implica compatibilidade com todas as GeForce. A matriz
+de suporte deve distinguir modelos validados, experimentais e não suportados,
+com evidências reproduzíveis para cada modelo anunciado como funcional.
 
 ---
 
@@ -731,6 +745,12 @@ pelo MP0 13.0.2 sem XGMI ligado à CPU; nessa revisão, topologia desconhecida �
 rejeitada em vez de escolher firmware por suposição. Nenhuma dessas etapas,
 isoladamente, representa aceleração 3D nem
 suporte Vulkan concluído.
+
+O backend NVIDIA ainda não foi implementado nem validado. Ele será iniciado
+depois do primeiro triângulo AMD/RADV real, reutilizando a infraestrutura
+DRM/KMS, memória e sincronização que for realmente compartilhável. Essa ordem
+reduz trabalho simultâneo incompleto, mas não rebaixa NVIDIA: M14 permanece
+aberto até os caminhos AMD e NVIDIA passarem em hardware real.
 
 Os nós DRM agora também expõem a identidade PCI Linux compartilhada exigida
 pelo libdrm: major/minor de `card0` e `renderD128`, árvore mínima em
@@ -1439,6 +1459,27 @@ triângulo Vulkan passarem em hardware real. Até lá, AMD e NVIDIA permanecem
 como trabalho de M14, e Steam/CS2 continuam bloqueados atrás das milestones do
 sistema operacional.
 
+O Mesa/RADV 26.3.0-devel fixado já possui um cross-build headless completo para
+Linux x86-64 musl: os 770 passos produziram `libvulkan_radeon.so` ELF64 com
+version script, runtime oficial de detecção de CPU e somente os três entrypoints
+ICD públicos. O artefato já foi carregado pelo CSOS no probe descrito abaixo,
+mas ainda não foi executado em uma Radeon real; portanto não conta como command
+submission ou triângulo Vulkan.
+
+O runtime stripado também já foi colocado numa imagem FAT16 opcional junto de
+libdrm, zlib e musl. O VFS expõe seus nomes Linux em `/usr/lib`, e um probe Ring
+3 carregou os cinco ELF, aplicou relocations/TLS, chamou o entrypoint de
+negociação do ICD e recuperou todas as páginas. Isso valida loader e filesystem,
+não inicialização Vulkan nem execução na GPU.
+
+O incremento seguinte adicionou a ordem real de construtores ELF
+(`DT_INIT`/`DT_INIT_ARRAY`) e revelou uma limitação que o probe de negociação
+não exercitava: a `libc.so` materializada pelo Zig é uma DSO de stubs para link,
+com código apontando para uma seção `.text` vazia. O construtor de detecção de
+CPU do RADV reproduziu o fault ao chamar libc. Portanto, antes de avançar para
+`vkCreateInstance`, é necessário compilar uma musl compartilhada real com PIC e
+repetir o probe. Os boots de diagnóstico foram limitados e o QEMU foi encerrado.
+
 O grande próximo desafio continua sendo a stack gráfica:
 
 ```text
@@ -1458,6 +1499,30 @@ Counter-Strike 2
 ---
 
 # Build
+
+Para repetir as regressões da base do SO, com o checkout libdrm fixado descrito
+em `docs/radv-bringup-audit.md` disponível:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/test-system.ps1
+```
+
+O comando roda testes de host, compila o probe libdrm original e exige o console
+em dois boots QEMU: normal e combinado AMDGPU ABI/libdrm pós-GPU. Cada execução
+QEMU tem prazo e encerramento automático. Passar essa suíte não comprova Vulkan
+em hardware real nem conclusão do SO.
+
+Para preparar e compilar o perfil headless RADV, depois dos checkouts e
+dependências fixados descritos em `docs/radv-bringup-audit.md`:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/build-compiler-rt-cpu-model.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/build-musl-runtime.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/configure-radv.ps1 -Wipe
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/build-radv.ps1
+```
+
+Esse build não inicia QEMU e não substitui a validação em hardware AMD real.
 
 Fluxo principal:
 

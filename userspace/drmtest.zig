@@ -38,6 +38,8 @@ pub export var timeline_query_point: u64 = 0;
 pub export var timeline_array: [24]u8 = .{0} ** 24;
 pub export var timeline_wait: [48]u8 = .{0} ** 48;
 pub export var amd_create: [32]u8 = .{0} ** 32;
+// Test GTT directly, then VRAM|GTT fallback before a VRAM backend is installed.
+pub export var amd_test_domains: u64 = 2;
 pub export var amd_metadata_set: [288]u8 = .{0} ** 288;
 pub export var amd_metadata_get: [288]u8 = .{0} ** 288;
 pub export var amd_create_info: [32]u8 = .{0} ** 32;
@@ -47,6 +49,8 @@ pub export var amd_handle_entry: [40]u8 = .{0} ** 40;
 pub export var amd_va: [64]u8 = .{0} ** 64;
 pub export var amd_wait_idle: [16]u8 = .{0} ** 16;
 pub export var amd_close: [8]u8 = .{0} ** 8;
+pub export var amd_primary_fd: u64 = 0;
+pub export var amd_mmap: [8]u8 = .{0} ** 8;
 pub export const success: [31]u8 = "Linux DRM core userspace ready\n".*;
 
 pub export fn _start() callconv(.naked) noreturn {
@@ -449,9 +453,20 @@ pub export fn _start() callconv(.naked) noreturn {
         \\movabsq $0x0000757067646d61, %%rax
         \\cmpq %%rax, name(%%rip)
         \\jne 3f
+        \\movq %%r12, amd_primary_fd(%%rip)
+        \\movq $257, %%rax
+        \\movq $-100, %%rdi
+        \\leaq render_path(%%rip), %%rsi
+        \\movq $2, %%rdx
+        \\syscall
+        \\testq %%rax, %%rax
+        \\js 1f
+        \\movq %%rax, %%r12
+        \\6:
         \\movq $4096, amd_create(%%rip)
         \\movq $2097152, amd_create+8(%%rip)
-        \\movq $2, amd_create+16(%%rip)
+        \\movq amd_test_domains(%%rip), %%rax
+        \\movq %%rax, amd_create+16(%%rip)
         \\movq $4, amd_create+24(%%rip)
         \\movq $16, %%rax
         \\movq %%r12, %%rdi
@@ -462,6 +477,77 @@ pub export fn _start() callconv(.naked) noreturn {
         \\jne 1f
         \\movl amd_create(%%rip), %%eax
         \\movl %%eax, amd_metadata_set(%%rip)
+        \\movl %%eax, amd_mmap(%%rip)
+        \\movl $0, amd_mmap+4(%%rip)
+        \\movq $16, %%rax
+        \\movq %%r12, %%rdi
+        \\movq $0xc0086441, %%rsi
+        \\leaq amd_mmap(%%rip), %%rdx
+        \\syscall
+        \\testq %%rax, %%rax
+        \\jne 1f
+        \\movq $9, %%rax
+        \\xorq %%rdi, %%rdi
+        \\movq $4096, %%rsi
+        \\movq $5, %%rdx
+        \\movq $1, %%r10
+        \\movq %%r12, %%r8
+        \\movq amd_mmap(%%rip), %%r9
+        \\syscall
+        \\cmpq $-22, %%rax
+        \\jne 1f
+        \\movq $9, %%rax
+        \\movq $3, %%rdx
+        \\movq $2, %%r10
+        \\syscall
+        \\cmpq $-22, %%rax
+        \\jne 1f
+        \\movq $9, %%rax
+        \\movq $1, %%r10
+        \\addq $4096, %%r9
+        \\syscall
+        \\cmpq $-22, %%rax
+        \\jne 1f
+        \\movq $9, %%rax
+        \\movq $-1, %%rsi
+        \\movq amd_mmap(%%rip), %%r9
+        \\syscall
+        \\cmpq $-12, %%rax
+        \\jne 1f
+        \\movq $9, %%rax
+        \\xorq %%rdi, %%rdi
+        \\movq $4096, %%rsi
+        \\movq $3, %%rdx
+        \\movq $1, %%r10
+        \\movq %%r12, %%r8
+        \\movq amd_mmap(%%rip), %%r9
+        \\syscall
+        \\testq %%rax, %%rax
+        \\js 1f
+        \\cmpq $0, (%%rax)
+        \\jne 1f
+        \\movq $0x12345678, (%%rax)
+        \\cmpq $0x12345678, (%%rax)
+        \\jne 1f
+        \\movq %%rax, %%rdi
+        \\movq $-1, %%rsi
+        \\movq $1, %%rdx
+        \\movq $10, %%rax
+        \\syscall
+        \\cmpq $-12, %%rax
+        \\jne 1f
+        \\movq $11, %%rax
+        \\syscall
+        \\cmpq $-22, %%rax
+        \\jne 1f
+        \\cmpq $0x12345678, (%%rdi)
+        \\jne 1f
+        \\movq $0x12345678, (%%rdi)
+        \\movq $4096, %%rsi
+        \\movq $11, %%rax
+        \\syscall
+        \\testq %%rax, %%rax
+        \\jne 1f
         \\movl $1, amd_metadata_set+4(%%rip)
         \\movq $0x12, amd_metadata_set+8(%%rip)
         \\movq $0x34, amd_metadata_set+16(%%rip)
@@ -562,6 +648,7 @@ pub export fn _start() callconv(.naked) noreturn {
         \\jne 1f
         \\movl amd_create(%%rip), %%eax
         \\movl %%eax, amd_wait_idle(%%rip)
+        \\movl $0, amd_wait_idle+4(%%rip)
         \\movq $-1, amd_wait_idle+8(%%rip)
         \\movq $16, %%rax
         \\movq %%r12, %%rdi
@@ -581,6 +668,17 @@ pub export fn _start() callconv(.naked) noreturn {
         \\syscall
         \\testq %%rax, %%rax
         \\jne 1f
+        \\cmpq $6, amd_test_domains(%%rip)
+        \\je 7f
+        \\movq $6, amd_test_domains(%%rip)
+        \\jmp 6b
+        \\7:
+        \\movq $3, %%rax
+        \\movq %%r12, %%rdi
+        \\syscall
+        \\testq %%rax, %%rax
+        \\jne 1f
+        \\movq amd_primary_fd(%%rip), %%r12
         \\3:
         \\movq $3, %%rax
         \\movq %%r12, %%rdi

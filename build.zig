@@ -2,7 +2,19 @@ const std = @import("std");
 
 pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
+    const libdrm_probe = b.option([]const u8, "libdrm-probe", "Path to the static upstream libdrm probe ELF (opt-in Ring 3 validation)");
+    const libdrm_probe_after_gpu = b.option(bool, "libdrm-probe-after-gpu", "Run the supplied probe after GPU initialization; does not enable hardware gates") orelse false;
+    if (libdrm_probe_after_gpu and libdrm_probe == null) @panic("-Dlibdrm-probe-after-gpu requires -Dlibdrm-probe");
     const gpu_firmware = b.option([]const u8, "gpu-firmware", "Firmware archive copied to GPUFW.BIN on the CSOS disk");
+    const radv_runtime = b.option([]const u8, "radv-runtime", "Stripped RADV ELF copied to the CSOS disk");
+    const libdrm_amdgpu_runtime = b.option([]const u8, "libdrm-amdgpu-runtime", "libdrm_amdgpu ELF copied to the CSOS disk");
+    const libdrm_runtime = b.option([]const u8, "libdrm-runtime", "libdrm ELF copied to the CSOS disk");
+    const zlib_runtime = b.option([]const u8, "zlib-runtime", "zlib ELF copied to the CSOS disk");
+    const libc_runtime = b.option([]const u8, "libc-runtime", "musl libc ELF copied to the CSOS disk");
+    const radv_loader_probe = b.option([]const u8, "radv-loader-probe", "Dynamic RADV loader probe ELF (requires -Dradv-runtime)");
+    const radv_probe_after_gpu = b.option(bool, "radv-probe-after-gpu", "Run RADV probe after GPU preparation; does not enable hardware activation") orelse false;
+    if (radv_probe_after_gpu and radv_loader_probe == null) @panic("-Dradv-probe-after-gpu requires -Dradv-loader-probe");
+    if (radv_loader_probe != null and radv_runtime == null) @panic("-Dradv-loader-probe requires -Dradv-runtime");
     const amd_gart_mmio = b.option(bool, "amd-gart-mmio", "Explicitly arm and commit the validated GMC 11 GART transaction") orelse false;
     const amd_psp_ring = b.option(bool, "amd-psp-ring", "Explicitly create the PSP KM ring and load validated GFX11 CP/RLC firmware") orelse false;
     const amd_rlc_resume = b.option(bool, "amd-rlc-resume", "Explicitly install the GFX11 clear-state block and enable RLC save/restore") orelse false;
@@ -18,6 +30,11 @@ pub fn build(b: *std.Build) void {
     const amd_gart_device_text = b.option([]const u8, "amd-gart-device", "Required AMD PCI device ID for real GART MMIO activation (for example 0x744c)") orelse "0";
     const amd_gart_device = std.fmt.parseInt(u16, amd_gart_device_text, 0) catch @panic("invalid -Damd-gart-device PCI ID");
     const build_options = b.addOptions();
+    build_options.addOption(bool, "libdrm_probe", libdrm_probe != null);
+    build_options.addOption(bool, "radv_runtime", radv_runtime != null);
+    build_options.addOption(bool, "radv_loader_probe", radv_loader_probe != null);
+    build_options.addOption(bool, "radv_probe_after_gpu", radv_probe_after_gpu);
+    build_options.addOption(bool, "libdrm_probe_after_gpu", libdrm_probe_after_gpu);
     build_options.addOption(bool, "amd_gart_mmio", amd_gart_mmio);
     build_options.addOption(bool, "amd_psp_ring", amd_psp_ring);
     build_options.addOption(bool, "amd_rlc_resume", amd_rlc_resume);
@@ -224,12 +241,18 @@ pub fn build(b: *std.Build) void {
     process_module.addImport("physical", physical_module);
     process_module.addImport("syscalls", syscalls_module);
     process_module.addImport("vfs", vfs_module);
+    process_module.addImport("serial", serial_module);
     process_module.addAnonymousImport("hello_elf", .{ .root_source_file = hello.getEmittedBin() });
     process_module.addAnonymousImport("interpreter_elf", .{ .root_source_file = interpreter.getEmittedBin() });
     process_module.addAnonymousImport("dynamic_elf", .{ .root_source_file = dynamic_hello.getEmittedBin() });
     process_module.addAnonymousImport("nettest_elf", .{ .root_source_file = nettest.getEmittedBin() });
     process_module.addAnonymousImport("fbtest_elf", .{ .root_source_file = fbtest.getEmittedBin() });
     process_module.addAnonymousImport("drmtest_elf", .{ .root_source_file = drmtest.getEmittedBin() });
+    if (libdrm_probe) |path| process_module.addAnonymousImport("libdrm_probe_elf", .{ .root_source_file = b.path(path) });
+    if (radv_loader_probe) |path|
+        process_module.addAnonymousImport("radv_loader_probe_elf", .{ .root_source_file = b.path(path) })
+    else
+        process_module.addAnonymousImport("radv_loader_probe_elf", .{ .root_source_file = dynamic_hello.getEmittedBin() });
     process_module.addAnonymousImport("busybox_elf", .{ .root_source_file = b.path("userspace/initramfs/bin/busybox") });
     const kernel_module = b.createModule(.{ .root_source_file = b.path("kernel/main.zig") });
     kernel_module.addImport("serial", serial_module);
@@ -282,6 +305,13 @@ pub fn build(b: *std.Build) void {
     if (gpu_firmware) |path| {
         qemu.addArg("-GpuFirmware");
         qemu.addArg(path);
+    }
+    if (radv_runtime) |path| {
+        qemu.addArg("-RadvRuntime"); qemu.addArg(path);
+        qemu.addArg("-LibdrmAmdgpu"); qemu.addArg(libdrm_amdgpu_runtime orelse "zig-out/mesa-sysroot/usr/lib/libdrm_amdgpu.so.1");
+        qemu.addArg("-Libdrm"); qemu.addArg(libdrm_runtime orelse "zig-out/mesa-sysroot/usr/lib/libdrm.so.2");
+        qemu.addArg("-Zlib"); qemu.addArg(zlib_runtime orelse "zig-out/mesa-sysroot/usr/lib/libz.so.1");
+        qemu.addArg("-Libc"); qemu.addArg(libc_runtime orelse "zig-out/mesa-sysroot/usr/lib/libc.so");
     }
     if (b.args) |args| qemu.addArgs(args);
     run.dependOn(&qemu.step);

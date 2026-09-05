@@ -13,6 +13,7 @@ const Node = enum {
 };
 
 const Descriptor = struct {
+    close_on_exec: bool = false,
     kind: Kind = .unused,
     node: Node = .root,
     offset: usize = 0,
@@ -76,6 +77,29 @@ pub fn validateDrmPciIdentitySelfTest() !void {
     const primary = try infoAt(-100, "/dev/dri/card0");
     const render = try infoAt(-100, "/dev/dri/renderD128");
     if (primary.rdev != 0xe200 or render.rdev != 0xe280) return error.DrmDeviceNumberMismatch;
+    for (0..3) |fd| if (!isOpen(fd) or !isConsole(fd)) return error.StandardDescriptorMissing;
+    const render_fd = try openAt(-100, "/dev/dri/renderD128", 2 | 0x80000);
+    if (try descriptorFlags(render_fd) != 1) return error.DrmOpenCloexecMissing;
+    _ = try duplicate(render_fd, render_fd);
+    if (try descriptorFlags(render_fd) != 1) return error.DrmSelfDuplicateChangedFlags;
+    const duplicate_fd = try duplicateMinimum(render_fd, 0);
+    if (try descriptorFlags(duplicate_fd) != 0) return error.DrmDuplicateInheritedCloexec;
+    try setDescriptorFlags(duplicate_fd, 1);
+    _ = try duplicate(render_fd, duplicate_fd);
+    if (try descriptorFlags(duplicate_fd) != 0 or try descriptorFlags(render_fd) != 1)
+        return error.DrmDuplicateFlagsNotIndependent;
+    if (duplicate_fd < 3 or duplicate_fd == render_fd or !isDrmRender(duplicate_fd))
+        return error.DrmDuplicateIdentityMismatch;
+    if ((try infoFd(duplicate_fd)).rdev != render.rdev) return error.DrmDuplicateDeviceNumberMismatch;
+    try close(duplicate_fd);
+    if (!isDrmRender(render_fd) or (try infoFd(render_fd)).rdev != render.rdev)
+        return error.DrmDuplicateCloseInvalidatedOriginal;
+    const reused_fd = try duplicateMinimum(render_fd, 0);
+    if (reused_fd != duplicate_fd) return error.DrmDuplicateSlotNotReused;
+    try close(reused_fd);
+    try close(render_fd);
+    if (descriptorFlags(render_fd)) |_| return error.ClosedDescriptorFlagsAccepted else |err|
+        if (err != error.BadFd) return err;
     const vendor_fd = try openAt(-100, "/sys/dev/char/226:128/device/vendor", 0);
     var vendor: [7]u8 = undefined;
     if (try read(vendor_fd, &vendor) != vendor.len or !equal(&vendor, "0x1002\n")) return error.DrmPciVendorMismatch;
@@ -90,10 +114,45 @@ pub fn validateDrmPciIdentitySelfTest() !void {
     if (!equal(target[0..target_len], "../../../../bus/pci")) return error.DrmPciSubsystemMismatch;
 }
 
+pub fn validateRuntimeLibraryAliasesSelfTest() !void {
+    try expectFatAlias("libvulkan_radeon.so", "RADV    SO ");
+    try expectFatAlias("/usr/lib/libvulkan_radeon.so", "RADV    SO ");
+    try expectFatAlias("libdrm_amdgpu.so.1", "DRMAMD  SO1");
+    try expectFatAlias("/usr/lib/libdrm_amdgpu.so.1", "DRMAMD  SO1");
+    try expectFatAlias("libdrm.so.2", "LIBDRM  SO2");
+    try expectFatAlias("libz.so.1", "LIBZ    SO1");
+    try expectFatAlias("libc.so", "LIBC    SO ");
+    if (toFatName("/usr/lib/not-supported.so") != null) return error.UnexpectedLibraryAlias;
+}
+
+pub fn validateRuntimeLibrariesSelfTest() !void {
+    const paths = [_][]const u8{
+        "/usr/lib/libvulkan_radeon.so",
+        "/usr/lib/libdrm_amdgpu.so.1",
+        "/usr/lib/libdrm.so.2",
+        "/usr/lib/libz.so.1",
+        "/usr/lib/libc.so",
+    };
+    for (paths) |path| {
+        const info = try infoAt(-100, path);
+        if (info.directory or info.size < 64) return error.InvalidRuntimeLibrary;
+        const fd = try openAt(-100, path, 0);
+        var magic: [4]u8 = undefined;
+        const count = read(fd, &magic) catch |err| {
+            close(fd) catch {};
+            return err;
+        };
+        try close(fd);
+        if (count != magic.len or magic[0] != 0x7f or magic[1] != 'E' or magic[2] != 'L' or magic[3] != 'F')
+            return error.InvalidRuntimeLibrary;
+    }
+}
+
 pub fn mount(volume: *fat16.Volume) void { disk = volume; }
 
 pub fn reset() void {
     descriptors = .{Descriptor{}} ** max_fds;
+    descriptors[0].kind = .console;
     descriptors[1].kind = .console;
     descriptors[2].kind = .console;
 }
@@ -112,11 +171,13 @@ pub fn openAt(directory_fd: i64, path: []const u8, flags: u64) !usize {
             size = 0;
         }
         descriptors[fd] = .{ .kind = .file, .node = .disk, .size = size, .fat_name = fat_name };
+        descriptors[fd].close_on_exec = (flags & 0x80000) != 0;
         return fd;
     };
     const node = try resolve(directory_fd, path);
     const info = nodeInfo(node);
     descriptors[fd] = .{ .kind = if (info.directory) .directory else if (node == .framebuffer or node == .drm or node == .render) .device else .file, .node = node, .size = @intCast(info.size) };
+    descriptors[fd].close_on_exec = (flags & 0x80000) != 0;
     return fd;
 }
 
@@ -127,12 +188,25 @@ pub fn close(fd: usize) !void {
 
 pub fn duplicate(old_fd: usize, new_fd: usize) !usize {
     if (old_fd >= descriptors.len or new_fd >= descriptors.len or descriptors[old_fd].kind == .unused) return error.BadFd;
-    if (old_fd != new_fd) descriptors[new_fd] = descriptors[old_fd];
+    if (old_fd != new_fd) {
+        descriptors[new_fd] = descriptors[old_fd];
+        descriptors[new_fd].close_on_exec = false;
+    }
     return new_fd;
 }
 
 pub fn isOpen(fd: usize) bool {
     return fd < descriptors.len and descriptors[fd].kind != .unused;
+}
+
+pub fn descriptorFlags(fd: usize) !u32 {
+    if (!isOpen(fd)) return error.BadFd;
+    return @intFromBool(descriptors[fd].close_on_exec);
+}
+
+pub fn setDescriptorFlags(fd: usize, flags: u32) !void {
+    if (!isOpen(fd)) return error.BadFd;
+    descriptors[fd].close_on_exec = (flags & 1) != 0;
 }
 
 pub fn isDiskFile(fd: usize) bool {
@@ -160,6 +234,7 @@ pub fn duplicateMinimum(old_fd: usize, minimum: usize) !usize {
     while (target < descriptors.len and descriptors[target].kind != .unused) : (target += 1) {}
     if (target == descriptors.len) return error.TooManyFiles;
     descriptors[target] = descriptors[old_fd];
+    descriptors[target].close_on_exec = false;
     return target;
 }
 
@@ -319,6 +394,7 @@ fn nodeInfo(node: Node) Info {
 }
 
 fn toFatName(path: []const u8) ?[11]u8 {
+    if (runtimeLibraryFatAlias(path)) |alias| return alias;
     var start: usize = 0;
     if (path.len != 0 and path[0] == '/') start = 1;
     if (start == path.len) return null;
@@ -337,6 +413,22 @@ fn toFatName(path: []const u8) ?[11]u8 {
     }
     if (name_index == 0) return null;
     return result;
+}
+
+fn runtimeLibraryFatAlias(path: []const u8) ?[11]u8 {
+    const prefix = "/usr/lib/";
+    const name = if (path.len > prefix.len and equal(path[0..prefix.len], prefix)) path[prefix.len..] else path;
+    if (equal(name, "libvulkan_radeon.so")) return "RADV    SO ".*;
+    if (equal(name, "libdrm_amdgpu.so.1")) return "DRMAMD  SO1".*;
+    if (equal(name, "libdrm.so.2")) return "LIBDRM  SO2".*;
+    if (equal(name, "libz.so.1")) return "LIBZ    SO1".*;
+    if (equal(name, "libc.so")) return "LIBC    SO ".*;
+    return null;
+}
+
+fn expectFatAlias(path: []const u8, expected: *const [11]u8) !void {
+    const actual = toFatName(path) orelse return error.MissingLibraryAlias;
+    if (!equal(&actual, expected)) return error.LibraryAliasMismatch;
 }
 
 fn nodeData(node: Node) []const u8 {

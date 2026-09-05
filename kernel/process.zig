@@ -2,6 +2,7 @@ const paging = @import("paging");
 const physical = @import("physical");
 const syscalls = @import("syscalls");
 const vfs = @import("vfs");
+const serial = @import("serial");
 const busybox_image = @embedFile("busybox_elf");
 const nettest_image = @embedFile("nettest_elf");
 const fbtest_image = @embedFile("fbtest_elf");
@@ -13,9 +14,19 @@ var image: []const u8 = busybox_image;
 const stack_address: u64 = 0x0000009000000000;
 const mmap_address: u64 = 0x000000a000000000;
 const page_size: u64 = 4096;
-const max_mappings = 512;
-const max_owned_ranges = 512;
-const max_shared_objects = 4;
+// Mesa's headless RADV ELF alone spans 4,423 pages. Keep loader bookkeeping
+// out of the kernel stack and leave capacity for its direct dependencies.
+const max_mappings = 8192;
+const max_owned_ranges = 8192;
+const max_shared_objects = 16;
+const max_initializers = 64;
+const TlsImage = extern struct { image: u64 = 0, file_size: u64 = 0, memory_size: u64 = 0, alignment: u64 = 1 };
+const MuslBootstrap = extern struct {
+    entry: u64 = 0,
+    count: u64 = 0,
+    images: [max_shared_objects]TlsImage = @splat(.{}),
+};
+const max_shared_object_size = 32 * 1024 * 1024;
 const tls_address: u64 = 0x0000005000000000;
 const tls_stride: u64 = 0x10000;
 
@@ -39,6 +50,11 @@ const NeededList = struct {
     names: [max_shared_objects][]const u8 = undefined,
     count: usize = 0,
 };
+
+// runImage is serialized today. These arrays are process-loader workspace,
+// not per-call stack storage; make them per-process when concurrent exec lands.
+var loader_mappings: [max_mappings]Mapping = undefined;
+var loader_owned: [max_owned_ranges]OwnedRange = undefined;
 
 var active_address_space: ?*paging.AddressSpace = null;
 var active_pages: ?*physical.Allocator = null;
@@ -85,6 +101,12 @@ pub fn runDrmTest(kernel_root: u64, pages: *physical.Allocator) !void {
     return runImage(kernel_root, pages, &arguments);
 }
 
+pub fn runLibdrmProbe(kernel_root: u64, pages: *physical.Allocator) !void {
+    image = @embedFile("libdrm_probe_elf");
+    const arguments = [_][]const u8{"/bin/libdrm-probe"};
+    return runImage(kernel_root, pages, &arguments);
+}
+
 pub fn runHelloPie(kernel_root: u64, pages: *physical.Allocator) !void {
     image = hello_image;
     if (read16(16) != 3) return error.NotPie;
@@ -95,6 +117,12 @@ pub fn runHelloPie(kernel_root: u64, pages: *physical.Allocator) !void {
 pub fn runDynamicTest(kernel_root: u64, pages: *physical.Allocator) !void {
     image = dynamic_image;
     const arguments = [_][]const u8{"/bin/dynamic-hello"};
+    return runImage(kernel_root, pages, &arguments);
+}
+
+pub fn runRadvLoaderProbe(kernel_root: u64, pages: *physical.Allocator) !void {
+    image = @embedFile("radv_loader_probe_elf");
+    const arguments = [_][]const u8{"/bin/radv-loader-probe"};
     return runImage(kernel_root, pages, &arguments);
 }
 
@@ -113,17 +141,20 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
     const needed = try findNeeded(program_offset, program_entry_size, program_count);
 
     var address_space = try paging.AddressSpace.init(kernel_root, pages);
-    var owned: [max_owned_ranges]OwnedRange = undefined;
+    const owned = &loader_owned;
     var owned_count: usize = 0;
     defer {
         paging.activateRoot(kernel_root);
         address_space.destroy();
         releaseOwned(pages, owned[0..owned_count]);
     }
-    var mappings: [max_mappings]Mapping = undefined;
+    const mappings = &loader_mappings;
     var mapping_count: usize = 0;
     var image_start: u64 = ~@as(u64, 0);
     var image_end: u64 = 0;
+    var initializers: [max_initializers]u64 = undefined;
+    var initializer_count: usize = 0;
+    var musl_bootstrap: MuslBootstrap = .{};
 
     var header_index: usize = 0;
     while (header_index < program_count) : (header_index += 1) {
@@ -137,7 +168,7 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
         if (file_size > memory_size or file_offset + file_size > image.len or memory_size == 0) return error.InvalidElf;
         image_start = @min(image_start, virtual);
         image_end = @max(image_end, virtual + memory_size);
-        try loadSegment(&address_space, pages, &mappings, &mapping_count, &owned, &owned_count, virtual, file_offset, file_size, memory_size, (flags & 2) != 0, (flags & 1) != 0);
+        try loadSegment(&address_space, pages, mappings, &mapping_count, owned, &owned_count, virtual, file_offset, file_size, memory_size, (flags & 2) != 0, (flags & 1) != 0);
     }
     if (mapping_count == 0 or entry < image_start or entry >= image_end) return error.InvalidElf;
     try applyRelativeRelocations(mappings[0..mapping_count], load_bias, program_offset, program_entry_size, program_count, interpreter_path != null);
@@ -157,7 +188,7 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
         while (provider_count < dependency_name_count) {
             const dependency = dependency_names[provider_count];
             const dependency_info = try vfs.infoAt(-100, dependency);
-            if (dependency_info.directory or dependency_info.size < 64 or dependency_info.size > 16 * 1024 * 1024) return error.InvalidSharedObject;
+            if (dependency_info.directory or dependency_info.size < 64 or dependency_info.size > max_shared_object_size) return error.InvalidSharedObject;
             const dependency_pages = (dependency_info.size + page_size - 1) / page_size;
             const dependency_address = pages.allocate(dependency_pages) orelse return error.OutOfMemory;
             dependency_ranges[dependency_count] = .{ .address = dependency_address, .pages = dependency_pages };
@@ -191,7 +222,7 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
                 const file_size = read64At(header + 32);
                 const memory_size = read64At(header + 40);
                 if (file_size > memory_size or file_offset + file_size > image.len or memory_size == 0) return error.InvalidSharedObject;
-                try loadSegment(&address_space, pages, &mappings, &mapping_count, &owned, &owned_count, virtual, file_offset, file_size, memory_size, (flags & 2) != 0, (flags & 1) != 0);
+                try loadSegment(&address_space, pages, mappings, &mapping_count, owned, &owned_count, virtual, file_offset, file_size, memory_size, (flags & 2) != 0, (flags & 1) != 0);
             }
             header_index = 0;
             while (header_index < shared_program_count) : (header_index += 1) {
@@ -202,7 +233,13 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
                 const memory_size = read64At(header + 40);
                 if (memory_size == 0 or memory_size > tls_stride or file_size > memory_size) return error.InvalidTlsSegment;
                 const module_tls = tls_address + @as(u64, provider_count) * tls_stride;
-                try loadSegment(&address_space, pages, &mappings, &mapping_count, &owned, &owned_count, module_tls, file_offset, file_size, memory_size, true, false);
+                musl_bootstrap.images[provider_count] = .{
+                    .image = shared_base + read64At(header + 16),
+                    .file_size = file_size,
+                    .memory_size = memory_size,
+                    .alignment = read64At(header + 48),
+                };
+                try loadSegment(&address_space, pages, mappings, &mapping_count, owned, &owned_count, module_tls, file_offset, file_size, memory_size, true, false);
                 tls_modules += 1;
             }
             try applyRelativeRelocations(mappings[0..mapping_count], shared_base, shared_program_offset, shared_program_entry_size, shared_program_count, true);
@@ -231,6 +268,30 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
         for (providers[0..provider_count], 0..) |provider, provider_index| {
             try applySymbolRelocations(provider.bytes, provider.program_offset, provider.program_entry_size, provider.program_count, provider.base, provider_index + 1, providers[0..provider_count], mappings[0..mapping_count]);
         }
+        // Constructors run only after every object has been relocated. The
+        // dependency walk records consumers before providers, so reverse it.
+        var provider_initializer_index = provider_count;
+        musl_bootstrap.count = provider_count;
+        for (providers[0..provider_count], 0..) |provider, index| {
+            if (!equal(dependency_names[index], "libc.so")) continue;
+            const symbols = try dynamicSymbols(provider.bytes, provider.program_offset, provider.program_entry_size, provider.program_count, false);
+            var symbol_index: u32 = 0;
+            while (symbol_index < symbols.symbol_count) : (symbol_index += 1) {
+                const offset: usize = @intCast(symbols.symbol_file + @as(u64, symbol_index) * 24);
+                if (read16From(provider.bytes, offset + 6) == 0) continue;
+                const name = try stringFrom(provider.bytes, symbols.string_file + read32From(provider.bytes, offset));
+                if (!equal(name, "csos_musl_bootstrap")) continue;
+                musl_bootstrap.entry = provider.base + read64From(provider.bytes, offset + 8);
+            }
+            if (musl_bootstrap.entry == 0 or !isMappedExecutable(mappings[0..mapping_count], musl_bootstrap.entry))
+                return error.MuslBootstrapMissing;
+        }
+        while (provider_initializer_index > 0) {
+            provider_initializer_index -= 1;
+            const provider = providers[provider_initializer_index];
+            try collectInitializers(provider.bytes, provider.program_offset, provider.program_entry_size, provider.program_count, provider.base, mappings[0..mapping_count], &initializers, &initializer_count);
+        }
+        try collectInitializers(program_image, program_offset, program_entry_size, program_count, load_bias, mappings[0..mapping_count], &initializers, &initializer_count);
         image = interpreter_image;
         if (image.len < 64 or !isElf() or read16(16) != 3) return error.InvalidInterpreter;
         const interpreter_program_offset = read64(32);
@@ -252,17 +313,21 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
             if (file_size > memory_size or file_offset + file_size > image.len or memory_size == 0) return error.InvalidInterpreter;
             image_start = @min(image_start, virtual);
             image_end = @max(image_end, virtual + memory_size);
-            try loadSegment(&address_space, pages, &mappings, &mapping_count, &owned, &owned_count, virtual, file_offset, file_size, memory_size, (flags & 2) != 0, (flags & 1) != 0);
+            try loadSegment(&address_space, pages, mappings, &mapping_count, owned, &owned_count, virtual, file_offset, file_size, memory_size, (flags & 2) != 0, (flags & 1) != 0);
         }
         try applyRelativeRelocations(mappings[0..mapping_count], interpreter_base, interpreter_program_offset, interpreter_program_entry_size, interpreter_program_count, false);
         interpreter_loads += 1;
         image = program_image;
     }
 
-    const stack_page_count = 8;
-    const initial_stack_size = 4 * page_size;
+    // libc formatting and libdrm PCI discovery have nested PATH_MAX buffers;
+    // the former 32 KiB userspace stack overflowed on drmGetDevice2.
+    const stack_page_count = 32; // 128 KiB; independent of the syscall stack.
+    // Place argv/auxv at the top of all mapped stack pages. Starting halfway
+    // down discarded half the downward-growing stack needed by libc/libdrm.
+    const initial_stack_size = stack_page_count * page_size;
     const stack_pages = pages.allocate(stack_page_count) orelse return error.OutOfMemory;
-    try own(&owned, &owned_count, stack_pages, stack_page_count);
+    try own(owned, &owned_count, stack_pages, stack_page_count);
     var stack_page: u64 = 0;
     while (stack_page < stack_page_count) : (stack_page += 1) {
         try address_space.mapUserPage(stack_address + stack_page * page_size, stack_pages + stack_page * page_size, true, false);
@@ -275,9 +340,9 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
     // Keep enough committed userspace for an interactive BusyBox shell.
     // Demand-paged arena growth will replace this fixed baseline before Mesa.
     const arena_pages = 1024;
-    try mapAnonymous(&address_space, pages, &owned, &owned_count, break_base, arena_pages);
-    try mapAnonymous(&address_space, pages, &owned, &owned_count, mmap_address, arena_pages);
-    const stack_pointer = try buildInitialStack(stack_pages, initial_stack_size, entry, interpreter_base, load_bias, program_offset, program_entry_size, program_count, arguments);
+    try mapAnonymous(&address_space, pages, owned, &owned_count, break_base, arena_pages);
+    try mapAnonymous(&address_space, pages, owned, &owned_count, mmap_address, arena_pages);
+    const stack_pointer = try buildInitialStack(stack_pages, initial_stack_size, entry, interpreter_base, load_bias, program_offset, program_entry_size, program_count, arguments, initializers[0..initializer_count], &musl_bootstrap);
     syscalls.configure(
         image_start,
         image_end - image_start,
@@ -370,6 +435,8 @@ fn buildInitialStack(
     program_entry_size: u16,
     program_count: u16,
     arguments: []const []const u8,
+    initializers: []const u64,
+    musl_bootstrap: *const MuslBootstrap,
 ) !u64 {
     const bytes: [*]u8 = @ptrFromInt(physical_base);
     @memset(bytes[0..@intCast(size)], 0);
@@ -389,6 +456,19 @@ fn buildInitialStack(
     const random_pointer = stack_address + offset;
     var random_index: usize = 0;
     while (random_index < 16) : (random_index += 1) bytes[offset + random_index] = @truncate(0x41 + random_index);
+
+    offset &= ~@as(usize, 7);
+    if (initializers.len > offset / 8) return error.InitialStackOverflow;
+    offset -= initializers.len * 8;
+    const initializer_pointer = stack_address + offset;
+    for (initializers, 0..) |initializer, initializer_index| {
+        const target: *align(1) u64 = @ptrCast(bytes + offset + initializer_index * 8);
+        target.* = initializer;
+    }
+    offset -= @sizeOf(MuslBootstrap);
+    const bootstrap_pointer = stack_address + offset;
+    const bootstrap_target: *align(1) MuslBootstrap = @ptrCast(bytes + offset);
+    bootstrap_target.* = musl_bootstrap.*;
 
     var phdr_address: u64 = 0;
     var header_index: usize = 0;
@@ -415,6 +495,9 @@ fn buildInitialStack(
         .{ 23, 0 },
         .{ 25, random_pointer },
         .{ 31, argument_pointers[0] },
+        .{ 0x6000, initializer_pointer },
+        .{ 0x6001, initializers.len },
+        .{ 0x6002, bootstrap_pointer },
         .{ 0, 0 },
     };
     const word_count = 1 + arguments.len + 1 + 1 + auxv.len * 2;
@@ -435,6 +518,75 @@ fn buildInitialStack(
     }
     push(bytes, &offset, arguments.len);
     return stack_address + offset;
+}
+
+fn collectInitializers(
+    bytes: []const u8,
+    program_offset: u64,
+    program_entry_size: u16,
+    program_count: u16,
+    base: u64,
+    mappings: []const Mapping,
+    initializers: *[max_initializers]u64,
+    count: *usize,
+) !void {
+    var dynamic_file: ?u64 = null;
+    var dynamic_size: u64 = 0;
+    var header_index: usize = 0;
+    while (header_index < program_count) : (header_index += 1) {
+        const header: usize = @intCast(program_offset + @as(u64, program_entry_size) * header_index);
+        if (header > bytes.len or bytes.len - header < 56) return error.InvalidElf;
+        if (read32From(bytes, header) != 2) continue;
+        dynamic_file = read64From(bytes, header + 8);
+        dynamic_size = read64From(bytes, header + 32);
+        break;
+    }
+    const table = dynamic_file orelse return;
+    if (table > bytes.len or dynamic_size > bytes.len - table) return error.InvalidDynamicTable;
+    var init: u64 = 0;
+    var init_array: u64 = 0;
+    var init_array_size: u64 = 0;
+    var dynamic_offset = table;
+    while (dynamic_offset + 16 <= table + dynamic_size) : (dynamic_offset += 16) {
+        const item: usize = @intCast(dynamic_offset);
+        const tag = read64From(bytes, item);
+        const value = read64From(bytes, item + 8);
+        if (tag == 0) break;
+        switch (tag) {
+            12 => init = value,
+            25 => init_array = value,
+            27 => init_array_size = value,
+            else => {},
+        }
+    }
+    if (init != 0) {
+        if (!isMappedExecutable(mappings, base + init)) return error.InvalidInitializer;
+        try appendInitializer(initializers, count, base + init);
+    }
+    if (init_array_size == 0) return;
+    if (init_array == 0 or init_array_size % 8 != 0) return error.InvalidInitArray;
+    var array_offset: u64 = 0;
+    while (array_offset < init_array_size) : (array_offset += 8) {
+        const initializer = try readMapped64(mappings, base + init_array + array_offset);
+        if (initializer != 0 and initializer != ~@as(u64, 0)) {
+            if (!isMappedExecutable(mappings, initializer)) return error.InvalidInitializer;
+            try appendInitializer(initializers, count, initializer);
+        }
+    }
+}
+
+fn appendInitializer(initializers: *[max_initializers]u64, count: *usize, initializer: u64) !void {
+    if (count.* == initializers.len) return error.TooManyInitializers;
+    initializers[count.*] = initializer;
+    count.* += 1;
+}
+
+fn isMappedExecutable(mappings: []const Mapping, virtual: u64) bool {
+    const page_virtual = virtual & ~(page_size - 1);
+    for (mappings) |mapping| {
+        if (mapping.virtual == page_virtual and mapping.resident and mapping.executable) return true;
+    }
+    return false;
 }
 
 fn findInterpreter(program_offset: u64, program_entry_size: u16, program_count: u16) !?[]const u8 {
@@ -695,7 +847,12 @@ fn applySymbolTable(consumer: []const u8, consumer_base: u64, consumer_module: u
             if (resolved != null) break;
         }
         if (resolved == null and (consumer[consumer_symbol + 4] >> 4) == 2) resolved = 0;
-        const symbol_value = resolved orelse return error.DynamicSymbolMissing;
+        const symbol_value = resolved orelse {
+            serial.write("dynamic symbol missing: ");
+            serial.write(name);
+            serial.write("\n");
+            return error.DynamicSymbolMissing;
+        };
         const addend: i64 = @bitCast(read64From(consumer, item + 16));
         const value = if (relocation_type == 1) symbol_value +% @as(u64, @bitCast(addend)) else symbol_value;
         try writeMapped64(mappings, target, value);
@@ -912,6 +1069,18 @@ fn writeMapped64(mappings: []const Mapping, virtual: u64, value: u64) !void {
         return;
     }
     return error.RelocationTargetMissing;
+}
+
+fn readMapped64(mappings: []const Mapping, virtual: u64) !u64 {
+    const page_virtual = virtual & ~(page_size - 1);
+    const offset = virtual - page_virtual;
+    if (offset > page_size - 8) return error.CrossPageInitializer;
+    for (mappings) |mapping| {
+        if (mapping.virtual != page_virtual or !mapping.resident) continue;
+        const source: *align(1) const u64 = @ptrFromInt(mapping.physical + offset);
+        return source.*;
+    }
+    return error.InitializerMissing;
 }
 
 pub fn handlePageFault(address: u64, instruction: u64, code: u64) callconv(.c) bool {
