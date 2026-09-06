@@ -517,7 +517,11 @@ pub const Context = struct {
         for (0..height) |row| {
             const source_start = (dirty.y + row) * surface.width + dirty.x;
             const target_start = (y + dirty.y + row) * self.framebuffer.stride + x + dirty.x;
-            @memcpy(target[target_start .. target_start + width], surface.pixels[source_start .. source_start + width]);
+            for (0..width) |column| {
+                const destination_rgb = self.logicalColor(target[target_start + column]);
+                const blended_rgb = sdl.blendRgbaOverRgb(surface.pixels[source_start + column], destination_rgb);
+                target[target_start + column] = self.nativeColor(blended_rgb);
+            }
         }
         self.invalidate(x + dirty.x, y + dirty.y, width, height);
         _ = surface.consumeDirty();
@@ -672,5 +676,10 @@ pub const Context = struct {
     fn nativeColor(self: *const Context, rgb: u32) u32 {
         if (self.framebuffer.pixel_format == 1) return rgb & 0x00ffffff;
         return ((rgb & 0xff) << 16) | (rgb & 0xff00) | ((rgb >> 16) & 0xff);
+    }
+
+    fn logicalColor(self: *const Context, native: u32) u32 {
+        if (self.framebuffer.pixel_format == 1) return native & 0x00ffffff;
+        return ((native & 0xff) << 16) | (native & 0xff00) | ((native >> 16) & 0xff);
     }
 };

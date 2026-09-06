@@ -151,6 +151,9 @@ Home/End/Delete e renderiza automaticamente as seis linhas mais recentes.
 O compositor associa a superfície SDL à janela proprietária e aplica clipping
 à área de conteúdo; a aplicação deixa de atravessar bordas ou aparecer por cima
 de janelas que estão adiante na ordem de composição.
+O blit SDL converte RGBA8888 para RGB nativo e aplica alpha blending por pixel,
+cobrindo framebuffers RGB/BGR sem copiar canais ou alpha como se fossem pixels
+nativos.
 O runner QEMU também passou a usar encerramento direto e limitado do PID antes
 do fallback por árvore, eliminando um travamento observado no cleanup de um
 smoke test sem deixar o emulador aberto.

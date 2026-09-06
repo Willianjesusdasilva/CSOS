@@ -2,6 +2,21 @@ pub const PixelFormat = enum { rgba8888 };
 pub const Rect = struct { x: usize, y: usize, width: usize, height: usize };
 pub const AudioSpec = struct { sample_rate: u32, channels: u8 };
 
+/// Blend an RGBA8888 source pixel (R in the most-significant byte) over an
+/// RGB888 destination. The result remains logical RGB; framebuffer byte order
+/// conversion belongs to the display backend.
+pub fn blendRgbaOverRgb(source: u32, destination: u32) u32 {
+    const alpha = source & 0xff;
+    if (alpha == 0) return destination & 0x00ffffff;
+    const source_rgb = source >> 8;
+    if (alpha == 0xff) return source_rgb;
+    const inverse = 0xff - alpha;
+    const red = (((source_rgb >> 16) & 0xff) * alpha + ((destination >> 16) & 0xff) * inverse + 127) / 255;
+    const green = (((source_rgb >> 8) & 0xff) * alpha + ((destination >> 8) & 0xff) * inverse + 127) / 255;
+    const blue = ((source_rgb & 0xff) * alpha + (destination & 0xff) * inverse + 127) / 255;
+    return (red << 16) | (green << 8) | blue;
+}
+
 pub const Event = union(enum) {
     quit: void,
     key: struct { scancode: u8, pressed: bool, modifiers: u8 },
@@ -458,6 +473,9 @@ fn testApplicationDraw(window: *Window) void {
 }
 
 test "SDL software event queue and surface contract" {
+    try @import("std").testing.expectEqual(@as(u32, 0x112233), blendRgbaOverRgb(0x112233ff, 0xaabbcc));
+    try @import("std").testing.expectEqual(@as(u32, 0xaabbcc), blendRgbaOverRgb(0x11223300, 0xaabbcc));
+    try @import("std").testing.expectEqual(@as(u32, 0x80007f), blendRgbaOverRgb(0xff000080, 0x0000ff));
     var events = EventQueue{};
     try @import("std").testing.expectEqual(@as(usize, 0), events.len());
     try @import("std").testing.expectEqual(EventQueue.capacity, events.remaining());
