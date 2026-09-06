@@ -630,14 +630,14 @@ Atalhos já suportados na sessão emulada: `Alt+Tab` troca o foco, `Ctrl+M`
 minimiza/restaura, e `Ctrl+W` ou `Esc` fecha a janela focada. A barra de tarefas
 software permite restaurar janelas minimizadas.
 O contrato SDL software inicial em `graphics/sdl.zig` já define janela/superfície
-RGBA e fila de eventos; a integração com HID, áudio e aplicações SDL ainda está
-em andamento.
+RGBA, fila de eventos e dispositivo de áudio com validação de especificação; a
+integração completa com hardware e aplicações SDL ainda está em andamento.
 O boot inclui uma aplicação SDL software mínima que desenha uma superfície e a
 apresenta via `blitSurface`, validando o caminho de renderização em QEMU.
 Movimentos de mouse consecutivos são coalescidos quando a fila SDL está cheia,
 evitando saturação desnecessária do input.
 
-Verificação atual: `tools/test-system.ps1` passou `9/9` etapas e `14/14` testes,
+Verificação atual: `tools/test-system.ps1` passou `11/11` etapas e `15/15` testes,
 com dois boots QEMU limitados até `CSOS console shell ready`. O QEMU foi
 encerrado ao fim dos boots; isso ainda é validação de console, não um desktop
 gráfico nem prova de Vulkan em hardware AMD/NVIDIA.
