@@ -193,9 +193,29 @@ pub fn build(b: *std.Build) void {
     const run_gpu_tests = b.addRunArtifact(gpu_tests);
     const test_step = b.step("test", "Run CSOS host-side tests");
     test_step.dependOn(&run_gpu_tests.step);
+    const sdl_module = b.createModule(.{ .root_source_file = b.path("graphics/sdl.zig") });
     const display_module = b.createModule(.{ .root_source_file = b.path("drivers/display.zig") });
     display_module.addImport("pci", pci_module);
     display_module.addImport("physical", physical_module);
+    display_module.addImport("sdl", sdl_module);
+    const display_test_module = b.createModule(.{
+        .root_source_file = b.path("drivers/display.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+    });
+    display_test_module.addImport("pci", pci_module);
+    display_test_module.addImport("physical", physical_module);
+    const display_tests = b.addTest(.{ .root_module = display_test_module });
+    const run_display_tests = b.addRunArtifact(display_tests);
+    test_step.dependOn(&run_display_tests.step);
+    const sdl_test_module = b.createModule(.{
+        .root_source_file = b.path("graphics/sdl.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+    });
+    const sdl_tests = b.addTest(.{ .root_module = sdl_test_module });
+    const run_sdl_tests = b.addRunArtifact(sdl_tests);
+    test_step.dependOn(&run_sdl_tests.step);
     const hardware_profile_module = b.createModule(.{ .root_source_file = b.path("hardware/profile.zig") });
     const installer_state_module = b.createModule(.{ .root_source_file = b.path("installer/state.zig") });
     const e1000_module = b.createModule(.{ .root_source_file = b.path("drivers/e1000.zig") });
@@ -282,6 +302,7 @@ pub fn build(b: *std.Build) void {
     kernel_module.addImport("audio", audio_module);
     kernel_module.addImport("gpu", gpu_module);
     kernel_module.addImport("display", display_module);
+    kernel_module.addImport("sdl", sdl_module);
     kernel_module.addImport("hardware_profile", hardware_profile_module);
     kernel_module.addImport("metrics", metrics_module);
     kernel_module.addImport("installer_state", installer_state_module);

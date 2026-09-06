@@ -10,6 +10,10 @@ _Static_assert(sizeof(radv_triangle_frag_spv) >= 20, "fragment SPIR-V is truncat
 extern int vk_icdNegotiateLoaderICDInterfaceVersion(uint32_t *version);
 extern PFN_vkVoidFunction vk_icdGetInstanceProcAddr(VkInstance instance, const char *name);
 static volatile uint32_t constructor_cookie;
+static VkExtensionProperties instance_extension_scratch[64];
+static VkExtensionProperties device_extension_scratch[512];
+static VkPhysicalDevicePCIBusInfoPropertiesEXT pci_bus_scratch;
+static VkPhysicalDeviceProperties2 properties2_scratch;
 
 static int same_string(const char *left, const char *right) {
     while (*left && *left == *right) { ++left; ++right; }
@@ -20,6 +24,36 @@ static int has_extension(const VkExtensionProperties *properties, uint32_t count
     for (uint32_t i = 0; i < count; ++i)
         if (same_string(properties[i].extensionName, name)) return 1;
     return 0;
+}
+
+static int physical_matches_drm_pci(VkPhysicalDevice physical,
+                                    PFN_vkGetPhysicalDeviceProperties get_properties,
+                                    PFN_vkGetPhysicalDeviceProperties2 get_properties2,
+                                    PFN_vkEnumerateDeviceExtensionProperties enumerate_extensions,
+                                    uint16_t vendor, uint16_t device, uint16_t domain,
+                                    uint8_t bus, uint8_t slot, uint8_t function) {
+    VkPhysicalDeviceProperties properties;
+    get_properties(physical, &properties);
+    if (properties.vendorID != vendor || properties.deviceID != device) return 0;
+    uint32_t extension_count = 0;
+    if (!get_properties2 || !enumerate_extensions ||
+        enumerate_extensions(physical, 0, &extension_count, 0) != VK_SUCCESS ||
+        extension_count == 0 || extension_count > 512) return 0;
+    uint32_t fetched = extension_count;
+    if (enumerate_extensions(physical, 0, &fetched, device_extension_scratch) != VK_SUCCESS ||
+        fetched != extension_count ||
+        !has_extension(device_extension_scratch, fetched, VK_EXT_PCI_BUS_INFO_EXTENSION_NAME)) return 0;
+    pci_bus_scratch.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PCI_BUS_INFO_PROPERTIES_EXT;
+    pci_bus_scratch.pNext = 0;
+    pci_bus_scratch.pciDomain = UINT32_MAX;
+    pci_bus_scratch.pciBus = UINT32_MAX;
+    pci_bus_scratch.pciDevice = UINT32_MAX;
+    pci_bus_scratch.pciFunction = UINT32_MAX;
+    properties2_scratch.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+    properties2_scratch.pNext = &pci_bus_scratch;
+    get_properties2(physical, &properties2_scratch);
+    return pci_bus_scratch.pciDomain == domain && pci_bus_scratch.pciBus == bus &&
+        pci_bus_scratch.pciDevice == slot && pci_bus_scratch.pciFunction == function;
 }
 
 static int open_read_write(const char *path) {
@@ -67,8 +101,34 @@ static void report_kms_connector_ready(void) {
         "S"(message), "d"(sizeof(message)-1) : "rcx", "r11", "memory");
 }
 
+static void report_kms_primary_plane_ready(void) {
+    static const char message[] = "RADV DRM KMS primary plane ready\n";
+    long result;
+    __asm__ volatile("syscall" : "=a"(result) : "a"(1L), "D"(1L),
+        "S"(message), "d"(sizeof(message)-1) : "rcx", "r11", "memory");
+}
+
 static void report_drm_display_acquired(void) {
     static const char message[] = "RADV DRM display acquired\n";
+    long result;
+    __asm__ volatile("syscall" : "=a"(result) : "a"(1L), "D"(1L),
+        "S"(message), "d"(sizeof(message)-1) : "rcx", "r11", "memory");
+}
+
+static void report_vulkan_drm_identity_ready(void) {
+    static const char message[] = "RADV Vulkan device matches DRM PCI identity\n";
+    long result;
+    __asm__ volatile("syscall" : "=a"(result) : "a"(1L), "D"(1L),
+        "S"(message), "d"(sizeof(message)-1) : "rcx", "r11", "memory");
+}
+
+static void report_matched_pci_bdf(uint16_t domain, uint8_t bus, uint8_t slot, uint8_t function) {
+    char message[] = "RADV matched PCI BDF: 0000:00:00.0\n";
+    static const char digits[] = "0123456789abcdef";
+    for (unsigned i = 0; i < 4; ++i) message[25-i] = digits[(domain >> (i*4)) & 15];
+    message[27] = digits[(bus >> 4) & 15]; message[28] = digits[bus & 15];
+    message[30] = digits[(slot >> 4) & 15]; message[31] = digits[slot & 15];
+    message[33] = digits[function & 15];
     long result;
     __asm__ volatile("syscall" : "=a"(result) : "a"(1L), "D"(1L),
         "S"(message), "d"(sizeof(message)-1) : "rcx", "r11", "memory");
@@ -1021,24 +1081,40 @@ __attribute__((used, noreturn)) void probe_main(void) {
         vk_icdNegotiateLoaderICDInterfaceVersion(&version) == 0 && version != 0 ? 0 : 1;
     int drm_primary_fd = -1;
     uint32_t drm_connector_id = 0;
+    uint16_t drm_vendor_id = 0, drm_device_id = 0;
+    uint16_t drm_pci_domain = 0;
+    uint8_t drm_pci_bus = 0, drm_pci_slot = 0, drm_pci_function = 0;
     if (status == 0) {
         int drm_count = drmGetDevices2(0, 0, 0);
         report_count('D', (uint32_t)drm_count);
         if (drm_count <= 0) {
             status = 5;
         } else {
-            drmDevicePtr devices[4] = {0};
-            int fetched = drmGetDevices2(0, devices, 4);
+            drmDevicePtr devices[16] = {0};
+            int fetched = drmGetDevices2(0, devices, 16);
             report_count('F', (uint32_t)fetched);
-            if (fetched <= 0 || !devices[0] || devices[0]->bustype != DRM_BUS_PCI ||
-                !devices[0]->businfo.pci || !devices[0]->deviceinfo.pci ||
-                devices[0]->deviceinfo.pci->vendor_id == 0 ||
-                !(devices[0]->available_nodes & (1 << DRM_NODE_PRIMARY)) ||
-                !(devices[0]->available_nodes & (1 << DRM_NODE_RENDER)))
-                status = 6;
+            int selected = -1;
+            for (int i = 0; i < fetched && i < 16; ++i) {
+                drmDevicePtr candidate = devices[i];
+                if (!candidate || candidate->bustype != DRM_BUS_PCI || !candidate->businfo.pci ||
+                    !candidate->deviceinfo.pci || candidate->deviceinfo.pci->vendor_id == 0 ||
+                    !(candidate->available_nodes & (1 << DRM_NODE_PRIMARY)) ||
+                    !(candidate->available_nodes & (1 << DRM_NODE_RENDER))) continue;
+                if (selected < 0 || candidate->deviceinfo.pci->vendor_id == 0x1002) selected = i;
+                if (candidate->deviceinfo.pci->vendor_id == 0x1002) break;
+            }
+            if (selected < 0) status = 6;
             if (status == 0) {
-                drm_primary_fd = open_read_write(devices[0]->nodes[DRM_NODE_PRIMARY]);
+                drmDevicePtr selected_device = devices[selected];
+                drm_vendor_id = selected_device->deviceinfo.pci->vendor_id;
+                drm_device_id = selected_device->deviceinfo.pci->device_id;
+                drm_pci_domain = selected_device->businfo.pci->domain;
+                drm_pci_bus = selected_device->businfo.pci->bus;
+                drm_pci_slot = selected_device->businfo.pci->dev;
+                drm_pci_function = selected_device->businfo.pci->func;
+                drm_primary_fd = open_read_write(selected_device->nodes[DRM_NODE_PRIMARY]);
                 drmModeResPtr resources = drm_primary_fd >= 0 ? drmModeGetResources(drm_primary_fd) : 0;
+                int primary_plane_ready = 0;
                 if (resources) {
                     for (int i = 0; i < resources->count_connectors; ++i) {
                         drmModeConnectorPtr connector = drmModeGetConnector(
@@ -1051,10 +1127,29 @@ __attribute__((used, noreturn)) void probe_main(void) {
                         }
                         if (connector) drmModeFreeConnector(connector);
                     }
+                    drmModePlaneResPtr plane_resources = drmModeGetPlaneResources(drm_primary_fd);
+                    if (plane_resources) {
+                        for (uint32_t i = 0; i < plane_resources->count_planes; ++i) {
+                            drmModePlanePtr plane = drmModeGetPlane(drm_primary_fd, plane_resources->planes[i]);
+                            if (plane) {
+                                for (uint32_t format_index = 0; format_index < plane->count_formats; ++format_index)
+                                    if ((plane->possible_crtcs & 1) && plane->formats[format_index] == 0x34325258) {
+                                        primary_plane_ready = 1;
+                                        break;
+                                    }
+                                drmModeFreePlane(plane);
+                            }
+                            if (primary_plane_ready) break;
+                        }
+                        drmModeFreePlaneResources(plane_resources);
+                    }
                     drmModeFreeResources(resources);
                 }
-                if (drm_primary_fd < 0 || drm_connector_id == 0) status = 34;
-                else report_kms_connector_ready();
+                if (drm_primary_fd < 0 || drm_connector_id == 0 || !primary_plane_ready) status = 34;
+                else {
+                    report_kms_connector_ready();
+                    report_kms_primary_plane_ready();
+                }
             }
             if (fetched > 0) drmFreeDevices(devices, fetched);
         }
@@ -1065,27 +1160,33 @@ __attribute__((used, noreturn)) void probe_main(void) {
         PFN_vkEnumerateInstanceExtensionProperties enumerate_extensions =
             (PFN_vkEnumerateInstanceExtensionProperties)vk_icdGetInstanceProcAddr(
                 VK_NULL_HANDLE, "vkEnumerateInstanceExtensionProperties");
-        VkExtensionProperties extensions[64];
-        uint32_t extension_count = 64;
+        uint32_t extension_count = 0;
         const char *required_extensions[] = {
             VK_KHR_SURFACE_EXTENSION_NAME,
             VK_KHR_DISPLAY_EXTENSION_NAME,
             VK_EXT_DIRECT_MODE_DISPLAY_EXTENSION_NAME,
             VK_EXT_ACQUIRE_DRM_DISPLAY_EXTENSION_NAME,
+            VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
         };
-        if (!enumerate_extensions || enumerate_extensions(0, &extension_count, extensions) != VK_SUCCESS ||
-            extension_count > 64 ||
-            !has_extension(extensions, extension_count, required_extensions[0]) ||
-            !has_extension(extensions, extension_count, required_extensions[1]) ||
-            !has_extension(extensions, extension_count, required_extensions[2]) ||
-            !has_extension(extensions, extension_count, required_extensions[3])) {
+        if (!enumerate_extensions ||
+            enumerate_extensions(0, &extension_count, 0) != VK_SUCCESS ||
+            extension_count == 0 || extension_count > 64) {
             status = 33;
         } else {
-            report_direct_display_ready();
+            uint32_t fetched_extensions = extension_count;
+            if (enumerate_extensions(0, &fetched_extensions, instance_extension_scratch) != VK_SUCCESS ||
+                fetched_extensions != extension_count ||
+                !has_extension(instance_extension_scratch, fetched_extensions, required_extensions[0]) ||
+                !has_extension(instance_extension_scratch, fetched_extensions, required_extensions[1]) ||
+                !has_extension(instance_extension_scratch, fetched_extensions, required_extensions[2]) ||
+                !has_extension(instance_extension_scratch, fetched_extensions, required_extensions[3]) ||
+                !has_extension(instance_extension_scratch, fetched_extensions, required_extensions[4]))
+                status = 33;
+            else report_direct_display_ready();
         }
         const VkInstanceCreateInfo info = {
             .sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
-            .enabledExtensionCount = 4,
+            .enabledExtensionCount = 5,
             .ppEnabledExtensionNames = required_extensions,
         };
         VkInstance instance = VK_NULL_HANDLE;
@@ -1102,10 +1203,38 @@ __attribute__((used, noreturn)) void probe_main(void) {
                 report_count('V', device_count);
                 if (device_count != 0) {
                     VkPhysicalDevice physical = VK_NULL_HANDLE;
-                    uint32_t fetched = 1;
-                    if (enumerate(instance, &fetched, &physical) != VK_SUCCESS || fetched == 0 || !physical) {
+                    PFN_vkGetPhysicalDeviceProperties get_properties =
+                        (PFN_vkGetPhysicalDeviceProperties)vk_icdGetInstanceProcAddr(
+                            instance, "vkGetPhysicalDeviceProperties");
+                    PFN_vkGetPhysicalDeviceProperties2 get_properties2 =
+                        (PFN_vkGetPhysicalDeviceProperties2)vk_icdGetInstanceProcAddr(
+                            instance, "vkGetPhysicalDeviceProperties2KHR");
+                    PFN_vkEnumerateDeviceExtensionProperties enumerate_physical_extensions =
+                        (PFN_vkEnumerateDeviceExtensionProperties)vk_icdGetInstanceProcAddr(
+                            instance, "vkEnumerateDeviceExtensionProperties");
+                    VkPhysicalDevice physical_devices[16];
+                    uint32_t fetched = device_count;
+                    if (!get_properties || device_count > 16 ||
+                        enumerate(instance, &fetched, physical_devices) != VK_SUCCESS ||
+                        fetched != device_count) {
                         status = 7;
                     } else {
+                        for (uint32_t i = 0; i < fetched; ++i) {
+                            if (physical_matches_drm_pci(physical_devices[i], get_properties, get_properties2,
+                                enumerate_physical_extensions, drm_vendor_id, drm_device_id, drm_pci_domain,
+                                drm_pci_bus, drm_pci_slot, drm_pci_function)) {
+                                physical = physical_devices[i];
+                                break;
+                            }
+                        }
+                        if (!physical) status = 36;
+                        else {
+                            report_vulkan_drm_identity_ready();
+                            report_matched_pci_bdf(drm_pci_domain, drm_pci_bus,
+                                drm_pci_slot, drm_pci_function);
+                        }
+                    }
+                    if (status == 0) {
                         VkSurfaceKHR display_surface = probe_direct_display(
                             instance, physical, drm_primary_fd, drm_connector_id);
                         PFN_vkGetPhysicalDeviceQueueFamilyProperties queue_properties =
@@ -1148,13 +1277,18 @@ __attribute__((used, noreturn)) void probe_main(void) {
                                 PFN_vkEnumerateDeviceExtensionProperties enumerate_device_extensions =
                                     (PFN_vkEnumerateDeviceExtensionProperties)vk_icdGetInstanceProcAddr(
                                         instance, "vkEnumerateDeviceExtensionProperties");
-                                VkExtensionProperties device_extensions[128];
-                                uint32_t device_extension_count = 128;
+                                uint32_t device_extension_count = 0;
                                 if (display_surface && enumerate_device_extensions &&
-                                    enumerate_device_extensions(physical, 0, &device_extension_count,
-                                        device_extensions) == VK_SUCCESS && device_extension_count <= 128 &&
-                                    has_extension(device_extensions, device_extension_count, swapchain_extension))
-                                    enabled_device_extension_count = 1;
+                                    enumerate_device_extensions(physical, 0, &device_extension_count, 0) == VK_SUCCESS &&
+                                    device_extension_count != 0 && device_extension_count <= 512) {
+                                    uint32_t fetched_device_extensions = device_extension_count;
+                                    if (enumerate_device_extensions(physical, 0, &fetched_device_extensions,
+                                            device_extension_scratch) == VK_SUCCESS &&
+                                        fetched_device_extensions == device_extension_count &&
+                                        has_extension(device_extension_scratch, fetched_device_extensions,
+                                            swapchain_extension))
+                                        enabled_device_extension_count = 1;
+                                }
                                 const VkDeviceCreateInfo device_info = {
                                     .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
                                     .queueCreateInfoCount = 1,

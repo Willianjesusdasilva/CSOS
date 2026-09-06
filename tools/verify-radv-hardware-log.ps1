@@ -1,6 +1,7 @@
 param(
     [Parameter(Mandatory)][string]$SerialLog,
     [Parameter(Mandatory)][ValidateRange(1, 65535)][int]$ExpectedDevice,
+    [ValidatePattern('^[0-9a-fA-F]{4}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.[0-7]$')][string]$ExpectedBdf,
     [switch]$RequireDisplayEnumeration,
     [switch]$RequireDisplaySurface,
     [switch]$RequireDrmDisplayAcquisition,
@@ -24,6 +25,13 @@ $device = [int]$identity.Groups[2].Value
 if ($vendor -ne 0x1002) { throw "Serial log is not from an AMD GPU (vendor=$vendor)." }
 if ($device -ne $ExpectedDevice) { throw "GPU PCI device mismatch: expected $ExpectedDevice, observed $device." }
 
+$bdfMatch = [regex]::Match($log, 'RADV matched PCI BDF: ([0-9a-fA-F]{4}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.[0-7])')
+if (-not $bdfMatch.Success) { throw 'Serial log has no matched DRM/Vulkan PCI BDF.' }
+$matchedBdf = $bdfMatch.Groups[1].Value.ToLowerInvariant()
+if ($ExpectedBdf -and $matchedBdf -ne $ExpectedBdf.ToLowerInvariant()) {
+    throw "GPU PCI BDF mismatch: expected $ExpectedBdf, observed $matchedBdf."
+}
+
 $vulkan = [regex]::Match($log, 'RADV V device count: 0x([0-9a-fA-F]{8})')
 if (-not $vulkan.Success) { throw 'Serial log has no Vulkan physical-device count.' }
 $deviceCount = [Convert]::ToUInt32($vulkan.Groups[1].Value, 16)
@@ -31,6 +39,8 @@ if ($deviceCount -eq 0) { throw 'RADV did not enumerate a physical Vulkan device
 
 $required = @(
     'RADV direct display instance extensions ready',
+    'RADV DRM KMS primary plane ready',
+    'RADV Vulkan device matches DRM PCI identity',
     'RADV logical device and graphics queue ready',
     'RADV triangle shader modules ready',
     'RADV triangle graphics pipeline ready',
@@ -82,7 +92,7 @@ if ($blue -lt 680 -or $blue -gt 760 -or $black -lt 3300 -or
 }
 
 if ($AllowFixture) {
-    Write-Output "RADV hardware-log fixture contract verified for AMD PCI 1002:$('{0:x4}' -f $device)."
+    Write-Output "RADV hardware-log fixture contract verified for AMD PCI 1002:$('{0:x4}' -f $device) at $matchedBdf."
 } else {
-    Write-Output "RADV offscreen triangle pixels verified on AMD PCI 1002:$('{0:x4}' -f $device); display presentation remains a separate gate."
+    Write-Output "RADV offscreen triangle pixels verified on AMD PCI 1002:$('{0:x4}' -f $device) at $matchedBdf; display presentation remains a separate gate."
 }

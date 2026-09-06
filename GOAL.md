@@ -66,11 +66,11 @@ implementado ou validado, nem aumenta a porcentagem concluída do projeto.
 
 - [x] **M0–M13 — fundações do SO:** build, boot, memória, CPU/SMP, scheduler, userspace, ABI Linux inicial, BusyBox, PCIe, NVMe, filesystem, USB/xHCI, rede e áudio possuem fundações implementadas; integração e validação final ainda continuam.
 - [ ] **M14 — GPU AMD/NVIDIA + Vulkan:** parcial. A preparação AMD GFX11, `AMDGPU_INFO_DEV_INFO`, `AMDGPU_INFO_MEMORY`, a leitura restrita do `GB_ADDR_CONFIG` físico e as consultas obrigatórias de firmware ME/MEC/PFP possuem implementação e testes de host. As versões vêm dos blobs GFX11 selecionados e validados. O contrato GPUVA já faz o libdrm derivar `address32_hi = 0`, e DRM 3.54 só é anunciado quando os perfis físico/memória/firmware, allocator VRAM e command submission estão instalados; `ACCEL_WORKING` exige perfis válidos e um callback de saúde instalado após o teste PM4 físico; retorna zero sem esse callback ou quando a fila/GART fica indisponível. O bit permite iniciar libdrm/RADV para validação, não certifica Vulkan. GEM aceita placement real na VRAM visível, mantém endereços CPU/MC separados, instala PTEs GPUVA sem atributos de memória de sistema, atualiza uso/capacidade das heaps VRAM e GTT e aplica semântica explícita aos flags de criação usados pelo RADV. `AMDGPU_CS` aceita a BO list inline e até 192 IBs GFX do RADV atual, com validação individual, residência, BOs `VM_ALWAYS_VALID` e uma única conclusão física. Capacidade PCIe combinada, tipo/largura de VRAM via ATOM, clocks e snapshots físicos de CUs/RBs/TCC/UMCs ativos também estão cobertos. A identidade PCI Linux compartilhada agora publica major/minor dos nós DRM, `uevent`, IDs PCI reais e o vínculo de subsistema exigido por `drmGetDevice2`, com `readlink`/`readlinkat`; testes de host e Ring 3 comprovam `card0`, `renderD128` e os arquivos sysfs pela ABI Linux. VRAM não visível ainda não é alocável. Shadow/CSA/userq permanecem corretamente desabilitados; validação do libdrm no userspace real, execução Radeon real e triângulo RADV ainda faltam. Depois do triângulo AMD, NVIDIA/NVK ou stack compatível deve funcionar de forma independente em uma máquina somente NVIDIA e também exige validação real de inicialização, memória, filas, sincronização e triângulo Vulkan.
-- [ ] **M15 — SDL:** vídeo, input e áudio sobre o caminho funcional do SO.
-- [ ] **M16 — hardware discovery/autotune:** detectar hardware e produzir `/system/config/hardware.csc`.
+- [ ] **M15 — SDL:** parcial. Foi criado o contrato software inicial (`graphics/sdl.zig`) com superfície RGBA, janela e fila de eventos quit/teclado/mouse (incluindo roda), coberto por teste host; o loop HID do kernel já converte teclado/mouse para essa fila e `display.blitSurface` copia superfícies SDL ao backbuffer, faltando compositor SDL completo, áudio e aplicações SDL reais.
+- [ ] **M16 — hardware discovery/autotune:** parcial. O boot de instalação já executa descoberta, benchmarks limitados, gera/verifica `/system/config/hardware.csc` e emite `CSOS M16 hardware profile ready`; ainda falta validar seleção persistida e retuning após troca de hardware em máquinas físicas AMD e NVIDIA.
 - [ ] **M17 — otimização para jogos:** scheduler, IRQ, input, rede, NVMe, áudio, GAME e MATCH medidos contra baseline.
 - [ ] **M18–M19 — ciclo de processos e standby:** freeze, reclaim seguro e retomada.
-- [ ] **M20–M23 — interface do sistema:** runtime HTML/CSS/Jinja, actions, Alt+Tab e UI dinâmica.
+- [ ] **M20–M23 — interface do sistema:** parcial. O framebuffer agora possui um window manager/compositor software com criação/fecho de janelas, foco, hit-test, Alt+Tab e composição por camadas, testável em QEMU; ainda faltam SDL, texto completo, eventos ligados ao gerenciador, runtime HTML/CSS/Jinja, aplicações e UI dinâmica.
 - [ ] **M24–M26 — aceleração e autotune de GPU do sistema:** somente onde houver ganho medido; desativado por padrão em MATCH.
 - [ ] **M27 — Steam Runtime:** corrigir a ABI necessária somente após o SO estar funcional.
 - [ ] **M28 — Steam:** abrir, autenticar, exibir biblioteca e baixar jogos.
@@ -86,7 +86,69 @@ concluído: aproximadamente 40%
 restante:  aproximadamente 60%
 ```
 
+Prioridade operacional atualizada: a validação de GPU física AMD/NVIDIA fica
+em **standby** até haver máquina/mídia dedicada. Enquanto isso, o trabalho
+continua no caminho emulado do QEMU para tornar o sistema utilizável, começando
+por SDL e pela primeira sessão gráfica. O requisito de ambas as GPUs permanece
+obrigatório e volta a ser executado antes de Steam/CS2.
+
+O framebuffer atual já produz uma saída visual verificável (`zig-out/display.png`)
+com painel de status, barra, cursor e elementos de diagnóstico. Isso é um
+primeiro passo gráfico em QEMU, mas ainda não é uma sessão interativa: faltam
+SDL, eventos de input ligados à UI, compositor, janelas e runtime HTML/CSS/Jinja.
+O cursor agora acompanha deltas de mouse USB no loop principal, com redesenho
+seguro da base e apresentação do novo frame; cliques, texto e gerenciamento de
+janelas continuam pendentes. O estado dos botões também é preservado no evento
+HID e refletido em laranja no cursor e no painel, validando feedback visual de
+pressionamento dentro do caminho emulado.
+O painel também ganhou uma fonte bitmap mínima para o rótulo `READY`, tornando
+o estado de inicialização legível sem depender de uma console serial.
+O primeiro widget clicável alterna estado com botão esquerdo, altera sua cor e
+emite `UI action button: active/inactive` no serial. A camada `WindowManager`
+fornece composição software, criação/fecho, foco, hit-test e Alt+Tab; as janelas
+podem ser arrastadas pela barra de título, fechadas pelo botão visual ou com
+`Esc`, e a janela focada é elevada para o topo. Integração de aplicações,
+texto completo e runtime HTML/CSS/Jinja continuam pendentes.
+`Ctrl+W` também fecha a janela focada como atalho equivalente para uso por
+teclado.
+`Ctrl+M` minimiza/restaura a janela focada; janelas minimizadas deixam de
+participar do hit-test e da composição até serem restauradas por `Alt+Tab`.
+A composição também exibe uma barra de tarefas software, com botões para
+restaurar/focar qualquer janela.
+`Alt+Shift+Tab` percorre as janelas no sentido reverso.
+O boot também cria uma superfície SDL software de demonstração, desenha nela e
+a envia ao framebuffer por `blitSurface`; isso valida o primeiro fluxo de
+aplicação gráfica sem GPU física.
+
+Após esses incrementos, `zig build test` continua em `9/9` etapas e `14/14`
+testes aprovados; um boot QEMU limitado também voltou a alcançar
+`CSOS console shell ready`.
+
 Esta porcentagem não é uma contagem simples de milestones. M0–M13 têm bases relevantes, mas M14 ainda não possui triângulos Vulkan validados em AMD e NVIDIA, e M15–M30 permanecem majoritariamente pendentes. Código preparatório ou teste no host não equivale a hardware funcional.
+
+Verificação mais recente em 2026-09-06: `tools/test-system.ps1` concluiu
+`9/9` etapas e `14/14` testes, além de dois boots QEMU limitados que chegaram a
+`CSOS console shell ready`. Esses boots foram encerrados automaticamente e não
+alteram a ausência de validação Vulkan física; o sistema ainda inicia em shell
+de console, não em uma interface gráfica.
+
+Inventário do host Windows no mesmo snapshot detectou uma AMD Radeon(TM)
+Graphics (`1002:164e`) e uma NVIDIA GeForce RTX 4060 Ti (`10de:2803`), ambas
+com status `OK`. Essa detecção apenas confirma que existe hardware disponível
+para as próximas sessões físicas; não conta como validação AMD/NVIDIA do CSOS,
+pois ainda não houve boot do SO com cada backend e triângulo Vulkan comprovados.
+
+O Ubuntu no WSL2 também consegue consultar a RTX 4060 Ti via `nvidia-smi`
+(driver 591.86), mas WSL2 não é o kernel do CSOS e essa saída continua sendo
+somente evidência de disponibilidade do host, não validação NVIDIA do projeto.
+
+O artefato UEFI atual para a próxima sessão física é
+`zig-out/bin/BOOTX64.efi` (2.647.552 bytes, SHA-256
+`D304CA89158E4F385FEDFF7D70F93827B8996E1A2ED680410BF9364EDCA53E87`).
+Nesta sessão não há mídia removível disponível: a enumeração de discos mostrou
+somente o NVMe interno do host. Portanto, a gravação/teste UEFI físico continua
+pendente de uma mídia dedicada, sem qualquer alteração automática no disco do
+usuário.
 
 ## Próxima rota
 
@@ -195,6 +257,108 @@ limitado `zig-out/smoke-bc4b00c88dc64332884bb249563c6b8d.serial.log` repetiu
 KMS e loader final sem falsos marcadores físicos; o QEMU foi encerrado. A
 correção fortalece o caminho preparado, mas não é evidência de apresentação em
 Radeon.
+
+O frame da swapchain passou a usar os mesmos shaders SPIR-V auditados do gate
+offscreen. Para o formato/extent escolhidos, o probe cria shader modules,
+render pass, pipeline layout e graphics pipeline, e depois cria image view e
+framebuffer para a imagem adquirida. O command buffer limpa o fundo para preto,
+aplica uma barreira `TRANSFER_WRITE → COLOR_ATTACHMENT_WRITE`, inicia o render
+pass com `LOAD`, liga o pipeline e executa `vkCmdDraw(3, 1, 0, 0)`; o render
+pass termina em `PRESENT_SRC_KHR`. Somente submit, `vkQueuePresentKHR` e
+`vkQueueWaitIdle` bem-sucedidos emitem tanto o gate do frame definido quanto
+`RADV direct display triangle presented`. O verificador ganhou
+`-RequirePresentedTriangle`. Build, fixture completa e `zig build test`
+passaram. O boot limitado
+`zig-out/smoke-d4ad5a9d35604e2e93a203ee92130597.serial.log` confirmou que o
+probe ampliado carrega e chega ao gate final no ambiente sem GPU Vulkan, sem
+emitir falsamente o marcador físico; o QEMU foi encerrado. O ramo apresentado
+está compilado, mas o triângulo AMD continua não validado até executar em uma
+Radeon real e obter evidência visual associada ao log.
+
+A enumeração de extensões foi corrigida antes do teste físico: RADV pode
+anunciar mais de 128 extensões de device, portanto o array fixo anterior podia
+receber `VK_INCOMPLETE` e jamais habilitar `VK_KHR_swapchain`. Instância e
+device agora usam o padrão Vulkan de duas chamadas — primeiro contam, depois
+materializam exatamente o conjunto — com limites de 64 e 512 registros. Os
+buffers foram movidos da stack Ring 3 para BSS; o probe resultante possui BSS de
+`0x24910` bytes (aproximadamente 146 KiB), mapeado/zerado pelo loader, sem
+consumir essa margem da stack de 128 KiB. Build, contrato completo e
+`zig build test` passaram. O boot limitado
+`zig-out/smoke-12480ff64966441385813475f0335799.serial.log` comprovou o
+carregamento com o BSS ampliado, KMS, enumeração de extensões da instância e o
+gate final; não alegou o ramo físico e o QEMU foi encerrado. A correção remove
+um bloqueio lógico do futuro teste Radeon, mas não o substitui.
+
+A identidade da GPU também deixou de depender da ordem de enumeração. O probe
+examina até 16 objetos retornados por `drmGetDevices2`, prefere o dispositivo
+PCI AMD que possua nós primary/render e guarda seus vendor/device IDs. Depois
+enumera até 16 `VkPhysicalDevice`, consulta `VkPhysicalDeviceProperties` de
+cada um e só continua quando encontra correspondência exata com a identidade
+DRM; o novo marcador é
+`RADV Vulkan device matches DRM PCI identity`. Isso impede validar por engano
+uma iGPU ou outro adaptador em sistemas híbridos. O adaptador não-AMD do QEMU é
+mantido apenas como fallback quando não existe Radeon e, como sua contagem
+Vulkan é zero, nunca alcança o novo marcador. Build, fixture e
+`zig build test` passaram. O boot limitado
+`zig-out/smoke-731cb52935d749cb92368e3d624f8ec2.serial.log` repetiu KMS e o
+loader final sem falsa identidade física; o QEMU foi encerrado. A seleção por
+vendor/device é necessária, mas PCI domain/bus/slot/function ainda deverá ser
+cruzado para distinguir duas GPUs idênticas no mesmo sistema.
+
+O vínculo foi ampliado para o endereço PCI completo. Como a instância é Vulkan
+1.0, o probe agora exige e habilita também
+`VK_KHR_get_physical_device_properties2`; para cada candidato que coincide em
+vendor/device, exige `VK_EXT_pci_bus_info`, encadeia
+`VkPhysicalDevicePCIBusInfoPropertiesEXT` em
+`vkGetPhysicalDeviceProperties2KHR` e compara domain, bus, device/slot e
+function com o `drmPciBusInfo` selecionado. Ausência da extensão ou qualquer
+divergência falha fechada, eliminando a ambiguidade entre duas placas do mesmo
+modelo. As estruturas grandes de properties foram colocadas em BSS porque a
+inicialização automática local introduzia uma referência proibida a `memset` no
+probe `-nostdlib`. Build, fixture e `zig build test` passaram. O boot limitado
+`zig-out/smoke-e9f8818617cc410186d31f64f4223979.serial.log` confirmou as cinco
+extensões de instância, KMS e loader final sem emitir o marcador físico em zero
+GPUs Vulkan; o QEMU foi encerrado. O futuro log Radeon deverá, portanto, provar
+o mesmo BDF nos caminhos DRM e Vulkan antes de qualquer draw.
+
+A evidência serial deixou de ser apenas booleana: após a correspondência, o
+probe imprime `RADV matched PCI BDF: dddd:bb:ss.f`. O verificador físico agora
+recusa logs sem esse campo e aceita `-ExpectedBdf` para comparar o endereço
+informado pelo operador, além do PCI device ID já obrigatório. A fixture em
+`0000:03:00.0` passou com o BDF esperado e foi rejeitada quando o teste pediu
+`0000:04:00.0`; build e `zig build test` também passaram. Nenhum QEMU foi
+iniciado neste incremento, pois esse ramo só é alcançável após enumeração de uma
+GPU Vulkan física. O próximo log Radeon deverá usar `-ExpectedBdf` para ligar a
+evidência ao slot exato da máquina.
+
+A auditoria do WSI direto mostrou que surface/swapchain compiladas ainda não
+significam apresentação possível no kernel atual: `wsi_common_display` depende
+de client capabilities, universal planes, propriedades KMS, PRIME, property
+blobs, atomic commit e eventos de page flip; o CSOS ainda cobre principalmente
+o KMS legado. O primeiro contrato compartilhado foi implementado como
+`DRM_IOCTL_SET_CLIENT_CAP` (`0x4010640d`). STEREO_3D e ASPECT_RATIO aceitam
+enable/disable; UNIVERSAL_PLANES e ATOMIC aceitam disable, mas enable falha
+fechado com `EOPNOTSUPP` até seus ioctls existirem. Capacidade desconhecida,
+valor fora de 0/1 e ponteiro inválido também são rejeitados. A suíte passou
+13/13 testes, incluindo a nova cobertura, e os dois boots limitados chegaram ao
+console em `zig-out/smoke-bbe00c673811454aa8f8bf585b49711b.serial.log` e
+`zig-out/smoke-783f622f51424dd88d8cc5fa66648abc.serial.log`. Os QEMUs foram
+encerrados. Próximo bloco funcional compartilhado: plane resources/properties;
+só depois atomic poderá ser habilitado honestamente.
+
+O bloco seguinte da ABI compartilhada foi implementado:
+`DRM_IOCTL_MODE_GETPLANERESOURCES` (`0xc01064b5`) e
+`DRM_IOCTL_MODE_GETPLANE` (`0xc02064b6`) expõem um plano primário de ID 5,
+compatível com o CRTC 1, ligado ao framebuffer ativo quando houver e com formato
+`DRM_FORMAT_XRGB8888`. Capacidades zero consultam apenas contagem; buffers,
+ponteiros e plane IDs inválidos falham fechados, e o render node não aceita os
+ioctls KMS. O probe passou a chamar as duas funções pela libdrm real e só emite
+`RADV DRM KMS primary plane ready` após confirmar possible CRTC e formato.
+Build, fixture e 13/13 testes passaram. O boot RADV limitado comprovou o caminho
+integrado em `zig-out/smoke-6f071cdda0b0443d8b6362ffa8d89e90.serial.log`, com
+conector e plano primário antes da instância Vulkan; o QEMU foi encerrado. Ainda
+faltam propriedades do plano/conector/CRTC, PRIME e atomic commit antes de
+habilitar `DRM_CLIENT_CAP_ATOMIC`.
 
 A descoberta DRM ganhou um gate adicional: antes de criar a instância, o probe
 chama `drmGetDevices2(0, NULL, 0)` e exige pelo menos um dispositivo DRM. O

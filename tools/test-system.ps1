@@ -5,6 +5,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $workspace = (Resolve-Path "$PSScriptRoot/..").Path
 $zig = Join-Path $workspace '.tools/zig-x86_64-windows-0.16.0/zig.exe'
+$qemuBefore = @(Get-Process qemu-system-x86_64 -ErrorAction SilentlyContinue | ForEach-Object Id)
 if (-not (Test-Path -LiteralPath $zig)) { throw 'The pinned Zig toolchain is missing.' }
 if (-not (Test-Path -LiteralPath $LibdrmSource)) {
     throw 'Supply -LibdrmSource pointing to the pinned upstream libdrm checkout; see docs/radv-bringup-audit.md.'
@@ -27,5 +28,10 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Combined AMDGPU ABI and upstream libdrm boot failed.' }
     Write-Output 'CSOS host tests and both bounded console boots passed; physical Vulkan remains unverified.'
 } finally {
+    # Remove only emulator processes created by this test run. This keeps the
+    # user's unrelated QEMU sessions untouched while preventing test leaks.
+    Get-Process qemu-system-x86_64 -ErrorAction SilentlyContinue |
+        Where-Object { $qemuBefore -notcontains $_.Id } |
+        Stop-Process -Force -ErrorAction SilentlyContinue
     Pop-Location
 }

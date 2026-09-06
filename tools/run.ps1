@@ -96,7 +96,12 @@ if ($SmokeTestSeconds -gt 0) {
         }
     } finally {
         if ($null -ne $testProcess) {
-            if (-not $testProcess.HasExited) { Stop-Process -Id $testProcess.Id -Force }
+            if (-not $testProcess.HasExited) {
+                # QEMU can spawn helper processes; terminate the whole tree so
+                # bounded smoke tests never leave a background emulator.
+                & taskkill.exe /PID $testProcess.Id /T /F *> $null
+                if (-not $testProcess.HasExited) { Stop-Process -Id $testProcess.Id -Force -ErrorAction SilentlyContinue }
+            }
             $testProcess.WaitForExit()
             $testProcess.Dispose()
         }

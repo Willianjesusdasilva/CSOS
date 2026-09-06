@@ -481,10 +481,13 @@ fn ioctl(fd: u64, request: u32, address: u64) u64 {
         const result = switch (request) {
             0xc0406400 => drmVersion(address),
             0xc010640c => drmGetCap(address),
+            0x4010640d => drmSetClientCap(address),
             0x40086409 => drmGemClose(address),
             0xc02064b2 => if (render) errno(25) else drmCreateDumb(address),
             0xc01064b3 => if (render) errno(25) else drmMapDumb(address),
             0xc00464b4 => if (render) errno(25) else drmDestroyDumb(address),
+            0xc01064b5 => if (render) errno(25) else drmGetPlaneResources(address),
+            0xc02064b6 => if (render) errno(25) else drmGetPlane(address),
             0xc04064a0 => if (render) errno(25) else drmGetResources(address),
             0xc06864a1 => if (render) errno(25) else drmGetCrtc(address),
             0xc06864a2 => if (render) errno(25) else drmSetCrtc(address),
@@ -565,6 +568,59 @@ fn drmGetCap(address: u64) u64 {
     };
     put64(output + 8, value);
     return 0;
+}
+
+fn drmSetClientCap(address: u64) u64 {
+    if (!validUserSlice(address, 16)) return errno(14);
+    const input: [*]const u8 = @ptrFromInt(address);
+    const capability = read64(input);
+    const value = read64(input + 8);
+    if (value > 1) return errno(22);
+    return switch (capability) {
+        1, 4 => 0,
+        2, 3 => if (value == 0) 0 else errno(95),
+        else => errno(22),
+    };
+}
+
+pub fn validateDrmKmsClientCapSelfTest() !void {
+    var memory: [128]u8 align(8) = .{0} ** 128;
+    configure(@intFromPtr(&memory), memory.len, 0, 0,
+        @intFromPtr(&memory) + memory.len, @intFromPtr(&memory) + memory.len,
+        @intFromPtr(&memory), @intFromPtr(&memory) + memory.len);
+    const input: [*]u8 = &memory;
+    put64(input, 1); put64(input + 8, 1);
+    if (drmSetClientCap(@intFromPtr(input)) != 0) return error.DrmStereoClientCapRejected;
+    put64(input, 4); put64(input + 8, 1);
+    if (drmSetClientCap(@intFromPtr(input)) != 0) return error.DrmAspectRatioClientCapRejected;
+    put64(input, 2); put64(input + 8, 0);
+    if (drmSetClientCap(@intFromPtr(input)) != 0) return error.DrmUniversalPlanesDisableRejected;
+    put64(input + 8, 1);
+    if (drmSetClientCap(@intFromPtr(input)) != errno(95)) return error.DrmUniversalPlanesEnabledWithoutAbi;
+    put64(input, 3);
+    if (drmSetClientCap(@intFromPtr(input)) != errno(95)) return error.DrmAtomicEnabledWithoutAbi;
+    put64(input, 99); put64(input + 8, 0);
+    if (drmSetClientCap(@intFromPtr(input)) != errno(22)) return error.DrmUnknownClientCapAccepted;
+    put64(input, 1); put64(input + 8, 2);
+    if (drmSetClientCap(@intFromPtr(input)) != errno(22)) return error.DrmInvalidClientCapValueAccepted;
+    if (drmSetClientCap(@intFromPtr(input) + memory.len - 8) != errno(14))
+        return error.DrmClientCapInvalidPointerAccepted;
+    @memset(input[16..128], 0);
+    put64(input + 16, @intFromPtr(input + 32));
+    put32(input + 24, 1);
+    if (drmGetPlaneResources(@intFromPtr(input + 16)) != 0 or
+        read32(input + 24) != 1 or read32(input + 32) != 5)
+        return error.DrmPlaneResourcesAbiMismatch;
+    @memset(input[40..72], 0);
+    put32(input + 40, 5);
+    put32(input + 60, 1);
+    put64(input + 64, @intFromPtr(input + 80));
+    if (drmGetPlane(@intFromPtr(input + 40)) != 0 or read32(input + 44) != 1 or
+        read32(input + 52) != 1 or read32(input + 60) != 1 or
+        read32(input + 80) != 0x34325258)
+        return error.DrmPrimaryPlaneAbiMismatch;
+    put32(input + 40, 6);
+    if (drmGetPlane(@intFromPtr(input + 40)) != errno(2)) return error.DrmUnknownPlaneAccepted;
 }
 
 fn drmSyncobjCreate(address: u64) u64 {
@@ -2094,6 +2150,36 @@ fn drmObjectForMap(offset: u64, length: u64) ?*DrmObject {
         if (object.allocated and (object.allocation_flags & amdgpu_gem_create_no_cpu_access) == 0 and offset >= object.map_offset and offset - object.map_offset <= object.size and length <= object.size - (offset - object.map_offset)) return object;
     }
     return null;
+}
+
+fn drmGetPlaneResources(address: u64) u64 {
+    if (!validUserSlice(address, 16)) return errno(14);
+    const output: [*]u8 = @ptrFromInt(address);
+    const ids = read64(output);
+    const capacity = read32(output + 8);
+    if (!putDrmId(ids, capacity, 5)) return errno(14);
+    put32(output + 8, 1);
+    put32(output + 12, 0);
+    return 0;
+}
+
+fn drmGetPlane(address: u64) u64 {
+    if (!validUserSlice(address, 32)) return errno(14);
+    const output: [*]u8 = @ptrFromInt(address);
+    if (read32(output) != 5) return errno(2);
+    const formats = read64(output + 24);
+    const capacity = read32(output + 20);
+    if (capacity != 0) {
+        if (formats == 0 or !validUserSlice(formats, 4)) return errno(14);
+        const format_output: [*]u8 = @ptrFromInt(formats);
+        put32(format_output, 0x34325258);
+    }
+    put32(output + 4, 1);
+    put32(output + 8, drm_scanout_framebuffer);
+    put32(output + 12, 1);
+    put32(output + 16, 0);
+    put32(output + 20, 1);
+    return 0;
 }
 
 fn drmGetResources(address: u64) u64 {

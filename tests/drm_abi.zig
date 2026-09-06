@@ -8,6 +8,10 @@ test "AMDGPU ioctl ABI validates state before dispatch and signals after fence" 
     try syscalls.validateAmdGpuDrmAbiSelfTest();
 }
 
+test "DRM KMS client capability ABI fails closed for missing atomic support" {
+    try syscalls.validateDrmKmsClientCapSelfTest();
+}
+
 test "GEM aligned GTT and exhausted VRAM fallback preserve backing memory" {
     // The real GEM handler rejects physical addresses above 44 bits. Reserve
     // low host memory rather than weakening that production check for tests.

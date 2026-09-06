@@ -32,7 +32,10 @@ if ($messages -notmatch 'RADV logical device and graphics queue ready' -or
     $messages -notmatch 'RADV direct display instance extensions ready' -or
     $messages -notmatch 'RADV direct display modes and planes ready' -or
     $messages -notmatch 'RADV connected DRM KMS connector ready' -or
+    $messages -notmatch 'RADV DRM KMS primary plane ready' -or
     $messages -notmatch 'RADV DRM display acquired' -or
+    $messages -notmatch 'RADV Vulkan device matches DRM PCI identity' -or
+    $messages -notmatch 'RADV matched PCI BDF: 0000:00:00.0' -or
     $messages -notmatch 'RADV direct display surface ready' -or
     $messages -notmatch 'RADV direct display swapchain ready' -or
     $messages -notmatch 'RADV direct display clear frame presented' -or

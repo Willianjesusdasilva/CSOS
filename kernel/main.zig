@@ -10,6 +10,7 @@ const fat16 = @import("fat16");
 const xhci = @import("xhci");
 const gpu = @import("gpu");
 const display = @import("display");
+const sdl = @import("sdl");
 const hardware_profile = @import("hardware_profile");
 const metrics = @import("metrics");
 const installer_state = @import("installer_state");
@@ -42,6 +43,7 @@ var console_hid: ?*xhci.HidDevices = null;
 var console_last_key: u8 = 0;
 var console_input_irq_apic: u32 = 0;
 var audio_reported = false;
+var sdl_demo_pixels: [64 * 48]u32 = .{0} ** (64 * 48);
 var gpu_gmc11_activation_workspace = gpu.AmdGmc11ActivationWorkspace{};
 const GpuVmRuntime = struct {
     transport: ?gpu.AmdGmc11MmioTransport = null,
@@ -125,8 +127,17 @@ fn submitDrmAmdGpuCs(raw: *anyopaque, vmid: u4, ibs: []const gpu.AmdGfx11Indirec
     try doorbell.arm();
     defer doorbell.disarm();
     const result = try gpu.submitAmdGfx11IndirectBuffers(
-        runtime.plan.?, &runtime.queue, runtime.ring.?, runtime.pointers.?, runtime.fence.?,
-        runtime.fence_gpu, vmid, ibs, 2_100_000, mmio.io(), doorbell.io(),
+        runtime.plan.?,
+        &runtime.queue,
+        runtime.ring.?,
+        runtime.pointers.?,
+        runtime.fence.?,
+        runtime.fence_gpu,
+        vmid,
+        ibs,
+        2_100_000,
+        mmio.io(),
+        doorbell.io(),
     );
     return result.sequence;
 }
@@ -401,7 +412,9 @@ pub fn start(info: BootInfo) noreturn {
     };
     mapper.activate();
     if (build_options.drm_amdgpu_abi_test) syscalls.configureDrm(switch (display_device.vendor) {
-        0x1002 => .amdgpu, 0x10de => .nouveau, else => .csos,
+        0x1002 => .amdgpu,
+        0x10de => .nouveau,
+        else => .csos,
     });
     const expected_drm_ioctls: u64 = if (display_device.vendor == 0x1002 or build_options.drm_amdgpu_abi_test) 55 else 35;
     const expected_drm_objects: u64 = if (display_device.vendor == 0x1002 or build_options.drm_amdgpu_abi_test) 5 else 3;
@@ -412,9 +425,13 @@ pub fn start(info: BootInfo) noreturn {
     serial.write("CSOS M14 userspace DRM core ready\n");
     if (build_options.libdrm_probe and !build_options.libdrm_probe_after_gpu) {
         process.runLibdrmProbe(mapper.root, &pages) catch |err| {
-            serial.write("libdrm process error: "); serial.write(@errorName(err));
-            serial.write(" ioctl request: "); serial.writeDecimal(syscalls.drm_last_request);
-            serial.write(" result: "); serial.writeDecimal(syscalls.drm_last_result); serial.write("\n");
+            serial.write("libdrm process error: ");
+            serial.write(@errorName(err));
+            serial.write(" ioctl request: ");
+            serial.writeDecimal(syscalls.drm_last_request);
+            serial.write(" result: ");
+            serial.writeDecimal(syscalls.drm_last_result);
+            serial.write("\n");
             panic("real libdrm probe failed");
         };
         mapper.activate();
@@ -433,8 +450,11 @@ pub fn start(info: BootInfo) noreturn {
     process.runBusyBox(mapper.root, &pages, &shell_arguments) catch panic("BusyBox sh failed");
     mapper.activate();
     if (pages.free_pages != userspace_pages_before) {
-        serial.write("userspace free pages before: "); serial.writeDecimal(userspace_pages_before);
-        serial.write(" after: "); serial.writeDecimal(pages.free_pages); serial.write("\n");
+        serial.write("userspace free pages before: ");
+        serial.writeDecimal(userspace_pages_before);
+        serial.write(" after: ");
+        serial.writeDecimal(pages.free_pages);
+        serial.write("\n");
         panic("userspace page reclaim mismatch");
     }
     serial.write("userspace reclaimed pages: ");
@@ -1506,7 +1526,18 @@ pub fn start(info: BootInfo) noreturn {
     const gpu_identity = gpu_adapter.identifyChip() catch panic("GPU chipset identification failed");
     const gpu_register_probe = gpu_identity.boot0 orelse gpu_adapter.readRegister(0) catch panic("GPU register MMIO read failed");
     var screen = display.Context.init(info.framebuffer, display_device, &pages) catch panic("display initialization failed");
+    var sdl_events = sdl.EventQueue{};
+    var demo_window = sdl.createWindow(&sdl_demo_pixels, 64, 48) catch panic("SDL demo surface creation failed");
+    demo_window.clear(0x182838ff);
+    demo_window.fillRect(4, 4, 56, 8, 0x50b080ff);
+    demo_window.fillRect(4, 20, 32, 20, 0x5080c0ff);
+    screen.blitSurface(&demo_window, 520, 64);
+    var window_manager = display.WindowManager{};
+    _ = window_manager.create(.{ .id = 1, .x = 32, .y = 220, .width = 260, .height = 140, .title_color = 0x405070, .body_color = 0x18202c }) catch panic("desktop window creation failed");
+    _ = window_manager.create(.{ .id = 2, .x = 180, .y = 280, .width = 260, .height = 140, .title_color = 0x604070, .body_color = 0x241828 }) catch panic("desktop window creation failed");
     screen.drawBaseline(@as(usize, hid.keyboards) + hid.mice, audio_info.playback_endpoints);
+    window_manager.compose(&screen);
+    screen.drawActionButton(false);
     const initial_pixels = screen.present();
     if (initial_pixels == 0) panic("display presentation failed");
     serial.write("GPU PCI vendor: ");
@@ -1812,7 +1843,9 @@ pub fn start(info: BootInfo) noreturn {
         const probe_pages_before = pages.free_pages;
         serial.write("Running real libdrm probe after GPU initialization\n");
         process.runLibdrmProbe(mapper.root, &pages) catch |err| {
-            serial.write("post-GPU libdrm process error: "); serial.write(@errorName(err)); serial.write("\n");
+            serial.write("post-GPU libdrm process error: ");
+            serial.write(@errorName(err));
+            serial.write("\n");
             panic("post-GPU libdrm probe failed");
         };
         mapper.activate();
@@ -1978,6 +2011,14 @@ pub fn start(info: BootInfo) noreturn {
     var display_ticks: u64 = 0;
 
     var reported_input: u64 = 0;
+    var mouse_buttons: u8 = 0;
+    var action_button_active = false;
+    var alt_tab_down = false;
+    var drag_window: ?usize = null;
+    var drag_offset_x: usize = 0;
+    var drag_offset_y: usize = 0;
+    var cursor_x: usize = @as(usize, screen.framebuffer.width) / 2;
+    var cursor_y: usize = @as(usize, screen.framebuffer.height) / 2;
     while (true) {
         display_ticks +%= 1;
         if ((display_ticks & 0xfffff) == 0) {
@@ -1995,7 +2036,116 @@ pub fn start(info: BootInfo) noreturn {
             },
             else => panic("USB HID polling failed"),
         };
-        while (hid.pop()) |_| {}
+        while (hid.pop()) |event| {
+            if (event.kind == .keyboard) {
+                _ = sdl_events.pushKeyboard(event.a, event.a != 0, event.b);
+                if ((event.b & 0x01) != 0 and event.a == 0x14) _ = sdl_events.push(.{ .quit = {} });
+                // HID usage 0x2b is Tab; modifier bit 0x04 is Left Alt.
+                const alt_tab_pressed = (event.b & 0x04) != 0 and event.a == 0x2b;
+                if (alt_tab_pressed and !alt_tab_down) {
+                    const reverse = (event.b & 0x02) != 0;
+                    const next_window = if (reverse) window_manager.altTabReverse() else window_manager.altTab();
+                    if (next_window) |focused| {
+                        serial.write("UI focus window: ");
+                        serial.writeDecimal(window_manager.windows[focused].id);
+                        serial.write("\n");
+                    }
+                }
+                alt_tab_down = alt_tab_pressed;
+                const close_shortcut = event.a == 0x29 or ((event.b & 0x01) != 0 and event.a == 0x1a);
+                if (close_shortcut and window_manager.focused != null) {
+                    const closing = window_manager.focused.?;
+                    const closed_id = window_manager.windows[closing].id;
+                    window_manager.close(closing);
+                    serial.write(if (event.a == 0x29) "UI close window (Esc): " else "UI close window (Ctrl+W): ");
+                    serial.writeDecimal(closed_id);
+                    serial.write("\n");
+                }
+                if ((event.b & 0x01) != 0 and event.a == 0x10 and window_manager.focused != null) {
+                    const toggled = window_manager.focused.?;
+                    const window_id = window_manager.windows[toggled].id;
+                    const minimized = !window_manager.windows[toggled].minimized;
+                    _ = window_manager.toggleMinimized(toggled);
+                    serial.write("UI ");
+                    serial.write(if (minimized) "minimize window: " else "restore window: ");
+                    serial.writeDecimal(window_id);
+                    serial.write("\n");
+                }
+                screen.drawBaseline(@as(usize, hid.keyboards) + hid.mice, audio_info.playback_endpoints);
+                window_manager.compose(&screen);
+                screen.drawActionButton(action_button_active);
+                screen.drawKeyboardActivity();
+                screen.drawPointerButtons(mouse_buttons);
+                screen.drawCursor(cursor_x, cursor_y, if (mouse_buttons != 0) 0xffb040 else 0xffffff);
+                if (screen.present() == 0) panic("display keyboard presentation failed");
+                continue;
+            }
+            const dx: i8 = @bitCast(event.b);
+            const dy: i8 = @bitCast(event.c);
+            const wheel: i8 = @bitCast(event.d);
+            _ = sdl_events.pushMouse(@intCast(dx), @intCast(dy), @intCast(wheel), event.a);
+            if (event.a != mouse_buttons) {
+                const left_pressed = (event.a & 1) != 0;
+                const left_was_pressed = (mouse_buttons & 1) != 0;
+                if (left_pressed and !left_was_pressed and cursor_x >= 320 and cursor_x < 480 and cursor_y >= 64 and cursor_y < 96) {
+                    action_button_active = !action_button_active;
+                    serial.write("UI action button: ");
+                    serial.write(if (action_button_active) "active\n" else "inactive\n");
+                }
+                if (left_pressed and !left_was_pressed) {
+                    if (window_manager.taskbarHitTest(cursor_x, cursor_y, screen.framebuffer.height)) |task| {
+                        window_manager.windows[task].minimized = false;
+                        _ = window_manager.focus(task);
+                        serial.write("UI taskbar focus window: ");
+                        serial.writeDecimal(window_manager.windows[window_manager.focused.?].id);
+                        serial.write("\n");
+                    } else if (window_manager.hitTest(cursor_x, cursor_y)) |hit| {
+                        const window = window_manager.windows[hit];
+                        if (cursor_x >= window.x +| window.width -| 20 and cursor_y < window.y +| 20) {
+                            const closed_id = window.id;
+                            window_manager.close(hit);
+                            serial.write("UI close window: ");
+                            serial.writeDecimal(closed_id);
+                            serial.write("\n");
+                        } else {
+                            _ = window_manager.focus(hit);
+                            if (cursor_y >= window.y and cursor_y < window.y +| 20) {
+                                drag_window = window_manager.focused;
+                                drag_offset_x = cursor_x -| window.x;
+                                drag_offset_y = cursor_y -| window.y;
+                            }
+                            serial.write("UI focus window: ");
+                            serial.writeDecimal(window.id);
+                            serial.write("\n");
+                        }
+                    }
+                }
+                mouse_buttons = event.a;
+                if (!left_pressed) drag_window = null;
+                serial.write("UI mouse buttons: ");
+                serial.writeDecimal(mouse_buttons);
+                serial.write("\n");
+            }
+            cursor_x = if (dx < 0) cursor_x -| @as(usize, @intCast(-@as(i16, dx))) else @min(@as(usize, screen.framebuffer.width) -| 1, cursor_x + @as(usize, @intCast(dx)));
+            cursor_y = if (dy < 0) cursor_y -| @as(usize, @intCast(-@as(i16, dy))) else @min(@as(usize, screen.framebuffer.height) -| 1, cursor_y + @as(usize, @intCast(dy)));
+            if (mouse_buttons & 1 != 0) {
+                if (drag_window) |dragged| {
+                    if (dragged < window_manager.count) {
+                        const window = &window_manager.windows[dragged];
+                        window.x = cursor_x -| drag_offset_x;
+                        window.y = cursor_y -| drag_offset_y;
+                        window.x = @min(window.x, @as(usize, screen.framebuffer.width) -| window.width);
+                        window.y = @min(window.y, @as(usize, screen.framebuffer.height) -| window.height);
+                    }
+                }
+            }
+            screen.drawBaseline(@as(usize, hid.keyboards) + hid.mice, audio_info.playback_endpoints);
+            window_manager.compose(&screen);
+            screen.drawActionButton(action_button_active);
+            screen.drawPointerButtons(event.a);
+            screen.drawCursor(cursor_x, cursor_y, if (event.a != 0) 0xffb040 else 0xffffff);
+            if (screen.present() == 0) panic("display cursor presentation failed");
+        }
         if (hid.events_total != reported_input) {
             reported_input = hid.events_total;
             serial.write("USB input events: ");

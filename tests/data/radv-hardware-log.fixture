@@ -3,8 +3,11 @@ GPU PCI vendor: 4098 device: 29772 revision: 0
 RADV D device count: 0x00000001
 RADV F device count: 0x00000001
 RADV connected DRM KMS connector ready
+RADV DRM KMS primary plane ready
 RADV direct display instance extensions ready
 RADV V device count: 0x00000001
+RADV Vulkan device matches DRM PCI identity
+RADV matched PCI BDF: 0000:03:00.0
 RADV direct display modes and planes ready
 RADV DRM display acquired
 RADV direct display surface ready

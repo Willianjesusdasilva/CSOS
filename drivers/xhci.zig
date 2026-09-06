@@ -477,7 +477,7 @@ pub const Controller = struct {
                 if (endpoint.slot == devices.keyboard.slot) {
                     devices.push(.{ .kind = .keyboard, .a = if (size > 2) report[2] else 0, .b = if (size > 0) report[0] else 0 });
                 } else {
-                    devices.push(.{ .kind = .mouse, .a = if (size > 1) report[1] else 0, .b = if (size > 2) report[2] else 0 });
+                    devices.push(.{ .kind = .mouse, .a = if (size > 0) report[0] else 0, .b = if (size > 1) report[1] else 0, .c = if (size > 2) report[2] else 0, .d = if (size > 3) report[3] else 0 });
                 }
             }
             self.armEndpoint(endpoint);
@@ -630,7 +630,7 @@ const UsbDevice = struct {
 };
 
 pub const InputKind = enum { keyboard, mouse };
-pub const InputEvent = struct { kind: InputKind, a: u8, b: u8 };
+pub const InputEvent = struct { kind: InputKind, a: u8, b: u8, c: u8 = 0, d: u8 = 0 };
 pub const HidDevices = struct {
     keyboards: u8 = 0,
     mice: u8 = 0,

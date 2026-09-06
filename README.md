@@ -590,7 +590,7 @@ M12  Network
 M13  Audio
 M14  GPU AMD/NVIDIA + Vulkan
 M15  SDL
-M16  Hardware Discovery / Autotune
+M16  Hardware Discovery / Autotune (parcial: perfil gerado/verificado no boot; validação física e retuning ainda pendentes)
 M17  Gaming Optimization
 M18  Process Lifecycle
 M19  Standby / Memory Reclaim
@@ -618,6 +618,33 @@ command submission nem triângulo Vulkan validados em AMD ou NVIDIA, e M15–M30
 continuam majoritariamente pendentes. O frame, dispatcher e caminho restrito do
 ioctl GFX11 já existem e são testados no host; isso não conta como validação de
 hardware.
+
+Prioridade atual: a validação de GPU física AMD/NVIDIA está temporariamente em
+standby por falta de máquina/mídia dedicada. O desenvolvimento segue no QEMU
+para SDL e interface gráfica funcional. O framebuffer já inclui um
+`WindowManager` software com janelas, foco, hit-test, composição, Alt+Tab,
+arrasto pela barra de título e fechamento por botão/`Esc`; o requisito físico de ambas as GPUs
+continua obrigatório antes de Steam/CS2.
+
+Atalhos já suportados na sessão emulada: `Alt+Tab` troca o foco, `Ctrl+M`
+minimiza/restaura, e `Ctrl+W` ou `Esc` fecha a janela focada. A barra de tarefas
+software permite restaurar janelas minimizadas.
+O contrato SDL software inicial em `graphics/sdl.zig` já define janela/superfície
+RGBA e fila de eventos; a integração com HID, áudio e aplicações SDL ainda está
+em andamento.
+O boot inclui uma aplicação SDL software mínima que desenha uma superfície e a
+apresenta via `blitSurface`, validando o caminho de renderização em QEMU.
+
+Verificação atual: `tools/test-system.ps1` passou `9/9` etapas e `14/14` testes,
+com dois boots QEMU limitados até `CSOS console shell ready`. O QEMU foi
+encerrado ao fim dos boots; isso ainda é validação de console, não um desktop
+gráfico nem prova de Vulkan em hardware AMD/NVIDIA.
+
+O inventário do host também encontrou uma AMD Radeon(TM) Graphics (`1002:164e`)
+e uma NVIDIA GeForce RTX 4060 Ti (`10de:2803`), ambas ativas. Isso viabiliza a
+próxima validação física, mas detecção no host não é evidência de suporte do
+CSOS: cada GPU ainda precisa inicializar o SO e concluir seu próprio triângulo
+Vulkan, em ordem AMD e depois NVIDIA.
 
 ---
 
@@ -1584,6 +1611,47 @@ O clear-frame exige que a surface anuncie tanto `COLOR_ATTACHMENT` quanto
 `TRANSFER_DST`; após qualquer submit aceito, a fila é drenada antes da
 destruição dos objetos, inclusive quando o present retorna erro.
 
+Para exigir também o triângulo renderizado diretamente na imagem adquirida da
+swapchain e apresentado após sincronização:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/verify-radv-hardware-log.ps1 -SerialLog <serial.log> -ExpectedDevice <device-id> -RequireDisplayEnumeration -RequireDisplaySurface -RequireDrmDisplayAcquisition -RequireDisplaySwapchain -RequireClearFramePresentation -RequirePresentedTriangle
+```
+
+O marcador `RADV direct display triangle presented` só é emitido depois de
+pipeline compatível com o formato da swapchain, `vkCmdDraw(3,1,0,0)`, submit,
+present e conclusão da fila. Ainda é necessária evidência visual da execução em
+Radeon real para aceitar o resultado como triângulo apresentado validado.
+
+As extensões Vulkan são enumeradas em duas chamadas. O probe mantém buffers
+limitados em BSS (64 extensões de instância e 512 de device), evitando tanto
+aceitar silenciosamente `VK_INCOMPLETE` quanto consumir a stack Ring 3 com o
+inventário extenso do RADV.
+
+Em máquinas com múltiplas GPUs, o probe não usa mais o primeiro dispositivo por
+posição: prefere o DRM PCI AMD com nós primary/render e exige que vendor/device
+coincidam com `VkPhysicalDeviceProperties` antes de executar qualquer gate
+físico. O log deve conter `RADV Vulkan device matches DRM PCI identity`.
+Essa correspondência inclui domain, bus, slot/device e function por
+`VK_EXT_pci_bus_info`, não apenas vendor/device; duas placas idênticas não podem
+mais ser confundidas pela ordem de enumeração.
+O probe registra o valor como `RADV matched PCI BDF: dddd:bb:ss.f`. Em hardware
+real, passe também `-ExpectedBdf dddd:bb:ss.f` ao verificador para vincular o
+log ao slot esperado; logs sem BDF correspondente são recusados.
+
+O WSI direto do Mesa atual exige KMS atômico, não apenas os ioctls legados já
+existentes. `DRM_IOCTL_SET_CLIENT_CAP` está implementado com falha fechada:
+STEREO_3D/ASPECT_RATIO são aceitos, enquanto enable de UNIVERSAL_PLANES/ATOMIC
+retorna `EOPNOTSUPP` até plane resources, propriedades, PRIME, property blobs,
+atomic commit e eventos estarem funcionais. Portanto, os marcadores preparados
+de swapchain/present continuam pendentes de ABI e hardware real.
+
+Plane resources já começaram a fechar essa lacuna: o kernel expõe um plano
+primário XRGB8888 compatível com o CRTC existente por
+`DRM_IOCTL_MODE_GETPLANERESOURCES`/`DRM_IOCTL_MODE_GETPLANE`, e o probe confirma
+o caminho pela libdrm com `RADV DRM KMS primary plane ready`. Propriedades KMS,
+PRIME e atomic commit permanecem obrigatórios antes de habilitar atomic.
+
 O probe também exige que o runtime RADV empacotado anuncie e habilite
 `VK_KHR_surface`, `VK_KHR_display`, `VK_EXT_direct_mode_display` e
 `VK_EXT_acquire_drm_display`. Esse gate prepara apresentação direta por DRM/KMS,
@@ -1616,6 +1684,23 @@ marcador, não o SO completo nem Vulkan. Sem `-SmokeTestSeconds`, a execução
 continua interativa e deve ser encerrada depois do uso.
 
 O target de execução deve gerar a imagem necessária e iniciar o ambiente de desenvolvimento através do QEMU.
+
+## Pacote para validação UEFI física
+
+Para preparar uma entrega sem tocar em nenhum disco, execute:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/package-physical-boot.ps1
+```
+
+O comando cria `zig-out/physical-boot/BOOTX64.EFI` e
+`zig-out/physical-boot/SHA256SUMS.txt`. A gravação em USB deve ser feita
+explicitamente pelo operador depois de conferir o manifesto.
+
+No caminho QEMU, o framebuffer já oferece um painel visual com logotipo, estado
+`READY`, cursor controlado por mouse, feedback de teclado e um botão que alterna
+estado com clique esquerdo. Isso é uma etapa de bring-up da interface; ainda não
+substitui SDL, compositor, janelas ou o runtime HTML/CSS/Jinja planejado.
 
 Os requisitos exatos podem mudar enquanto o projeto estiver em desenvolvimento.
 
