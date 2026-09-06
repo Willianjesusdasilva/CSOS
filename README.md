@@ -667,6 +667,9 @@ layout de bytes do GOP/QEMU.
 Um frontbuffer sombra mantém a última imagem apresentada. Após o primeiro frame
 completo, `present` compara a região suja e evita escritas MMIO para pixels
 inalterados, registrando separadamente pixels examinados e efetivamente escritos.
+`MONITOR` agora é uma segunda aplicação SDL real: mostra frames, pixels
+examinados, escritas no framebuffer e a porcentagem economizada pelo shadow
+buffer, atualizando junto com os eventos do desktop.
 Movimentos de mouse consecutivos são coalescidos quando a fila SDL está cheia,
 evitando saturação desnecessária do input.
 

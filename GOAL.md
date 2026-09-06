@@ -157,6 +157,9 @@ nativos.
 O display mantém um frontbuffer sombra: o primeiro frame é integral, e os
 seguintes eliminam escritas MMIO de pixels idênticos dentro da região suja.
 Contadores distintos medem pixels examinados e realmente apresentados.
+`MONITOR` deixou de ser decorativo e possui superfície SDL própria com frames,
+pixels examinados, escritas efetivas e percentual economizado. Isso valida duas
+aplicações reais na mesma ordem de composição.
 O runner QEMU também passou a usar encerramento direto e limitado do PID antes
 do fallback por árvore, eliminando um travamento observado no cleanup de um
 smoke test sem deixar o emulador aberto.
