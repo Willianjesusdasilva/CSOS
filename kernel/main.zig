@@ -2094,8 +2094,7 @@ pub fn start(info: BootInfo) noreturn {
                 }
                 if (left_pressed and !left_was_pressed) {
                     if (window_manager.taskbarHitTest(cursor_x, cursor_y, screen.framebuffer.height)) |task| {
-                        window_manager.windows[task].minimized = false;
-                        _ = window_manager.focus(task);
+                        _ = window_manager.restore(task);
                         serial.write("UI taskbar focus window: ");
                         serial.writeDecimal(window_manager.windows[window_manager.focused.?].id);
                         serial.write("\n");
