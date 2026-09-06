@@ -119,6 +119,9 @@ restaurar/focar qualquer janela.
 As janelas agora possuem títulos próprios e podem ser maximizadas/restauradas
 pelo botão da barra de título ou por `Ctrl+Seta para cima`, preservando a
 geometria anterior e respeitando a área reservada à barra de tarefas.
+O botão de minimizar atualiza o foco para a janela visível superior; quando não
+há outra janela disponível, o desktop fica corretamente sem foco até a
+restauração pela barra de tarefas.
 Uma alça visual no canto inferior direito permite redimensionamento por mouse,
 com dimensões mínimas e contenção integral na área útil do desktop.
 O botão `CS` na barra de tarefas abre um lançador com `APP1` e `MONITOR`.

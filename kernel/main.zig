@@ -2208,6 +2208,16 @@ pub fn start(info: BootInfo) noreturn {
                             serial.write(if (window_manager.windows[focused].maximized) "UI maximize window: " else "UI restore window size: ");
                             serial.writeDecimal(window_manager.windows[focused].id);
                             serial.write("\n");
+                        } else if (window_manager.minimizeHitTest(hit, cursor_x, cursor_y)) {
+                            _ = window_manager.focus(hit);
+                            const minimizing = window_manager.focused.?;
+                            const minimized_id = window_manager.windows[minimizing].id;
+                            _ = window_manager.toggleMinimized(minimizing);
+                            drag_window = null;
+                            resize_window = null;
+                            serial.write("UI minimize window: ");
+                            serial.writeDecimal(minimized_id);
+                            serial.write("\n");
                         } else if (window_manager.resizeHitTest(hit, cursor_x, cursor_y)) {
                             _ = window_manager.focus(hit);
                             resize_window = window_manager.focused;

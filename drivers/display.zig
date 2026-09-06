@@ -71,9 +71,9 @@ pub const WindowManager = struct {
         self.count -= 1;
         self.focused = if (self.count == 0) null else if (old_focused) |focused| blk: {
             if (focused > index) break :blk focused - 1;
-            if (focused == index) break :blk @min(index, self.count - 1);
+            if (focused == index) break :blk self.topVisible();
             break :blk focused;
-        } else @min(index, self.count - 1);
+        } else self.topVisible();
     }
 
     pub fn focus(self: *WindowManager, index: usize) bool {
@@ -94,8 +94,21 @@ pub const WindowManager = struct {
     pub fn toggleMinimized(self: *WindowManager, index: usize) bool {
         if (index >= self.count or !self.windows[index].visible) return false;
         self.windows[index].minimized = !self.windows[index].minimized;
-        if (!self.windows[index].minimized) _ = self.focus(index);
+        if (!self.windows[index].minimized) {
+            _ = self.focus(index);
+        } else if (self.focused == index) {
+            self.focused = self.topVisible();
+        }
         return true;
+    }
+
+    fn topVisible(self: *const WindowManager) ?usize {
+        var index = self.count;
+        while (index > 0) {
+            index -= 1;
+            if (self.windows[index].visible and !self.windows[index].minimized) return index;
+        }
+        return null;
     }
 
     pub fn restore(self: *WindowManager, index: usize) bool {
@@ -211,6 +224,14 @@ pub const WindowManager = struct {
             y >= window.y and y < window.y +| 20;
     }
 
+    pub fn minimizeHitTest(self: *const WindowManager, index: usize, x: usize, y: usize) bool {
+        if (index >= self.count) return false;
+        const window = self.windows[index];
+        return window.visible and !window.minimized and window.width >= 72 and
+            x >= window.x +| window.width -| 58 and x < window.x +| window.width -| 42 and
+            y >= window.y and y < window.y +| 20;
+    }
+
     pub fn resizeHitTest(self: *const WindowManager, index: usize, x: usize, y: usize) bool {
         if (index >= self.count) return false;
         const window = self.windows[index];
@@ -292,6 +313,10 @@ pub const WindowManager = struct {
                     context.fillRect(w.x + w.width -| 34, w.y + 7, 7, 5, 0xd0d8e8);
                 }
             }
+            if (w.width >= 72) {
+                context.fillRect(w.x + w.width -| 58, w.y + 4, 14, 12, 0x506080);
+                context.fillRect(w.x + w.width -| 54, w.y + 12, 7, 2, 0xd0d8e8);
+            }
             if (!w.maximized and w.width >= min_window_width and w.height >= min_window_height) {
                 context.fillRect(w.x + w.width -| 10, w.y + w.height -| 3, 8, 1, 0x90a0b8);
                 context.fillRect(w.x + w.width -| 7, w.y + w.height -| 6, 5, 1, 0x90a0b8);
@@ -331,6 +356,8 @@ test "window manager focus alt-tab hit-test and close" {
     try std.testing.expect(!manager.closeHitTest(1, 107, 24));
     try std.testing.expect(manager.maximizeHitTest(1, 94, 24));
     try std.testing.expect(!manager.maximizeHitTest(1, 120, 24));
+    try std.testing.expect(manager.minimizeHitTest(1, 74, 24));
+    try std.testing.expect(!manager.minimizeHitTest(1, 94, 24));
     try std.testing.expect(manager.resizeHitTest(1, 126, 78));
     try std.testing.expect(!manager.resizeHitTest(1, 100, 50));
     try std.testing.expect(manager.focus(first));
@@ -344,6 +371,7 @@ test "window manager focus alt-tab hit-test and close" {
     try std.testing.expectEqual(@as(u32, 20), manager.windows[0].id);
     try std.testing.expect(manager.toggleMinimized(0));
     try std.testing.expect(manager.windows[0].minimized);
+    try std.testing.expect(manager.focused == null);
     try std.testing.expect(manager.hitTest(20, 20) == null);
     try std.testing.expect(manager.launcherButtonHitTest(20, 119, 128));
     try std.testing.expect(!manager.launcherButtonHitTest(60, 119, 128));

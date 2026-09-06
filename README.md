@@ -631,6 +631,8 @@ minimiza/restaura, e `Ctrl+W` ou `Esc` fecha a janela focada. A barra de tarefas
 software permite restaurar janelas minimizadas.
 O botão quadrado na barra de título maximiza/restaura a janela, preservando sua
 geometria anterior; `Ctrl+Seta para cima` oferece a mesma ação pelo teclado.
+O botão com traço minimiza a janela; o foco passa para a janela visível superior
+ou fica vazio, e o botão correspondente na barra de tarefas permite restaurar.
 Uma alça no canto inferior direito permite redimensionar janelas com o mouse,
 respeitando tamanho mínimo, limites da tela e a área da barra de tarefas.
 O botão `CS` da barra de tarefas abre um lançador software para `APP1` e
