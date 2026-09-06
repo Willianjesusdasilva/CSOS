@@ -48,6 +48,12 @@ pub const EventQueue = struct {
         return self.dropped;
     }
 
+    pub fn takeDroppedCount(self: *EventQueue) u64 {
+        const dropped = self.dropped;
+        self.dropped = 0;
+        return dropped;
+    }
+
     pub fn clear(self: *EventQueue) void {
         self.read = self.write;
     }
@@ -215,8 +221,10 @@ test "SDL software event queue and surface contract" {
         try @import("std").testing.expect(full.push(.{ .mouse = .{ .x = @intCast(index), .y = 0, .wheel = 0, .buttons = 0 } }));
     try @import("std").testing.expect(!full.push(.{ .quit = {} }));
     try @import("std").testing.expectEqual(@as(u64, 1), full.droppedCount());
+    try @import("std").testing.expectEqual(@as(u64, 1), full.takeDroppedCount());
+    try @import("std").testing.expectEqual(@as(u64, 0), full.droppedCount());
     try @import("std").testing.expect(full.pushMouseCoalesced(2, -1, 1, 1));
-    try @import("std").testing.expectEqual(@as(u64, 1), full.droppedCount());
+    try @import("std").testing.expectEqual(@as(u64, 0), full.droppedCount());
     index = 0;
     while (index < full.items.len) : (index += 1) {
         const event = full.poll() orelse return error.MissingEvent;
