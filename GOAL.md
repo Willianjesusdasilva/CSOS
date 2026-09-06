@@ -174,16 +174,23 @@ do fallback por árvore, eliminando um travamento observado no cleanup de um
 smoke test sem deixar o emulador aberto.
 
 Após esses incrementos, `zig build` recompila o EFI em `14/14` etapas e
-`zig build test` continua em `13/13` etapas e `18/18` testes aprovados; um boot QEMU limitado também voltou a alcançar
+`zig build test` conclui `15/15` etapas e `20/20` testes aprovados; um boot QEMU limitado também voltou a alcançar
 `CSOS graphical session ready`.
+
+O caminho NVMe agora enumera a lista de namespaces ativos em vez de tratar o
+maior NSID anunciado pelo controlador como contagem de discos. O NSID
+descoberto alimenta Identify Namespace e todo I/O; validações de host cobrem
+lista vazia, NSID inválido e IDs esparsos. No boot QEMU limitado, o log mudou de
+256 para `NVMe namespaces: 1`, seguido por read/write, FAT16 e sessão gráfica
+prontos, e o emulador foi encerrado ao terminar o teste.
 
 Esta porcentagem não é uma contagem simples de milestones. M0–M13 têm bases relevantes, mas M14 ainda não possui triângulos Vulkan validados em AMD e NVIDIA, e M15–M30 permanecem majoritariamente pendentes. Código preparatório ou teste no host não equivale a hardware funcional.
 
-Verificação mais recente em 2026-09-06: `zig build test` concluiu `13/13` etapas
-e `18/18` testes, e o boot QEMU chegou a `CSOS graphical session ready`. A
-sessão gráfica agora assume teclado e mouse sem aguardar a saída do shell
-BusyBox. O terminal deverá voltar como aplicação não bloqueante; isso não altera
-a ausência de validação Vulkan física.
+Verificação mais recente em 2026-09-06: `zig build test` concluiu `15/15` etapas
+e `20/20` testes, e o boot QEMU chegou a `CSOS graphical session ready`. A
+sessão gráfica assume teclado e mouse sem aguardar a saída do shell BusyBox e o
+terminal já voltou como aplicação não bloqueante; isso não altera a ausência de
+validação Vulkan física.
 
 Inventário do host Windows no mesmo snapshot detectou uma AMD Radeon(TM)
 Graphics (`1002:164e`) e uma NVIDIA GeForce RTX 4060 Ti (`10de:2803`), ambas

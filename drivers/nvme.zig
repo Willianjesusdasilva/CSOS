@@ -17,6 +17,8 @@ pub const Controller = struct {
     io_completion_head: u16 = 0,
     io_completion_phase: u1 = 1,
     block_size: u32 = 0,
+    namespace_id: u32 = 0,
+    namespace_count: u32 = 0,
 
     pub fn init(device: pci.Device, pages: *physical.Allocator) !Controller {
         pci.enableMemoryAndBusMaster(device);
@@ -56,9 +58,23 @@ pub const Controller = struct {
         self.submit();
         try self.complete();
         const identify_data: [*]const u8 = @ptrFromInt(buffer);
-        const namespace_count = get32(identify_data + 516);
-        if (namespace_count == 0) return error.NoNamespace;
-        return namespace_count;
+        const maximum_namespace_id = get32(identify_data + 516);
+        if (maximum_namespace_id == 0) return error.NoNamespace;
+
+        zeroPage(buffer);
+        const namespace_command = self.submissionCommand();
+        @memset(namespace_command[0..64], 0);
+        namespace_command[0] = 0x06;
+        put16(namespace_command + 2, self.submission_tail + 1);
+        put64(namespace_command + 24, buffer);
+        put32(namespace_command + 40, 2);
+        self.submit();
+        try self.complete();
+
+        const inventory = try parseActiveNamespaces(identify_data, maximum_namespace_id);
+        self.namespace_id = inventory.first;
+        self.namespace_count = inventory.count;
+        return inventory.count;
     }
 
     pub fn initIo(self: *Controller, pages: *physical.Allocator) !void {
@@ -93,7 +109,8 @@ pub const Controller = struct {
         @memset(command[0..64], 0);
         command[0] = 0x06;
         put16(command + 2, self.submission_tail + 1);
-        put32(command + 4, 1);
+        if (self.namespace_id == 0) return error.NoNamespace;
+        put32(command + 4, self.namespace_id);
         put64(command + 24, namespace);
         self.submit();
         try self.complete();
@@ -141,7 +158,7 @@ pub const Controller = struct {
         @memset(command[0..64], 0);
         command[0] = opcode;
         put16(command + 2, self.io_submission_tail + 1);
-        put32(command + 4, 1);
+        put32(command + 4, self.namespace_id);
         put64(command + 24, buffer);
         put32(command + 40, @truncate(lba));
         put32(command + 44, @truncate(lba >> 32));
@@ -178,11 +195,70 @@ fn zeroPage(address: u64) void {
     @memset(bytes[0..4096], 0);
 }
 
-fn read32(base: u64, offset: u64) u32 { const value: *volatile u32 = @ptrFromInt(base + offset); return value.*; }
-fn read64(base: u64, offset: u64) u64 { const value: *volatile u64 = @ptrFromInt(base + offset); return value.*; }
-fn write32(base: u64, offset: u64, value: u32) void { const target: *volatile u32 = @ptrFromInt(base + offset); target.* = value; }
-fn write64(base: u64, offset: u64, value: u64) void { const target: *volatile u64 = @ptrFromInt(base + offset); target.* = value; }
-fn put16(target: [*]u8, value: u16) void { target[0] = @truncate(value); target[1] = @truncate(value >> 8); }
-fn put32(target: [*]u8, value: u32) void { var i: usize = 0; while (i < 4) : (i += 1) target[i] = @truncate(value >> @intCast(i * 8)); }
-fn put64(target: [*]u8, value: u64) void { var i: usize = 0; while (i < 8) : (i += 1) target[i] = @truncate(value >> @intCast(i * 8)); }
-fn get32(source: [*]const u8) u32 { return @as(u32, source[0]) | (@as(u32, source[1]) << 8) | (@as(u32, source[2]) << 16) | (@as(u32, source[3]) << 24); }
+fn read32(base: u64, offset: u64) u32 {
+    const value: *volatile u32 = @ptrFromInt(base + offset);
+    return value.*;
+}
+fn read64(base: u64, offset: u64) u64 {
+    const value: *volatile u64 = @ptrFromInt(base + offset);
+    return value.*;
+}
+fn write32(base: u64, offset: u64, value: u32) void {
+    const target: *volatile u32 = @ptrFromInt(base + offset);
+    target.* = value;
+}
+fn write64(base: u64, offset: u64, value: u64) void {
+    const target: *volatile u64 = @ptrFromInt(base + offset);
+    target.* = value;
+}
+fn put16(target: [*]u8, value: u16) void {
+    target[0] = @truncate(value);
+    target[1] = @truncate(value >> 8);
+}
+fn put32(target: [*]u8, value: u32) void {
+    var i: usize = 0;
+    while (i < 4) : (i += 1) target[i] = @truncate(value >> @intCast(i * 8));
+}
+fn put64(target: [*]u8, value: u64) void {
+    var i: usize = 0;
+    while (i < 8) : (i += 1) target[i] = @truncate(value >> @intCast(i * 8));
+}
+fn get32(source: [*]const u8) u32 {
+    return @as(u32, source[0]) | (@as(u32, source[1]) << 8) | (@as(u32, source[2]) << 16) | (@as(u32, source[3]) << 24);
+}
+
+const NamespaceInventory = struct {
+    count: u32,
+    first: u32,
+};
+
+fn parseActiveNamespaces(data: [*]const u8, maximum_namespace_id: u32) !NamespaceInventory {
+    var inventory: NamespaceInventory = .{ .count = 0, .first = 0 };
+    for (0..1024) |index| {
+        const namespace_id = get32(data + index * 4);
+        if (namespace_id == 0) break;
+        if (namespace_id > maximum_namespace_id) return error.InvalidNamespaceId;
+        if (inventory.first == 0) inventory.first = namespace_id;
+        inventory.count += 1;
+    }
+    if (inventory.count == 0) return error.NoNamespace;
+    return inventory;
+}
+
+test "active namespace inventory counts sparse namespace identifiers" {
+    var data = [_]u8{0} ** 4096;
+    put32(&data, 2);
+    put32(data[4..].ptr, 7);
+    const inventory = try parseActiveNamespaces(&data, 256);
+    try std.testing.expectEqual(@as(u32, 2), inventory.count);
+    try std.testing.expectEqual(@as(u32, 2), inventory.first);
+}
+
+test "active namespace inventory rejects invalid and empty lists" {
+    var data = [_]u8{0} ** 4096;
+    try std.testing.expectError(error.NoNamespace, parseActiveNamespaces(&data, 256));
+    put32(&data, 257);
+    try std.testing.expectError(error.InvalidNamespaceId, parseActiveNamespaces(&data, 256));
+}
+
+const std = @import("std");

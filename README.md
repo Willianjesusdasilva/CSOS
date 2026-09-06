@@ -682,11 +682,18 @@ SDL, sem fundir mudanças de botão ou teclado. Contadores separados expõem
 eventos coalescidos e descartes inevitáveis no log serial.
 
 Verificação atual: `zig build` recompilou o EFI em `14/14` etapas e
-`zig build test` passou `13/13` etapas e `18/18` testes. O
+`zig build test` passou `15/15` etapas e `20/20` testes. O
 boot interativo agora entrega o input diretamente à sessão gráfica, sem ficar
 bloqueado pelo shell BusyBox, e publica `CSOS graphical session ready`. O shell
 será reintegrado como uma aplicação de terminal não bloqueante; isso ainda não
 é prova de Vulkan em hardware AMD/NVIDIA.
+
+O NVMe não confunde mais o campo `NN` do Identify Controller com quantidade de
+discos anexados. O driver consulta a lista de namespaces ativos, rejeita NSIDs
+fora do limite anunciado e usa o primeiro NSID descoberto nos comandos de
+Identify Namespace e leitura/escrita. No QEMU, o inventário passou de 256
+slots suportados para 1 namespace realmente ativo, preservando o FAT16 e a
+sessão gráfica.
 
 O inventário do host também encontrou uma AMD Radeon(TM) Graphics (`1002:164e`)
 e uma NVIDIA GeForce RTX 4060 Ti (`10de:2803`), ambas ativas. Isso viabiliza a

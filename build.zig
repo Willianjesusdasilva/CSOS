@@ -170,6 +170,13 @@ pub fn build(b: *std.Build) void {
     const nvme_module = b.createModule(.{ .root_source_file = b.path("drivers/nvme.zig") });
     nvme_module.addImport("pci", pci_module);
     nvme_module.addImport("physical", physical_module);
+    const nvme_test_module = b.createModule(.{
+        .root_source_file = b.path("drivers/nvme.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+    });
+    nvme_test_module.addImport("pci", pci_module);
+    nvme_test_module.addImport("physical", physical_module);
     const fat16_module = b.createModule(.{ .root_source_file = b.path("drivers/fat16.zig") });
     fat16_module.addImport("nvme", nvme_module);
     fat16_module.addImport("physical", physical_module);
@@ -202,6 +209,9 @@ pub fn build(b: *std.Build) void {
     const run_gpu_tests = b.addRunArtifact(gpu_tests);
     const test_step = b.step("test", "Run CSOS host-side tests");
     test_step.dependOn(&run_gpu_tests.step);
+    const nvme_tests = b.addTest(.{ .root_module = nvme_test_module });
+    const run_nvme_tests = b.addRunArtifact(nvme_tests);
+    test_step.dependOn(&run_nvme_tests.step);
     const xhci_tests = b.addTest(.{ .root_module = xhci_test_module });
     const run_xhci_tests = b.addRunArtifact(xhci_tests);
     test_step.dependOn(&run_xhci_tests.step);
