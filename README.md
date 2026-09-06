@@ -634,6 +634,8 @@ RGBA e fila de eventos; a integração com HID, áudio e aplicações SDL ainda 
 em andamento.
 O boot inclui uma aplicação SDL software mínima que desenha uma superfície e a
 apresenta via `blitSurface`, validando o caminho de renderização em QEMU.
+Movimentos de mouse consecutivos são coalescidos quando a fila SDL está cheia,
+evitando saturação desnecessária do input.
 
 Verificação atual: `tools/test-system.ps1` passou `9/9` etapas e `14/14` testes,
 com dois boots QEMU limitados até `CSOS console shell ready`. O QEMU foi

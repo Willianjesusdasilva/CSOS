@@ -116,6 +116,8 @@ participar do hit-test e da composição até serem restauradas por `Alt+Tab`.
 A composição também exibe uma barra de tarefas software, com botões para
 restaurar/focar qualquer janela.
 `Alt+Shift+Tab` percorre as janelas no sentido reverso.
+Sob carga, movimentos de mouse consecutivos são coalescidos na fila SDL para
+preservar responsividade sem sobrescrever eventos de botão/roda.
 O boot também cria uma superfície SDL software de demonstração, desenha nela e
 a envia ao framebuffer por `blitSurface`; isso valida o primeiro fluxo de
 aplicação gráfica sem GPU física.
