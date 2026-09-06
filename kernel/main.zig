@@ -2080,10 +2080,20 @@ pub fn start(info: BootInfo) noreturn {
                             _ = sdl_terminal.submit();
                         } else if (event.a == 0x2a) {
                             _ = sdl_terminal.input.backspace();
+                        } else if (event.a == 0x4c) {
+                            _ = sdl_terminal.input.delete();
+                        } else if (event.a == 0x4a) {
+                            sdl_terminal.input.moveHome();
+                        } else if (event.a == 0x4d) {
+                            sdl_terminal.input.moveEnd();
                         } else if (event.a == 0x50) {
                             sdl_terminal.input.moveLeft();
                         } else if (event.a == 0x4f) {
                             sdl_terminal.input.moveRight();
+                        } else if (event.a == 0x52 and (event.b & 0x11) == 0) {
+                            _ = sdl_terminal.historyPrevious();
+                        } else if (event.a == 0x51) {
+                            _ = sdl_terminal.historyNext();
                         } else if (hidCharacter(event.a, event.b)) |byte| {
                             if (sdl_terminal.input.insert(byte)) _ = sdl_events.pushText(byte);
                         }
@@ -2286,15 +2296,15 @@ fn drawSdlTerminal(app: *sdl.Application) void {
     app.window.drawText(4, 4, "TERMINAL", 0x70d0ffff);
     var column: usize = 0;
     var row: usize = 0;
-    for (sdl_terminal.outputSlice(), 0..) |_, index| {
-        const byte = sdl_terminal.output[index];
+    const output = sdl_terminal.outputTailLines(6);
+    for (output, 0..) |byte, index| {
         if (byte == '\n' or column == 27) {
             row += 1;
             column = 0;
             if (byte == '\n') continue;
         }
         if (row >= 6) break;
-        app.window.drawText(4 + column * 8, 18 + row * 10, sdl_terminal.output[index .. index + 1], 0xa0b8d0ff);
+        app.window.drawText(4 + column * 8, 18 + row * 10, output[index .. index + 1], 0xa0b8d0ff);
         column += 1;
     }
     app.window.drawText(4, 82, ">", 0x50d080ff);

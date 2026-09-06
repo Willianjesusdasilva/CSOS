@@ -656,6 +656,8 @@ cursor lógico.
 Essa aplicação agora funciona como terminal gráfico não bloqueante: `Enter`
 executa os comandos internos `help`, `status` e `clear`, mantendo a saída na
 janela sem interromper mouse, compositor ou outras aplicações.
+Setas para cima/baixo percorrem o histórico, Home/End movem o cursor, Delete
+remove à frente e a saída acompanha automaticamente as seis linhas mais novas.
 Movimentos de mouse consecutivos são coalescidos quando a fila SDL está cheia,
 evitando saturação desnecessária do input.
 

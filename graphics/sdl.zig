@@ -235,12 +235,34 @@ pub const TextInput = struct {
         return true;
     }
 
+    pub fn delete(self: *TextInput) bool {
+        if (self.cursor >= self.len) return false;
+        var index = self.cursor;
+        while (index + 1 < self.len) : (index += 1) self.bytes[index] = self.bytes[index + 1];
+        self.len -= 1;
+        return true;
+    }
+
+    pub fn replace(self: *TextInput, text: []const u8) void {
+        self.len = @min(text.len, self.bytes.len);
+        @memcpy(self.bytes[0..self.len], text[0..self.len]);
+        self.cursor = self.len;
+    }
+
     pub fn moveLeft(self: *TextInput) void {
         self.cursor -|= 1;
     }
 
     pub fn moveRight(self: *TextInput) void {
         self.cursor = @min(self.len, self.cursor + 1);
+    }
+
+    pub fn moveHome(self: *TextInput) void {
+        self.cursor = 0;
+    }
+
+    pub fn moveEnd(self: *TextInput) void {
+        self.cursor = self.len;
     }
 
     pub fn slice(self: *const TextInput) []const u8 {
@@ -252,10 +274,15 @@ pub const Terminal = struct {
     input: TextInput = .{},
     output: [256]u8 = undefined,
     output_len: usize = 0,
+    history: [4][64]u8 = undefined,
+    history_lengths: [4]u8 = .{0} ** 4,
+    history_len: usize = 0,
+    history_cursor: usize = 0,
 
     pub fn submit(self: *Terminal) bool {
         const command = self.input.slice();
         if (command.len == 0) return false;
+        self.remember(command);
         if (bytesEqual(command, "clear")) {
             self.output_len = 0;
         } else {
@@ -271,11 +298,60 @@ pub const Terminal = struct {
         }
         self.input.len = 0;
         self.input.cursor = 0;
+        self.history_cursor = self.history_len;
         return true;
     }
 
     pub fn outputSlice(self: *const Terminal) []const u8 {
         return self.output[0..self.output_len];
+    }
+
+    pub fn outputTailLines(self: *const Terminal, max_lines: usize) []const u8 {
+        if (max_lines == 0) return self.output[self.output_len..self.output_len];
+        var boundaries: usize = 0;
+        var index = self.output_len;
+        if (index > 0 and self.output[index - 1] == '\n') index -= 1;
+        while (index > 0) {
+            index -= 1;
+            if (self.output[index] == '\n') {
+                boundaries += 1;
+                if (boundaries == max_lines) return self.output[index + 1 .. self.output_len];
+            }
+        }
+        return self.output[0..self.output_len];
+    }
+
+    pub fn historyPrevious(self: *Terminal) bool {
+        if (self.history_len == 0) return false;
+        if (self.history_cursor > 0) self.history_cursor -= 1;
+        self.loadHistory(self.history_cursor);
+        return true;
+    }
+
+    pub fn historyNext(self: *Terminal) bool {
+        if (self.history_cursor >= self.history_len) return false;
+        self.history_cursor += 1;
+        if (self.history_cursor == self.history_len) self.input.replace("") else self.loadHistory(self.history_cursor);
+        return true;
+    }
+
+    fn remember(self: *Terminal, command: []const u8) void {
+        if (self.history_len == self.history.len) {
+            for (1..self.history.len) |index| {
+                self.history[index - 1] = self.history[index];
+                self.history_lengths[index - 1] = self.history_lengths[index];
+            }
+            self.history_len -= 1;
+        }
+        const length = @min(command.len, self.history[0].len);
+        @memcpy(self.history[self.history_len][0..length], command[0..length]);
+        self.history_lengths[self.history_len] = @intCast(length);
+        self.history_len += 1;
+    }
+
+    fn loadHistory(self: *Terminal, index: usize) void {
+        const length = self.history_lengths[index];
+        self.input.replace(self.history[index][0..length]);
     }
 
     fn append(self: *Terminal, bytes: []const u8) void {
@@ -456,13 +532,23 @@ test "SDL software event queue and surface contract" {
     try @import("std").testing.expectEqualStrings("ac", input.slice());
     input.moveRight();
     try @import("std").testing.expectEqual(@as(usize, 2), input.cursor);
+    input.moveHome();
+    try @import("std").testing.expect(input.delete());
+    try @import("std").testing.expectEqualStrings("c", input.slice());
+    input.moveEnd();
     var terminal = Terminal{};
     for ("status") |byte| try @import("std").testing.expect(terminal.input.insert(byte));
     try @import("std").testing.expect(terminal.submit());
     try @import("std").testing.expectEqualStrings("> status\nCSOS READY\n", terminal.outputSlice());
+    try @import("std").testing.expectEqualStrings("CSOS READY\n", terminal.outputTailLines(1));
+    try @import("std").testing.expect(terminal.historyPrevious());
+    try @import("std").testing.expectEqualStrings("status", terminal.input.slice());
+    try @import("std").testing.expect(terminal.historyNext());
+    try @import("std").testing.expectEqualStrings("", terminal.input.slice());
     for ("clear") |byte| try @import("std").testing.expect(terminal.input.insert(byte));
     try @import("std").testing.expect(terminal.submit());
     try @import("std").testing.expectEqual(@as(usize, 0), terminal.output_len);
+    try @import("std").testing.expectEqualStrings("", terminal.outputTailLines(0));
     var app = Application{ .window = drawable };
     var app_events = EventQueue{};
     try @import("std").testing.expect(app_events.push(.{ .quit = {} }));
