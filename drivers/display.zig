@@ -422,12 +422,14 @@ pub const Context = struct {
     framebuffer: Framebuffer,
     adapter: Adapter,
     backbuffer: u64,
+    frontbuffer_shadow: u64,
     buffer_bytes: usize,
     dirty_left: usize = 0,
     dirty_top: usize = 0,
     dirty_right: usize = 0,
     dirty_bottom: usize = 0,
     frames_presented: u64 = 0,
+    pixels_examined: u64 = 0,
     pixels_presented: u64 = 0,
 
     pub fn init(framebuffer: Framebuffer, device: pci.Device, pages: *physical.Allocator) !Context {
@@ -438,8 +440,14 @@ pub const Context = struct {
         const bytes = pixels * 4;
         const page_count = (bytes + 4095) / 4096;
         const backbuffer = pages.allocate(page_count) orelse return error.OutOfMemory;
+        const frontbuffer_shadow = pages.allocate(page_count) orelse {
+            pages.release(backbuffer, page_count) catch {};
+            return error.OutOfMemory;
+        };
         const memory: [*]u8 = @ptrFromInt(backbuffer);
         @memset(memory[0..bytes], 0);
+        const shadow: [*]u8 = @ptrFromInt(frontbuffer_shadow);
+        @memset(shadow[0..bytes], 0);
         return .{
             .framebuffer = framebuffer,
             .adapter = .{
@@ -451,6 +459,7 @@ pub const Context = struct {
                 .aperture = pci.barAddress(device, 0) orelse 0,
             },
             .backbuffer = backbuffer,
+            .frontbuffer_shadow = frontbuffer_shadow,
             .buffer_bytes = bytes,
         };
     }
@@ -481,15 +490,23 @@ pub const Context = struct {
     pub fn present(self: *Context) usize {
         if (self.dirty_right <= self.dirty_left or self.dirty_bottom <= self.dirty_top) return 0;
         const source: [*]const u32 = @ptrFromInt(self.backbuffer);
+        const shadow: [*]u32 = @ptrFromInt(self.frontbuffer_shadow);
         const target: [*]volatile u32 = @ptrFromInt(self.framebuffer.base);
-        var copied: usize = 0;
+        const first_frame = self.frames_presented == 0;
+        var examined: usize = 0;
+        var written: usize = 0;
         var row = self.dirty_top;
         while (row < self.dirty_bottom) : (row += 1) {
             var column = self.dirty_left;
             while (column < self.dirty_right) : (column += 1) {
                 const index = row * self.framebuffer.stride + column;
-                target[index] = source[index];
-                copied += 1;
+                const pixel = source[index];
+                if (first_frame or shadow[index] != pixel) {
+                    target[index] = pixel;
+                    shadow[index] = pixel;
+                    written += 1;
+                }
+                examined += 1;
             }
         }
         self.dirty_left = 0;
@@ -497,8 +514,9 @@ pub const Context = struct {
         self.dirty_right = 0;
         self.dirty_bottom = 0;
         self.frames_presented += 1;
-        self.pixels_presented += copied;
-        return copied;
+        self.pixels_examined += examined;
+        self.pixels_presented += written;
+        return examined;
     }
 
     pub fn blitSurface(self: *Context, surface: *sdl.Window, x: usize, y: usize) void {

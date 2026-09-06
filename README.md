@@ -664,6 +664,9 @@ minimização e redimensionamento sem desenhar sobre janelas superiores.
 O backend converte RGBA8888 para a ordem nativa do framebuffer e faz alpha
 blending por pixel; cores e transparência deixam de depender acidentalmente do
 layout de bytes do GOP/QEMU.
+Um frontbuffer sombra mantém a última imagem apresentada. Após o primeiro frame
+completo, `present` compara a região suja e evita escritas MMIO para pixels
+inalterados, registrando separadamente pixels examinados e efetivamente escritos.
 Movimentos de mouse consecutivos são coalescidos quando a fila SDL está cheia,
 evitando saturação desnecessária do input.
 
