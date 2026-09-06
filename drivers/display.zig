@@ -49,6 +49,7 @@ pub const WindowManager = struct {
     windows: [max_windows]Window = undefined,
     count: usize = 0,
     focused: ?usize = null,
+    launcher_open: bool = false,
 
     pub fn create(self: *WindowManager, window: Window) !usize {
         if (self.count == max_windows) return error.WindowLimit;
@@ -99,6 +100,12 @@ pub const WindowManager = struct {
         if (index >= self.count or !self.windows[index].visible) return false;
         self.windows[index].minimized = false;
         return self.focus(index);
+    }
+
+    pub fn findById(self: *const WindowManager, id: u32) ?usize {
+        for (self.windows[0..self.count], 0..) |window, index|
+            if (window.id == id and window.visible) return index;
+        return null;
     }
 
     pub fn move(self: *WindowManager, index: usize, x: usize, y: usize, screen_width: usize, screen_height: usize) bool {
@@ -212,9 +219,23 @@ pub const WindowManager = struct {
 
     pub fn taskbarHitTest(self: *const WindowManager, x: usize, y: usize, screen_height: usize) ?usize {
         if (screen_height < 24 or y < screen_height - 20) return null;
-        const slot = x / 112;
-        if (slot >= self.count or x % 112 >= 104) return null;
+        if (x < 64) return null;
+        const task_x = x - 64;
+        const slot = task_x / 112;
+        if (slot >= self.count or task_x % 112 >= 104) return null;
         return slot;
+    }
+
+    pub fn launcherButtonHitTest(_: *const WindowManager, x: usize, y: usize, screen_height: usize) bool {
+        return screen_height >= 24 and x >= 4 and x < 56 and y >= screen_height - 17 and y < screen_height - 3;
+    }
+
+    pub fn launcherItemHitTest(self: *const WindowManager, x: usize, y: usize, screen_height: usize) ?u32 {
+        if (!self.launcher_open or screen_height < 76 or x < 4 or x >= 180) return null;
+        const menu_top = screen_height - 72;
+        if (y >= menu_top + 4 and y < menu_top + 24) return 1;
+        if (y >= menu_top + 28 and y < menu_top + 48) return 2;
+        return null;
     }
 
     pub fn compose(self: *const WindowManager, context: *Context) void {
@@ -256,11 +277,21 @@ pub const WindowManager = struct {
         }
         const taskbar_y = @as(usize, context.framebuffer.height) -| 20;
         context.fillRect(0, taskbar_y, context.framebuffer.width, 20, 0x101820);
+        context.fillRect(4, taskbar_y + 3, 52, 14, if (self.launcher_open) 0x50a078 else 0x405070);
+        context.drawWindowTitle(12, taskbar_y + 5, "CS");
         i = 0;
         while (i < self.count) : (i += 1) {
             const w = self.windows[i];
-            context.fillRect(i * 112 + 4, taskbar_y + 3, 104, 14, if (self.focused == i and !w.minimized) 0x5070a0 else 0x303848);
-            context.drawWindowTitle(i * 112 + 12, taskbar_y + 5, w.title);
+            context.fillRect(64 + i * 112 + 4, taskbar_y + 3, 104, 14, if (self.focused == i and !w.minimized) 0x5070a0 else 0x303848);
+            context.drawWindowTitle(64 + i * 112 + 12, taskbar_y + 5, w.title);
+        }
+        if (self.launcher_open and context.framebuffer.height >= 76) {
+            const menu_top = @as(usize, context.framebuffer.height) - 72;
+            context.fillRect(4, menu_top, 176, 52, 0x182430);
+            context.fillRect(8, menu_top + 4, 168, 20, 0x304860);
+            context.fillRect(8, menu_top + 28, 168, 20, 0x304860);
+            context.drawWindowTitle(16, menu_top + 9, "APP1");
+            context.drawWindowTitle(16, menu_top + 33, "MONITOR");
         }
     }
 };
@@ -291,10 +322,19 @@ test "window manager focus alt-tab hit-test and close" {
     try std.testing.expect(manager.toggleMinimized(0));
     try std.testing.expect(manager.windows[0].minimized);
     try std.testing.expect(manager.hitTest(20, 20) == null);
-    try std.testing.expectEqual(@as(?usize, 0), manager.taskbarHitTest(20, 119, 128));
-    try std.testing.expect(manager.taskbarHitTest(104, 119, 128) == null);
+    try std.testing.expect(manager.launcherButtonHitTest(20, 119, 128));
+    try std.testing.expect(!manager.launcherButtonHitTest(60, 119, 128));
+    try std.testing.expectEqual(@as(?usize, 0), manager.taskbarHitTest(80, 119, 128));
+    try std.testing.expect(manager.taskbarHitTest(168, 119, 128) == null);
     try std.testing.expect(manager.taskbarHitTest(20, 100, 128) == null);
     try std.testing.expect(manager.taskbarHitTest(300, 119, 128) == null);
+    try std.testing.expect(manager.launcherItemHitTest(20, 62, 128) == null);
+    manager.launcher_open = true;
+    try std.testing.expectEqual(@as(?u32, 1), manager.launcherItemHitTest(20, 62, 128));
+    try std.testing.expectEqual(@as(?u32, 2), manager.launcherItemHitTest(20, 86, 128));
+    try std.testing.expect(manager.launcherItemHitTest(200, 62, 128) == null);
+    try std.testing.expectEqual(@as(?usize, 0), manager.findById(20));
+    try std.testing.expect(manager.findById(999) == null);
     try std.testing.expect(manager.focus(0));
     try std.testing.expect(!manager.windows[0].minimized);
     const third = try manager.create(.{ .id = 30, .x = 0, .y = 0, .width = 64, .height = 32 });

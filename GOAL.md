@@ -121,6 +121,9 @@ pelo botão da barra de título ou por `Ctrl+Seta para cima`, preservando a
 geometria anterior e respeitando a área reservada à barra de tarefas.
 Uma alça visual no canto inferior direito permite redimensionamento por mouse,
 com dimensões mínimas e contenção integral na área útil do desktop.
+O botão `CS` na barra de tarefas abre um lançador com `APP1` e `MONITOR`.
+Selecionar uma aplicação fechada recria sua janela; selecionar uma existente a
+restaura e leva ao foco, completando o primeiro ciclo abrir/usar/fechar/reabrir.
 A tabela fixa do compositor saiu do frame de `kernel.start` para não consumir a
 stack limitada recebida do firmware; o boot QEMU voltou a alcançar a sessão
 gráfica depois dessa correção.

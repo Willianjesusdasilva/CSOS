@@ -633,6 +633,9 @@ O botão quadrado na barra de título maximiza/restaura a janela, preservando su
 geometria anterior; `Ctrl+Seta para cima` oferece a mesma ação pelo teclado.
 Uma alça no canto inferior direito permite redimensionar janelas com o mouse,
 respeitando tamanho mínimo, limites da tela e a área da barra de tarefas.
+O botão `CS` da barra de tarefas abre um lançador software para `APP1` e
+`MONITOR`; aplicativos fechados podem ser criados novamente, enquanto os já
+abertos são restaurados e recebem foco.
 O estado fixo do compositor usa armazenamento estático, evitando que a evolução
 do desktop esgote a stack inicial fornecida pelo firmware UEFI.
 O contrato SDL software inicial em `graphics/sdl.zig` já define janela/superfície

@@ -2066,6 +2066,7 @@ pub fn start(info: BootInfo) noreturn {
                     const closing = window_manager.focused.?;
                     const closed_id = window_manager.windows[closing].id;
                     window_manager.close(closing);
+                    if (closed_id == 1) demo_app.running = false;
                     serial.write(if (event.a == 0x29) "UI close window (Esc): " else "UI close window (Ctrl+W): ");
                     serial.writeDecimal(closed_id);
                     serial.write("\n");
@@ -2113,7 +2114,21 @@ pub fn start(info: BootInfo) noreturn {
                     serial.write(if (action_button_active) "active\n" else "inactive\n");
                 }
                 if (left_pressed and !left_was_pressed) {
-                    if (window_manager.taskbarHitTest(cursor_x, cursor_y, screen.framebuffer.height)) |task| {
+                    if (window_manager.launcherButtonHitTest(cursor_x, cursor_y, screen.framebuffer.height)) {
+                        window_manager.launcher_open = !window_manager.launcher_open;
+                        drag_window = null;
+                        resize_window = null;
+                        serial.write(if (window_manager.launcher_open) "UI launcher open\n" else "UI launcher closed\n");
+                    } else if (window_manager.launcherItemHitTest(cursor_x, cursor_y, screen.framebuffer.height)) |application_id| {
+                        const was_open = window_manager.findById(application_id) != null;
+                        _ = launchDesktopWindow(window_manager, application_id) catch panic("desktop application launch failed");
+                        if (application_id == 1 and !was_open) resetSdlDemoApplication(&demo_app);
+                        window_manager.launcher_open = false;
+                        serial.write("UI launch application: ");
+                        serial.writeDecimal(application_id);
+                        serial.write("\n");
+                    } else if (window_manager.taskbarHitTest(cursor_x, cursor_y, screen.framebuffer.height)) |task| {
+                        window_manager.launcher_open = false;
                         _ = window_manager.restore(task);
                         serial.write("UI taskbar focus window: ");
                         serial.writeDecimal(window_manager.windows[window_manager.focused.?].id);
@@ -2123,6 +2138,7 @@ pub fn start(info: BootInfo) noreturn {
                         if (window_manager.closeHitTest(hit, cursor_x, cursor_y)) {
                             const closed_id = window.id;
                             window_manager.close(hit);
+                            if (closed_id == 1) demo_app.running = false;
                             serial.write("UI close window: ");
                             serial.writeDecimal(closed_id);
                             serial.write("\n");
@@ -2141,6 +2157,7 @@ pub fn start(info: BootInfo) noreturn {
                             serial.writeDecimal(window_manager.windows[resize_window.?].id);
                             serial.write("\n");
                         } else {
+                            window_manager.launcher_open = false;
                             _ = window_manager.focus(hit);
                             if (!window_manager.windows[window_manager.focused.?].maximized and cursor_y >= window.y and cursor_y < window.y +| 20) {
                                 drag_window = window_manager.focused;
@@ -2211,6 +2228,25 @@ fn handleSdlDemoEvent(app: *sdl.Application, event: sdl.Event) void {
             if (mouse.buttons != 0) app.window.fillRect(52, 30, 8, 8, 0xf0b040ff);
         },
     }
+}
+
+fn resetSdlDemoApplication(app: *sdl.Application) void {
+    app.running = true;
+    app.window.clear(0x182838ff);
+    app.window.fillRect(4, 4, 56, 8, 0x50b080ff);
+    app.window.fillRect(4, 20, 32, 20, 0x5080c0ff);
+}
+
+fn launchDesktopWindow(manager: *display.WindowManager, application_id: u32) !usize {
+    if (manager.findById(application_id)) |existing| {
+        _ = manager.restore(existing);
+        return manager.focused.?;
+    }
+    return switch (application_id) {
+        1 => manager.create(.{ .id = 1, .title = "APP1", .x = 32, .y = 220, .width = 260, .height = 140, .title_color = 0x405070, .body_color = 0x18202c }),
+        2 => manager.create(.{ .id = 2, .title = "MONITOR", .x = 180, .y = 280, .width = 260, .height = 140, .title_color = 0x604070, .body_color = 0x241828 }),
+        else => error.UnknownDesktopApplication,
+    };
 }
 
 fn drawSdlApplication(screen: *display.Context, manager: *const display.WindowManager, app: *sdl.Application, window_id: u32) void {
