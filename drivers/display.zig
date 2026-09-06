@@ -50,6 +50,7 @@ pub const WindowManager = struct {
     count: usize = 0,
     focused: ?usize = null,
     launcher_open: bool = false,
+    launcher_selection: u8 = 0,
 
     pub fn create(self: *WindowManager, window: Window) !usize {
         if (self.count == max_windows) return error.WindowLimit;
@@ -238,6 +239,19 @@ pub const WindowManager = struct {
         return null;
     }
 
+    pub fn launcherSelectNext(self: *WindowManager) void {
+        self.launcher_selection = (self.launcher_selection + 1) % 2;
+    }
+
+    pub fn launcherSelectPrevious(self: *WindowManager) void {
+        self.launcher_selection = if (self.launcher_selection == 0) 1 else 0;
+    }
+
+    pub fn launcherSelectedApplication(self: *const WindowManager) ?u32 {
+        if (!self.launcher_open) return null;
+        return @as(u32, self.launcher_selection) + 1;
+    }
+
     pub fn compose(self: *const WindowManager, context: *Context) void {
         var i: usize = 0;
         while (i < self.count) : (i += 1) {
@@ -288,8 +302,8 @@ pub const WindowManager = struct {
         if (self.launcher_open and context.framebuffer.height >= 76) {
             const menu_top = @as(usize, context.framebuffer.height) - 72;
             context.fillRect(4, menu_top, 176, 52, 0x182430);
-            context.fillRect(8, menu_top + 4, 168, 20, 0x304860);
-            context.fillRect(8, menu_top + 28, 168, 20, 0x304860);
+            context.fillRect(8, menu_top + 4, 168, 20, if (self.launcher_selection == 0) 0x5070a0 else 0x304860);
+            context.fillRect(8, menu_top + 28, 168, 20, if (self.launcher_selection == 1) 0x5070a0 else 0x304860);
             context.drawWindowTitle(16, menu_top + 9, "APP1");
             context.drawWindowTitle(16, menu_top + 33, "MONITOR");
         }
@@ -330,9 +344,19 @@ test "window manager focus alt-tab hit-test and close" {
     try std.testing.expect(manager.taskbarHitTest(300, 119, 128) == null);
     try std.testing.expect(manager.launcherItemHitTest(20, 62, 128) == null);
     manager.launcher_open = true;
+    try std.testing.expectEqual(@as(?u32, 1), manager.launcherSelectedApplication());
+    manager.launcherSelectNext();
+    try std.testing.expectEqual(@as(?u32, 2), manager.launcherSelectedApplication());
+    manager.launcherSelectNext();
+    try std.testing.expectEqual(@as(?u32, 1), manager.launcherSelectedApplication());
+    manager.launcherSelectPrevious();
+    try std.testing.expectEqual(@as(?u32, 2), manager.launcherSelectedApplication());
+    manager.launcher_selection = 0;
     try std.testing.expectEqual(@as(?u32, 1), manager.launcherItemHitTest(20, 62, 128));
     try std.testing.expectEqual(@as(?u32, 2), manager.launcherItemHitTest(20, 86, 128));
     try std.testing.expect(manager.launcherItemHitTest(200, 62, 128) == null);
+    manager.launcher_open = false;
+    try std.testing.expect(manager.launcherSelectedApplication() == null);
     try std.testing.expectEqual(@as(?usize, 0), manager.findById(20));
     try std.testing.expect(manager.findById(999) == null);
     try std.testing.expect(manager.focus(0));

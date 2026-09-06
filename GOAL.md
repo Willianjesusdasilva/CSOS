@@ -124,6 +124,10 @@ com dimensões mínimas e contenção integral na área útil do desktop.
 O botão `CS` na barra de tarefas abre um lançador com `APP1` e `MONITOR`.
 Selecionar uma aplicação fechada recria sua janela; selecionar uma existente a
 restaura e leva ao foco, completando o primeiro ciclo abrir/usar/fechar/reabrir.
+O mesmo fluxo funciona sem mouse: `Super` ou `Ctrl+Espaço` alterna o lançador,
+setas percorrem as opções, `Enter` ativa e `Esc` fecha o menu sem fechar a
+aplicação focada. O toggle possui debounce e o atalho alternativo evita captura
+da tecla Super pelo host do QEMU.
 A tabela fixa do compositor saiu do frame de `kernel.start` para não consumir a
 stack limitada recebida do firmware; o boot QEMU voltou a alcançar a sessão
 gráfica depois dessa correção.

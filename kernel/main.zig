@@ -2019,6 +2019,7 @@ pub fn start(info: BootInfo) noreturn {
     var mouse_buttons: u8 = 0;
     var action_button_active = false;
     var alt_tab_down = false;
+    var launcher_key_down = false;
     var drag_window: ?usize = null;
     var resize_window: ?usize = null;
     var drag_offset_x: usize = 0;
@@ -2044,7 +2045,35 @@ pub fn start(info: BootInfo) noreturn {
         };
         while (hid.pop()) |event| {
             if (event.kind == .keyboard) {
-                if (focusedWindowIs(window_manager, 1)) {
+                var launcher_consumed = false;
+                const gui_pressed = (event.b & 0x88) != 0;
+                const launcher_shortcut_pressed = gui_pressed or ((event.b & 0x11) != 0 and event.a == 0x2c);
+                if (launcher_shortcut_pressed and !launcher_key_down) {
+                    window_manager.launcher_open = !window_manager.launcher_open;
+                    if (window_manager.launcher_open) window_manager.launcher_selection = 0;
+                    launcher_consumed = true;
+                    serial.write(if (window_manager.launcher_open) "UI launcher open (keyboard)\n" else "UI launcher closed (keyboard)\n");
+                }
+                launcher_key_down = launcher_shortcut_pressed;
+                if (window_manager.launcher_open) {
+                    launcher_consumed = true;
+                    switch (event.a) {
+                        0x51 => window_manager.launcherSelectNext(),
+                        0x52 => window_manager.launcherSelectPrevious(),
+                        0x29 => window_manager.launcher_open = false,
+                        0x28 => if (window_manager.launcherSelectedApplication()) |application_id| {
+                            const was_open = window_manager.findById(application_id) != null;
+                            _ = launchDesktopWindow(window_manager, application_id) catch panic("desktop keyboard application launch failed");
+                            if (application_id == 1 and !was_open) resetSdlDemoApplication(&demo_app);
+                            window_manager.launcher_open = false;
+                            serial.write("UI launch application (keyboard): ");
+                            serial.writeDecimal(application_id);
+                            serial.write("\n");
+                        },
+                        else => {},
+                    }
+                }
+                if (!launcher_consumed and focusedWindowIs(window_manager, 1)) {
                     _ = sdl_events.pushKeyboard(event.a, event.a != 0, event.b);
                     if ((event.b & 0x01) != 0 and event.a == 0x14) _ = sdl_events.pushQuit();
                     demo_app.pump(&sdl_events, &handleSdlDemoEvent);
@@ -2061,7 +2090,7 @@ pub fn start(info: BootInfo) noreturn {
                     }
                 }
                 alt_tab_down = alt_tab_pressed;
-                const close_shortcut = event.a == 0x29 or ((event.b & 0x01) != 0 and event.a == 0x1a);
+                const close_shortcut = !launcher_consumed and (event.a == 0x29 or ((event.b & 0x01) != 0 and event.a == 0x1a));
                 if (close_shortcut and window_manager.focused != null) {
                     const closing = window_manager.focused.?;
                     const closed_id = window_manager.windows[closing].id;
@@ -2071,7 +2100,7 @@ pub fn start(info: BootInfo) noreturn {
                     serial.writeDecimal(closed_id);
                     serial.write("\n");
                 }
-                if ((event.b & 0x01) != 0 and event.a == 0x10 and window_manager.focused != null) {
+                if (!launcher_consumed and (event.b & 0x01) != 0 and event.a == 0x10 and window_manager.focused != null) {
                     const toggled = window_manager.focused.?;
                     const window_id = window_manager.windows[toggled].id;
                     const minimized = !window_manager.windows[toggled].minimized;
@@ -2081,7 +2110,7 @@ pub fn start(info: BootInfo) noreturn {
                     serial.writeDecimal(window_id);
                     serial.write("\n");
                 }
-                if ((event.b & 0x01) != 0 and event.a == 0x52 and window_manager.focused != null) {
+                if (!launcher_consumed and (event.b & 0x01) != 0 and event.a == 0x52 and window_manager.focused != null) {
                     const toggled = window_manager.focused.?;
                     _ = window_manager.toggleMaximized(toggled, screen.framebuffer.width, screen.framebuffer.height);
                     serial.write(if (window_manager.windows[toggled].maximized) "UI maximize window: " else "UI restore window size: ");
@@ -2116,6 +2145,7 @@ pub fn start(info: BootInfo) noreturn {
                 if (left_pressed and !left_was_pressed) {
                     if (window_manager.launcherButtonHitTest(cursor_x, cursor_y, screen.framebuffer.height)) {
                         window_manager.launcher_open = !window_manager.launcher_open;
+                        if (window_manager.launcher_open) window_manager.launcher_selection = 0;
                         drag_window = null;
                         resize_window = null;
                         serial.write(if (window_manager.launcher_open) "UI launcher open\n" else "UI launcher closed\n");

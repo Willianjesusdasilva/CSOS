@@ -636,6 +636,9 @@ respeitando tamanho mínimo, limites da tela e a área da barra de tarefas.
 O botão `CS` da barra de tarefas abre um lançador software para `APP1` e
 `MONITOR`; aplicativos fechados podem ser criados novamente, enquanto os já
 abertos são restaurados e recebem foco.
+O lançador também é controlável por teclado: `Super` ou `Ctrl+Espaço`
+abre/fecha, setas selecionam, `Enter` inicia/restaura e `Esc` fecha somente o
+menu. O atalho alternativo evita a interceptação da tecla Super pelo host.
 O estado fixo do compositor usa armazenamento estático, evitando que a evolução
 do desktop esgote a stack inicial fornecida pelo firmware UEFI.
 O contrato SDL software inicial em `graphics/sdl.zig` já define janela/superfície
