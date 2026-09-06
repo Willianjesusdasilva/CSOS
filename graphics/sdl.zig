@@ -5,6 +5,7 @@ pub const AudioSpec = struct { sample_rate: u32, channels: u8 };
 pub const Event = union(enum) {
     quit: void,
     key: struct { scancode: u8, pressed: bool, modifiers: u8 },
+    text: u8,
     mouse: struct { x: i32, y: i32, wheel: i32, buttons: u8 },
 };
 
@@ -71,6 +72,10 @@ pub const EventQueue = struct {
         return self.push(.{ .key = .{ .scancode = scancode, .pressed = pressed, .modifiers = modifiers } });
     }
 
+    pub fn pushText(self: *EventQueue, byte: u8) bool {
+        return self.push(.{ .text = byte });
+    }
+
     pub fn pushMouse(self: *EventQueue, x: i32, y: i32, wheel: i32, buttons: u8) bool {
         return self.push(.{ .mouse = .{ .x = x, .y = y, .wheel = wheel, .buttons = buttons } });
     }
@@ -118,6 +123,18 @@ pub const Window = struct {
             for (x..right) |column| self.pixels[row * self.width + column] = color;
         }
         self.markDirty(x, y, right - x, bottom - y);
+    }
+
+    pub fn drawText(self: *Window, x: usize, y: usize, text: []const u8, color: u32) void {
+        for (text, 0..) |character, index| {
+            const glyph = glyph3x5(character);
+            for (glyph, 0..) |row_bits, row| {
+                for (0..3) |column| {
+                    if ((row_bits & (@as(u8, 1) << @intCast(2 - column))) != 0)
+                        self.fillRect(x + index * 8 + column * 2, y + row * 2, 2, 2, color);
+                }
+            }
+        }
     }
 
     pub fn consumeDirty(self: *Window) bool {
@@ -194,6 +211,43 @@ pub const Application = struct {
     }
 };
 
+pub const TextInput = struct {
+    bytes: [64]u8 = undefined,
+    len: usize = 0,
+    cursor: usize = 0,
+
+    pub fn insert(self: *TextInput, byte: u8) bool {
+        if (byte < 0x20 or byte > 0x7e or self.len == self.bytes.len) return false;
+        var index = self.len;
+        while (index > self.cursor) : (index -= 1) self.bytes[index] = self.bytes[index - 1];
+        self.bytes[self.cursor] = byte;
+        self.cursor += 1;
+        self.len += 1;
+        return true;
+    }
+
+    pub fn backspace(self: *TextInput) bool {
+        if (self.cursor == 0) return false;
+        var index = self.cursor - 1;
+        while (index + 1 < self.len) : (index += 1) self.bytes[index] = self.bytes[index + 1];
+        self.cursor -= 1;
+        self.len -= 1;
+        return true;
+    }
+
+    pub fn moveLeft(self: *TextInput) void {
+        self.cursor -|= 1;
+    }
+
+    pub fn moveRight(self: *TextInput) void {
+        self.cursor = @min(self.len, self.cursor + 1);
+    }
+
+    pub fn slice(self: *const TextInput) []const u8 {
+        return self.bytes[0..self.len];
+    }
+};
+
 pub const AudioDevice = struct {
     spec: AudioSpec,
     queued_frames: u64 = 0,
@@ -226,6 +280,53 @@ pub fn createWindow(storage: []u32, width: usize, height: usize) !Window {
     return .{ .width = width, .height = height, .pixels = storage };
 }
 
+pub fn glyph3x5(character: u8) [5]u8 {
+    const upper = if (character >= 'a' and character <= 'z') character - 32 else character;
+    return switch (upper) {
+        'A' => .{ 2, 5, 7, 5, 5 },
+        'B' => .{ 6, 5, 6, 5, 6 },
+        'C' => .{ 7, 4, 4, 4, 7 },
+        'D' => .{ 6, 5, 5, 5, 6 },
+        'E' => .{ 7, 4, 6, 4, 7 },
+        'F' => .{ 7, 4, 6, 4, 4 },
+        'G' => .{ 7, 4, 5, 5, 7 },
+        'H' => .{ 5, 5, 7, 5, 5 },
+        'I' => .{ 7, 2, 2, 2, 7 },
+        'J' => .{ 1, 1, 1, 5, 7 },
+        'K' => .{ 5, 5, 6, 5, 5 },
+        'L' => .{ 4, 4, 4, 4, 7 },
+        'M' => .{ 5, 7, 7, 5, 5 },
+        'N' => .{ 5, 7, 7, 7, 5 },
+        'O' => .{ 7, 5, 5, 5, 7 },
+        'P' => .{ 6, 5, 6, 4, 4 },
+        'Q' => .{ 7, 5, 5, 7, 1 },
+        'R' => .{ 6, 5, 6, 5, 5 },
+        'S' => .{ 7, 4, 7, 1, 7 },
+        'T' => .{ 7, 2, 2, 2, 2 },
+        'U' => .{ 5, 5, 5, 5, 7 },
+        'V' => .{ 5, 5, 5, 5, 2 },
+        'W' => .{ 5, 5, 7, 7, 5 },
+        'X' => .{ 5, 5, 2, 5, 5 },
+        'Y' => .{ 5, 5, 2, 2, 2 },
+        'Z' => .{ 7, 1, 2, 4, 7 },
+        '0' => .{ 7, 5, 5, 5, 7 },
+        '1' => .{ 2, 6, 2, 2, 7 },
+        '2' => .{ 6, 1, 2, 4, 7 },
+        '3' => .{ 6, 1, 2, 1, 6 },
+        '4' => .{ 5, 5, 7, 1, 1 },
+        '5' => .{ 7, 4, 6, 1, 6 },
+        '6' => .{ 3, 4, 7, 5, 7 },
+        '7' => .{ 7, 1, 2, 2, 2 },
+        '8' => .{ 7, 5, 7, 5, 7 },
+        '9' => .{ 7, 5, 7, 1, 6 },
+        ' ' => .{ 0, 0, 0, 0, 0 },
+        '-' => .{ 0, 0, 7, 0, 0 },
+        '_' => .{ 0, 0, 0, 0, 7 },
+        '.' => .{ 0, 0, 0, 0, 2 },
+        else => .{ 7, 1, 2, 0, 2 },
+    };
+}
+
 fn testApplicationEvent(_: *Application, _: Event) void {}
 fn testApplicationDraw(window: *Window) void {
     window.fillRect(0, 0, 1, 1, 0xffffffff);
@@ -241,7 +342,9 @@ test "SDL software event queue and surface contract" {
     try @import("std").testing.expectEqual(@as(?Event, .{ .quit = {} }), events.peek());
     try @import("std").testing.expectEqual(@as(?Event, .{ .quit = {} }), events.poll());
     try @import("std").testing.expect(events.pushKeyboard(0x04, true, 0x04));
+    try @import("std").testing.expect(events.pushText('a'));
     try @import("std").testing.expect(events.pushMouse(12, -3, 1, 1));
+    try @import("std").testing.expect(events.poll() != null);
     try @import("std").testing.expect(events.poll() != null);
     try @import("std").testing.expect(events.poll() != null);
     try @import("std").testing.expectEqual(@as(usize, 0), events.len());
@@ -289,6 +392,21 @@ test "SDL software event queue and surface contract" {
     try @import("std").testing.expectEqual(@as(u32, 0x55667788), pixels[15]);
     drawable.fillRect(0, 0, 1, 1, 0x01020304);
     try @import("std").testing.expectEqual(Rect{ .x = 0, .y = 0, .width = 4, .height = 4 }, drawable.dirtyRect().?);
+    var text_pixels: [128]u32 = .{0} ** 128;
+    var text_window = try createWindow(&text_pixels, 16, 8);
+    text_window.drawText(0, 0, "A", 0xffffffff);
+    try @import("std").testing.expect(text_pixels[2] == 0xffffffff);
+    try @import("std").testing.expectEqual(glyph3x5('A'), glyph3x5('a'));
+    var input = TextInput{};
+    try @import("std").testing.expect(input.insert('a'));
+    try @import("std").testing.expect(input.insert('c'));
+    input.moveLeft();
+    try @import("std").testing.expect(input.insert('b'));
+    try @import("std").testing.expectEqualStrings("abc", input.slice());
+    try @import("std").testing.expect(input.backspace());
+    try @import("std").testing.expectEqualStrings("ac", input.slice());
+    input.moveRight();
+    try @import("std").testing.expectEqual(@as(usize, 2), input.cursor);
     var app = Application{ .window = drawable };
     var app_events = EventQueue{};
     try @import("std").testing.expect(app_events.push(.{ .quit = {} }));

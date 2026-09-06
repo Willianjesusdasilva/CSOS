@@ -650,6 +650,9 @@ SDL no loop gráfico: teclado altera seu indicador superior, movimento do mouse
 atualiza uma barra, roda e botões recebem feedback visual, e `Ctrl+Q` envia o
 evento de encerramento. Os eventos são entregues apenas quando `APP1` possui
 foco. Isso valida roteamento de input e renderização em QEMU.
+`APP1` também possui entrada de texto ASCII editável: caracteres são exibidos
+com fonte bitmap completa, Backspace remove e setas esquerda/direita movem o
+cursor lógico.
 Movimentos de mouse consecutivos são coalescidos quando a fila SDL está cheia,
 evitando saturação desnecessária do input.
 

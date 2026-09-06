@@ -139,6 +139,9 @@ SDL real: teclado, movimento, roda e botões alteram o conteúdo, e `Ctrl+Q`
 encerra a aplicação. A entrega ocorre apenas quando `APP1` possui foco. Isso
 valida o primeiro ciclo interativo completo, incluindo roteamento de input, de
 uma aplicação gráfica sem GPU física.
+`APP1` possui agora um buffer de texto ASCII editável, com inserção no cursor,
+Backspace, navegação por setas e renderização bitmap completa de letras e
+números. O evento SDL de texto é separado do scancode de teclado.
 
 Após esses incrementos, `zig build test` continua em `11/11` etapas e `16/16`
 testes aprovados; um boot QEMU limitado também voltou a alcançar

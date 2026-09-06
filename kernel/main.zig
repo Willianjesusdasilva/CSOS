@@ -44,6 +44,7 @@ var console_last_key: u8 = 0;
 var console_input_irq_apic: u32 = 0;
 var audio_reported = false;
 var sdl_demo_pixels: [64 * 48]u32 = .{0} ** (64 * 48);
+var sdl_demo_text = sdl.TextInput{};
 // Keep the compositor's fixed-capacity window table off the UEFI boot stack.
 // kernel.start already coordinates the entire bring-up and must not grow with
 // every desktop feature added late in that function.
@@ -2075,8 +2076,20 @@ pub fn start(info: BootInfo) noreturn {
                 }
                 if (!launcher_consumed and focusedWindowIs(window_manager, 1)) {
                     _ = sdl_events.pushKeyboard(event.a, event.a != 0, event.b);
+                    if (event.a != 0) {
+                        if (event.a == 0x2a) {
+                            _ = sdl_demo_text.backspace();
+                        } else if (event.a == 0x50) {
+                            sdl_demo_text.moveLeft();
+                        } else if (event.a == 0x4f) {
+                            sdl_demo_text.moveRight();
+                        } else if (hidCharacter(event.a, event.b)) |byte| {
+                            if (sdl_demo_text.insert(byte)) _ = sdl_events.pushText(byte);
+                        }
+                    }
                     if ((event.b & 0x01) != 0 and event.a == 0x14) _ = sdl_events.pushQuit();
                     demo_app.pump(&sdl_events, &handleSdlDemoEvent);
+                    drawSdlDemoText(&demo_app);
                 }
                 // HID usage 0x2b is Tab; modifier bit 0x04 is Left Alt.
                 const alt_tab_pressed = (event.b & 0x04) != 0 and event.a == 0x2b;
@@ -2248,8 +2261,8 @@ fn handleSdlDemoEvent(app: *sdl.Application, event: sdl.Event) void {
         .key => |key| {
             const color: u32 = if (key.pressed) 0x70b0e0ff else 0x304860ff;
             app.window.fillRect(4, 4, 56, 8, color);
-            app.window.fillRect(4 + (@as(usize, key.scancode) % 54), 14, 2, 8, 0xe0e8f0ff);
         },
+        .text => {},
         .mouse => |mouse| {
             const movement = @min(@as(usize, @intCast(@abs(mouse.x) + @abs(mouse.y))), 56);
             app.window.fillRect(4, 26, 56, 16, 0x203040ff);
@@ -2261,10 +2274,18 @@ fn handleSdlDemoEvent(app: *sdl.Application, event: sdl.Event) void {
 }
 
 fn resetSdlDemoApplication(app: *sdl.Application) void {
+    sdl_demo_text = .{};
     app.running = true;
     app.window.clear(0x182838ff);
     app.window.fillRect(4, 4, 56, 8, 0x50b080ff);
     app.window.fillRect(4, 20, 32, 20, 0x5080c0ff);
+}
+
+fn drawSdlDemoText(app: *sdl.Application) void {
+    app.window.fillRect(4, 14, 56, 10, 0x182838ff);
+    const text = sdl_demo_text.slice();
+    const visible = if (text.len > 7) text[text.len - 7 ..] else text;
+    app.window.drawText(4, 14, visible, 0xe0e8f0ff);
 }
 
 fn launchDesktopWindow(manager: *display.WindowManager, application_id: u32) !usize {
