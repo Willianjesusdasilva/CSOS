@@ -171,6 +171,7 @@ pub const WindowManager = struct {
 test "window manager focus alt-tab hit-test and close" {
     var manager = WindowManager{};
     try std.testing.expectError(error.InvalidWindowSize, manager.create(.{ .id = 1, .x = 0, .y = 0, .width = 31, .height = 24 }));
+    try std.testing.expectEqual(@as(usize, 0), manager.count);
     const first = try manager.create(.{ .id = 10, .x = 8, .y = 8, .width = 80, .height = 48 });
     const second = try manager.create(.{ .id = 20, .x = 32, .y = 24, .width = 96, .height = 56 });
     try std.testing.expectEqual(@as(usize, 1), second);
@@ -196,6 +197,16 @@ test "window manager focus alt-tab hit-test and close" {
     manager.close(0);
     try std.testing.expectEqual(@as(?usize, 0), manager.focused);
     try std.testing.expectEqual(@as(u32, 30), manager.windows[0].id);
+}
+
+test "window manager enforces maximum window count" {
+    var manager = WindowManager{};
+    var index: usize = 0;
+    while (index < max_windows) : (index += 1) {
+        _ = try manager.create(.{ .id = @intCast(index), .x = 0, .y = 0, .width = 32, .height = 24 });
+    }
+    try std.testing.expectEqual(max_windows, manager.count);
+    try std.testing.expectError(error.WindowLimit, manager.create(.{ .id = 99, .x = 0, .y = 0, .width = 32, .height = 24 }));
 }
 
 pub const Context = struct {
