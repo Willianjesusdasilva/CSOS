@@ -2039,7 +2039,7 @@ pub fn start(info: BootInfo) noreturn {
         while (hid.pop()) |event| {
             if (event.kind == .keyboard) {
                 _ = sdl_events.pushKeyboard(event.a, event.a != 0, event.b);
-                if ((event.b & 0x01) != 0 and event.a == 0x14) _ = sdl_events.push(.{ .quit = {} });
+                if ((event.b & 0x01) != 0 and event.a == 0x14) _ = sdl_events.pushQuit();
                 // HID usage 0x2b is Tab; modifier bit 0x04 is Left Alt.
                 const alt_tab_pressed = (event.b & 0x04) != 0 and event.a == 0x2b;
                 if (alt_tab_pressed and !alt_tab_down) {

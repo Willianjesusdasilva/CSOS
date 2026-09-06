@@ -53,6 +53,10 @@ pub const EventQueue = struct {
     pub fn pushMouse(self: *EventQueue, x: i32, y: i32, wheel: i32, buttons: u8) bool {
         return self.push(.{ .mouse = .{ .x = x, .y = y, .wheel = wheel, .buttons = buttons } });
     }
+
+    pub fn pushQuit(self: *EventQueue) bool {
+        return self.push(.{ .quit = {} });
+    }
 };
 
 pub const Window = struct {
@@ -141,7 +145,7 @@ test "SDL software event queue and surface contract" {
     var events = EventQueue{};
     try @import("std").testing.expectEqual(@as(usize, 0), events.len());
     try @import("std").testing.expectEqual(@as(usize, 64), events.remaining());
-    try @import("std").testing.expect(events.push(.{ .quit = {} }));
+    try @import("std").testing.expect(events.pushQuit());
     try @import("std").testing.expectEqual(@as(?Event, .{ .quit = {} }), events.poll());
     try @import("std").testing.expect(events.pushKeyboard(0x04, true, 0x04));
     try @import("std").testing.expect(events.pushMouse(12, -3, 1, 1));
