@@ -1,5 +1,6 @@
 pub const PixelFormat = enum { rgba8888 };
 pub const Rect = struct { x: usize, y: usize, width: usize, height: usize };
+pub const AudioSpec = struct { sample_rate: u32, channels: u8 };
 
 pub const Event = union(enum) {
     quit: void,
@@ -147,6 +148,31 @@ pub const Application = struct {
     }
 };
 
+pub const AudioDevice = struct {
+    spec: AudioSpec,
+    queued_frames: u64 = 0,
+    paused: bool = false,
+
+    pub fn init(spec: AudioSpec) !AudioDevice {
+        if (spec.sample_rate == 0 or spec.channels == 0 or spec.channels > 8) return error.InvalidAudioSpec;
+        return .{ .spec = spec };
+    }
+
+    pub fn queue(self: *AudioDevice, frames: u64) void {
+        self.queued_frames +%= frames;
+    }
+
+    pub fn consume(self: *AudioDevice, frames: u64) u64 {
+        const used = @min(frames, self.queued_frames);
+        self.queued_frames -= used;
+        return used;
+    }
+
+    pub fn pause(self: *AudioDevice, value: bool) void {
+        self.paused = value;
+    }
+};
+
 pub fn createWindow(storage: []u32, width: usize, height: usize) !Window {
     if (width == 0 or height == 0 or width * height != storage.len) return error.InvalidSurface;
     return .{ .width = width, .height = height, .pixels = storage };
@@ -205,4 +231,9 @@ test "SDL software event queue and surface contract" {
     try @import("std").testing.expect(app.render(&testApplicationDraw));
     app.running = true;
     try @import("std").testing.expect(app.frame(&app_events, &testApplicationEvent, &testApplicationDraw));
+    var audio = try AudioDevice.init(.{ .sample_rate = 48000, .channels = 2 });
+    audio.queue(256);
+    try @import("std").testing.expectEqual(@as(u64, 128), audio.consume(128));
+    audio.pause(true);
+    try @import("std").testing.expect(audio.paused);
 }
