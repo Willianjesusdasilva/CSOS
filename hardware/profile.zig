@@ -78,6 +78,7 @@ pub fn matchesSignature(text: []const u8, expected: u64) bool {
     const key = "signature=";
     var offset: usize = 0;
     while (offset + key.len <= text.len) : (offset += 1) {
+        if (offset != 0 and text[offset - 1] != '\n') continue;
         if (!equal(text[offset .. offset + key.len], key)) continue;
         offset += key.len;
         if (offset + 2 <= text.len and text[offset] == '0' and (text[offset + 1] == 'x' or text[offset + 1] == 'X')) offset += 2;
@@ -149,6 +150,7 @@ pub fn detectCpu() Cpu {
 test "hardware profile signatures accept upper-case hexadecimal" {
     try @import("std").testing.expect(matchesSignature("[system]\nsignature=ABCDEF\n", 0xabcdef));
     try @import("std").testing.expect(matchesSignature("signature=0xABCDEF\n", 0xabcdef));
+    try @import("std").testing.expect(!matchesSignature("not_signature=ABCDEF\n", 0xabcdef));
     try @import("std").testing.expect(!matchesSignature("signature=ABCDFE\n", 0xabcdef));
 }
 
