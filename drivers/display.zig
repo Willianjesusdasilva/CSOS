@@ -190,6 +190,9 @@ test "window manager focus alt-tab hit-test and close" {
     try std.testing.expect(manager.windows[0].minimized);
     try std.testing.expect(manager.hitTest(20, 20) == null);
     try std.testing.expectEqual(@as(?usize, 0), manager.taskbarHitTest(20, 119, 128));
+    try std.testing.expect(manager.taskbarHitTest(104, 119, 128) == null);
+    try std.testing.expect(manager.taskbarHitTest(20, 100, 128) == null);
+    try std.testing.expect(manager.taskbarHitTest(300, 119, 128) == null);
     try std.testing.expect(manager.focus(0));
     try std.testing.expect(!manager.windows[0].minimized);
     const third = try manager.create(.{ .id = 30, .x = 0, .y = 0, .width = 64, .height = 32 });
