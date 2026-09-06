@@ -3,6 +3,7 @@ const physical = @import("physical");
 const syscalls = @import("syscalls");
 const vfs = @import("vfs");
 const serial = @import("serial");
+const user_regions = @import("user_regions");
 const busybox_image = @embedFile("busybox_elf");
 const nettest_image = @embedFile("nettest_elf");
 const fbtest_image = @embedFile("fbtest_elf");
@@ -61,6 +62,8 @@ var active_pages: ?*physical.Allocator = null;
 var active_mappings: ?[]Mapping = null;
 var active_owned: ?[]OwnedRange = null;
 var active_load_bias: u64 = 0;
+var extra_user_regions: [128]user_regions.Region = undefined;
+var extra_user_region_count: usize = 0;
 pub var standby_pages: u64 = 0;
 pub var restored_pages: u64 = 0;
 pub var pause_count: u64 = 0;
@@ -358,14 +361,21 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
     active_mappings = mappings[0..mapping_count];
     active_owned = owned[0..owned_count];
     active_load_bias = load_bias;
+    extra_user_region_count = 0;
+    for (mappings[0..mapping_count]) |mapping| {
+        try user_regions.append(&extra_user_regions, &extra_user_region_count, mapping.virtual, page_size);
+    }
     syscalls.configureMmap(&protectMmap, &unmapMmap, &mapDevice);
+    syscalls.configureUserSlice(&validMappedUserSlice);
     defer {
         active_address_space = null;
         active_pages = null;
         active_mappings = null;
         active_owned = null;
         active_load_bias = 0;
+        extra_user_region_count = 0;
         syscalls.configureMmap(null, null, null);
+        syscalls.configureUserSlice(null);
     }
     lifecycle = .running;
     var user_instruction = execution_entry;
@@ -384,6 +394,10 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
     }
     lifecycle = .finished;
     if (syscalls.exitStatus() != 0) return error.ProcessFailed;
+}
+
+fn validMappedUserSlice(address: u64, length: u64) callconv(.c) bool {
+    return user_regions.contains(extra_user_regions[0..extra_user_region_count], address, length);
 }
 
 fn protectMmap(address: u64, length: u64, writable: bool, executable: bool) callconv(.c) bool {

@@ -6,6 +6,7 @@ $library = $Library
 if (-not (Test-Path -LiteralPath $library)) { throw 'Build RADV before auditing its ELF.' }
 $readelf = (Get-Command readelf.exe -ErrorAction Stop).Source
 $nm = (Get-Command nm.exe -ErrorAction Stop).Source
+$strings = (Get-Command strings.exe -ErrorAction Stop).Source
 $loaderSource = Get-Content -LiteralPath (Join-Path $workspace 'kernel/process.zig') -Raw
 if ($loaderSource -notmatch 'const max_mappings = (\d+);') { throw 'Could not read loader mapping capacity.' }
 [uint64]$loaderCapacity = $matches[1]
@@ -76,4 +77,22 @@ if ($mappedPages -eq 0 -or $mappedPages -gt $loaderCapacity) {
     throw "RADV needs $mappedPages pages; loader capacity is $loaderCapacity."
 }
 
-Write-Output "RADV ELF audit passed: $mappedPages mapped pages, $($types.Count) supported relocation types."
+$contents = (& $strings $library) -join "`n"
+$directDisplay = @(
+    'VK_KHR_surface',
+    'VK_KHR_display',
+    'VK_KHR_display_swapchain',
+    'VK_EXT_acquire_drm_display',
+    'VK_EXT_direct_mode_display',
+    'vkCreateDisplayPlaneSurfaceKHR',
+    'vkDestroySurfaceKHR',
+    'vkGetPhysicalDeviceDisplayPropertiesKHR',
+    'vkGetDisplayPlaneSupportedDisplaysKHR',
+    'vkAcquireDrmDisplayEXT',
+    'vkGetDrmDisplayEXT'
+)
+foreach ($entry in $directDisplay) {
+    if (-not $contents.Contains($entry)) { throw "RADV runtime lacks direct-display WSI entry: $entry" }
+}
+
+Write-Output "RADV ELF audit passed: $mappedPages mapped pages, $($types.Count) supported relocation types, direct-display WSI present."

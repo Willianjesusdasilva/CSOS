@@ -40,7 +40,7 @@ NVIDIA GeForce + Nouveau/NVK ou stack compatível + triângulo Vulkan em hardwar
 
 AMD permanece como primeiro backend de referência. O trabalho NVIDIA começa depois do primeiro triângulo AMD/RADV real. M14 só termina quando ao menos uma família explicitamente suportada de cada fabricante comprovar inicialização, memória, filas, sincronização e triângulo Vulkan em hardware real.
 
-Estado do requisito NVIDIA em 2026-09-04: **0% validado em hardware e ainda
+Estado do requisito NVIDIA em 2026-09-06: **0% validado em hardware e ainda
 pendente**. Há infraestrutura genérica que poderá ser reutilizada, mas ela não
 deve ser contabilizada como backend NVIDIA até uma GeForce executar o caminho
 completo. A próxima frente continua sendo concluir AMD/RADV; imediatamente após
@@ -54,6 +54,7 @@ Critérios de aceitação específicos para NVIDIA (ainda pendentes):
 - [ ] Inicializar o instalador e o SO em máquina somente NVIDIA, sem dependência de AMD.
 - [ ] Validar memória GPU, filas e sincronização, além de display básico.
 - [ ] Executar um triângulo Vulkan real e reproduzível nessa GeForce.
+- [ ] Registrar um log físico verificável que prove cada gate NVIDIA; resultado de QEMU, fixture ou simples detecção PCI não vale como conclusão.
 - [ ] Selecionar e persistir o backend correto em `hardware.csc`.
 - [ ] Publicar uma matriz NVIDIA por modelo/PCI ID, distinguindo validado, experimental e não suportado, com procedimento e evidências de validação reproduzíveis.
 
@@ -78,7 +79,7 @@ implementado ou validado, nem aumenta a porcentagem concluída do projeto.
 
 ## Progresso atual
 
-Snapshot em 2026-09-04, ponderado por funcionalidade real:
+Snapshot em 2026-09-06, ponderado por funcionalidade real:
 
 ```text
 concluído: aproximadamente 40%
@@ -89,14 +90,265 @@ Esta porcentagem não é uma contagem simples de milestones. M0–M13 têm bases
 
 ## Próxima rota
 
-A descoberta DRM ganhou um gate adicional: antes de criar a instância, o
-probe chama `drmGetDevices2(0, NULL, 0)` e exige pelo menos um dispositivo DRM.
-O boot tardio falhou com `ProcessFailed` em
-`zig-out/smoke-3386096300db48009aefe3d6b5a97495.serial.log`. A contagem Vulkan
-zero anterior não comprova descoberta DRM correta. Próximo diagnóstico:
-confirmar status 5 do probe e inspecionar o retorno libdrm e seus acessos a
-diretórios/atributos. O QEMU foi encerrado. A inicialização/instância já
-validadas não equivalem a GPU detectada pelo caminho completo.
+O runtime RADV agora possui um gate explícito para a futura apresentação sem
+window system externo: antes de criar a instância, o probe enumera as extensões
+e exige `VK_KHR_display`, `VK_EXT_direct_mode_display` e
+`VK_EXT_acquire_drm_display`. Somente então habilita as três e emite
+`RADV direct display instance extensions ready`. Falhas desse gate preservam o
+status específico em vez de serem mascaradas como falha genérica de criação da
+instância. O marcador passou a ser obrigatório no build e no contrato do
+verificador físico. O probe, a fixture e `zig build test` passaram; o boot
+limitado repetiu descoberta DRM completa, o novo marcador e
+`RADV dynamic loader ready` em
+`zig-out/smoke-a4c9c210d2f644eda3befbff042d809d.serial.log`. O QEMU foi
+encerrado. Isso prova a disponibilidade da interface WSI no runtime empacotado,
+mas ainda não prova aquisição KMS, swapchain, apresentação ou hardware Radeon.
+
+A camada física seguinte também está preparada sem contaminar o gate offscreen:
+quando existe um `VkPhysicalDevice`, o probe resolve as funções de
+`VK_KHR_display`, enumera displays conectados, exige resolução física não nula,
+ao menos um modo com resolução/refresh válidos e um plano que suporte o display.
+Somente esse conjunto emite `RADV direct display modes and planes ready`. A
+ausência de monitor não impede a coleta independente da evidência do triângulo
+offscreen; `verify-radv-hardware-log.ps1 -RequireDisplayEnumeration` torna o
+novo marcador obrigatório quando a validação solicitada inclui display. Build
+e fixture passaram com esse contrato. O boot limitado
+`zig-out/smoke-3262d7a3ed0f43728f61603af96d0c75.serial.log` confirmou que o
+loader continua funcional; corretamente não emitiu o marcador físico porque o
+QEMU reportou zero dispositivos Vulkan. O QEMU foi encerrado. Ainda faltam
+aquisição DRM/KMS, criação de surface/swapchain, apresentação e confirmação em
+Radeon real.
+
+A dependência WSI foi corrigida para seguir o contrato Vulkan: além das três
+extensões de display direto, a instância agora exige e habilita
+`VK_KHR_surface`, dependência de `VK_KHR_display`. Depois de encontrar
+display/modo/plano, o probe consulta `VkDisplayPlaneCapabilitiesKHR`, escolhe
+extent, transformação e alpha realmente suportados, cria uma `VkSurfaceKHR`
+por `vkCreateDisplayPlaneSurfaceKHR` e a destrói antes de emitir
+`RADV direct display surface ready`. O verificador ganhou o gate independente
+`-RequireDisplaySurface`; a fixture passou exigindo enumeração e surface. A
+auditoria do runtime stripado passou com 4.423 páginas, quatro tipos de
+relocation e os símbolos/strings WSI necessários. O boot limitado com as quatro
+extensões habilitadas chegou novamente a `RADV dynamic loader ready` em
+`zig-out/smoke-993d5f9da583485e90c8d2fa257d9457.serial.log`; sem GPU Vulkan,
+corretamente não alegou surface física. O QEMU foi encerrado. Surface preparada
+não equivale a swapchain nem apresentação; esses continuam pendentes.
+
+O probe passou a reutilizar a ABI KMS já existente no kernel em vez de criar
+uma interface de teste: abre o nó primary descoberto pelo libdrm, chama
+`drmModeGetResources`/`drmModeGetConnector`, exige um conector conectado com ao
+menos um modo e mantém o descritor vivo durante a instância Vulkan. O marcador
+`RADV connected DRM KMS connector ready` comprova essa etapa. Havendo GPU
+Vulkan, o mesmo conector alimenta `vkGetDrmDisplayEXT` e
+`vkAcquireDrmDisplayEXT`; somente sucesso real em ambos emite
+`RADV DRM display acquired`. O verificador ganhou
+`-RequireDrmDisplayAcquisition`, separado dos gates de enumeração e surface. O
+build e a fixture passaram. O boot limitado
+`zig-out/smoke-65a7ed647fdd41cfa2bb36e227aa398a.serial.log` exerceu a ABI KMS
+real do CSOS e confirmou o conector, mas não emitiu aquisição Vulkan porque o
+QEMU enumerou zero dispositivos físicos Vulkan. O descritor foi fechado e o
+QEMU encerrado. Aquisição em Radeon, swapchain e apresentação seguem pendentes.
+
+O gate seguinte mantém agora a `VkSurfaceKHR` viva até depois do device e
+prioriza uma família de filas que possua simultaneamente graphics e suporte de
+apresentação para essa surface. O probe enumera extensões do dispositivo e só
+habilita `VK_KHR_swapchain` quando ela é realmente anunciada. Nesse caso exige
+surface capabilities válidas, formato, o modo FIFO obrigatório, contagem de
+imagens dentro dos limites, extent definido e composite alpha suportado; cria a
+swapchain, enumera suas imagens e somente então emite
+`RADV direct display swapchain ready`, destruindo swapchain, device e surface
+na ordem correta. O verificador ganhou `-RequireDisplaySwapchain`. Build,
+fixture com todos os gates e `zig build test` passaram. O boot limitado
+`zig-out/smoke-0f0fc027a26444c2bc0f8b9b2faeb1cd.serial.log` repetiu conector
+KMS, extensões da instância e loader final sem alegar surface/swapchain, pois o
+QEMU continuou com zero dispositivos Vulkan; o QEMU foi encerrado. O ramo de
+swapchain compila com a stack real, mas só hardware Radeon pode validá-lo. Ainda
+faltam adquirir uma imagem, renderizar nela, apresentar e observar conclusão.
+
+O ciclo de apresentação inicial também está preparado com conteúdo definido,
+sem confundi-lo com o triângulo final. Depois de enumerar as imagens da
+swapchain, o probe cria semáforos de aquisição e render, chama
+`vkAcquireNextImageKHR`, grava um command buffer que transiciona a imagem de
+`UNDEFINED` para `TRANSFER_DST_OPTIMAL`, limpa para azul e transiciona para
+`PRESENT_SRC_KHR`. O submit espera o semáforo de aquisição no estágio transfer
+e sinaliza o semáforo consumido por `vkQueuePresentKHR`; somente present aceito
+e `vkQueueWaitIdle` concluído emitem
+`RADV direct display clear frame presented`. O verificador ganhou
+`-RequireClearFramePresentation`. Build, fixture com todos os gates e
+`zig build test` passaram. O boot limitado
+`zig-out/smoke-7557df90a87f4cee97783f410ecb62c5.serial.log` confirmou KMS,
+extensões e loader sem executar ou alegar o ramo de present porque não existe
+GPU Vulkan no QEMU; ele foi encerrado. O ramo físico ainda precisa executar em
+Radeon real, e um clear-frame apresentado não substitui o triângulo apresentado
+nem a confirmação visual/fotográfica do display.
+
+Uma auditoria do clear-frame encontrou e corrigiu duas violações antes da
+validação física. A swapchain agora só é criada se
+`supportedUsageFlags` contiver simultaneamente `COLOR_ATTACHMENT` e
+`TRANSFER_DST`, e declara ambos em `imageUsage`; antes o command buffer limpava
+por transfer sem ter solicitado esse uso. Depois de qualquer submit aceito,
+`vkQueueWaitIdle` é executado mesmo se `vkQueuePresentKHR` falhar, evitando
+destruir pool/semáforos ainda em uso. O inventário temporário de extensões do
+device também caiu de 256 para 128 entradas para preservar margem na stack Ring
+3 de 128 KiB. Build, contrato completo e `zig build test` passaram. O boot
+limitado `zig-out/smoke-bc4b00c88dc64332884bb249563c6b8d.serial.log` repetiu
+KMS e loader final sem falsos marcadores físicos; o QEMU foi encerrado. A
+correção fortalece o caminho preparado, mas não é evidência de apresentação em
+Radeon.
+
+A descoberta DRM ganhou um gate adicional: antes de criar a instância, o probe
+chama `drmGetDevices2(0, NULL, 0)` e exige pelo menos um dispositivo DRM. O
+retorno bruto instrumentado foi `0xfffffff2`, isto é, `-EFAULT`, no boot
+limitado `zig-out/smoke-57c4a30e1cdf4c9ea6d548da61a21354.serial.log`. A causa
+foi localizada: `openat` rejeitava a string `/dev/dri` porque ela reside no
+segmento do `libdrm.so.2` em `0x60...`, fora das regiões estáticas reconhecidas
+por `validUserSlice`. O loader agora compacta seus mappings de TLS/DSOs em
+intervalos contíguos exatos, e a validação de ponteiros consulta esses intervalos
+sem percorrer milhares de páginas a cada syscall. Testes de host passaram. O
+boot limitado `zig-out/smoke-a22eb9c766bb41c4b56d792140e558db.serial.log`
+confirmou `RADV D device count: 0x00000001`, criação de instância,
+`RADV V device count: 0x00000000` no adaptador QEMU e o marcador
+`RADV dynamic loader ready`. O gate foi reforçado para uma segunda chamada que
+materializa os `drmDevice` reais e exige identidade PCI, vendor não nulo e nós
+primary/render antes de liberar os objetos. O boot limitado
+`zig-out/smoke-7d91c0c8834c4c7ea89e4a7b5a3401ce.serial.log` passou com
+`RADV F device count: 0x00000001` e repetiu o marcador final. O QEMU foi
+encerrado. A enumeração DRM e seu caminho sysfs da stack real estão validados;
+dispositivo Vulkan, filas, command submission e triângulo continuam dependendo
+de uma Radeon física suportada.
+
+O probe agora também prepara o próximo gate físico sem fingir que o QEMU o
+validou: se `vkEnumeratePhysicalDevices` retornar uma GPU, ele materializa o
+`VkPhysicalDevice`, procura uma família com `VK_QUEUE_GRAPHICS_BIT`, chama
+`vkCreateDevice`, resolve `vkGetDeviceQueue` por `vkGetDeviceProcAddr`, exige
+uma fila válida e destrói o dispositivo. Somente então imprime
+`RADV logical device and graphics queue ready`. O ramo compila e o caminho
+headless sem GPU continua passando em
+`zig-out/smoke-a0a5551d20294b4db03235caf4488094.serial.log`, mas criação de
+device/fila permanece não validada até executar em Radeon real.
+
+Após o gate de device/fila, o mesmo probe agora resolve as entradas Vulkan de
+dispositivo, cria command pool e command buffer primário, grava/finaliza uma
+submissão vazia one-shot, cria um fence, chama `vkQueueSubmit` e exige
+`vkWaitForFences` antes de destruir os recursos. O marcador separado
+`RADV command submission and fence ready` só aparece após conclusão física da
+fila. O ramo compilou com a stack RADV real; a suíte passou 12/12 e o caminho
+QEMU sem dispositivo repetiu `RADV dynamic loader ready` em
+`zig-out/smoke-fc0f959d3d3448bdb762366cdfd1987f.serial.log`. Esse resultado não
+executa nem valida o novo ramo: command submission/fence continuam pendentes de
+Radeon real.
+
+Os shaders mínimos do próximo triângulo também são reproduzíveis: vertex shader
+por `gl_VertexIndex` e fragment shader azul foram adicionados em GLSL 450.
+`tools/build-radv-shaders.ps1` verifica o glslang 16.5.0 fixado, gera SPIR-V
+Vulkan 1.0, valida magic/alinhamento e produz arrays C. SHA-256 atuais: vertex
+`88f975d1101600ceb47e860c2ffab90a055648b745fb2b98fdcb988d3deb8de5` e
+fragment `e8348eb98ba3f8f6449a8f612442b5773c4d5ab139171271d4ab9c6d1e2d499d`.
+O ramo físico cria e destrói ambos os `VkShaderModule` e só então emite
+`RADV triangle shader modules ready`; o build audita a presença desse gate.
+Compilação, 12/12 testes e o caminho QEMU headless passaram em
+`zig-out/smoke-4eb29f9004ca41e58a23eba0ddad6278.serial.log`. A criação dos
+shader modules ainda requer validação real, e não equivale a pipeline/draw.
+
+O ramo físico também monta o estado imutável do primeiro draw: render pass
+offscreen `R8G8B8A8_UNORM`, subpass gráfico, pipeline layout vazio, estágios
+vertex/fragment, triangle list, viewport/scissor 64×64, rasterização fill sem
+culling, uma amostra e escrita RGBA. Ele chama `vkCreateGraphicsPipelines` e
+emite `RADV triangle graphics pipeline ready` somente após obter um pipeline
+válido, destruindo pipeline, layout, render pass e shaders na ordem inversa. O
+build e o verificador de hardware exigem esse marcador. A implementação
+compilou; 12/12 testes e o caminho QEMU headless passaram em
+`zig-out/smoke-b0617dc8c9804569882a1f420b50779b.serial.log`. O ramo de pipeline
+não executou no QEMU e permanece pendente de Radeon. O estágio seguinte de
+imagem/memória/framebuffer foi preparado conforme registrado abaixo.
+
+Imagem/memória/framebuffer offscreen também estão preparados no ramo físico. O
+probe cria uma imagem 2D RGBA8 64×64 com uso color-attachment/transfer-source,
+consulta requisitos, escolhe memory type device-local compatível (com fallback
+compatível), aloca e faz bind, cria image view e framebuffer para o render pass.
+O marcador `RADV triangle offscreen framebuffer ready` só aparece após todos os
+handles serem válidos; a limpeza destrói framebuffer/view/image antes de liberar
+a memória. Build e verificador físico exigem o marcador. Compilação, 12/12
+testes, fixture do contrato e o caminho headless passaram em
+`zig-out/smoke-0a64edfdf9f848ef9381f8bb35401398.serial.log`. Essas operações não
+executaram no QEMU. O draw foi preparado no incremento seguinte; readback e
+verificação de pixels continuam pendentes.
+
+O draw offscreen foi conectado ao mesmo tempo de vida dos recursos: o probe
+cria command pool/buffer, inicia o render pass com clear preto, liga o graphics
+pipeline, grava `vkCmdDraw(3, 1, 0, 0)`, encerra o render pass e command buffer,
+submete com fence e aguarda conclusão antes de destruir framebuffer/imagem. Só
+depois emite `RADV offscreen triangle draw ready`; build e verificador físico
+exigem o marcador. A implementação compilou, 12/12 testes e o contrato de log
+passaram, e o caminho QEMU sem GPU permaneceu estável em
+`zig-out/smoke-c29771911c49440b90b7b60bce31f544.serial.log`. O ramo draw não
+executou no QEMU: faltam validação em Radeon, cópia/readback e comprovação dos
+pixels antes de chamar isso de triângulo validado; apresentação em display vem
+depois do offscreen comprovado.
+
+O backing de readback também está preparado: o probe cria buffer de 16 KiB com
+`VK_BUFFER_USAGE_TRANSFER_DST_BIT`, consulta requisitos, seleciona memória
+host-visible preferindo host-coherent, aloca e faz bind, mantendo buffer/memória
+vivos até depois do draw/fence. A imagem termina o render pass em
+`VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL`. O marcador
+`RADV triangle readback buffer ready` só aparece após o bind e integra build e
+verificador físico. Compilação, 12/12 testes, fixture e o caminho QEMU headless
+passaram em `zig-out/smoke-4493b62367034960a666d9a7c69ebfed.serial.log`.
+O QEMU foi encerrado. A cópia e verificação foram preparadas no incremento
+seguinte e ainda precisam executar em Radeon real.
+
+O gate offscreen agora fecha o ciclo de evidência: após `vkCmdDraw`, o command
+buffer grava `vkCmdCopyImageToBuffer` usando o layout final transfer-source,
+submete e aguarda o fence. Em seguida mapeia os 16 KiB, chama
+`vkInvalidateMappedMemoryRanges` quando o memory type não é host-coherent e
+verifica RGBA do canto preto e do centro azul com tolerâncias explícitas. Apenas
+após os dois pixels passarem emite `RADV offscreen triangle pixels verified`.
+Build, fixture e verificador físico exigem esse marcador. A implementação
+compilou, 12/12 testes e o caminho QEMU headless passaram em
+`zig-out/smoke-86128ce6f6d24b4e8b7d40640beb3ad0.serial.log`; QEMU encerrado. O
+render pass inclui dependência explícita de saída para transferência,
+`COLOR_ATTACHMENT_OUTPUT/COLOR_ATTACHMENT_WRITE` →
+`TRANSFER/TRANSFER_READ`, garantindo visibilidade antes do copy em vez de
+depender apenas da transição de layout.
+O ramo de pixels não executou sem Radeon, portanto o primeiro triângulo AMD
+continua não validado até esse marcador surgir em hardware real suportado.
+
+A validação de pixels deixou de depender apenas de duas amostras: percorre os
+4.096 pixels, classifica fundo preto, fragmentos azuis e valores inesperados,
+registra as contagens `RADV B`/`RADV K`. Um cálculo por centros de pixel para as
+posições do vertex shader prevê 722 fragmentos. O gate exige 680–760 azuis,
+pelo menos 3.300 pretos e no máximo 16 inesperados, além das amostras de canto e
+centro; o verificador exige que azul+preto cubram ao menos 4.080 pixels. O
+fixture usa a referência 722/3.374 e passou; build, 12/12 testes e o caminho
+headless
+passaram em `zig-out/smoke-7020b09d965741a7bf7712c9e50bfa23.serial.log`. O
+QEMU foi encerrado e não fornece evidência do ramo físico.
+
+`tools/verify-radv-hardware-log.ps1` formaliza a evidência desse degrau físico:
+ele exige vendor AMD `0x1002`, PCI device informado pelo operador, contagem
+Vulkan não zero e os marcadores de device/fila e submission/fence. O log QEMU
+foi rejeitado por vendor `0x1234`. Um fixture explicitamente marcado testa o
+parser somente com `-AllowFixture` e é recusado no modo normal, impedindo que
+seja apresentado como evidência física. O verificador integra
+`tools/test-system.ps1`; a suíte passou 12/12 e os dois boots limitados até o
+console. Isso prepara uma validação reproduzível, mas não substitui o futuro log
+de uma Radeon real nem o gate separado de triângulo/apresentação.
+
+O gate foi consolidado em `tools/test-radv-runtime.ps1`: ele recompila o probe,
+executa o boot tardio com prazo, exige `RADV dynamic loader ready` e encerra
+qualquer processo QEMU criado pela própria execução mesmo em caso de falha. A
+execução reproduzível passou em
+`zig-out/smoke-52b5d4443e8e409781a22457b2adfa85.serial.log`. A suíte geral
+`tools/test-system.ps1` também passou os testes de host e ambos os boots
+limitados até o console após a correção de ponteiros de DSO. A tabela compacta
+agora cobre todos os mappings iniciais — executável, TLS, DSOs, intérprete,
+stack e arenas — enquanto as regiões comuns permanecem no caminho rápido. O
+módulo `kernel/user_regions.zig` testa limites exatos, lacunas, travessia de
+segmento, tamanho excessivo e overflow. A própria construção dos intervalos
+agora usa o módulo testado e cobre compactação adjacente, ordem não adjacente,
+capacidade e regiões inválidas; a suíte passou 12/12. O boot RADV limitado
+repetiu descoberta completa e o marcador final em
+`zig-out/smoke-c67a6f4be4e44fb5bcd184d07f43e90d.serial.log`. QEMU encerrado.
 
 `-Dradv-probe-after-gpu=true` agora permite executar o mesmo probe e seus
 gates após a preparação gráfica, sem habilitar automaticamente gates MMIO.
@@ -139,12 +391,24 @@ O checkout musl permanece limpo. Isso elimina a dependência dos experimentos
 de edição de visibilidade. O novo runtime ainda precisa repetir a validação
 Ring 3 após a integração de auxv/thread pointer/DTV antes dos construtores.
 
-O script `build-musl-runtime.ps1` passou a exigir o checkout musl fixado e
-limpo, recompilar os objetos upstream, executar link/auditoria e copiar para
-staging somente após sucesso. Ele exige a configuração out-of-tree existente;
-a preparação automática dessa configuração ainda falta. Sua sintaxe PowerShell
-foi validada; a recompilação já iniciada deve terminar antes de testar o fluxo
-completo para evitar dois builds escrevendo nos mesmos objetos.
+O script `build-musl-runtime.ps1` exige o checkout musl fixado e limpo,
+recompila os objetos upstream, executa link/auditoria e copia para staging
+somente após sucesso. A preparação manual deixou de ser necessária:
+`tools/configure-musl-runtime.ps1` cria deterministicamente o build out-of-tree
+com o Zig fixado, target `x86_64-linux-musl` e `-O2 -fPIC`, e é chamado
+automaticamente quando `config.mak` não existe. Uma configuração limpa em
+diretório temporário passou por todas as sondagens upstream e gerou `config.mak`
+com arquitetura, compilador, AR, RANLIB e flags esperados. O relink completo
+continua protegido pela auditoria existente antes do staging. O build agora
+também audita configurações já existentes e rejeita arquitetura, fonte,
+toolchain, PIC ou `syslibdir` divergentes, normalizando `srcdir` relativo e
+absoluto. O fluxo completo recompilou 1.347/1.347 objetos, passou link e
+auditoria e instalou uma libc de 3.512.720 bytes, SHA-256
+`5320b8fe4ecf19fead23016a302e17ca47c54b4bf91cc3ceb8b74a9ddb8cb47d`.
+O boot limitado com essa libc passou bootstrap TLS, construtores, descoberta
+libdrm completa, criação da instância Vulkan e `RADV dynamic loader ready` em
+`zig-out/smoke-da92a31b3f2e444185df314fa8b94bad.serial.log`. O QEMU foi
+encerrado.
 
 `audit-musl-runtime.py` agora integra o link da musl e exige exports essenciais
 apontando para bytes em segmentos executáveis, SONAME, ausência de dependências

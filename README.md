@@ -179,6 +179,13 @@ O requisito NVIDIA não implica compatibilidade com todas as GeForce. A matriz
 de suporte deve distinguir modelos validados, experimentais e não suportados,
 com evidências reproduzíveis para cada modelo anunciado como funcional.
 
+Estado em 2026-09-06: o caminho NVIDIA está **0% validado em hardware**. A
+infraestrutura compartilhada existente não conta como suporte NVIDIA entregue.
+M14 continuará aberta até uma GeForce real suportada concluir inicialização,
+display, memória, filas, sincronização e triângulo Vulkan reproduzível usando
+Nouveau/NVK ou outra stack compatível e legalmente redistribuível. Esse gate é
+anterior a Steam Runtime, Steam e CS2.
+
 ---
 
 # Autoconfiguração de Hardware
@@ -604,7 +611,7 @@ Steam Runtime, Steam e CS2 são deliberadamente as últimas etapas funcionais. A
 
 O arquivo `GOAL.md` é a fonte de verdade técnica do roadmap e das prioridades de implementação.
 
-Estimativa de progresso em 2026-09-04: **aproximadamente 40% concluído e 60% a
+Estimativa de progresso em 2026-09-06: **aproximadamente 40% concluído e 60% a
 fazer**. É uma estimativa ponderada por funcionalidade, não uma simples contagem
 de milestones: M0–M13 possuem fundações implementadas, mas M14 ainda não tem
 command submission nem triângulo Vulkan validados em AMD ou NVIDIA, e M15–M30
@@ -1522,7 +1529,66 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/configure-radv.ps1 -Wi
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/build-radv.ps1
 ```
 
+`build-musl-runtime.ps1` cria automaticamente a configuração out-of-tree com
+a revisão musl e o toolchain Zig fixados quando ela ainda não existir. Quando
+ela já existe, arquitetura, PIC, checkout, compilador, archiver e diretório de
+runtime são auditados antes de recompilar ou alterar o staging.
+
 Esse build não inicia QEMU e não substitui a validação em hardware AMD real.
+
+Depois de uma execução em Radeon real, o gate intermediário de dispositivo,
+fila e submissão pode ser verificado informando o PCI device em decimal:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/verify-radv-hardware-log.ps1 -SerialLog <serial.log> -ExpectedDevice <device-id>
+```
+
+Esse verificador não declara triângulo ou apresentação concluídos; eles possuem
+critérios separados em M14.
+
+Para exigir também a enumeração física de display, modo e plano Vulkan:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/verify-radv-hardware-log.ps1 -SerialLog <serial.log> -ExpectedDevice <device-id> -RequireDisplayEnumeration
+```
+
+Para exigir também criação e destruição de uma display-plane surface válida:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/verify-radv-hardware-log.ps1 -SerialLog <serial.log> -ExpectedDevice <device-id> -RequireDisplayEnumeration -RequireDisplaySurface
+```
+
+Para exigir ainda que o conector DRM/KMS tenha sido associado e adquirido pelo
+Vulkan através de `vkGetDrmDisplayEXT`/`vkAcquireDrmDisplayEXT`:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/verify-radv-hardware-log.ps1 -SerialLog <serial.log> -ExpectedDevice <device-id> -RequireDisplayEnumeration -RequireDisplaySurface -RequireDrmDisplayAcquisition
+```
+
+Para exigir também criação da swapchain e enumeração das imagens:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/verify-radv-hardware-log.ps1 -SerialLog <serial.log> -ExpectedDevice <device-id> -RequireDisplayEnumeration -RequireDisplaySurface -RequireDrmDisplayAcquisition -RequireDisplaySwapchain
+```
+
+Para exigir aquisição de uma imagem, clear azul sincronizado e conclusão de
+`vkQueuePresentKHR`:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/verify-radv-hardware-log.ps1 -SerialLog <serial.log> -ExpectedDevice <device-id> -RequireDisplayEnumeration -RequireDisplaySurface -RequireDrmDisplayAcquisition -RequireDisplaySwapchain -RequireClearFramePresentation
+```
+
+Esse último marcador prova submissão/apresentação de conteúdo definido, mas não
+substitui o gate posterior do triângulo renderizado diretamente na swapchain.
+O clear-frame exige que a surface anuncie tanto `COLOR_ATTACHMENT` quanto
+`TRANSFER_DST`; após qualquer submit aceito, a fila é drenada antes da
+destruição dos objetos, inclusive quando o present retorna erro.
+
+O probe também exige que o runtime RADV empacotado anuncie e habilite
+`VK_KHR_surface`, `VK_KHR_display`, `VK_EXT_direct_mode_display` e
+`VK_EXT_acquire_drm_display`. Esse gate prepara apresentação direta por DRM/KMS,
+mas não substitui a futura comprovação física de aquisição do display,
+swapchain e apresentação.
 
 Fluxo principal:
 

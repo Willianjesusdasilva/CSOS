@@ -13,6 +13,10 @@ Push-Location $workspace
 try {
     & $zig build test --summary all
     if ($LASTEXITCODE -ne 0) { throw 'CSOS host tests failed.' }
+    & "$PSScriptRoot/verify-radv-hardware-log.ps1" `
+        -SerialLog "$workspace/tests/data/radv-hardware-log.fixture" `
+        -ExpectedDevice 29772 -AllowFixture
+    if ($LASTEXITCODE -ne 0) { throw 'RADV hardware-log verifier fixture failed.' }
     & "$PSScriptRoot/build-libdrm-probe.ps1" -SourceDirectory $LibdrmSource
     if ($LASTEXITCODE -ne 0) { throw 'Upstream libdrm probe build failed.' }
     & $zig build run -- -SmokeTestSeconds $SmokeTestSeconds -ExpectSerial 'CSOS console shell ready'

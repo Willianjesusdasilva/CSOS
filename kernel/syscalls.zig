@@ -21,6 +21,7 @@ var process_pause: ?Pause = null;
 var mmap_protect_hook: ?*const fn (u64, u64, bool, bool) callconv(.c) bool = null;
 var mmap_unmap_hook: ?*const fn (u64, u64) callconv(.c) bool = null;
 var device_mmap_hook: ?*const fn (u64, u64, u64, bool) callconv(.c) bool = null;
+var user_slice_hook: ?*const fn (u64, u64) callconv(.c) bool = null;
 var stdin_hook: ?*const fn ([*]u8, usize) callconv(.c) usize = null;
 var idle_hook: ?*const fn () callconv(.c) void = null;
 pub var file_mmaps: u64 = 0;
@@ -278,6 +279,10 @@ pub fn configureMmap(protect_hook: ?*const fn (u64, u64, bool, bool) callconv(.c
     mmap_protect_hook = protect_hook;
     mmap_unmap_hook = unmap_hook;
     device_mmap_hook = device_hook;
+}
+
+pub fn configureUserSlice(hook: ?*const fn (u64, u64) callconv(.c) bool) void {
+    user_slice_hook = hook;
 }
 
 pub fn configureConsole(read_hook: ?*const fn ([*]u8, usize) callconv(.c) usize, wait_hook: ?*const fn () callconv(.c) void) void {
@@ -2555,11 +2560,13 @@ fn unsupported(number: u64) u64 {
 }
 
 fn validUserSlice(address: u64, length: u64) bool {
-    return inRegion(address, length, user_base, user_size) or
+    if (inRegion(address, length, user_base, user_size) or
         inRegion(address, length, stack_base, stack_size) or
         inRegion(address, length, user_base + user_size, break_limit - (user_base + user_size)) or
         inRegion(address, length, mmap_base, mmap_limit - mmap_base) or
-        inRegion(address, length, mmap_limit, device_mmap_limit - mmap_limit);
+        inRegion(address, length, mmap_limit, device_mmap_limit - mmap_limit)) return true;
+    if (user_slice_hook) |hook| return hook(address, length);
+    return false;
 }
 
 fn mmapRegion(address: u64, length: u64) bool {

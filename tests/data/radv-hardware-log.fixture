@@ -1,0 +1,23 @@
+TEST FIXTURE - NOT PHYSICAL VALIDATION EVIDENCE
+GPU PCI vendor: 4098 device: 29772 revision: 0
+RADV D device count: 0x00000001
+RADV F device count: 0x00000001
+RADV connected DRM KMS connector ready
+RADV direct display instance extensions ready
+RADV V device count: 0x00000001
+RADV direct display modes and planes ready
+RADV DRM display acquired
+RADV direct display surface ready
+RADV direct display swapchain ready
+RADV direct display clear frame presented
+RADV direct display triangle presented
+RADV logical device and graphics queue ready
+RADV triangle shader modules ready
+RADV triangle graphics pipeline ready
+RADV triangle offscreen framebuffer ready
+RADV triangle readback buffer ready
+RADV offscreen triangle draw ready
+RADV B device count: 0x000002d2
+RADV K device count: 0x00000d2e
+RADV offscreen triangle pixels verified
+RADV command submission and fence ready

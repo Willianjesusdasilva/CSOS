@@ -237,6 +237,20 @@ pub fn build(b: *std.Build) void {
     const run_drm_abi_tests = b.addRunArtifact(drm_abi_tests);
     test_step.dependOn(&run_drm_abi_tests.step);
     const process_module = b.createModule(.{ .root_source_file = b.path("kernel/process.zig") });
+    const user_regions_module = b.createModule(.{
+        .root_source_file = b.path("kernel/user_regions.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    process_module.addImport("user_regions", user_regions_module);
+    const user_regions_test_module = b.createModule(.{
+        .root_source_file = b.path("kernel/user_regions.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+    });
+    const user_regions_tests = b.addTest(.{ .root_module = user_regions_test_module });
+    const run_user_regions_tests = b.addRunArtifact(user_regions_tests);
+    test_step.dependOn(&run_user_regions_tests.step);
     process_module.addImport("paging", paging_module);
     process_module.addImport("physical", physical_module);
     process_module.addImport("syscalls", syscalls_module);
