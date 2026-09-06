@@ -142,9 +142,13 @@ uma aplicação gráfica sem GPU física.
 `APP1` possui agora um buffer de texto ASCII editável, com inserção no cursor,
 Backspace, navegação por setas e renderização bitmap completa de letras e
 números. O evento SDL de texto é separado do scancode de teclado.
+O buffer alimenta um terminal gráfico não bloqueante com comandos internos
+`help`, `status` e `clear`, prompt, cursor e saída persistente. Ele não substitui
+a futura integração concorrente do BusyBox, mas restaura uma superfície de
+comando utilizável sem suspender o loop do desktop.
 
-Após esses incrementos, `zig build test` continua em `11/11` etapas e `16/16`
-testes aprovados; um boot QEMU limitado também voltou a alcançar
+Após esses incrementos, `zig build` recompila o EFI em `14/14` etapas e
+`zig build test` continua em `11/11` etapas e `16/16` testes aprovados; um boot QEMU limitado também voltou a alcançar
 `CSOS graphical session ready`.
 
 Esta porcentagem não é uma contagem simples de milestones. M0–M13 têm bases relevantes, mas M14 ainda não possui triângulos Vulkan validados em AMD e NVIDIA, e M15–M30 permanecem majoritariamente pendentes. Código preparatório ou teste no host não equivale a hardware funcional.

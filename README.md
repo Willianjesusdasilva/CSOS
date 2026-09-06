@@ -653,10 +653,14 @@ foco. Isso valida roteamento de input e renderização em QEMU.
 `APP1` também possui entrada de texto ASCII editável: caracteres são exibidos
 com fonte bitmap completa, Backspace remove e setas esquerda/direita movem o
 cursor lógico.
+Essa aplicação agora funciona como terminal gráfico não bloqueante: `Enter`
+executa os comandos internos `help`, `status` e `clear`, mantendo a saída na
+janela sem interromper mouse, compositor ou outras aplicações.
 Movimentos de mouse consecutivos são coalescidos quando a fila SDL está cheia,
 evitando saturação desnecessária do input.
 
-Verificação atual: `zig build test` passou `11/11` etapas e `16/16` testes. O
+Verificação atual: `zig build` recompilou o EFI em `14/14` etapas e
+`zig build test` passou `11/11` etapas e `16/16` testes. O
 boot interativo agora entrega o input diretamente à sessão gráfica, sem ficar
 bloqueado pelo shell BusyBox, e publica `CSOS graphical session ready`. O shell
 será reintegrado como uma aplicação de terminal não bloqueante; isso ainda não

@@ -248,6 +248,54 @@ pub const TextInput = struct {
     }
 };
 
+pub const Terminal = struct {
+    input: TextInput = .{},
+    output: [256]u8 = undefined,
+    output_len: usize = 0,
+
+    pub fn submit(self: *Terminal) bool {
+        const command = self.input.slice();
+        if (command.len == 0) return false;
+        if (bytesEqual(command, "clear")) {
+            self.output_len = 0;
+        } else {
+            self.append("> ");
+            self.append(command);
+            self.append("\n");
+            if (bytesEqual(command, "help"))
+                self.append("HELP CLEAR STATUS\n")
+            else if (bytesEqual(command, "status"))
+                self.append("CSOS READY\n")
+            else
+                self.append("UNKNOWN COMMAND\n");
+        }
+        self.input.len = 0;
+        self.input.cursor = 0;
+        return true;
+    }
+
+    pub fn outputSlice(self: *const Terminal) []const u8 {
+        return self.output[0..self.output_len];
+    }
+
+    fn append(self: *Terminal, bytes: []const u8) void {
+        for (bytes) |byte| {
+            if (self.output_len == self.output.len) {
+                for (1..self.output.len) |index| self.output[index - 1] = self.output[index];
+                self.output_len -= 1;
+            }
+            self.output[self.output_len] = byte;
+            self.output_len += 1;
+        }
+    }
+};
+
+fn bytesEqual(left: []const u8, right: []const u8) bool {
+    if (left.len != right.len) return false;
+    for (left, right) |a, b| if (a != b) return false;
+    return true;
+}
+
 pub const AudioDevice = struct {
     spec: AudioSpec,
     queued_frames: u64 = 0,
@@ -323,6 +371,7 @@ pub fn glyph3x5(character: u8) [5]u8 {
         '-' => .{ 0, 0, 7, 0, 0 },
         '_' => .{ 0, 0, 0, 0, 7 },
         '.' => .{ 0, 0, 0, 0, 2 },
+        '>' => .{ 4, 2, 1, 2, 4 },
         else => .{ 7, 1, 2, 0, 2 },
     };
 }
@@ -407,6 +456,13 @@ test "SDL software event queue and surface contract" {
     try @import("std").testing.expectEqualStrings("ac", input.slice());
     input.moveRight();
     try @import("std").testing.expectEqual(@as(usize, 2), input.cursor);
+    var terminal = Terminal{};
+    for ("status") |byte| try @import("std").testing.expect(terminal.input.insert(byte));
+    try @import("std").testing.expect(terminal.submit());
+    try @import("std").testing.expectEqualStrings("> status\nCSOS READY\n", terminal.outputSlice());
+    for ("clear") |byte| try @import("std").testing.expect(terminal.input.insert(byte));
+    try @import("std").testing.expect(terminal.submit());
+    try @import("std").testing.expectEqual(@as(usize, 0), terminal.output_len);
     var app = Application{ .window = drawable };
     var app_events = EventQueue{};
     try @import("std").testing.expect(app_events.push(.{ .quit = {} }));
