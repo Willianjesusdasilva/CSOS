@@ -150,6 +150,7 @@ pub fn detectCpu() Cpu {
 test "hardware profile signatures accept upper-case hexadecimal" {
     try @import("std").testing.expect(matchesSignature("[system]\nsignature=ABCDEF\n", 0xabcdef));
     try @import("std").testing.expect(matchesSignature("signature=0xABCDEF\n", 0xabcdef));
+    try @import("std").testing.expect(matchesSignature("[system]\r\nsignature=abcdef\r\n", 0xabcdef));
     try @import("std").testing.expect(!matchesSignature("not_signature=ABCDEF\n", 0xabcdef));
     try @import("std").testing.expect(!matchesSignature("signature=ABCDFE\n", 0xabcdef));
 }
