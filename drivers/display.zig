@@ -228,6 +228,9 @@ test "window manager focus alt-tab hit-test and close" {
     manager.windows[0].visible = false;
     try std.testing.expect(!manager.move(0, 0, 0, 100, 100));
     try std.testing.expect(!manager.restore(0));
+    const count_before_invalid_close = manager.count;
+    manager.close(max_windows);
+    try std.testing.expectEqual(count_before_invalid_close, manager.count);
 }
 
 test "window manager enforces maximum window count" {
