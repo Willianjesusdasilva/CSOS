@@ -116,6 +116,9 @@ participar do hit-test e da composição até serem restauradas por `Alt+Tab`.
 A composição também exibe uma barra de tarefas software, com botões para
 restaurar/focar qualquer janela.
 `Alt+Shift+Tab` percorre as janelas no sentido reverso.
+As janelas agora possuem títulos próprios e podem ser maximizadas/restauradas
+pelo botão da barra de título ou por `Ctrl+Seta para cima`, preservando a
+geometria anterior e respeitando a área reservada à barra de tarefas.
 Sob carga, movimentos de mouse consecutivos são coalescidos na fila SDL para
 preservar responsividade sem sobrescrever eventos de botão/roda.
 O boot também cria uma superfície SDL software de demonstração, desenha nela e

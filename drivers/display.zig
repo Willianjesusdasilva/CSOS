@@ -25,6 +25,7 @@ pub const max_windows = 16;
 
 pub const Window = struct {
     id: u32,
+    title: []const u8 = "APP",
     x: usize,
     y: usize,
     width: usize,
@@ -33,6 +34,11 @@ pub const Window = struct {
     body_color: u32 = 0x202838,
     visible: bool = true,
     minimized: bool = false,
+    maximized: bool = false,
+    restore_x: usize = 0,
+    restore_y: usize = 0,
+    restore_width: usize = 0,
+    restore_height: usize = 0,
 };
 
 /// Software window/compositor state. It deliberately renders into Context's
@@ -96,8 +102,33 @@ pub const WindowManager = struct {
     pub fn move(self: *WindowManager, index: usize, x: usize, y: usize, screen_width: usize, screen_height: usize) bool {
         if (index >= self.count or !self.windows[index].visible) return false;
         const window = &self.windows[index];
+        if (window.maximized) return false;
         window.x = @min(x, screen_width -| window.width);
         window.y = @min(y, screen_height -| window.height);
+        return true;
+    }
+
+    pub fn toggleMaximized(self: *WindowManager, index: usize, screen_width: usize, screen_height: usize) bool {
+        if (index >= self.count or !self.windows[index].visible or screen_width < 32 or screen_height < 44) return false;
+        const window = &self.windows[index];
+        if (window.maximized) {
+            window.x = window.restore_x;
+            window.y = window.restore_y;
+            window.width = window.restore_width;
+            window.height = window.restore_height;
+            window.maximized = false;
+        } else {
+            window.restore_x = window.x;
+            window.restore_y = window.y;
+            window.restore_width = window.width;
+            window.restore_height = window.height;
+            window.x = 0;
+            window.y = 0;
+            window.width = screen_width;
+            window.height = screen_height - 20;
+            window.maximized = true;
+            window.minimized = false;
+        }
         return true;
     }
 
@@ -149,6 +180,14 @@ pub const WindowManager = struct {
             x >= window.x +| window.width -| 20 and y >= window.y and y < window.y +| 20;
     }
 
+    pub fn maximizeHitTest(self: *const WindowManager, index: usize, x: usize, y: usize) bool {
+        if (index >= self.count) return false;
+        const window = self.windows[index];
+        return window.visible and !window.minimized and window.width >= 52 and
+            x >= window.x +| window.width -| 38 and x < window.x +| window.width -| 22 and
+            y >= window.y and y < window.y +| 20;
+    }
+
     pub fn taskbarHitTest(self: *const WindowManager, x: usize, y: usize, screen_height: usize) ?usize {
         if (screen_height < 24 or y < screen_height - 20) return null;
         const slot = x / 112;
@@ -163,7 +202,7 @@ pub const WindowManager = struct {
             if (!w.visible or w.minimized) continue;
             context.fillRect(w.x, w.y, w.width, w.height, w.body_color);
             context.fillRect(w.x, w.y, w.width, @min(@as(usize, 20), w.height), if (self.focused == i) 0x5090d0 else w.title_color);
-            context.drawWindowTitle(w.x + 6, w.y + 5, if (w.id == 1) "APP1" else "APP2");
+            context.drawWindowTitle(w.x + 6, w.y + 5, w.title);
             if (w.height >= 64) {
                 const content_width = w.width -| 24;
                 context.fillRect(w.x + 12, w.y + 32, content_width, 6, 0x304050);
@@ -178,6 +217,15 @@ pub const WindowManager = struct {
                 context.fillRect(w.x + w.width -| 15, w.y + 6, 8, 2, 0xf0c0c0);
                 context.fillRect(w.x + w.width -| 12, w.y + 3, 2, 8, 0xf0c0c0);
             }
+            if (w.width >= 52) {
+                context.fillRect(w.x + w.width -| 38, w.y + 4, 14, 12, 0x506080);
+                if (w.maximized) {
+                    context.fillRect(w.x + w.width -| 34, w.y + 7, 7, 5, 0xd0d8e8);
+                    context.fillRect(w.x + w.width -| 32, w.y + 5, 7, 5, 0x506080);
+                } else {
+                    context.fillRect(w.x + w.width -| 34, w.y + 7, 7, 5, 0xd0d8e8);
+                }
+            }
         }
         const taskbar_y = @as(usize, context.framebuffer.height) -| 20;
         context.fillRect(0, taskbar_y, context.framebuffer.width, 20, 0x101820);
@@ -185,7 +233,7 @@ pub const WindowManager = struct {
         while (i < self.count) : (i += 1) {
             const w = self.windows[i];
             context.fillRect(i * 112 + 4, taskbar_y + 3, 104, 14, if (self.focused == i and !w.minimized) 0x5070a0 else 0x303848);
-            context.drawWindowTitle(i * 112 + 12, taskbar_y + 5, if (w.id == 1) "APP1" else "APP2");
+            context.drawWindowTitle(i * 112 + 12, taskbar_y + 5, w.title);
         }
     }
 };
@@ -200,6 +248,8 @@ test "window manager focus alt-tab hit-test and close" {
     try std.testing.expectEqual(@as(?usize, 1), manager.hitTest(40, 30));
     try std.testing.expect(manager.closeHitTest(1, 120, 24));
     try std.testing.expect(!manager.closeHitTest(1, 107, 24));
+    try std.testing.expect(manager.maximizeHitTest(1, 94, 24));
+    try std.testing.expect(!manager.maximizeHitTest(1, 120, 24));
     try std.testing.expect(manager.focus(first));
     try std.testing.expectEqual(@as(u32, 10), manager.windows[manager.focused.?].id);
     try std.testing.expectEqual(@as(?usize, 1), manager.altTab());
@@ -225,6 +275,15 @@ test "window manager focus alt-tab hit-test and close" {
     try std.testing.expectEqual(@as(?usize, 0), manager.focused);
     try std.testing.expectEqual(@as(u32, 30), manager.windows[0].id);
     try std.testing.expect(manager.move(0, 100, 100, 80, 60));
+    try std.testing.expectEqual(@as(usize, 16), manager.windows[0].x);
+    try std.testing.expectEqual(@as(usize, 28), manager.windows[0].y);
+    try std.testing.expect(manager.toggleMaximized(0, 128, 96));
+    try std.testing.expect(manager.windows[0].maximized);
+    try std.testing.expectEqual(@as(usize, 128), manager.windows[0].width);
+    try std.testing.expectEqual(@as(usize, 76), manager.windows[0].height);
+    try std.testing.expect(!manager.move(0, 10, 10, 128, 96));
+    try std.testing.expect(manager.toggleMaximized(0, 128, 96));
+    try std.testing.expect(!manager.windows[0].maximized);
     try std.testing.expectEqual(@as(usize, 16), manager.windows[0].x);
     try std.testing.expectEqual(@as(usize, 28), manager.windows[0].y);
     try std.testing.expect(!manager.move(8, 0, 0, 100, 100));
@@ -381,6 +440,16 @@ pub const Context = struct {
                 'r' => .{ 0b110, 0b101, 0b110, 0b101, 0b101 },
                 'E' => .{ 0b111, 0b100, 0b110, 0b100, 0b111 },
                 'e' => .{ 0b111, 0b100, 0b110, 0b100, 0b111 },
+                'I' => .{ 0b111, 0b010, 0b010, 0b010, 0b111 },
+                'i' => .{ 0b111, 0b010, 0b010, 0b010, 0b111 },
+                'M' => .{ 0b101, 0b111, 0b111, 0b101, 0b101 },
+                'm' => .{ 0b101, 0b111, 0b111, 0b101, 0b101 },
+                'N' => .{ 0b101, 0b111, 0b111, 0b111, 0b101 },
+                'n' => .{ 0b101, 0b111, 0b111, 0b111, 0b101 },
+                'T' => .{ 0b111, 0b010, 0b010, 0b010, 0b010 },
+                't' => .{ 0b111, 0b010, 0b010, 0b010, 0b010 },
+                'U' => .{ 0b101, 0b101, 0b101, 0b101, 0b111 },
+                'u' => .{ 0b101, 0b101, 0b101, 0b101, 0b111 },
                 ' ' => .{ 0, 0, 0, 0, 0 },
                 '0' => .{ 0b111, 0b101, 0b101, 0b101, 0b111 },
                 '1' => .{ 0b010, 0b110, 0b010, 0b010, 0b111 },

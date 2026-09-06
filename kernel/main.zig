@@ -1533,8 +1533,8 @@ pub fn start(info: BootInfo) noreturn {
     demo_window.fillRect(4, 20, 32, 20, 0x5080c0ff);
     screen.blitSurface(&demo_window, 520, 64);
     var window_manager = display.WindowManager{};
-    _ = window_manager.create(.{ .id = 1, .x = 32, .y = 220, .width = 260, .height = 140, .title_color = 0x405070, .body_color = 0x18202c }) catch panic("desktop window creation failed");
-    _ = window_manager.create(.{ .id = 2, .x = 180, .y = 280, .width = 260, .height = 140, .title_color = 0x604070, .body_color = 0x241828 }) catch panic("desktop window creation failed");
+    _ = window_manager.create(.{ .id = 1, .title = "APP1", .x = 32, .y = 220, .width = 260, .height = 140, .title_color = 0x405070, .body_color = 0x18202c }) catch panic("desktop window creation failed");
+    _ = window_manager.create(.{ .id = 2, .title = "MONITOR", .x = 180, .y = 280, .width = 260, .height = 140, .title_color = 0x604070, .body_color = 0x241828 }) catch panic("desktop window creation failed");
     screen.drawBaseline(@as(usize, hid.keyboards) + hid.mice, audio_info.playback_endpoints);
     window_manager.compose(&screen);
     screen.drawActionButton(false);
@@ -2070,6 +2070,13 @@ pub fn start(info: BootInfo) noreturn {
                     serial.writeDecimal(window_id);
                     serial.write("\n");
                 }
+                if ((event.b & 0x01) != 0 and event.a == 0x52 and window_manager.focused != null) {
+                    const toggled = window_manager.focused.?;
+                    _ = window_manager.toggleMaximized(toggled, screen.framebuffer.width, screen.framebuffer.height);
+                    serial.write(if (window_manager.windows[toggled].maximized) "UI maximize window: " else "UI restore window size: ");
+                    serial.writeDecimal(window_manager.windows[toggled].id);
+                    serial.write("\n");
+                }
                 screen.drawBaseline(@as(usize, hid.keyboards) + hid.mice, audio_info.playback_endpoints);
                 window_manager.compose(&screen);
                 screen.drawActionButton(action_button_active);
@@ -2105,9 +2112,16 @@ pub fn start(info: BootInfo) noreturn {
                             serial.write("UI close window: ");
                             serial.writeDecimal(closed_id);
                             serial.write("\n");
+                        } else if (window_manager.maximizeHitTest(hit, cursor_x, cursor_y)) {
+                            _ = window_manager.focus(hit);
+                            const focused = window_manager.focused.?;
+                            _ = window_manager.toggleMaximized(focused, screen.framebuffer.width, screen.framebuffer.height);
+                            serial.write(if (window_manager.windows[focused].maximized) "UI maximize window: " else "UI restore window size: ");
+                            serial.writeDecimal(window_manager.windows[focused].id);
+                            serial.write("\n");
                         } else {
                             _ = window_manager.focus(hit);
-                            if (cursor_y >= window.y and cursor_y < window.y +| 20) {
+                            if (!window_manager.windows[window_manager.focused.?].maximized and cursor_y >= window.y and cursor_y < window.y +| 20) {
                                 drag_window = window_manager.focused;
                                 drag_offset_x = cursor_x -| window.x;
                                 drag_offset_y = cursor_y -| window.y;

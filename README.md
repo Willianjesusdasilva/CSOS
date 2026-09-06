@@ -629,6 +629,8 @@ continua obrigatório antes de Steam/CS2.
 Atalhos já suportados na sessão emulada: `Alt+Tab` troca o foco, `Ctrl+M`
 minimiza/restaura, e `Ctrl+W` ou `Esc` fecha a janela focada. A barra de tarefas
 software permite restaurar janelas minimizadas.
+O botão quadrado na barra de título maximiza/restaura a janela, preservando sua
+geometria anterior; `Ctrl+Seta para cima` oferece a mesma ação pelo teclado.
 O contrato SDL software inicial em `graphics/sdl.zig` já define janela/superfície
 RGBA, fila de eventos e dispositivo de áudio com validação de especificação; a
 integração completa com hardware e aplicações SDL ainda está em andamento.
