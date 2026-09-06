@@ -79,7 +79,7 @@ pub fn matchesSignature(text: []const u8, expected: u64) bool {
     var offset: usize = 0;
     while (offset + key.len <= text.len) : (offset += 1) {
         if (offset != 0 and text[offset - 1] != '\n') continue;
-        if (!equal(text[offset .. offset + key.len], key)) continue;
+        if (!equalIgnoreCase(text[offset .. offset + key.len], key)) continue;
         offset += key.len;
         if (offset + 2 <= text.len and text[offset] == '0' and (text[offset + 1] == 'x' or text[offset + 1] == 'X')) offset += 2;
         var value: u64 = 0;
@@ -99,6 +99,15 @@ pub fn matchesSignature(text: []const u8, expected: u64) bool {
         return digits != 0 and terminated and value == expected;
     }
     return false;
+}
+
+fn equalIgnoreCase(left: []const u8, right: []const u8) bool {
+    if (left.len != right.len) return false;
+    for (left, right) |a, b| {
+        const lower = if (a >= 'A' and a <= 'Z') a + ('a' - 'A') else a;
+        if (lower != b) return false;
+    }
+    return true;
 }
 
 pub fn detectCpu() Cpu {
@@ -151,6 +160,7 @@ pub fn detectCpu() Cpu {
 test "hardware profile signatures accept upper-case hexadecimal" {
     try @import("std").testing.expect(matchesSignature("[system]\nsignature=ABCDEF\n", 0xabcdef));
     try @import("std").testing.expect(matchesSignature("signature=0xABCDEF\n", 0xabcdef));
+    try @import("std").testing.expect(matchesSignature("Signature=abcdef\n", 0xabcdef));
     try @import("std").testing.expect(matchesSignature("[system]\r\nsignature=abcdef\r\n", 0xabcdef));
     try @import("std").testing.expect(!matchesSignature("not_signature=ABCDEF\n", 0xabcdef));
     try @import("std").testing.expect(!matchesSignature("signature=ABCDEFgarbage\n", 0xabcdef));
