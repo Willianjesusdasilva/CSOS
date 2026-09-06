@@ -1531,12 +1531,13 @@ pub fn start(info: BootInfo) noreturn {
     demo_window.clear(0x182838ff);
     demo_window.fillRect(4, 4, 56, 8, 0x50b080ff);
     demo_window.fillRect(4, 20, 32, 20, 0x5080c0ff);
-    screen.blitSurface(&demo_window, 520, 64);
+    var demo_app = sdl.Application{ .window = demo_window };
     var window_manager = display.WindowManager{};
     _ = window_manager.create(.{ .id = 1, .title = "APP1", .x = 32, .y = 220, .width = 260, .height = 140, .title_color = 0x405070, .body_color = 0x18202c }) catch panic("desktop window creation failed");
     _ = window_manager.create(.{ .id = 2, .title = "MONITOR", .x = 180, .y = 280, .width = 260, .height = 140, .title_color = 0x604070, .body_color = 0x241828 }) catch panic("desktop window creation failed");
     screen.drawBaseline(@as(usize, hid.keyboards) + hid.mice, audio_info.playback_endpoints);
     window_manager.compose(&screen);
+    drawSdlApplication(&screen, &window_manager, &demo_app, 1);
     screen.drawActionButton(false);
     const initial_pixels = screen.present();
     if (initial_pixels == 0) panic("display presentation failed");
@@ -2037,8 +2038,11 @@ pub fn start(info: BootInfo) noreturn {
         };
         while (hid.pop()) |event| {
             if (event.kind == .keyboard) {
-                _ = sdl_events.pushKeyboard(event.a, event.a != 0, event.b);
-                if ((event.b & 0x01) != 0 and event.a == 0x14) _ = sdl_events.pushQuit();
+                if (focusedWindowIs(&window_manager, 1)) {
+                    _ = sdl_events.pushKeyboard(event.a, event.a != 0, event.b);
+                    if ((event.b & 0x01) != 0 and event.a == 0x14) _ = sdl_events.pushQuit();
+                    demo_app.pump(&sdl_events, &handleSdlDemoEvent);
+                }
                 // HID usage 0x2b is Tab; modifier bit 0x04 is Left Alt.
                 const alt_tab_pressed = (event.b & 0x04) != 0 and event.a == 0x2b;
                 if (alt_tab_pressed and !alt_tab_down) {
@@ -2079,6 +2083,7 @@ pub fn start(info: BootInfo) noreturn {
                 }
                 screen.drawBaseline(@as(usize, hid.keyboards) + hid.mice, audio_info.playback_endpoints);
                 window_manager.compose(&screen);
+                drawSdlApplication(&screen, &window_manager, &demo_app, 1);
                 screen.drawActionButton(action_button_active);
                 screen.drawKeyboardActivity();
                 screen.drawPointerButtons(mouse_buttons);
@@ -2089,7 +2094,10 @@ pub fn start(info: BootInfo) noreturn {
             const dx: i8 = @bitCast(event.b);
             const dy: i8 = @bitCast(event.c);
             const wheel: i8 = @bitCast(event.d);
-            _ = sdl_events.pushMouseCoalesced(@intCast(dx), @intCast(dy), @intCast(wheel), event.a);
+            if (focusedWindowIs(&window_manager, 1)) {
+                _ = sdl_events.pushMouseCoalesced(@intCast(dx), @intCast(dy), @intCast(wheel), event.a);
+                demo_app.pump(&sdl_events, &handleSdlDemoEvent);
+            }
             if (event.a != mouse_buttons) {
                 const left_pressed = (event.a & 1) != 0;
                 const left_was_pressed = (mouse_buttons & 1) != 0;
@@ -2149,6 +2157,7 @@ pub fn start(info: BootInfo) noreturn {
             }
             screen.drawBaseline(@as(usize, hid.keyboards) + hid.mice, audio_info.playback_endpoints);
             window_manager.compose(&screen);
+            drawSdlApplication(&screen, &window_manager, &demo_app, 1);
             screen.drawActionButton(action_button_active);
             screen.drawPointerButtons(event.a);
             screen.drawCursor(cursor_x, cursor_y, if (event.a != 0) 0xffb040 else 0xffffff);
@@ -2163,6 +2172,40 @@ pub fn start(info: BootInfo) noreturn {
         reportAudio(&usb);
         asm volatile ("pause");
     }
+}
+
+fn handleSdlDemoEvent(app: *sdl.Application, event: sdl.Event) void {
+    switch (event) {
+        .quit => app.window.clear(0x301820ff),
+        .key => |key| {
+            const color: u32 = if (key.pressed) 0x70b0e0ff else 0x304860ff;
+            app.window.fillRect(4, 4, 56, 8, color);
+            app.window.fillRect(4 + (@as(usize, key.scancode) % 54), 14, 2, 8, 0xe0e8f0ff);
+        },
+        .mouse => |mouse| {
+            const movement = @min(@as(usize, @intCast(@abs(mouse.x) + @abs(mouse.y))), 56);
+            app.window.fillRect(4, 26, 56, 16, 0x203040ff);
+            app.window.fillRect(4, 26, movement, 8, 0x50b080ff);
+            if (mouse.wheel != 0) app.window.fillRect(4, 38, 56, 4, 0xd09050ff);
+            if (mouse.buttons != 0) app.window.fillRect(52, 30, 8, 8, 0xf0b040ff);
+        },
+    }
+}
+
+fn drawSdlApplication(screen: *display.Context, manager: *const display.WindowManager, app: *sdl.Application, window_id: u32) void {
+    if (!app.running) return;
+    for (manager.windows[0..manager.count]) |window| {
+        if (window.id != window_id or !window.visible or window.minimized or window.height <= 32) continue;
+        app.window.invalidate();
+        screen.blitSurface(&app.window, window.x + 12, window.y + 28);
+        return;
+    }
+}
+
+fn focusedWindowIs(manager: *const display.WindowManager, window_id: u32) bool {
+    const focused = manager.focused orelse return false;
+    return focused < manager.count and manager.windows[focused].id == window_id and
+        manager.windows[focused].visible and !manager.windows[focused].minimized;
 }
 
 fn reportAudio(usb: *xhci.Controller) void {

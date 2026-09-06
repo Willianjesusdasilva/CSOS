@@ -126,6 +126,10 @@ pub const Window = struct {
         return was_dirty;
     }
 
+    pub fn invalidate(self: *Window) void {
+        self.markDirty(0, 0, self.width, self.height);
+    }
+
     pub fn dirtyRect(self: *const Window) ?Rect {
         if (!self.dirty) return null;
         return .{ .x = self.dirty_left, .y = self.dirty_top, .width = self.dirty_right - self.dirty_left, .height = self.dirty_bottom - self.dirty_top };
@@ -136,10 +140,15 @@ pub const Window = struct {
         const bottom = @min(self.height, y +| height);
         if (x >= right or y >= bottom) return;
         if (!self.dirty) {
-            self.dirty_left = x; self.dirty_top = y; self.dirty_right = right; self.dirty_bottom = bottom;
+            self.dirty_left = x;
+            self.dirty_top = y;
+            self.dirty_right = right;
+            self.dirty_bottom = bottom;
         } else {
-            self.dirty_left = @min(self.dirty_left, x); self.dirty_top = @min(self.dirty_top, y);
-            self.dirty_right = @max(self.dirty_right, right); self.dirty_bottom = @max(self.dirty_bottom, bottom);
+            self.dirty_left = @min(self.dirty_left, x);
+            self.dirty_top = @min(self.dirty_top, y);
+            self.dirty_right = @max(self.dirty_right, right);
+            self.dirty_bottom = @max(self.dirty_bottom, bottom);
         }
         self.dirty = true;
     }
@@ -218,7 +227,9 @@ pub fn createWindow(storage: []u32, width: usize, height: usize) !Window {
 }
 
 fn testApplicationEvent(_: *Application, _: Event) void {}
-fn testApplicationDraw(window: *Window) void { window.fillRect(0, 0, 1, 1, 0xffffffff); }
+fn testApplicationDraw(window: *Window) void {
+    window.fillRect(0, 0, 1, 1, 0xffffffff);
+}
 
 test "SDL software event queue and surface contract" {
     var events = EventQueue{};
@@ -267,6 +278,9 @@ test "SDL software event queue and surface contract" {
     var drawable = window;
     try @import("std").testing.expect(!drawable.consumeDirty());
     drawable.clear(0x11223344);
+    try @import("std").testing.expectEqual(Rect{ .x = 0, .y = 0, .width = 4, .height = 4 }, drawable.dirtyRect().?);
+    try @import("std").testing.expect(drawable.consumeDirty());
+    drawable.invalidate();
     try @import("std").testing.expectEqual(Rect{ .x = 0, .y = 0, .width = 4, .height = 4 }, drawable.dirtyRect().?);
     try @import("std").testing.expect(drawable.consumeDirty());
     drawable.fillRect(1, 1, 2, 2, 0xaabbccdd);

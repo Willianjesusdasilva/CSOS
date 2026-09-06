@@ -122,8 +122,11 @@ geometria anterior e respeitando a área reservada à barra de tarefas.
 Sob carga, movimentos de mouse consecutivos são coalescidos na fila SDL para
 preservar responsividade sem sobrescrever eventos de botão/roda.
 O boot também cria uma superfície SDL software de demonstração, desenha nela e
-a envia ao framebuffer por `blitSurface`; isso valida o primeiro fluxo de
-aplicação gráfica sem GPU física.
+a apresenta dentro de `APP1` por `blitSurface`. A aplicação agora consome a fila
+SDL real: teclado, movimento, roda e botões alteram o conteúdo, e `Ctrl+Q`
+encerra a aplicação. A entrega ocorre apenas quando `APP1` possui foco. Isso
+valida o primeiro ciclo interativo completo, incluindo roteamento de input, de
+uma aplicação gráfica sem GPU física.
 
 Após esses incrementos, `zig build test` continua em `11/11` etapas e `16/16`
 testes aprovados; um boot QEMU limitado também voltou a alcançar

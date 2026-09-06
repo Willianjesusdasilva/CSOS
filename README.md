@@ -635,7 +635,11 @@ O contrato SDL software inicial em `graphics/sdl.zig` já define janela/superfí
 RGBA, fila de eventos e dispositivo de áudio com validação de especificação; a
 integração completa com hardware e aplicações SDL ainda está em andamento.
 O boot inclui uma aplicação SDL software mínima que desenha uma superfície e a
-apresenta via `blitSurface`, validando o caminho de renderização em QEMU.
+apresenta dentro da janela `APP1` via `blitSurface`. A aplicação consome a fila
+SDL no loop gráfico: teclado altera seu indicador superior, movimento do mouse
+atualiza uma barra, roda e botões recebem feedback visual, e `Ctrl+Q` envia o
+evento de encerramento. Os eventos são entregues apenas quando `APP1` possui
+foco. Isso valida roteamento de input e renderização em QEMU.
 Movimentos de mouse consecutivos são coalescidos quando a fila SDL está cheia,
 evitando saturação desnecessária do input.
 
