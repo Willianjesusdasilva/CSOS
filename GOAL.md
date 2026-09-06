@@ -70,7 +70,7 @@ implementado ou validado, nem aumenta a porcentagem concluída do projeto.
 - [ ] **M16 — hardware discovery/autotune:** parcial. O boot de instalação já executa descoberta, benchmarks limitados, gera/verifica `/system/config/hardware.csc` e emite `CSOS M16 hardware profile ready`; ainda falta validar seleção persistida e retuning após troca de hardware em máquinas físicas AMD e NVIDIA.
 - [ ] **M17 — otimização para jogos:** scheduler, IRQ, input, rede, NVMe, áudio, GAME e MATCH medidos contra baseline.
 - [ ] **M18–M19 — ciclo de processos e standby:** freeze, reclaim seguro e retomada.
-- [ ] **M20–M23 — interface do sistema:** parcial. O framebuffer agora possui um window manager/compositor software com criação/fecho de janelas, foco, hit-test, Alt+Tab e composição por camadas, testável em QEMU; ainda faltam SDL, texto completo, eventos ligados ao gerenciador, runtime HTML/CSS/Jinja, aplicações e UI dinâmica.
+- [ ] **M20–M23 — interface do sistema:** parcial. O framebuffer agora possui um window manager/compositor software com criação/fecho de janelas, foco, hit-test, Alt+Tab e composição por camadas, testável em QEMU; a integração SDL software inicial já cobre superfície, eventos e contrato de áudio, faltando texto completo, ligação de todos os eventos ao gerenciador, runtime HTML/CSS/Jinja, aplicações e UI dinâmica.
 - [ ] **M24–M26 — aceleração e autotune de GPU do sistema:** somente onde houver ganho medido; desativado por padrão em MATCH.
 - [ ] **M27 — Steam Runtime:** corrigir a ABI necessária somente após o SO estar funcional.
 - [ ] **M28 — Steam:** abrir, autenticar, exibir biblioteca e baixar jogos.
