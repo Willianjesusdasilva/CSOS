@@ -9,7 +9,8 @@ pub const Event = union(enum) {
 };
 
 pub const EventQueue = struct {
-    items: [64]Event = undefined,
+    pub const capacity: usize = 64;
+    items: [capacity]Event = undefined,
     read: usize = 0,
     write: usize = 0,
     dropped: u64 = 0,
@@ -214,7 +215,7 @@ fn testApplicationDraw(window: *Window) void { window.fillRect(0, 0, 1, 1, 0xfff
 test "SDL software event queue and surface contract" {
     var events = EventQueue{};
     try @import("std").testing.expectEqual(@as(usize, 0), events.len());
-    try @import("std").testing.expectEqual(@as(usize, 64), events.remaining());
+    try @import("std").testing.expectEqual(EventQueue.capacity, events.remaining());
     try @import("std").testing.expect(!events.isFull());
     try @import("std").testing.expect(events.isEmpty());
     try @import("std").testing.expect(events.pushQuit());
