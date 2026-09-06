@@ -137,6 +137,7 @@ pub const Application = struct {
     }
 
     pub fn render(self: *Application, draw: *const fn (*Window) void) bool {
+        if (!self.running) return false;
         draw(&self.window);
         return self.window.dirtyRect() != null;
     }
@@ -230,8 +231,9 @@ test "SDL software event queue and surface contract" {
     try @import("std").testing.expect(app_events.push(.{ .quit = {} }));
     app.pump(&app_events, &testApplicationEvent);
     try @import("std").testing.expect(!app.running);
-    try @import("std").testing.expect(app.render(&testApplicationDraw));
+    try @import("std").testing.expect(!app.render(&testApplicationDraw));
     app.running = true;
+    try @import("std").testing.expect(app.render(&testApplicationDraw));
     try @import("std").testing.expect(app.frame(&app_events, &testApplicationEvent, &testApplicationDraw));
     var audio = try AudioDevice.init(.{ .sample_rate = 48000, .channels = 2 });
     audio.queue(256);
