@@ -236,4 +236,7 @@ test "SDL software event queue and surface contract" {
     try @import("std").testing.expectEqual(@as(u64, 128), audio.consume(128));
     audio.pause(true);
     try @import("std").testing.expect(audio.paused);
+    try @import("std").testing.expectError(error.InvalidAudioSpec, AudioDevice.init(.{ .sample_rate = 0, .channels = 2 }));
+    try @import("std").testing.expectError(error.InvalidAudioSpec, AudioDevice.init(.{ .sample_rate = 48000, .channels = 0 }));
+    try @import("std").testing.expectError(error.InvalidAudioSpec, AudioDevice.init(.{ .sample_rate = 48000, .channels = 9 }));
 }
