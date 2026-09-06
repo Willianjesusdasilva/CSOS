@@ -149,10 +149,12 @@ pub const Application = struct {
     window: Window,
     running: bool = true,
     last_event: ?Event = null,
+    processed_events: u64 = 0,
 
     pub fn pump(self: *Application, events: *EventQueue, on_event: *const fn (*Application, Event) void) void {
         while (events.poll()) |event| {
             self.last_event = event;
+            self.processed_events +|= 1;
             if (event == .quit) self.running = false;
             on_event(self, event);
         }
@@ -272,6 +274,7 @@ test "SDL software event queue and surface contract" {
     try @import("std").testing.expect(app_events.push(.{ .quit = {} }));
     app.pump(&app_events, &testApplicationEvent);
     try @import("std").testing.expect(!app.running);
+    try @import("std").testing.expectEqual(@as(u64, 1), app.processed_events);
     try @import("std").testing.expectEqual(@as(?Event, .{ .quit = {} }), app.last_event);
     try @import("std").testing.expectEqual(@as(?Event, .{ .quit = {} }), app.takeLastEvent());
     try @import("std").testing.expect(app.takeLastEvent() == null);
