@@ -142,6 +142,13 @@ pub const WindowManager = struct {
         return null;
     }
 
+    pub fn closeHitTest(self: *const WindowManager, index: usize, x: usize, y: usize) bool {
+        if (index >= self.count) return false;
+        const window = self.windows[index];
+        return window.visible and !window.minimized and
+            x >= window.x +| window.width -| 20 and y >= window.y and y < window.y +| 20;
+    }
+
     pub fn taskbarHitTest(self: *const WindowManager, x: usize, y: usize, screen_height: usize) ?usize {
         if (screen_height < 24 or y < screen_height - 20) return null;
         const slot = x / 112;
@@ -191,6 +198,8 @@ test "window manager focus alt-tab hit-test and close" {
     const second = try manager.create(.{ .id = 20, .x = 32, .y = 24, .width = 96, .height = 56 });
     try std.testing.expectEqual(@as(usize, 1), second);
     try std.testing.expectEqual(@as(?usize, 1), manager.hitTest(40, 30));
+    try std.testing.expect(manager.closeHitTest(1, 120, 24));
+    try std.testing.expect(!manager.closeHitTest(1, 107, 24));
     try std.testing.expect(manager.focus(first));
     try std.testing.expectEqual(@as(u32, 10), manager.windows[manager.focused.?].id);
     try std.testing.expectEqual(@as(?usize, 1), manager.altTab());

@@ -2100,7 +2100,7 @@ pub fn start(info: BootInfo) noreturn {
                         serial.write("\n");
                     } else if (window_manager.hitTest(cursor_x, cursor_y)) |hit| {
                         const window = window_manager.windows[hit];
-                        if (cursor_x >= window.x +| window.width -| 20 and cursor_y < window.y +| 20) {
+                        if (window_manager.closeHitTest(hit, cursor_x, cursor_y)) {
                             const closed_id = window.id;
                             window_manager.close(hit);
                             serial.write("UI close window: ");
