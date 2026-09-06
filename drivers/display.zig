@@ -67,6 +67,7 @@ pub const WindowManager = struct {
 
     pub fn focus(self: *WindowManager, index: usize) bool {
         if (index >= self.count or !self.windows[index].visible) return false;
+        self.windows[index].minimized = false;
         if (index + 1 < self.count) {
             const selected = self.windows[index];
             var i = index;
@@ -189,7 +190,7 @@ test "window manager focus alt-tab hit-test and close" {
     try std.testing.expect(manager.windows[0].minimized);
     try std.testing.expect(manager.hitTest(20, 20) == null);
     try std.testing.expectEqual(@as(?usize, 0), manager.taskbarHitTest(20, 119, 128));
-    try std.testing.expect(manager.toggleMinimized(0));
+    try std.testing.expect(manager.focus(0));
     try std.testing.expect(!manager.windows[0].minimized);
     const third = try manager.create(.{ .id = 30, .x = 0, .y = 0, .width = 64, .height = 32 });
     try std.testing.expectEqual(@as(usize, 1), third);
