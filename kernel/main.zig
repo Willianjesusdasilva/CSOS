@@ -2048,6 +2048,9 @@ pub fn start(info: BootInfo) noreturn {
         while (hid.pop()) |event| {
             if (event.kind == .keyboard) {
                 var launcher_consumed = false;
+                var switcher_consumed = false;
+                const alt_held = (event.b & 0x44) != 0;
+                const alt_tab_pressed = alt_held and event.a == 0x2b;
                 const gui_pressed = (event.b & 0x88) != 0;
                 const launcher_shortcut_pressed = gui_pressed or ((event.b & 0x11) != 0 and event.a == 0x2c);
                 if (launcher_shortcut_pressed and !launcher_key_down) {
@@ -2075,7 +2078,7 @@ pub fn start(info: BootInfo) noreturn {
                         else => {},
                     }
                 }
-                if (!launcher_consumed and focusedWindowIs(window_manager, 1)) {
+                if (!launcher_consumed and !alt_tab_pressed and focusedWindowIs(window_manager, 1)) {
                     _ = sdl_events.pushKeyboard(event.a, event.a != 0, event.b);
                     if (event.a != 0) {
                         if (event.a == 0x28) {
@@ -2107,9 +2110,10 @@ pub fn start(info: BootInfo) noreturn {
                         if (window_manager.findById(1)) |application_window| window_manager.close(application_window);
                     }
                 }
-                // HID usage 0x2b is Tab; modifier bit 0x04 is Left Alt.
-                const alt_tab_pressed = (event.b & 0x04) != 0 and event.a == 0x2b;
                 if (alt_tab_pressed and !alt_tab_down) {
+                    window_manager.launcher_open = false;
+                    window_manager.switcher_open = true;
+                    switcher_consumed = true;
                     const reverse = (event.b & 0x02) != 0;
                     const next_window = if (reverse) window_manager.altTabReverse() else window_manager.altTab();
                     if (next_window) |focused| {
@@ -2118,8 +2122,13 @@ pub fn start(info: BootInfo) noreturn {
                         serial.write("\n");
                     }
                 }
+                if (window_manager.switcher_open and event.a == 0x29) {
+                    window_manager.switcher_open = false;
+                    switcher_consumed = true;
+                }
+                if (!alt_held) window_manager.switcher_open = false;
                 alt_tab_down = alt_tab_pressed;
-                const close_shortcut = !launcher_consumed and (event.a == 0x29 or ((event.b & 0x01) != 0 and event.a == 0x1a));
+                const close_shortcut = !launcher_consumed and !switcher_consumed and (event.a == 0x29 or ((event.b & 0x01) != 0 and event.a == 0x1a));
                 if (close_shortcut and window_manager.focused != null) {
                     const closing = window_manager.focused.?;
                     const closed_id = window_manager.windows[closing].id;

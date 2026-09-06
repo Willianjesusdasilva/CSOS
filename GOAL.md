@@ -116,6 +116,9 @@ participar do hit-test e da composição até serem restauradas por `Alt+Tab`.
 A composição também exibe uma barra de tarefas software, com botões para
 restaurar/focar qualquer janela.
 `Alt+Shift+Tab` percorre as janelas no sentido reverso.
+`Alt+Tab` agora abre um switcher visual no topo da composição, destaca a janela
+selecionada e permanece até Alt ser solto; `Esc` cancela apenas o overlay. O
+atalho global deixa de vazar para a fila SDL da aplicação focada.
 As janelas agora possuem títulos próprios e podem ser maximizadas/restauradas
 pelo botão da barra de título ou por `Ctrl+Seta para cima`, preservando a
 geometria anterior e respeitando a área reservada à barra de tarefas.

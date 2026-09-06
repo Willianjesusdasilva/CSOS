@@ -629,6 +629,9 @@ continua obrigatório antes de Steam/CS2.
 Atalhos já suportados na sessão emulada: `Alt+Tab` troca o foco, `Ctrl+M`
 minimiza/restaura, e `Ctrl+W` ou `Esc` fecha a janela focada. A barra de tarefas
 software permite restaurar janelas minimizadas.
+Enquanto Alt permanece pressionado, `Alt+Tab` mostra um switcher sobreposto com
+todas as janelas e destaque da seleção. Soltar Alt confirma; `Esc` fecha somente
+o switcher. O atalho não é encaminhado à aplicação SDL focada.
 O botão quadrado na barra de título maximiza/restaura a janela, preservando sua
 geometria anterior; `Ctrl+Seta para cima` oferece a mesma ação pelo teclado.
 O botão com traço minimiza a janela; o foco passa para a janela visível superior

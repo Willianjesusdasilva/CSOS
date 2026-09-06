@@ -52,6 +52,7 @@ pub const WindowManager = struct {
     focused: ?usize = null,
     launcher_open: bool = false,
     launcher_selection: u8 = 0,
+    switcher_open: bool = false,
 
     pub fn create(self: *WindowManager, window: Window) !usize {
         if (self.count == max_windows) return error.WindowLimit;
@@ -341,6 +342,20 @@ pub const WindowManager = struct {
             context.drawWindowTitle(16, menu_top + 9, "APP1");
             context.drawWindowTitle(16, menu_top + 33, "MONITOR");
         }
+        if (self.switcher_open and self.count != 0 and context.framebuffer.width >= 144 and context.framebuffer.height >= 96) {
+            const visible_slots = @min(self.count, (@as(usize, context.framebuffer.width) - 32) / 112);
+            const focused_index = self.focused orelse 0;
+            const first_slot = if (focused_index < visible_slots) 0 else focused_index - visible_slots + 1;
+            const overlay_width = visible_slots * 112 + 16;
+            const overlay_x = (@as(usize, context.framebuffer.width) - overlay_width) / 2;
+            const overlay_y = @as(usize, context.framebuffer.height) / 2 -| 24;
+            context.fillRect(overlay_x, overlay_y, overlay_width, 48, 0x182430);
+            for (self.windows[first_slot .. first_slot + visible_slots], 0..) |window, slot| {
+                const window_index = first_slot + slot;
+                context.fillRect(overlay_x + 8 + slot * 112, overlay_y + 8, 104, 32, if (self.focused == window_index) 0x5070a0 else 0x303848);
+                context.drawWindowTitle(overlay_x + 16 + slot * 112, overlay_y + 19, window.title);
+            }
+        }
     }
 };
 
@@ -394,6 +409,8 @@ test "window manager focus alt-tab hit-test and close" {
     try std.testing.expect(manager.launcherItemHitTest(200, 62, 128) == null);
     manager.launcher_open = false;
     try std.testing.expect(manager.launcherSelectedApplication() == null);
+    manager.switcher_open = true;
+    try std.testing.expect(manager.switcher_open);
     try std.testing.expectEqual(@as(?usize, 0), manager.findById(20));
     try std.testing.expect(manager.findById(999) == null);
     try std.testing.expect(manager.focus(0));
