@@ -2083,7 +2083,7 @@ pub fn start(info: BootInfo) noreturn {
             const dx: i8 = @bitCast(event.b);
             const dy: i8 = @bitCast(event.c);
             const wheel: i8 = @bitCast(event.d);
-            _ = sdl_events.pushMouse(@intCast(dx), @intCast(dy), @intCast(wheel), event.a);
+            _ = sdl_events.pushMouseCoalesced(@intCast(dx), @intCast(dy), @intCast(wheel), event.a);
             if (event.a != mouse_buttons) {
                 const left_pressed = (event.a & 1) != 0;
                 const left_was_pressed = (mouse_buttons & 1) != 0;

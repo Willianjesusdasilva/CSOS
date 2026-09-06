@@ -54,6 +54,20 @@ pub const EventQueue = struct {
         return self.push(.{ .mouse = .{ .x = x, .y = y, .wheel = wheel, .buttons = buttons } });
     }
 
+    pub fn pushMouseCoalesced(self: *EventQueue, x: i32, y: i32, wheel: i32, buttons: u8) bool {
+        if (self.remaining() == 0 and self.write != 0) {
+            const slot = (self.write - 1) % self.items.len;
+            if (self.items[slot] == .mouse) {
+                self.items[slot].mouse.x += x;
+                self.items[slot].mouse.y += y;
+                self.items[slot].mouse.wheel += wheel;
+                self.items[slot].mouse.buttons = buttons;
+                return true;
+            }
+        }
+        return self.pushMouse(x, y, wheel, buttons);
+    }
+
     pub fn pushQuit(self: *EventQueue) bool {
         return self.push(.{ .quit = {} });
     }
@@ -157,6 +171,8 @@ test "SDL software event queue and surface contract" {
     while (index < full.items.len) : (index += 1)
         try @import("std").testing.expect(full.push(.{ .mouse = .{ .x = @intCast(index), .y = 0, .wheel = 0, .buttons = 0 } }));
     try @import("std").testing.expect(!full.push(.{ .quit = {} }));
+    try @import("std").testing.expectEqual(@as(u64, 1), full.droppedCount());
+    try @import("std").testing.expect(full.pushMouseCoalesced(2, -1, 1, 1));
     try @import("std").testing.expectEqual(@as(u64, 1), full.droppedCount());
     index = 0;
     while (index < full.items.len) : (index += 1) {
