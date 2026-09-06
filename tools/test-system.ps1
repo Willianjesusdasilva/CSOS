@@ -20,13 +20,13 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'RADV hardware-log verifier fixture failed.' }
     & "$PSScriptRoot/build-libdrm-probe.ps1" -SourceDirectory $LibdrmSource
     if ($LASTEXITCODE -ne 0) { throw 'Upstream libdrm probe build failed.' }
-    & $zig build run -- -SmokeTestSeconds $SmokeTestSeconds -ExpectSerial 'CSOS console shell ready'
-    if ($LASTEXITCODE -ne 0) { throw 'Normal boot did not reach the console.' }
+    & $zig build run -- -SmokeTestSeconds $SmokeTestSeconds -ExpectSerial 'CSOS graphical session ready'
+    if ($LASTEXITCODE -ne 0) { throw 'Normal boot did not reach the graphical session.' }
     & $zig build run -Ddrm-amdgpu-abi-test=true `
         -Dlibdrm-probe=zig-out/libdrm-probe/libdrm-probe -Dlibdrm-probe-after-gpu=true `
-        -- -SmokeTestSeconds $SmokeTestSeconds -ExpectSerial 'CSOS console shell ready'
+        -- -SmokeTestSeconds $SmokeTestSeconds -ExpectSerial 'CSOS graphical session ready'
     if ($LASTEXITCODE -ne 0) { throw 'Combined AMDGPU ABI and upstream libdrm boot failed.' }
-    Write-Output 'CSOS host tests and both bounded console boots passed; physical Vulkan remains unverified.'
+    Write-Output 'CSOS host tests and both bounded graphical boots passed; physical Vulkan remains unverified.'
 } finally {
     # Remove only emulator processes created by this test run. This keeps the
     # user's unrelated QEMU sessions untouched while preventing test leaks.

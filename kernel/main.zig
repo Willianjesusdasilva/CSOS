@@ -1988,16 +1988,15 @@ pub fn start(info: BootInfo) noreturn {
     if (!installer_state.matches(verified_install[0..verified_install_length], current_profile.signature)) panic("installation completion verification failed");
     serial.write(if (installation_current) "CSOS installation reused\n" else "CSOS installation completed\n");
     serial.write(if (recovering) "CSOS recovery completed\n" else "CSOS boot health ready\n");
+    // The BusyBox console owns the boot CPU until the shell exits. Starting it
+    // here made the already-rendered desktop look alive while preventing the
+    // graphical input loop below from consuming mouse events. Keep console I/O
+    // available for a future terminal application, but let the desktop session
+    // own input immediately after boot.
     console_usb = &usb;
     console_hid = &hid;
     console_input_irq_apic = input_irq_apic;
-    syscalls.configureConsole(&consoleRead, &consoleWait);
-    serial.write("CSOS console shell ready\n");
-    const console_arguments = [_][]const u8{ "/bin/busybox", "sh" };
-    process.runBusyBox(mapper.root, &pages, &console_arguments) catch panic("console shell failed");
-    mapper.activate();
-    syscalls.configureConsole(null, null);
-    serial.write("CSOS console shell exited\n");
+    serial.write("CSOS graphical session ready\n");
     if (hid.latency.count != 0) {
         const input_latency = hid.latency.summarize() catch panic("input metrics missing");
         serial.write("profile USB input queue cycles p50: ");

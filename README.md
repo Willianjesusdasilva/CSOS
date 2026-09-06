@@ -637,10 +637,11 @@ apresenta via `blitSurface`, validando o caminho de renderização em QEMU.
 Movimentos de mouse consecutivos são coalescidos quando a fila SDL está cheia,
 evitando saturação desnecessária do input.
 
-Verificação atual: `zig build test` passou `11/11` etapas e `16/16` testes,
-com dois boots QEMU limitados até `CSOS console shell ready`. O QEMU foi
-encerrado ao fim dos boots; isso ainda é validação de console, não um desktop
-gráfico nem prova de Vulkan em hardware AMD/NVIDIA.
+Verificação atual: `zig build test` passou `11/11` etapas e `16/16` testes. O
+boot interativo agora entrega o input diretamente à sessão gráfica, sem ficar
+bloqueado pelo shell BusyBox, e publica `CSOS graphical session ready`. O shell
+será reintegrado como uma aplicação de terminal não bloqueante; isso ainda não
+é prova de Vulkan em hardware AMD/NVIDIA.
 
 O inventário do host também encontrou uma AMD Radeon(TM) Graphics (`1002:164e`)
 e uma NVIDIA GeForce RTX 4060 Ti (`10de:2803`), ambas ativas. Isso viabiliza a

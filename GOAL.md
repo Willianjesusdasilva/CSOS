@@ -122,17 +122,17 @@ O boot também cria uma superfície SDL software de demonstração, desenha nela
 a envia ao framebuffer por `blitSurface`; isso valida o primeiro fluxo de
 aplicação gráfica sem GPU física.
 
-Após esses incrementos, `zig build test` continua em `9/9` etapas e `14/14`
+Após esses incrementos, `zig build test` continua em `11/11` etapas e `16/16`
 testes aprovados; um boot QEMU limitado também voltou a alcançar
-`CSOS console shell ready`.
+`CSOS graphical session ready`.
 
 Esta porcentagem não é uma contagem simples de milestones. M0–M13 têm bases relevantes, mas M14 ainda não possui triângulos Vulkan validados em AMD e NVIDIA, e M15–M30 permanecem majoritariamente pendentes. Código preparatório ou teste no host não equivale a hardware funcional.
 
-Verificação mais recente em 2026-09-06: `tools/test-system.ps1` concluiu
-`9/9` etapas e `14/14` testes, além de dois boots QEMU limitados que chegaram a
-`CSOS console shell ready`. Esses boots foram encerrados automaticamente e não
-alteram a ausência de validação Vulkan física; o sistema ainda inicia em shell
-de console, não em uma interface gráfica.
+Verificação mais recente em 2026-09-06: `zig build test` concluiu `11/11` etapas
+e `16/16` testes, e o boot QEMU chegou a `CSOS graphical session ready`. A
+sessão gráfica agora assume teclado e mouse sem aguardar a saída do shell
+BusyBox. O terminal deverá voltar como aplicação não bloqueante; isso não altera
+a ausência de validação Vulkan física.
 
 Inventário do host Windows no mesmo snapshot detectou uma AMD Radeon(TM)
 Graphics (`1002:164e`) e uma NVIDIA GeForce RTX 4060 Ti (`10de:2803`), ambas
@@ -668,7 +668,7 @@ identifica a GPU QEMU `1234:1111`, com recuperação de memória validada. Foram
 corrigidos o comando ioctl estendido com sinal, hints de mmap e a stack de
 userspace (128 KiB, distinta da stack de syscalls). Isso não valida AMDGPU/RADV.
 
-O probe também passou após a preparação gráfica, até `CSOS console shell ready`,
+O probe também passou após a preparação gráfica, até `CSOS graphical session ready`,
 com recuperação de páginas. Essa validação corrigiu um acesso incondicional ao
 IP discovery AMD no caminho QEMU. `-Dlibdrm-probe-after-gpu=true` seleciona o
 ponto tardio sem habilitar gates MMIO; hardware AMD/NVIDIA real segue pendente.
