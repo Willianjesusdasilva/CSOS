@@ -54,10 +54,15 @@ pub const WindowManager = struct {
 
     pub fn close(self: *WindowManager, index: usize) void {
         if (index >= self.count) return;
+        const old_focused = self.focused;
         var i = index;
         while (i + 1 < self.count) : (i += 1) self.windows[i] = self.windows[i + 1];
         self.count -= 1;
-        self.focused = if (self.count == 0) null else @min(index, self.count - 1);
+        self.focused = if (self.count == 0) null else if (old_focused) |focused| blk: {
+            if (focused > index) break :blk focused - 1;
+            if (focused == index) break :blk @min(index, self.count - 1);
+            break :blk focused;
+        } else @min(index, self.count - 1);
     }
 
     pub fn focus(self: *WindowManager, index: usize) bool {
@@ -185,6 +190,12 @@ test "window manager focus alt-tab hit-test and close" {
     try std.testing.expectEqual(@as(?usize, 0), manager.taskbarHitTest(20, 119, 128));
     try std.testing.expect(manager.toggleMinimized(0));
     try std.testing.expect(!manager.windows[0].minimized);
+    const third = try manager.create(.{ .id = 30, .x = 0, .y = 0, .width = 64, .height = 32 });
+    try std.testing.expectEqual(@as(usize, 1), third);
+    try std.testing.expect(manager.focus(1));
+    manager.close(0);
+    try std.testing.expectEqual(@as(?usize, 0), manager.focused);
+    try std.testing.expectEqual(@as(u32, 30), manager.windows[0].id);
 }
 
 pub const Context = struct {
