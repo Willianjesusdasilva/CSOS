@@ -207,6 +207,12 @@ test "SDL software event queue and surface contract" {
     while (index < full.items.len) : (index += 1) {
         const event = full.poll() orelse return error.MissingEvent;
         try @import("std").testing.expect(event == .mouse);
+        if (index == full.items.len - 1) {
+            try @import("std").testing.expectEqual(@as(i32, 65), event.mouse.x);
+            try @import("std").testing.expectEqual(@as(i32, -1), event.mouse.y);
+            try @import("std").testing.expectEqual(@as(i32, 1), event.mouse.wheel);
+            try @import("std").testing.expectEqual(@as(u8, 1), event.mouse.buttons);
+        }
     }
     try @import("std").testing.expect(full.poll() == null);
     try @import("std").testing.expect(full.push(.{ .quit = {} }));
