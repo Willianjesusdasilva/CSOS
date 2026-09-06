@@ -219,6 +219,9 @@ test "window manager focus alt-tab hit-test and close" {
     try std.testing.expectEqual(@as(usize, 16), manager.windows[0].x);
     try std.testing.expectEqual(@as(usize, 28), manager.windows[0].y);
     try std.testing.expect(!manager.move(8, 0, 0, 100, 100));
+    try std.testing.expect(manager.move(0, 999, 999, 0, 0));
+    try std.testing.expectEqual(@as(usize, 0), manager.windows[0].x);
+    try std.testing.expectEqual(@as(usize, 0), manager.windows[0].y);
     manager.windows[0].minimized = true;
     try std.testing.expect(manager.restore(0));
     try std.testing.expect(!manager.windows[0].minimized);
