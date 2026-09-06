@@ -87,6 +87,8 @@ pub fn matchesSignature(text: []const u8, expected: u64) bool {
                 text[offset] - '0'
             else if (text[offset] >= 'a' and text[offset] <= 'f')
                 text[offset] - 'a' + 10
+            else if (text[offset] >= 'A' and text[offset] <= 'F')
+                text[offset] - 'A' + 10
             else break;
             value = value *% 16 +% digit;
             digits += 1;
@@ -141,6 +143,11 @@ pub fn detectCpu() Cpu {
         .threads_per_core = @max(threads_per_core, 1),
         .logical_per_package = @max(logical_per_package, 1),
     };
+}
+
+test "hardware profile signatures accept upper-case hexadecimal" {
+    try @import("std").testing.expect(matchesSignature("[system]\nsignature=ABCDEF\n", 0xabcdef));
+    try @import("std").testing.expect(!matchesSignature("signature=ABCDFE\n", 0xabcdef));
 }
 
 pub fn build(cpu: Cpu, facts: Facts) !Profile {
