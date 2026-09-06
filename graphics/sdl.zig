@@ -31,6 +31,11 @@ pub const EventQueue = struct {
         return event;
     }
 
+    pub fn peek(self: *const EventQueue) ?Event {
+        if (self.read == self.write) return null;
+        return self.items[self.read % self.items.len];
+    }
+
     pub fn len(self: *const EventQueue) usize {
         return self.write - self.read;
     }
@@ -189,6 +194,7 @@ test "SDL software event queue and surface contract" {
     try @import("std").testing.expectEqual(@as(usize, 0), events.len());
     try @import("std").testing.expectEqual(@as(usize, 64), events.remaining());
     try @import("std").testing.expect(events.pushQuit());
+    try @import("std").testing.expectEqual(@as(?Event, .{ .quit = {} }), events.peek());
     try @import("std").testing.expectEqual(@as(?Event, .{ .quit = {} }), events.poll());
     try @import("std").testing.expect(events.pushKeyboard(0x04, true, 0x04));
     try @import("std").testing.expect(events.pushMouse(12, -3, 1, 1));
