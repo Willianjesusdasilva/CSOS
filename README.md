@@ -637,7 +637,7 @@ apresenta via `blitSurface`, validando o caminho de renderização em QEMU.
 Movimentos de mouse consecutivos são coalescidos quando a fila SDL está cheia,
 evitando saturação desnecessária do input.
 
-Verificação atual: `tools/test-system.ps1` passou `11/11` etapas e `15/15` testes,
+Verificação atual: `zig build test` passou `11/11` etapas e `16/16` testes,
 com dois boots QEMU limitados até `CSOS console shell ready`. O QEMU foi
 encerrado ao fim dos boots; isso ainda é validação de console, não um desktop
 gráfico nem prova de Vulkan em hardware AMD/NVIDIA.
