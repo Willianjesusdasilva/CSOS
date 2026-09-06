@@ -133,9 +133,11 @@ pub const Window = struct {
 pub const Application = struct {
     window: Window,
     running: bool = true,
+    last_event: ?Event = null,
 
     pub fn pump(self: *Application, events: *EventQueue, on_event: *const fn (*Application, Event) void) void {
         while (events.poll()) |event| {
+            self.last_event = event;
             if (event == .quit) self.running = false;
             on_event(self, event);
         }
@@ -243,6 +245,7 @@ test "SDL software event queue and surface contract" {
     try @import("std").testing.expect(app_events.push(.{ .quit = {} }));
     app.pump(&app_events, &testApplicationEvent);
     try @import("std").testing.expect(!app.running);
+    try @import("std").testing.expectEqual(@as(?Event, .{ .quit = {} }), app.last_event);
     try @import("std").testing.expect(!app.render(&testApplicationDraw));
     app.running = true;
     try @import("std").testing.expect(app.render(&testApplicationDraw));
