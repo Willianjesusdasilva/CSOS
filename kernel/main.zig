@@ -2131,11 +2131,7 @@ pub fn start(info: BootInfo) noreturn {
             if (mouse_buttons & 1 != 0) {
                 if (drag_window) |dragged| {
                     if (dragged < window_manager.count) {
-                        const window = &window_manager.windows[dragged];
-                        window.x = cursor_x -| drag_offset_x;
-                        window.y = cursor_y -| drag_offset_y;
-                        window.x = @min(window.x, @as(usize, screen.framebuffer.width) -| window.width);
-                        window.y = @min(window.y, @as(usize, screen.framebuffer.height) -| window.height);
+                        _ = window_manager.move(dragged, cursor_x -| drag_offset_x, cursor_y -| drag_offset_y, screen.framebuffer.width, screen.framebuffer.height);
                     }
                 }
             }

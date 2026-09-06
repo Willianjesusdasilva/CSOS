@@ -87,6 +87,14 @@ pub const WindowManager = struct {
         return true;
     }
 
+    pub fn move(self: *WindowManager, index: usize, x: usize, y: usize, screen_width: usize, screen_height: usize) bool {
+        if (index >= self.count or !self.windows[index].visible) return false;
+        const window = &self.windows[index];
+        window.x = @min(x, screen_width -| window.width);
+        window.y = @min(y, screen_height -| window.height);
+        return true;
+    }
+
     pub fn altTab(self: *WindowManager) ?usize {
         if (self.count == 0) return null;
         const start = self.focused orelse 0;
@@ -201,6 +209,10 @@ test "window manager focus alt-tab hit-test and close" {
     manager.close(0);
     try std.testing.expectEqual(@as(?usize, 0), manager.focused);
     try std.testing.expectEqual(@as(u32, 30), manager.windows[0].id);
+    try std.testing.expect(manager.move(0, 100, 100, 80, 60));
+    try std.testing.expectEqual(@as(usize, 16), manager.windows[0].x);
+    try std.testing.expectEqual(@as(usize, 28), manager.windows[0].y);
+    try std.testing.expect(!manager.move(8, 0, 0, 100, 100));
 }
 
 test "window manager enforces maximum window count" {
