@@ -97,12 +97,17 @@ if ($SmokeTestSeconds -gt 0) {
     } finally {
         if ($null -ne $testProcess) {
             if (-not $testProcess.HasExited) {
-                # QEMU can spawn helper processes; terminate the whole tree so
-                # bounded smoke tests never leave a background emulator.
-                & taskkill.exe /PID $testProcess.Id /T /F *> $null
-                if (-not $testProcess.HasExited) { Stop-Process -Id $testProcess.Id -Force -ErrorAction SilentlyContinue }
+                # Bound shutdown so smoke tests never leave the emulator open.
+                # Stop the exact emulator first; taskkill tree enumeration can
+                # itself stall on some Windows hosts after QEMU has completed.
+                Stop-Process -Id $testProcess.Id -Force -ErrorAction SilentlyContinue
+                if (-not $testProcess.WaitForExit(5000)) {
+                    & taskkill.exe /PID $testProcess.Id /T /F *> $null
+                }
             }
-            $testProcess.WaitForExit()
+            if (-not $testProcess.HasExited -and -not $testProcess.WaitForExit(5000)) {
+                throw "QEMU process $($testProcess.Id) did not terminate after bounded cleanup."
+            }
             $testProcess.Dispose()
         }
         Write-Output "Serial log: $serialLog"

@@ -205,6 +205,7 @@ pub fn build(b: *std.Build) void {
     });
     display_test_module.addImport("pci", pci_module);
     display_test_module.addImport("physical", physical_module);
+    display_test_module.addImport("sdl", sdl_module);
     const display_tests = b.addTest(.{ .root_module = display_test_module });
     const run_display_tests = b.addRunArtifact(display_tests);
     test_step.dependOn(&run_display_tests.step);
@@ -342,11 +343,16 @@ pub fn build(b: *std.Build) void {
         qemu.addArg(path);
     }
     if (radv_runtime) |path| {
-        qemu.addArg("-RadvRuntime"); qemu.addArg(path);
-        qemu.addArg("-LibdrmAmdgpu"); qemu.addArg(libdrm_amdgpu_runtime orelse "zig-out/mesa-sysroot/usr/lib/libdrm_amdgpu.so.1");
-        qemu.addArg("-Libdrm"); qemu.addArg(libdrm_runtime orelse "zig-out/mesa-sysroot/usr/lib/libdrm.so.2");
-        qemu.addArg("-Zlib"); qemu.addArg(zlib_runtime orelse "zig-out/mesa-sysroot/usr/lib/libz.so.1");
-        qemu.addArg("-Libc"); qemu.addArg(libc_runtime orelse "zig-out/mesa-sysroot/usr/lib/libc.so");
+        qemu.addArg("-RadvRuntime");
+        qemu.addArg(path);
+        qemu.addArg("-LibdrmAmdgpu");
+        qemu.addArg(libdrm_amdgpu_runtime orelse "zig-out/mesa-sysroot/usr/lib/libdrm_amdgpu.so.1");
+        qemu.addArg("-Libdrm");
+        qemu.addArg(libdrm_runtime orelse "zig-out/mesa-sysroot/usr/lib/libdrm.so.2");
+        qemu.addArg("-Zlib");
+        qemu.addArg(zlib_runtime orelse "zig-out/mesa-sysroot/usr/lib/libz.so.1");
+        qemu.addArg("-Libc");
+        qemu.addArg(libc_runtime orelse "zig-out/mesa-sysroot/usr/lib/libc.so");
     }
     if (b.args) |args| qemu.addArgs(args);
     run.dependOn(&qemu.step);

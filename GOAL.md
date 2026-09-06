@@ -148,6 +148,12 @@ a futura integração concorrente do BusyBox, mas restaura uma superfície de
 comando utilizável sem suspender o loop do desktop.
 O terminal mantém quatro comandos de histórico, recuperáveis por setas, oferece
 Home/End/Delete e renderiza automaticamente as seis linhas mais recentes.
+O compositor associa a superfície SDL à janela proprietária e aplica clipping
+à área de conteúdo; a aplicação deixa de atravessar bordas ou aparecer por cima
+de janelas que estão adiante na ordem de composição.
+O runner QEMU também passou a usar encerramento direto e limitado do PID antes
+do fallback por árvore, eliminando um travamento observado no cleanup de um
+smoke test sem deixar o emulador aberto.
 
 Após esses incrementos, `zig build` recompila o EFI em `14/14` etapas e
 `zig build test` continua em `11/11` etapas e `16/16` testes aprovados; um boot QEMU limitado também voltou a alcançar

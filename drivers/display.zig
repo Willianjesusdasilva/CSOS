@@ -41,6 +41,7 @@ pub const Window = struct {
     restore_y: usize = 0,
     restore_width: usize = 0,
     restore_height: usize = 0,
+    surface: ?*sdl.Window = null,
 };
 
 /// Software window/compositor state. It deliberately renders into Context's
@@ -266,6 +267,14 @@ pub const WindowManager = struct {
                 context.fillRect(w.x + 12, w.y + 32, content_width *| (i + 1) / 3, 6, 0x50b080);
                 context.fillRect(w.x + 12, w.y + 48, content_width, 6, 0x304050);
                 context.fillRect(w.x + 12, w.y + 48, content_width / (i + 2), 6, 0x5080c0);
+            }
+            if (w.surface) |surface| {
+                const content_width = w.width -| 24;
+                const content_height = w.height -| 32;
+                if (content_width != 0 and content_height != 0) {
+                    surface.invalidate();
+                    context.blitSurfaceClipped(surface, w.x + 12, w.y + 28, content_width, content_height);
+                }
             }
             // Small close affordance in every title bar; input handling lives
             // in the kernel loop so this remains a pure software compositor.
@@ -493,10 +502,17 @@ pub const Context = struct {
     }
 
     pub fn blitSurface(self: *Context, surface: *sdl.Window, x: usize, y: usize) void {
+        self.blitSurfaceClipped(surface, x, y, surface.width, surface.height);
+    }
+
+    pub fn blitSurfaceClipped(self: *Context, surface: *sdl.Window, x: usize, y: usize, maximum_width: usize, maximum_height: usize) void {
         const dirty = surface.dirtyRect() orelse return;
-        const width = @min(dirty.width, @as(usize, self.framebuffer.width) -| (x + dirty.x));
-        const height = @min(dirty.height, @as(usize, self.framebuffer.height) -| (y + dirty.y));
-        if (width == 0 or height == 0) return;
+        const width = @min(dirty.width, @min(maximum_width -| dirty.x, @as(usize, self.framebuffer.width) -| (x + dirty.x)));
+        const height = @min(dirty.height, @min(maximum_height -| dirty.y, @as(usize, self.framebuffer.height) -| (y + dirty.y)));
+        if (width == 0 or height == 0) {
+            _ = surface.consumeDirty();
+            return;
+        }
         const target: [*]u32 = @ptrFromInt(self.backbuffer);
         for (0..height) |row| {
             const source_start = (dirty.y + row) * surface.width + dirty.x;

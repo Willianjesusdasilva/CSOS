@@ -1538,11 +1538,10 @@ pub fn start(info: BootInfo) noreturn {
     var demo_app = sdl.Application{ .window = demo_window };
     const window_manager = &desktop_window_manager;
     window_manager.* = .{};
-    _ = window_manager.create(.{ .id = 1, .title = "APP1", .x = 32, .y = 220, .width = 260, .height = 140, .title_color = 0x405070, .body_color = 0x18202c }) catch panic("desktop window creation failed");
+    _ = window_manager.create(.{ .id = 1, .title = "APP1", .x = 32, .y = 220, .width = 260, .height = 140, .title_color = 0x405070, .body_color = 0x18202c, .surface = &demo_app.window }) catch panic("desktop window creation failed");
     _ = window_manager.create(.{ .id = 2, .title = "MONITOR", .x = 180, .y = 280, .width = 260, .height = 140, .title_color = 0x604070, .body_color = 0x241828 }) catch panic("desktop window creation failed");
     screen.drawBaseline(@as(usize, hid.keyboards) + hid.mice, audio_info.playback_endpoints);
     window_manager.compose(&screen);
-    drawSdlApplication(&screen, window_manager, &demo_app, 1);
     screen.drawActionButton(false);
     const initial_pixels = screen.present();
     if (initial_pixels == 0) panic("display presentation failed");
@@ -2063,7 +2062,7 @@ pub fn start(info: BootInfo) noreturn {
                         0x29 => window_manager.launcher_open = false,
                         0x28 => if (window_manager.launcherSelectedApplication()) |application_id| {
                             const was_open = window_manager.findById(application_id) != null;
-                            _ = launchDesktopWindow(window_manager, application_id) catch panic("desktop keyboard application launch failed");
+                            _ = launchDesktopWindow(window_manager, application_id, &demo_app.window) catch panic("desktop keyboard application launch failed");
                             if (application_id == 1 and !was_open) resetSdlDemoApplication(&demo_app);
                             window_manager.launcher_open = false;
                             serial.write("UI launch application (keyboard): ");
@@ -2101,6 +2100,9 @@ pub fn start(info: BootInfo) noreturn {
                     if ((event.b & 0x01) != 0 and event.a == 0x14) _ = sdl_events.pushQuit();
                     demo_app.pump(&sdl_events, &handleSdlDemoEvent);
                     drawSdlTerminal(&demo_app);
+                    if (!demo_app.running) {
+                        if (window_manager.findById(1)) |application_window| window_manager.close(application_window);
+                    }
                 }
                 // HID usage 0x2b is Tab; modifier bit 0x04 is Left Alt.
                 const alt_tab_pressed = (event.b & 0x04) != 0 and event.a == 0x2b;
@@ -2143,7 +2145,6 @@ pub fn start(info: BootInfo) noreturn {
                 }
                 screen.drawBaseline(@as(usize, hid.keyboards) + hid.mice, audio_info.playback_endpoints);
                 window_manager.compose(&screen);
-                drawSdlApplication(&screen, window_manager, &demo_app, 1);
                 screen.drawActionButton(action_button_active);
                 screen.drawKeyboardActivity();
                 screen.drawPointerButtons(mouse_buttons);
@@ -2175,7 +2176,7 @@ pub fn start(info: BootInfo) noreturn {
                         serial.write(if (window_manager.launcher_open) "UI launcher open\n" else "UI launcher closed\n");
                     } else if (window_manager.launcherItemHitTest(cursor_x, cursor_y, screen.framebuffer.height)) |application_id| {
                         const was_open = window_manager.findById(application_id) != null;
-                        _ = launchDesktopWindow(window_manager, application_id) catch panic("desktop application launch failed");
+                        _ = launchDesktopWindow(window_manager, application_id, &demo_app.window) catch panic("desktop application launch failed");
                         if (application_id == 1 and !was_open) resetSdlDemoApplication(&demo_app);
                         window_manager.launcher_open = false;
                         serial.write("UI launch application: ");
@@ -2249,7 +2250,6 @@ pub fn start(info: BootInfo) noreturn {
             }
             screen.drawBaseline(@as(usize, hid.keyboards) + hid.mice, audio_info.playback_endpoints);
             window_manager.compose(&screen);
-            drawSdlApplication(&screen, window_manager, &demo_app, 1);
             screen.drawActionButton(action_button_active);
             screen.drawPointerButtons(event.a);
             screen.drawCursor(cursor_x, cursor_y, if (event.a != 0) 0xffb040 else 0xffffff);
@@ -2316,26 +2316,16 @@ fn drawSdlTerminal(app: *sdl.Application) void {
     app.window.fillRect(12 + cursor_column * 8, 92, 6, 2, 0xe0e8f0ff);
 }
 
-fn launchDesktopWindow(manager: *display.WindowManager, application_id: u32) !usize {
+fn launchDesktopWindow(manager: *display.WindowManager, application_id: u32, app_surface: *sdl.Window) !usize {
     if (manager.findById(application_id)) |existing| {
         _ = manager.restore(existing);
         return manager.focused.?;
     }
     return switch (application_id) {
-        1 => manager.create(.{ .id = 1, .title = "APP1", .x = 32, .y = 220, .width = 260, .height = 140, .title_color = 0x405070, .body_color = 0x18202c }),
+        1 => manager.create(.{ .id = 1, .title = "APP1", .x = 32, .y = 220, .width = 260, .height = 140, .title_color = 0x405070, .body_color = 0x18202c, .surface = app_surface }),
         2 => manager.create(.{ .id = 2, .title = "MONITOR", .x = 180, .y = 280, .width = 260, .height = 140, .title_color = 0x604070, .body_color = 0x241828 }),
         else => error.UnknownDesktopApplication,
     };
-}
-
-fn drawSdlApplication(screen: *display.Context, manager: *const display.WindowManager, app: *sdl.Application, window_id: u32) void {
-    if (!app.running) return;
-    for (manager.windows[0..manager.count]) |window| {
-        if (window.id != window_id or !window.visible or window.minimized or window.height <= 32) continue;
-        app.window.invalidate();
-        screen.blitSurface(&app.window, window.x + 12, window.y + 28);
-        return;
-    }
 }
 
 fn focusedWindowIs(manager: *const display.WindowManager, window_id: u32) bool {

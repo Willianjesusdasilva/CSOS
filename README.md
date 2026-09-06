@@ -658,6 +658,9 @@ executa os comandos internos `help`, `status` e `clear`, mantendo a saída na
 janela sem interromper mouse, compositor ou outras aplicações.
 Setas para cima/baixo percorrem o histórico, Home/End movem o cursor, Delete
 remove à frente e a saída acompanha automaticamente as seis linhas mais novas.
+Superfícies SDL são compostas dentro da camada de sua própria janela, com
+clipping pela área de conteúdo. Assim, respeitam sobreposição, foco,
+minimização e redimensionamento sem desenhar sobre janelas superiores.
 Movimentos de mouse consecutivos são coalescidos quando a fila SDL está cheia,
 evitando saturação desnecessária do input.
 
@@ -1710,6 +1713,9 @@ que iniciou e retorna falha se o marcador não aparecer. `-ExpectSerial` permite
 selecionar outro marcador. O sucesso comprova apenas o trecho de boot até esse
 marcador, não o SO completo nem Vulkan. Sem `-SmokeTestSeconds`, a execução
 continua interativa e deve ser encerrada depois do uso.
+O encerramento limitado usa primeiro o PID exato do emulador, espera com prazo
+finito e recorre ao fechamento da árvore somente como fallback, evitando que o
+próprio cleanup fique preso no Windows.
 
 O target de execução deve gerar a imagem necessária e iniciar o ambiente de desenvolvimento através do QEMU.
 
