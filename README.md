@@ -677,9 +677,12 @@ examinados, escritas no framebuffer e a porcentagem economizada pelo shadow
 buffer, atualizando junto com os eventos do desktop.
 Movimentos de mouse consecutivos são coalescidos quando a fila SDL está cheia,
 evitando saturação desnecessária do input.
+A fila HID xHCI também coalesce deltas consecutivos quando cheia, antes da fila
+SDL, sem fundir mudanças de botão ou teclado. Contadores separados expõem
+eventos coalescidos e descartes inevitáveis no log serial.
 
 Verificação atual: `zig build` recompilou o EFI em `14/14` etapas e
-`zig build test` passou `11/11` etapas e `16/16` testes. O
+`zig build test` passou `13/13` etapas e `18/18` testes. O
 boot interativo agora entrega o input diretamente à sessão gráfica, sem ficar
 bloqueado pelo shell BusyBox, e publica `CSOS graphical session ready`. O shell
 será reintegrado como uma aplicação de terminal não bloqueante; isso ainda não

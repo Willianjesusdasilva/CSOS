@@ -2283,6 +2283,10 @@ pub fn start(info: BootInfo) noreturn {
             reported_input = hid.events_total;
             serial.write("USB input events: ");
             serial.writeDecimal(reported_input);
+            serial.write(" dropped: ");
+            serial.writeDecimal(hid.events_dropped);
+            serial.write(" mouse-coalesced: ");
+            serial.writeDecimal(hid.mouse_events_coalesced);
             serial.write("\n");
         }
         reportAudio(&usb);

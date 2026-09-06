@@ -49,7 +49,10 @@ pub const Controller = struct {
         const command_ring = pages.allocate(1) orelse return error.OutOfMemory;
         const event_ring = pages.allocate(1) orelse return error.OutOfMemory;
         const erst = pages.allocate(1) orelse return error.OutOfMemory;
-        zeroPage(dcbaa); zeroPage(command_ring); zeroPage(event_ring); zeroPage(erst);
+        zeroPage(dcbaa);
+        zeroPage(command_ring);
+        zeroPage(event_ring);
+        zeroPage(erst);
         const link: [*]u32 = @ptrFromInt(command_ring + 4096 - 16);
         link[0] = @truncate(command_ring);
         link[1] = @truncate(command_ring >> 32);
@@ -74,10 +77,16 @@ pub const Controller = struct {
             if ((read32(operational, 0x400 + @as(u64, port) * 0x10) & 1) != 0) connected += 1;
         }
         return .{
-            .base = base, .operational = operational, .runtime = runtime, .doorbells = doorbells,
-            .max_ports = max_ports, .connected_ports = connected,
+            .base = base,
+            .operational = operational,
+            .runtime = runtime,
+            .doorbells = doorbells,
+            .max_ports = max_ports,
+            .connected_ports = connected,
             .context_size = if ((read32(base, 0x10) & 4) != 0) 64 else 32,
-            .dcbaa = dcbaa, .command_ring = command_ring, .event_ring = event_ring,
+            .dcbaa = dcbaa,
+            .command_ring = command_ring,
+            .event_ring = event_ring,
         };
     }
 
@@ -108,7 +117,9 @@ pub const Controller = struct {
             const interrupt_ring = pages.allocate(1) orelse return error.OutOfMemory;
             const report = pages.allocate(1) orelse return error.OutOfMemory;
             const configure = pages.allocate(1) orelse return error.OutOfMemory;
-            zeroPage(interrupt_ring); zeroPage(report); zeroPage(configure);
+            zeroPage(interrupt_ring);
+            zeroPage(report);
+            zeroPage(configure);
             const config: [*]u32 = @ptrFromInt(configure);
             config[1] = 1 | (@as(u32, 1) << endpoint_id);
             const config_slot = @as(usize, self.context_size) / 4;
@@ -125,8 +136,14 @@ pub const Controller = struct {
             var endpoint = Endpoint{ .slot = device.slot, .id = endpoint_id, .ring = interrupt_ring, .report = report, .packet_size = endpoint_packet };
             endpoint.installLink();
             self.armEndpoint(&endpoint);
-            if (protocol == 1) { devices.keyboards += 1; devices.keyboard = endpoint; }
-            if (protocol == 2) { devices.mice += 1; devices.mouse = endpoint; }
+            if (protocol == 1) {
+                devices.keyboards += 1;
+                devices.keyboard = endpoint;
+            }
+            if (protocol == 2) {
+                devices.mice += 1;
+                devices.mouse = endpoint;
+            }
         }
         return devices;
     }
@@ -197,8 +214,7 @@ pub const Controller = struct {
         const bytes_per_second = @as(u64, self.audio.sample_rate) *
             @as(u64, self.audio.channels) *
             (@as(u64, self.audio.bits_per_sample) / 8);
-        const periods_per_second: u64 = if (self.audio.interval == 0) 1000 else
-            @max(@as(u64, 1), @as(u64, 8000) >> @as(u6, @intCast(@min(self.audio.interval - 1, 7))));
+        const periods_per_second: u64 = if (self.audio.interval == 0) 1000 else @max(@as(u64, 1), @as(u64, 8000) >> @as(u6, @intCast(@min(self.audio.interval - 1, 7))));
         const bytes_per_period = (bytes_per_second + periods_per_second - 1) / periods_per_second;
         return bytes_per_period <= self.audio.endpoint_packet;
     }
@@ -430,7 +446,10 @@ pub const Controller = struct {
             const input_context = pages.allocate(1) orelse return error.OutOfMemory;
             const transfer_ring = pages.allocate(1) orelse return error.OutOfMemory;
             const descriptor = pages.allocate(1) orelse return error.OutOfMemory;
-            zeroPage(device_context); zeroPage(input_context); zeroPage(transfer_ring); zeroPage(descriptor);
+            zeroPage(device_context);
+            zeroPage(input_context);
+            zeroPage(transfer_ring);
+            zeroPage(descriptor);
             const dcbaa_entries: [*]u64 = @ptrFromInt(self.dcbaa);
             dcbaa_entries[slot] = device_context;
             const input: [*]u32 = @ptrFromInt(input_context);
@@ -439,7 +458,11 @@ pub const Controller = struct {
             input[slot_offset] = (@as(u32, speed) << 20) | (1 << 27);
             input[slot_offset + 1] = @as(u32, port + 1) << 16;
             const ep_offset = slot_offset * 2;
-            const max_packet: u16 = switch (speed) { 1, 3 => 64, 4 => 512, else => 8 };
+            const max_packet: u16 = switch (speed) {
+                1, 3 => 64,
+                4 => 512,
+                else => 8,
+            };
             input[ep_offset + 1] = (@as(u32, max_packet) << 16) | (4 << 3) | (3 << 1);
             input[ep_offset + 2] = @as(u32, @truncate(transfer_ring)) | 1;
             input[ep_offset + 3] = @truncate(transfer_ring >> 32);
@@ -457,7 +480,10 @@ pub const Controller = struct {
         while (self.nextEvent()) |typed| {
             if (typed.kind != 32) continue;
             const event = typed.event;
-            if (try self.handleAudioEvent(event)) { handled = true; continue; }
+            if (try self.handleAudioEvent(event)) {
+                handled = true;
+                continue;
+            }
             if (event.completion != 1 and event.completion != 13) return error.TransferFailed;
             const endpoint: *Endpoint = if (event.slot == devices.keyboard.slot and event.endpoint == devices.keyboard.id)
                 &devices.keyboard
@@ -493,7 +519,8 @@ pub const Controller = struct {
             endpoint.cycle ^= 1;
         }
         const trb: [*]volatile u32 = @ptrFromInt(endpoint.ring + @as(u64, endpoint.enqueue) * 16);
-        trb[0] = @truncate(endpoint.report); trb[1] = @truncate(endpoint.report >> 32);
+        trb[0] = @truncate(endpoint.report);
+        trb[1] = @truncate(endpoint.report >> 32);
         trb[2] = endpoint.packet_size;
         trb[3] = (1 << 10) | (1 << 5) | (1 << 2) | @as(u32, endpoint.cycle);
         endpoint.enqueue += 1;
@@ -502,7 +529,9 @@ pub const Controller = struct {
 
     fn command(self: *Controller, parameter: u64, status: u32, control: u32, trb_type: u6, slot: u8) !u8 {
         const trb: [*]volatile u32 = @ptrFromInt(self.command_ring + @as(u64, self.command_index) * 16);
-        trb[0] = @truncate(parameter); trb[1] = @truncate(parameter >> 32); trb[2] = status;
+        trb[0] = @truncate(parameter);
+        trb[1] = @truncate(parameter >> 32);
+        trb[2] = status;
         trb[3] = control | (@as(u32, trb_type) << 10) | 1 | (@as(u32, slot) << 24);
         self.command_index += 1;
         write32(self.doorbells, 0, 0);
@@ -517,10 +546,13 @@ pub const Controller = struct {
         trbs[1] = @as(u32, length) << 16;
         trbs[2] = 8;
         trbs[3] = (2 << 10) | (1 << 6) | (3 << 16) | 1;
-        trbs[4] = @truncate(buffer); trbs[5] = @truncate(buffer >> 32);
+        trbs[4] = @truncate(buffer);
+        trbs[5] = @truncate(buffer >> 32);
         trbs[6] = length;
         trbs[7] = (3 << 10) | (1 << 16) | (1 << 2) | 1;
-        trbs[8] = 0; trbs[9] = 0; trbs[10] = 0;
+        trbs[8] = 0;
+        trbs[9] = 0;
+        trbs[10] = 0;
         trbs[11] = (4 << 10) | (1 << 5) | 1;
         write32(self.doorbells + @as(u64, slot) * 4, 0, 1);
         const event = try self.waitEvent(32);
@@ -534,13 +566,17 @@ pub const Controller = struct {
         trbs[1] = value;
         trbs[2] = 8;
         trbs[3] = (2 << 10) | (1 << 6) | (if (length == 0) 0 else @as(u32, 2) << 16) | 1;
-        trbs[4] = @truncate(payload orelse 0); trbs[5] = @truncate((payload orelse 0) >> 32); trbs[6] = length;
+        trbs[4] = @truncate(payload orelse 0);
+        trbs[5] = @truncate((payload orelse 0) >> 32);
+        trbs[6] = length;
         trbs[7] = if (length == 0)
             (4 << 10) | (1 << 16) | (1 << 5) | 1
         else
             (3 << 10) | 1;
         if (length != 0) {
-            trbs[8] = 0; trbs[9] = 0; trbs[10] = 0;
+            trbs[8] = 0;
+            trbs[9] = 0;
+            trbs[10] = 0;
             trbs[11] = (4 << 10) | (1 << 16) | (1 << 5) | 1;
         }
         self.audio.control_enqueue += if (length == 0) 2 else 3;
@@ -552,9 +588,12 @@ pub const Controller = struct {
     fn setConfiguration(self: *Controller, slot: u8, ring: u64, configuration: u8) !void {
         const trbs: [*]volatile u32 = @ptrFromInt(ring + 3 * 16);
         trbs[0] = (9 << 8) | (@as(u32, configuration) << 16);
-        trbs[1] = 0; trbs[2] = 8;
+        trbs[1] = 0;
+        trbs[2] = 8;
         trbs[3] = (2 << 10) | (1 << 6) | 1;
-        trbs[4] = 0; trbs[5] = 0; trbs[6] = 0;
+        trbs[4] = 0;
+        trbs[5] = 0;
+        trbs[6] = 0;
         trbs[7] = (4 << 10) | (1 << 16) | (1 << 5) | 1;
         write32(self.doorbells + @as(u64, slot) * 4, 0, 1);
         const event = try self.waitEvent(32);
@@ -584,7 +623,10 @@ pub const Controller = struct {
             },
         };
         self.event_index += 1;
-        if (self.event_index == 256) { self.event_index = 0; self.event_phase ^= 1; }
+        if (self.event_index == 256) {
+            self.event_index = 0;
+            self.event_phase ^= 1;
+        }
         write64(self.runtime, 0x38, self.event_ring + @as(u64, self.event_index) * 16 | 8);
         return typed;
     }
@@ -599,8 +641,12 @@ pub fn handleInterrupt() callconv(.c) void {
     _ = @atomicRmw(u64, &interrupts, .Add, 1, .release);
 }
 
-pub fn interruptCount() u64 { return @atomicLoad(u64, &interrupts, .acquire); }
-pub fn interruptApic() u32 { return @atomicLoad(u32, &last_interrupt_apic, .acquire); }
+pub fn interruptCount() u64 {
+    return @atomicLoad(u64, &interrupts, .acquire);
+}
+pub fn interruptApic() u32 {
+    return @atomicLoad(u32, &last_interrupt_apic, .acquire);
+}
 
 const Endpoint = struct {
     slot: u8 = 0,
@@ -615,7 +661,9 @@ const Endpoint = struct {
 
     fn installLink(self: *Endpoint) void {
         const link: [*]volatile u32 = @ptrFromInt(self.ring + 255 * 16);
-        link[0] = @truncate(self.ring); link[1] = @truncate(self.ring >> 32); link[2] = 0;
+        link[0] = @truncate(self.ring);
+        link[1] = @truncate(self.ring >> 32);
+        link[2] = 0;
         link[3] = (6 << 10) | (1 << 1) | @as(u32, self.cycle);
     }
 };
@@ -641,15 +689,30 @@ pub const HidDevices = struct {
     queue_head: u8 = 0,
     queue_tail: u8 = 0,
     events_total: u64 = 0,
+    events_dropped: u64 = 0,
+    mouse_events_coalesced: u64 = 0,
     latency: metrics.Samples = .{},
 
     fn push(self: *HidDevices, event: InputEvent) void {
         const next: u8 = (self.queue_tail + 1) % 64;
-        if (next == self.queue_head) self.queue_head = (self.queue_head + 1) % 64;
+        self.events_total += 1;
+        if (next == self.queue_head) {
+            const previous_slot: u8 = if (self.queue_tail == 0) 63 else self.queue_tail - 1;
+            const previous = &self.queue[previous_slot];
+            if (event.kind == .mouse and previous.kind == .mouse and event.a == previous.a) {
+                previous.b = coalesceHidDelta(previous.b, event.b);
+                previous.c = coalesceHidDelta(previous.c, event.c);
+                previous.d = coalesceHidDelta(previous.d, event.d);
+                self.queue_tsc[previous_slot] = timestamp();
+                self.mouse_events_coalesced += 1;
+                return;
+            }
+            self.queue_head = (self.queue_head + 1) % 64;
+            self.events_dropped += 1;
+        }
         self.queue[self.queue_tail] = event;
         self.queue_tsc[self.queue_tail] = timestamp();
         self.queue_tail = @intCast(next);
-        self.events_total += 1;
     }
 
     pub fn pop(self: *HidDevices) ?InputEvent {
@@ -661,6 +724,35 @@ pub const HidDevices = struct {
         return event;
     }
 };
+
+fn coalesceHidDelta(left: u8, right: u8) u8 {
+    const left_signed: i8 = @bitCast(left);
+    const right_signed: i8 = @bitCast(right);
+    const total = @max(@as(i16, -127), @min(@as(i16, 127), @as(i16, left_signed) + @as(i16, right_signed)));
+    return @bitCast(@as(i8, @intCast(total)));
+}
+
+test "full HID queue coalesces mouse motion without losing buttons" {
+    var devices = HidDevices{};
+    for (0..63) |_| devices.push(.{ .kind = .mouse, .a = 1, .b = 1, .c = 0, .d = 0 });
+    devices.push(.{ .kind = .mouse, .a = 1, .b = 4, .c = @bitCast(@as(i8, -2)), .d = 1 });
+    try @import("std").testing.expectEqual(@as(u64, 64), devices.events_total);
+    try @import("std").testing.expectEqual(@as(u64, 1), devices.mouse_events_coalesced);
+    try @import("std").testing.expectEqual(@as(u64, 0), devices.events_dropped);
+    var last: InputEvent = undefined;
+    while (devices.pop()) |event| last = event;
+    try @import("std").testing.expectEqual(@as(u8, 1), last.a);
+    try @import("std").testing.expectEqual(@as(u8, 5), last.b);
+    try @import("std").testing.expectEqual(@as(i8, -2), @as(i8, @bitCast(last.c)));
+}
+
+test "full HID queue records non-coalescible event loss" {
+    var devices = HidDevices{};
+    for (0..63) |_| devices.push(.{ .kind = .mouse, .a = 0, .b = 1, .c = 0, .d = 0 });
+    devices.push(.{ .kind = .keyboard, .a = 4, .b = 0 });
+    try @import("std").testing.expectEqual(@as(u64, 1), devices.events_dropped);
+    try @import("std").testing.expectEqual(@as(u64, 0), devices.mouse_events_coalesced);
+}
 
 pub const AudioDevices = struct {
     interfaces: u8 = 0,
@@ -718,21 +810,39 @@ fn waitBits(address: u64, mask: u32, set: bool) !void {
     if (spins == 100_000_000) return error.Timeout;
 }
 
-fn zeroPage(address: u64) void { const bytes: [*]u8 = @ptrFromInt(address); @memset(bytes[0..4096], 0); }
+fn zeroPage(address: u64) void {
+    const bytes: [*]u8 = @ptrFromInt(address);
+    @memset(bytes[0..4096], 0);
+}
 fn timestamp() u64 {
     var low: u32 = undefined;
     var high: u32 = undefined;
     asm volatile ("lfence; rdtsc"
-        : [low] "={eax}" (low), [high] "={edx}" (high),
+        : [low] "={eax}" (low),
+          [high] "={edx}" (high),
         :
         : .{ .memory = true });
     return (@as(u64, high) << 32) | low;
 }
-fn read8(base: u64, offset: u64) u8 { const value: *volatile u8 = @ptrFromInt(base + offset); return value.*; }
-fn read32(base: u64, offset: u64) u32 { const value: *volatile u32 = @ptrFromInt(base + offset); return value.*; }
-fn write32(base: u64, offset: u64, value: u32) void { const target: *volatile u32 = @ptrFromInt(base + offset); target.* = value; }
-fn write64(base: u64, offset: u64, value: u64) void { const target: *volatile u64 = @ptrFromInt(base + offset); target.* = value; }
-fn get16(source: [*]const u8) u16 { return @as(u16, source[0]) | (@as(u16, source[1]) << 8); }
+fn read8(base: u64, offset: u64) u8 {
+    const value: *volatile u8 = @ptrFromInt(base + offset);
+    return value.*;
+}
+fn read32(base: u64, offset: u64) u32 {
+    const value: *volatile u32 = @ptrFromInt(base + offset);
+    return value.*;
+}
+fn write32(base: u64, offset: u64, value: u32) void {
+    const target: *volatile u32 = @ptrFromInt(base + offset);
+    target.* = value;
+}
+fn write64(base: u64, offset: u64, value: u64) void {
+    const target: *volatile u64 = @ptrFromInt(base + offset);
+    target.* = value;
+}
+fn get16(source: [*]const u8) u16 {
+    return @as(u16, source[0]) | (@as(u16, source[1]) << 8);
+}
 fn get24(source: [*]const u8) u32 {
     return @as(u32, source[0]) | (@as(u32, source[1]) << 8) | (@as(u32, source[2]) << 16);
 }

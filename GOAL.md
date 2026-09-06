@@ -139,6 +139,9 @@ stack limitada recebida do firmware; o boot QEMU voltou a alcançar a sessão
 gráfica depois dessa correção.
 Sob carga, movimentos de mouse consecutivos são coalescidos na fila SDL para
 preservar responsividade sem sobrescrever eventos de botão/roda.
+A fila HID xHCI aplica a mesma proteção antes da camada SDL: quando cheia,
+combina apenas movimentos consecutivos com o mesmo estado de botões, satura os
+deltas e contabiliza separadamente coalescência e descarte real.
 O boot também cria uma superfície SDL software de demonstração, desenha nela e
 a apresenta dentro de `APP1` por `blitSurface`. A aplicação agora consome a fila
 SDL real: teclado, movimento, roda e botões alteram o conteúdo, e `Ctrl+Q`
@@ -171,13 +174,13 @@ do fallback por árvore, eliminando um travamento observado no cleanup de um
 smoke test sem deixar o emulador aberto.
 
 Após esses incrementos, `zig build` recompila o EFI em `14/14` etapas e
-`zig build test` continua em `11/11` etapas e `16/16` testes aprovados; um boot QEMU limitado também voltou a alcançar
+`zig build test` continua em `13/13` etapas e `18/18` testes aprovados; um boot QEMU limitado também voltou a alcançar
 `CSOS graphical session ready`.
 
 Esta porcentagem não é uma contagem simples de milestones. M0–M13 têm bases relevantes, mas M14 ainda não possui triângulos Vulkan validados em AMD e NVIDIA, e M15–M30 permanecem majoritariamente pendentes. Código preparatório ou teste no host não equivale a hardware funcional.
 
-Verificação mais recente em 2026-09-06: `zig build test` concluiu `11/11` etapas
-e `16/16` testes, e o boot QEMU chegou a `CSOS graphical session ready`. A
+Verificação mais recente em 2026-09-06: `zig build test` concluiu `13/13` etapas
+e `18/18` testes, e o boot QEMU chegou a `CSOS graphical session ready`. A
 sessão gráfica agora assume teclado e mouse sem aguardar a saída do shell
 BusyBox. O terminal deverá voltar como aplicação não bloqueante; isso não altera
 a ausência de validação Vulkan física.

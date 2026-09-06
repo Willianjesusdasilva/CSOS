@@ -178,6 +178,15 @@ pub fn build(b: *std.Build) void {
     xhci_module.addImport("physical", physical_module);
     xhci_module.addImport("apic", apic_module);
     xhci_module.addImport("metrics", metrics_module);
+    const xhci_test_module = b.createModule(.{
+        .root_source_file = b.path("drivers/xhci.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+    });
+    xhci_test_module.addImport("pci", pci_module);
+    xhci_test_module.addImport("physical", physical_module);
+    xhci_test_module.addImport("apic", apic_module);
+    xhci_test_module.addImport("metrics", metrics_module);
     const audio_module = b.createModule(.{ .root_source_file = b.path("drivers/audio.zig") });
     const gpu_module = b.createModule(.{ .root_source_file = b.path("drivers/gpu.zig") });
     gpu_module.addImport("pci", pci_module);
@@ -193,6 +202,9 @@ pub fn build(b: *std.Build) void {
     const run_gpu_tests = b.addRunArtifact(gpu_tests);
     const test_step = b.step("test", "Run CSOS host-side tests");
     test_step.dependOn(&run_gpu_tests.step);
+    const xhci_tests = b.addTest(.{ .root_module = xhci_test_module });
+    const run_xhci_tests = b.addRunArtifact(xhci_tests);
+    test_step.dependOn(&run_xhci_tests.step);
     const sdl_module = b.createModule(.{ .root_source_file = b.path("graphics/sdl.zig") });
     const display_module = b.createModule(.{ .root_source_file = b.path("drivers/display.zig") });
     display_module.addImport("pci", pci_module);
