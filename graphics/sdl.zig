@@ -48,6 +48,10 @@ pub const EventQueue = struct {
         return self.len() == self.items.len;
     }
 
+    pub fn isEmpty(self: *const EventQueue) bool {
+        return self.read == self.write;
+    }
+
     pub fn droppedCount(self: *const EventQueue) u64 {
         return self.dropped;
     }
@@ -212,6 +216,7 @@ test "SDL software event queue and surface contract" {
     try @import("std").testing.expectEqual(@as(usize, 0), events.len());
     try @import("std").testing.expectEqual(@as(usize, 64), events.remaining());
     try @import("std").testing.expect(!events.isFull());
+    try @import("std").testing.expect(events.isEmpty());
     try @import("std").testing.expect(events.pushQuit());
     try @import("std").testing.expectEqual(@as(?Event, .{ .quit = {} }), events.peek());
     try @import("std").testing.expectEqual(@as(?Event, .{ .quit = {} }), events.poll());
@@ -226,6 +231,7 @@ test "SDL software event queue and surface contract" {
         try @import("std").testing.expect(full.push(.{ .mouse = .{ .x = @intCast(index), .y = 0, .wheel = 0, .buttons = 0 } }));
     try @import("std").testing.expect(!full.push(.{ .quit = {} }));
     try @import("std").testing.expect(full.isFull());
+    try @import("std").testing.expect(!full.isEmpty());
     try @import("std").testing.expectEqual(@as(u64, 1), full.droppedCount());
     try @import("std").testing.expectEqual(@as(u64, 1), full.takeDroppedCount());
     try @import("std").testing.expectEqual(@as(u64, 0), full.droppedCount());
