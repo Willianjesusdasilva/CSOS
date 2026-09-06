@@ -22,6 +22,8 @@ pub const Adapter = struct {
 };
 
 pub const max_windows = 16;
+pub const min_window_width = 64;
+pub const min_window_height = 48;
 
 pub const Window = struct {
     id: u32,
@@ -108,6 +110,18 @@ pub const WindowManager = struct {
         return true;
     }
 
+    pub fn resize(self: *WindowManager, index: usize, width: usize, height: usize, screen_width: usize, screen_height: usize) bool {
+        if (index >= self.count or !self.windows[index].visible) return false;
+        const window = &self.windows[index];
+        if (window.maximized) return false;
+        const available_width = screen_width -| window.x;
+        const available_height = (screen_height -| 20) -| window.y;
+        if (available_width < min_window_width or available_height < min_window_height) return false;
+        window.width = @min(@max(width, min_window_width), available_width);
+        window.height = @min(@max(height, min_window_height), available_height);
+        return true;
+    }
+
     pub fn toggleMaximized(self: *WindowManager, index: usize, screen_width: usize, screen_height: usize) bool {
         if (index >= self.count or !self.windows[index].visible or screen_width < 32 or screen_height < 44) return false;
         const window = &self.windows[index];
@@ -188,6 +202,14 @@ pub const WindowManager = struct {
             y >= window.y and y < window.y +| 20;
     }
 
+    pub fn resizeHitTest(self: *const WindowManager, index: usize, x: usize, y: usize) bool {
+        if (index >= self.count) return false;
+        const window = self.windows[index];
+        return window.visible and !window.minimized and !window.maximized and
+            x >= window.x +| window.width -| 12 and x < window.x +| window.width and
+            y >= window.y +| window.height -| 12 and y < window.y +| window.height;
+    }
+
     pub fn taskbarHitTest(self: *const WindowManager, x: usize, y: usize, screen_height: usize) ?usize {
         if (screen_height < 24 or y < screen_height - 20) return null;
         const slot = x / 112;
@@ -226,6 +248,11 @@ pub const WindowManager = struct {
                     context.fillRect(w.x + w.width -| 34, w.y + 7, 7, 5, 0xd0d8e8);
                 }
             }
+            if (!w.maximized and w.width >= min_window_width and w.height >= min_window_height) {
+                context.fillRect(w.x + w.width -| 10, w.y + w.height -| 3, 8, 1, 0x90a0b8);
+                context.fillRect(w.x + w.width -| 7, w.y + w.height -| 6, 5, 1, 0x90a0b8);
+                context.fillRect(w.x + w.width -| 4, w.y + w.height -| 9, 2, 1, 0x90a0b8);
+            }
         }
         const taskbar_y = @as(usize, context.framebuffer.height) -| 20;
         context.fillRect(0, taskbar_y, context.framebuffer.width, 20, 0x101820);
@@ -250,6 +277,8 @@ test "window manager focus alt-tab hit-test and close" {
     try std.testing.expect(!manager.closeHitTest(1, 107, 24));
     try std.testing.expect(manager.maximizeHitTest(1, 94, 24));
     try std.testing.expect(!manager.maximizeHitTest(1, 120, 24));
+    try std.testing.expect(manager.resizeHitTest(1, 126, 78));
+    try std.testing.expect(!manager.resizeHitTest(1, 100, 50));
     try std.testing.expect(manager.focus(first));
     try std.testing.expectEqual(@as(u32, 10), manager.windows[manager.focused.?].id);
     try std.testing.expectEqual(@as(?usize, 1), manager.altTab());
@@ -277,11 +306,15 @@ test "window manager focus alt-tab hit-test and close" {
     try std.testing.expect(manager.move(0, 100, 100, 80, 60));
     try std.testing.expectEqual(@as(usize, 16), manager.windows[0].x);
     try std.testing.expectEqual(@as(usize, 28), manager.windows[0].y);
+    try std.testing.expect(manager.resize(0, 4, 200, 128, 128));
+    try std.testing.expectEqual(min_window_width, manager.windows[0].width);
+    try std.testing.expectEqual(@as(usize, 80), manager.windows[0].height);
     try std.testing.expect(manager.toggleMaximized(0, 128, 96));
     try std.testing.expect(manager.windows[0].maximized);
     try std.testing.expectEqual(@as(usize, 128), manager.windows[0].width);
     try std.testing.expectEqual(@as(usize, 76), manager.windows[0].height);
     try std.testing.expect(!manager.move(0, 10, 10, 128, 96));
+    try std.testing.expect(!manager.resize(0, 80, 60, 128, 96));
     try std.testing.expect(manager.toggleMaximized(0, 128, 96));
     try std.testing.expect(!manager.windows[0].maximized);
     try std.testing.expectEqual(@as(usize, 16), manager.windows[0].x);
@@ -295,6 +328,7 @@ test "window manager focus alt-tab hit-test and close" {
     try std.testing.expect(!manager.windows[0].minimized);
     manager.windows[0].visible = false;
     try std.testing.expect(!manager.move(0, 0, 0, 100, 100));
+    try std.testing.expect(!manager.resize(0, 80, 60, 100, 100));
     try std.testing.expect(!manager.restore(0));
     const count_before_invalid_close = manager.count;
     manager.close(max_windows);

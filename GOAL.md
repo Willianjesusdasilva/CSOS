@@ -119,6 +119,11 @@ restaurar/focar qualquer janela.
 As janelas agora possuem títulos próprios e podem ser maximizadas/restauradas
 pelo botão da barra de título ou por `Ctrl+Seta para cima`, preservando a
 geometria anterior e respeitando a área reservada à barra de tarefas.
+Uma alça visual no canto inferior direito permite redimensionamento por mouse,
+com dimensões mínimas e contenção integral na área útil do desktop.
+A tabela fixa do compositor saiu do frame de `kernel.start` para não consumir a
+stack limitada recebida do firmware; o boot QEMU voltou a alcançar a sessão
+gráfica depois dessa correção.
 Sob carga, movimentos de mouse consecutivos são coalescidos na fila SDL para
 preservar responsividade sem sobrescrever eventos de botão/roda.
 O boot também cria uma superfície SDL software de demonstração, desenha nela e

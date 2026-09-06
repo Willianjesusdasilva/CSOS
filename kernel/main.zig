@@ -44,6 +44,10 @@ var console_last_key: u8 = 0;
 var console_input_irq_apic: u32 = 0;
 var audio_reported = false;
 var sdl_demo_pixels: [64 * 48]u32 = .{0} ** (64 * 48);
+// Keep the compositor's fixed-capacity window table off the UEFI boot stack.
+// kernel.start already coordinates the entire bring-up and must not grow with
+// every desktop feature added late in that function.
+var desktop_window_manager = display.WindowManager{};
 var gpu_gmc11_activation_workspace = gpu.AmdGmc11ActivationWorkspace{};
 const GpuVmRuntime = struct {
     transport: ?gpu.AmdGmc11MmioTransport = null,
@@ -1532,12 +1536,13 @@ pub fn start(info: BootInfo) noreturn {
     demo_window.fillRect(4, 4, 56, 8, 0x50b080ff);
     demo_window.fillRect(4, 20, 32, 20, 0x5080c0ff);
     var demo_app = sdl.Application{ .window = demo_window };
-    var window_manager = display.WindowManager{};
+    const window_manager = &desktop_window_manager;
+    window_manager.* = .{};
     _ = window_manager.create(.{ .id = 1, .title = "APP1", .x = 32, .y = 220, .width = 260, .height = 140, .title_color = 0x405070, .body_color = 0x18202c }) catch panic("desktop window creation failed");
     _ = window_manager.create(.{ .id = 2, .title = "MONITOR", .x = 180, .y = 280, .width = 260, .height = 140, .title_color = 0x604070, .body_color = 0x241828 }) catch panic("desktop window creation failed");
     screen.drawBaseline(@as(usize, hid.keyboards) + hid.mice, audio_info.playback_endpoints);
     window_manager.compose(&screen);
-    drawSdlApplication(&screen, &window_manager, &demo_app, 1);
+    drawSdlApplication(&screen, window_manager, &demo_app, 1);
     screen.drawActionButton(false);
     const initial_pixels = screen.present();
     if (initial_pixels == 0) panic("display presentation failed");
@@ -2015,6 +2020,7 @@ pub fn start(info: BootInfo) noreturn {
     var action_button_active = false;
     var alt_tab_down = false;
     var drag_window: ?usize = null;
+    var resize_window: ?usize = null;
     var drag_offset_x: usize = 0;
     var drag_offset_y: usize = 0;
     var cursor_x: usize = @as(usize, screen.framebuffer.width) / 2;
@@ -2038,7 +2044,7 @@ pub fn start(info: BootInfo) noreturn {
         };
         while (hid.pop()) |event| {
             if (event.kind == .keyboard) {
-                if (focusedWindowIs(&window_manager, 1)) {
+                if (focusedWindowIs(window_manager, 1)) {
                     _ = sdl_events.pushKeyboard(event.a, event.a != 0, event.b);
                     if ((event.b & 0x01) != 0 and event.a == 0x14) _ = sdl_events.pushQuit();
                     demo_app.pump(&sdl_events, &handleSdlDemoEvent);
@@ -2083,7 +2089,7 @@ pub fn start(info: BootInfo) noreturn {
                 }
                 screen.drawBaseline(@as(usize, hid.keyboards) + hid.mice, audio_info.playback_endpoints);
                 window_manager.compose(&screen);
-                drawSdlApplication(&screen, &window_manager, &demo_app, 1);
+                drawSdlApplication(&screen, window_manager, &demo_app, 1);
                 screen.drawActionButton(action_button_active);
                 screen.drawKeyboardActivity();
                 screen.drawPointerButtons(mouse_buttons);
@@ -2094,7 +2100,7 @@ pub fn start(info: BootInfo) noreturn {
             const dx: i8 = @bitCast(event.b);
             const dy: i8 = @bitCast(event.c);
             const wheel: i8 = @bitCast(event.d);
-            if (focusedWindowIs(&window_manager, 1)) {
+            if (focusedWindowIs(window_manager, 1)) {
                 _ = sdl_events.pushMouseCoalesced(@intCast(dx), @intCast(dy), @intCast(wheel), event.a);
                 demo_app.pump(&sdl_events, &handleSdlDemoEvent);
             }
@@ -2127,6 +2133,13 @@ pub fn start(info: BootInfo) noreturn {
                             serial.write(if (window_manager.windows[focused].maximized) "UI maximize window: " else "UI restore window size: ");
                             serial.writeDecimal(window_manager.windows[focused].id);
                             serial.write("\n");
+                        } else if (window_manager.resizeHitTest(hit, cursor_x, cursor_y)) {
+                            _ = window_manager.focus(hit);
+                            resize_window = window_manager.focused;
+                            drag_window = null;
+                            serial.write("UI resize start window: ");
+                            serial.writeDecimal(window_manager.windows[resize_window.?].id);
+                            serial.write("\n");
                         } else {
                             _ = window_manager.focus(hit);
                             if (!window_manager.windows[window_manager.focused.?].maximized and cursor_y >= window.y and cursor_y < window.y +| 20) {
@@ -2141,7 +2154,10 @@ pub fn start(info: BootInfo) noreturn {
                     }
                 }
                 mouse_buttons = event.a;
-                if (!left_pressed) drag_window = null;
+                if (!left_pressed) {
+                    drag_window = null;
+                    resize_window = null;
+                }
                 serial.write("UI mouse buttons: ");
                 serial.writeDecimal(mouse_buttons);
                 serial.write("\n");
@@ -2149,7 +2165,12 @@ pub fn start(info: BootInfo) noreturn {
             cursor_x = if (dx < 0) cursor_x -| @as(usize, @intCast(-@as(i16, dx))) else @min(@as(usize, screen.framebuffer.width) -| 1, cursor_x + @as(usize, @intCast(dx)));
             cursor_y = if (dy < 0) cursor_y -| @as(usize, @intCast(-@as(i16, dy))) else @min(@as(usize, screen.framebuffer.height) -| 1, cursor_y + @as(usize, @intCast(dy)));
             if (mouse_buttons & 1 != 0) {
-                if (drag_window) |dragged| {
+                if (resize_window) |resizing| {
+                    if (resizing < window_manager.count) {
+                        const window = window_manager.windows[resizing];
+                        _ = window_manager.resize(resizing, cursor_x -| window.x +| 1, cursor_y -| window.y +| 1, screen.framebuffer.width, screen.framebuffer.height);
+                    }
+                } else if (drag_window) |dragged| {
                     if (dragged < window_manager.count) {
                         _ = window_manager.move(dragged, cursor_x -| drag_offset_x, cursor_y -| drag_offset_y, screen.framebuffer.width, screen.framebuffer.height);
                     }
@@ -2157,7 +2178,7 @@ pub fn start(info: BootInfo) noreturn {
             }
             screen.drawBaseline(@as(usize, hid.keyboards) + hid.mice, audio_info.playback_endpoints);
             window_manager.compose(&screen);
-            drawSdlApplication(&screen, &window_manager, &demo_app, 1);
+            drawSdlApplication(&screen, window_manager, &demo_app, 1);
             screen.drawActionButton(action_button_active);
             screen.drawPointerButtons(event.a);
             screen.drawCursor(cursor_x, cursor_y, if (event.a != 0) 0xffb040 else 0xffffff);
