@@ -267,7 +267,7 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
                     .alignment = read64At(header + 48),
                 };
                 try loadSegment(&address_space, pages, mappings, &mapping_count, owned, &owned_count, module_tls, file_offset, file_size, memory_size, true, false, false);
-                tls_modules +%= 1;
+                tls_modules = saturatingAdd(tls_modules, 1);
             }
             try applyRelativeRelocations(mappings[0..mapping_count], shared_base, shared_program_offset, shared_program_entry_size, shared_program_count, true);
             providers[provider_count] = .{
@@ -289,7 +289,7 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
                 dependency_name_count += 1;
             }
             provider_count += 1;
-            shared_objects_loaded +%= 1;
+            shared_objects_loaded = saturatingAdd(shared_objects_loaded, 1);
         }
         try applySymbolRelocations(program_image, program_offset, program_entry_size, program_count, load_bias, 0, providers[0..provider_count], mappings[0..mapping_count]);
         for (providers[0..provider_count], 0..) |provider, provider_index| {
@@ -350,7 +350,7 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
                 try loadSegment(&address_space, pages, mappings, &mapping_count, owned, &owned_count, virtual, file_offset, file_size, memory_size, (flags & 2) != 0, (flags & 1) != 0, false);
         }
         try applyRelativeRelocations(mappings[0..mapping_count], interpreter_base, interpreter_program_offset, interpreter_program_entry_size, interpreter_program_count, false);
-        interpreter_loads +%= 1;
+        interpreter_loads = saturatingAdd(interpreter_loads, 1);
         image = program_image;
     }
 
@@ -904,7 +904,7 @@ fn applyRelativeRelocations(mappings: []const Mapping, load_bias: u64, program_o
             return error.UnsupportedRelocation;
         }
         try writeMapped64(mappings, target, load_bias +% @as(u64, @bitCast(addend)));
-        relative_relocations +%= 1;
+        relative_relocations = saturatingAdd(relative_relocations, 1);
     }
 }
 
@@ -950,7 +950,7 @@ fn applySymbolTable(consumer: []const u8, consumer_base: u64, consumer_module: u
         if (relocation_type == 16 and (info >> 32) == 0) {
             if (consumer_module == 0) return error.InvalidTlsModule;
             try writeMapped64(mappings, target, consumer_module);
-            tls_relocations +%= 1;
+            tls_relocations = saturatingAdd(tls_relocations, 1);
             continue;
         }
         if (relocation_type != 1 and relocation_type != 6 and relocation_type != 7) return error.UnsupportedSymbolRelocation;
@@ -972,7 +972,7 @@ fn applySymbolTable(consumer: []const u8, consumer_base: u64, consumer_module: u
                     if (required_version) |required| {
                         const provided = try definedSymbolVersion(provider.bytes, supplied, provider_index);
                         if (provided == null or !equal(required, provided.?)) continue;
-                        versioned_symbols +%= 1;
+                        versioned_symbols = saturatingAdd(versioned_symbols, 1);
                     }
                     resolved = provider.base + read64From(provider.bytes, provider_symbol + 8);
                     break;
@@ -990,8 +990,8 @@ fn applySymbolTable(consumer: []const u8, consumer_base: u64, consumer_module: u
         const addend: i64 = @bitCast(read64From(consumer, item + 16));
         const value = if (relocation_type == 1) symbol_value +% @as(u64, @bitCast(addend)) else symbol_value;
         try writeMapped64(mappings, target, value);
-        symbol_relocations +%= 1;
-        if (relocation_type == 1 or relocation_type == 6) data_symbol_relocations +%= 1;
+        symbol_relocations = saturatingAdd(symbol_relocations, 1);
+        if (relocation_type == 1 or relocation_type == 6) data_symbol_relocations = saturatingAdd(data_symbol_relocations, 1);
     }
 }
 
@@ -1094,7 +1094,7 @@ fn dynamicSymbols(bytes: []const u8, program_offset: u64, program_entry_size: u1
     if (symbol_virtual == 0 or string_virtual == 0 or (hash_virtual == 0 and gnu_hash_virtual == 0)) return error.InvalidDynamicSymbols;
     const symbol_count = if (gnu_hash_virtual != 0) blk: {
         const gnu_hash_file = try virtualFileOffsetFor(bytes, gnu_hash_virtual, 16, program_offset, program_entry_size, program_count);
-        gnu_hash_tables +%= 1;
+            gnu_hash_tables = saturatingAdd(gnu_hash_tables, 1);
         break :blk try gnuHashSymbolCount(bytes, gnu_hash_file);
     } else blk: {
         const hash_file = try virtualFileOffsetFor(bytes, hash_virtual, 8, program_offset, program_entry_size, program_count);
