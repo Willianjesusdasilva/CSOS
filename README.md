@@ -723,6 +723,7 @@ será reintegrado como uma aplicação de terminal não bloqueante; isso ainda n
 No launcher, hover do mouse e seleção de teclado são estados separados, evitando
 que apontar para um item esconda a seleção feita por setas ou roda.
 No FILES, mover o ponteiro realça a linha sob o cursor e o clique abre o preview.
+O botão `BACK` do preview recebe realce de hover antes do clique de retorno.
 
 O NVMe não confunde mais o campo `NN` do Identify Controller com quantidade de
 discos anexados. O driver consulta a lista de namespaces ativos, rejeita NSIDs

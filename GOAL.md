@@ -119,6 +119,8 @@ apenas realça sua célula, enquanto setas/roda preservam a seleção ativa; ao 
 do menu o hover é limpo sem perder a seleção.
 O FILES também acompanha o hover do ponteiro nas linhas visíveis; o clique segue
 reservado para abrir o preview do arquivo.
+No preview, o botão `BACK` também recebe realce ao passar o ponteiro antes do
+clique de retorno.
 No ciclo de standby, páginas somente-leitura da imagem principal podem ser
 descartadas e restauradas; intérprete e bibliotecas compartilhadas permanecem
 residentes até haver metadado de backing individual para recuperação segura.

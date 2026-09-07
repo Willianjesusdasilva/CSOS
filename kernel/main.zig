@@ -49,6 +49,7 @@ var sdl_demo_pixels: [224 * 96]u32 = .{0} ** (224 * 96);
 var sdl_monitor_pixels: [224 * 96]u32 = .{0} ** (224 * 96);
 var sdl_system_pixels: [224 * 96]u32 = .{0} ** (224 * 96);
 var sdl_terminal = sdl.Terminal{};
+var files_preview_back_hover = false;
 // Keep the compositor's fixed-capacity window table off the UEFI boot stack.
 // kernel.start already coordinates the entire bring-up and must not grow with
 // every desktop feature added late in that function.
@@ -2177,6 +2178,7 @@ pub fn start(info: BootInfo) noreturn {
                         files_preview_pager.reset(root_files[files_selection.selected].size);
                         _ = loadFilePreview(&volume, root_files[files_selection.selected], &files_preview_pager, &files_preview, &files_window) catch panic("UI file preview read failed");
                         files_preview_open = true;
+                        files_preview_back_hover = false;
                         file_browser_consumed = true;
                         serial.write("UI files selected: ");
                         serial.write(&root_files[files_selection.selected].name);
@@ -2338,6 +2340,13 @@ pub fn start(info: BootInfo) noreturn {
                     const changed = if (wheel < 0) files_preview_pager.next() else files_preview_pager.previous();
                     if (changed) _ = loadFilePreview(&volume, root_files[files_selection.selected], &files_preview_pager, &files_preview, &files_window) catch panic("UI mouse file preview page read failed");
                 }
+                if (files_preview_open and pointer_state_changed) {
+                    const hovered = window_manager.contentRectHitTest(window_manager.focused.?, cursor_x, cursor_y, 164, 2, 58, 12);
+                    if (hovered != files_preview_back_hover) {
+                        files_preview_back_hover = hovered;
+                        _ = loadFilePreview(&volume, root_files[files_selection.selected], &files_preview_pager, &files_preview, &files_window) catch panic("UI file preview hover redraw failed");
+                    }
+                }
                 if (!files_preview_open and pointer_state_changed and root_file_count != 0) {
                     if (window_manager.contentListRowHitTest(window_manager.focused.?, cursor_x, cursor_y, 17, 11, 10, files_selection.visible_rows)) |row| {
                         if (files_selection.selectVisibleRow(row)) drawFilesSurface(&files_window, root_files[0..root_file_count], &files_selection);
@@ -2438,6 +2447,7 @@ pub fn start(info: BootInfo) noreturn {
                                     files_preview_pager.reset(root_files[files_selection.selected].size);
                                     _ = loadFilePreview(&volume, root_files[files_selection.selected], &files_preview_pager, &files_preview, &files_window) catch panic("UI mouse file preview read failed");
                                     files_preview_open = true;
+                                    files_preview_back_hover = false;
                                     serial.write("UI files mouse open: ");
                                     serial.writeDecimal(files_selection.selected);
                                     serial.write("\n");
@@ -2611,7 +2621,7 @@ fn drawFilePreview(window: *sdl.Window, entry: fat16.Volume.DirectoryEntry, offs
     window.clear(0x181c20ff);
     window.drawText(4, 4, &entry.name, 0xf0c080ff);
     drawSurfaceNumber(window, 108, 4, @intCast(offset), 0x90b0d0ff);
-    window.fillRect(164, 2, 58, 12, 0x50402cff);
+    window.fillRect(164, 2, 58, 12, if (files_preview_back_hover) 0x806040ff else 0x50402cff);
     window.drawText(172, 4, "BACK", 0xf0d8b0ff);
     var line: [26]u8 = undefined;
     var line_length: usize = 0;
