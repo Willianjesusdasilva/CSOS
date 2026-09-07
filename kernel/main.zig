@@ -2452,6 +2452,10 @@ pub fn start(info: BootInfo) noreturn {
                     serial.write(if (action_button_active) "active\n" else "inactive\n");
                 }
                 if (left_pressed and !left_was_pressed) {
+                    if (desktop_menu_open != 0 and desktopMenuHitTest(cursor_x, cursor_y) == null) {
+                        desktop_menu_open = 0;
+                        serial.write("UI menu dismissed\n");
+                    }
                     // A click on an Alt+Tab slot selects that window; clicks
                     // elsewhere simply dismiss the overlay.
                     if (window_manager.switcher_open) {

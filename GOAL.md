@@ -233,6 +233,7 @@ Os ícones do dock agora têm hit-test e abrem/focam as aplicações existentes
 TERMINAL, MONITOR, SYSTEM e FILES.
 Os cinco rótulos da barra superior também têm hit-test; cada menu abre um
 painel visual e publica o menu selecionado no serial. `Esc` fecha o menu aberto.
+Clique fora da barra também dispensa o painel automaticamente.
 `echo texto > arquivo` agora cria/trunca e grava no arquivo FAT via callback VFS,
 permitindo alterar dados pela sessão gráfica sem sair do SO.
 `echo texto >> arquivo` também usa o modo append do descritor, permitindo logs
