@@ -34,6 +34,7 @@ var process_group: u64 = 1;
 var process_session: u64 = 1;
 var signal_stack: [32]u8 = .{0} ** 32;
 var random_state: u64 = 0x9e3779b97f4a7c15;
+var registered_rseq: u64 = 0;
 const max_epoll_watch = 16;
 const EpollWatch = struct { fd: u32 = 0, generation: u32 = 0, events: u32 = 0, data: u64 = 0, active: bool = false };
 var epoll_watches: [32][max_epoll_watch]EpollWatch = .{.{EpollWatch{}} ** max_epoll_watch} ** 32;
@@ -434,6 +435,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         274 => getRobustList(arg1, arg2, arg3, arg4),
         309 => getcpu(arg1, arg2),
         318 => getRandom(arg1, arg2, arg3),
+        334 => rseq(arg1, arg2, arg3, arg4),
         436 => closeRange(arg1, arg2, arg3),
         439 => faccessat2(arg1, arg2, arg3, arg4),
         else => unsupported(number),
@@ -2629,6 +2631,21 @@ fn getRandom(address: u64, length: u64, flags: u64) u64 {
         bytes[index] = @truncate(random_state >> 24);
     }
     return length;
+}
+
+fn rseq(address: u64, length: u64, flags: u64, signature: u64) u64 {
+    const unregister: u64 = 1;
+    if ((flags & ~unregister) != 0) return errno(22);
+    if ((flags & unregister) != 0) {
+        if (address != 0 or length != 0 or signature != 0 or registered_rseq == 0) return errno(22);
+        registered_rseq = 0;
+        return 0;
+    }
+    // Linux's current x86 ABI requires a 32-byte, 32-byte-aligned area.
+    if (address == 0 or (address & 31) != 0 or length != 32 or !validUserSlice(address, length)) return errno(22);
+    if (registered_rseq != 0) return errno(16);
+    registered_rseq = address;
+    return 0;
 }
 
 fn uname(address: u64) u64 {
