@@ -818,6 +818,13 @@ test "full HID queue coalesces mouse motion without losing buttons" {
     try @import("std").testing.expectEqual(@as(i8, -2), @as(i8, @bitCast(last.c)));
 }
 
+test "HID event total saturates" {
+    var devices = HidDevices{};
+    devices.events_total = std.math.maxInt(u64);
+    devices.push(.{ .kind = .mouse, .a = 0, .b = 1, .c = 0, .d = 0 });
+    try std.testing.expectEqual(std.math.maxInt(u64), devices.events_total);
+}
+
 test "full HID queue records non-coalescible event loss" {
     var devices = HidDevices{};
     for (0..63) |_| devices.push(.{ .kind = .mouse, .a = 0, .b = 1, .c = 0, .d = 0 });
