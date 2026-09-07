@@ -212,3 +212,9 @@ pub fn validateAlignedAllocationSelfTest() !void {
     allocator.returned[0] = .{ .next = 0xfffffffffffff000, .end = 0xffffffffffffffff };
     if (allocator.allocateAligned(1, 0x200000) != null) return error.AlignedAddressOverflowAccepted;
 }
+
+test "physical allocator rejects release outside managed range" {
+    var allocator = Allocator{ .managed_count = 1 };
+    allocator.managed[0] = .{ .next = 0x100000, .end = 0x104000 };
+    try @import("std").testing.expectError(error.InvalidRelease, allocator.release(0x200000, 1));
+}
