@@ -729,7 +729,7 @@ fn loadSegment(
     reclaimable: bool,
 ) !void {
     var page_virtual = virtual & ~(page_size - 1);
-    const segment_end = virtual + memory_size;
+    const segment_end = std.math.add(u64, virtual, memory_size) catch return error.InvalidElf;
     while (page_virtual < segment_end) : (page_virtual += @min(@as(u64, page_size), segment_end - page_virtual)) {
         var physical_address: ?u64 = null;
         for (mappings[0..mapping_count.*]) |mapping| {
