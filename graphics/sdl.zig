@@ -921,6 +921,10 @@ test "SDL software event queue and surface contract" {
     try @import("std").testing.expectEqualStrings("one two ", input.slice());
     input.eraseWordBackward();
     try @import("std").testing.expectEqualStrings("one ", input.slice());
+    input.replace("one two three");
+    input.cursor = 7;
+    input.eraseWordBackward();
+    try @import("std").testing.expectEqualStrings("one  three", input.slice());
     var terminal = Terminal{};
     for ("discard") |byte| try @import("std").testing.expect(terminal.input.insert(byte));
     terminal.cancel();
