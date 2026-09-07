@@ -132,15 +132,20 @@ pub fn handleInterrupt() callconv(.c) void {
     if (cause != 0) {
         if ((cause & 0x000000d0) != 0) {
             @atomicStore(u64, &last_rx_interrupt_tsc, timestamp(), .release);
-            _ = @atomicRmw(u64, &rx_interrupts, .Add, 1, .release);
+            incrementCounter(&rx_interrupts);
         }
         @atomicStore(u32, &last_interrupt_apic, apic.id(), .release);
-        _ = @atomicRmw(u64, &interrupts, .Add, 1, .release);
+        incrementCounter(&interrupts);
     }
 }
 
 pub fn interruptCount() u64 { return @atomicLoad(u64, &interrupts, .acquire); }
 pub fn interruptApic() u32 { return @atomicLoad(u32, &last_interrupt_apic, .acquire); }
+
+fn incrementCounter(counter: *u64) void {
+    if (@atomicLoad(u64, counter, .monotonic) != @import("std").math.maxInt(u64))
+        _ = @atomicRmw(u64, counter, .Add, 1, .release);
+}
 
 fn zeroPage(address: u64) void { const bytes: [*]u8 = @ptrFromInt(address); @memset(bytes[0..4096], 0); }
 fn read32(base: u64, offset: u64) u32 { const value: *volatile u32 = @ptrFromInt(base + offset); return value.*; }
@@ -167,6 +172,14 @@ test "e1000 receive requires complete error-free descriptors" {
     try @import("std").testing.expect(validRxStatus(0x03, 0));
     try @import("std").testing.expect(!validRxStatus(0x01, 0));
     try @import("std").testing.expect(!validRxStatus(0x03, 0x10));
+}
+
+test "e1000 interrupt counters saturate" {
+    var counter: u64 = @import("std").math.maxInt(u64) - 1;
+    incrementCounter(&counter);
+    try @import("std").testing.expectEqual(@import("std").math.maxInt(u64), counter);
+    incrementCounter(&counter);
+    try @import("std").testing.expectEqual(@import("std").math.maxInt(u64), counter);
 }
 fn get16(source: [*]volatile u8) u16 { return @as(u16, source[0]) | (@as(u16, source[1]) << 8); }
 
