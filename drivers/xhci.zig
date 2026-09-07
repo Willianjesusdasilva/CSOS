@@ -622,6 +622,7 @@ pub const Controller = struct {
     }
 
     fn controlTransfer(self: *Controller, slot: u8, ring: u64, setup: u32, value: u32, length: u16, payload: ?u64) !void {
+        if (length != 0 and payload == null) return error.ControlTransferBufferMissing;
         const trbs: [*]volatile u32 = @ptrFromInt(ring + @as(u64, self.audio.control_enqueue) * 16);
         trbs[0] = setup;
         trbs[1] = value;
