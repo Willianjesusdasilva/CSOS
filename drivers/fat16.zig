@@ -1,3 +1,4 @@
+const std = @import("std");
 const nvme = @import("nvme");
 const physical = @import("physical");
 
@@ -339,9 +340,11 @@ fn parseBootSector(boot: [*]const u8, device_blocks: u64) !Layout {
 
     const total_sectors = if (get16(boot + 19) != 0) @as(u32, get16(boot + 19)) else get32(boot + 32);
     if (total_sectors == 0 or @as(u64, total_sectors) > device_blocks) return error.VolumeOutsideDevice;
-    const root_start = @as(u32, reserved) + @as(u32, fats) * fat_sectors;
-    const root_sectors = (@as(u32, root_entries) * 32 + 511) / 512;
-    const data_start = root_start + root_sectors;
+    const fat_area = std.math.mul(u32, @as(u32, fats), fat_sectors) catch return error.InvalidBootSector;
+    const root_start = std.math.add(u32, reserved, fat_area) catch return error.InvalidBootSector;
+    const root_bytes = std.math.mul(u32, @as(u32, root_entries), 32) catch return error.InvalidBootSector;
+    const root_sectors = (std.math.add(u32, root_bytes, 511) catch return error.InvalidBootSector) / 512;
+    const data_start = std.math.add(u32, root_start, root_sectors) catch return error.InvalidBootSector;
     if (total_sectors <= data_start) return error.InvalidBootSector;
     const cluster_count = (total_sectors - data_start) / sectors_per_cluster;
     if (cluster_count < 4085 or cluster_count >= 65525) return error.NotFat16;
@@ -461,8 +464,6 @@ test "FAT16 root collection returns regular files and honors output capacity" {
     try std.testing.expectEqual(@as(usize, 1), limited.count);
     try std.testing.expect(!limited.end_of_directory);
 }
-
-const std = @import("std");
 
 fn get16(source: [*]const u8) u16 {
     return @as(u16, source[0]) | (@as(u16, source[1]) << 8);
