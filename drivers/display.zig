@@ -766,7 +766,7 @@ pub const Context = struct {
     pub fn drawPointerWheel(self: *Context, wheel: i8) void {
         if (wheel == 0 or self.framebuffer.width < 64 or self.framebuffer.height < 176) return;
         const width = @min(@as(usize, self.framebuffer.width) -| 64, 160);
-        self.fillRect(32, 168, width, 4, 0x4080e0);
+        self.fillRect(32, 168, width, 4, if (wheel < 0) 0x4080e0 else 0x80a0e0);
     }
 
     pub fn drawKeyboardActivity(self: *Context) void {
