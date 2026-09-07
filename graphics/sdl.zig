@@ -400,8 +400,10 @@ pub const TextInput = struct {
     }
 
     pub fn replace(self: *TextInput, text: []const u8) void {
+        const old_len = self.len;
         self.len = @min(text.len, self.bytes.len);
         @memcpy(self.bytes[0..self.len], text[0..self.len]);
+        if (old_len > self.len) @memset(self.bytes[self.len..old_len], 0);
         self.cursor = self.len;
     }
 
@@ -876,6 +878,9 @@ test "SDL software event queue and surface contract" {
     input.clear();
     try @import("std").testing.expectEqual(@as(usize, 0), input.len);
     try @import("std").testing.expectEqual(@as(usize, 0), input.cursor);
+    input.replace("stale command");
+    input.replace("ok");
+    try @import("std").testing.expectEqual(@as(u8, 0), input.bytes[2]);
     var terminal = Terminal{};
     for ("discard") |byte| try @import("std").testing.expect(terminal.input.insert(byte));
     terminal.cancel();
