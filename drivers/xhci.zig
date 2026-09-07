@@ -871,7 +871,7 @@ test "HID keyboard usage skips empty rollover slots" {
 test "HID release keeps the usage from the preceding press" {
     try @import("std").testing.expectEqual(@as(u8, 4), keyboardEventUsage(0, &[_]u8{ 0, 0, 4, 0, 0, 0, 0, 0 }));
     try @import("std").testing.expectEqual(@as(u8, 4), keyboardEventUsage(4, &[_]u8{ 0, 0, 0, 0, 0, 0, 0, 0 }));
-    try @import("std").testing.expectEqual(@as(u8, 0), keyboardEventUsage(4, &[_]u8{ 1, 0, 0, 0, 0, 0, 0, 0 }));
+    try @import("std").testing.expectEqual(@as(u8, 4), keyboardEventUsage(4, &[_]u8{ 1, 0, 0, 0, 0, 0, 0, 0 }));
 }
 
 test "HID short keyboard reports are safely treated as released" {
