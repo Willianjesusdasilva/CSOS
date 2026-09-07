@@ -2670,7 +2670,8 @@ fn readHex(bytes: []const u8) !usize {
     var value: usize = 0;
     for (bytes) |character| {
         const digit: u8 = if (character >= '0' and character <= '9') character - '0' else if (character >= 'a' and character <= 'f') character - 'a' + 10 else if (character >= 'A' and character <= 'F') character - 'A' + 10 else return error.InvalidFirmwareArchive;
-        value = value * 16 + digit;
+        value = std.math.mul(usize, value, 16) catch return error.InvalidFirmwareArchive;
+        value = std.math.add(usize, value, digit) catch return error.InvalidFirmwareArchive;
     }
     return value;
 }
