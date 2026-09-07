@@ -394,8 +394,8 @@ fn lifecyclePriority(value: Lifecycle) u8 {
         .resuming => 4,
         .background => 3,
         .frozen => 2,
-        .standby => 2,
-        .finished => 1,
+        .standby => 1,
+        .finished => 0,
     };
 }
 
