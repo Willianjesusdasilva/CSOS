@@ -454,7 +454,7 @@ pub const Terminal = struct {
             self.append(command);
             self.append("\n");
             if (bytesEqual(command, "help"))
-                self.append("HELP CLEAR STATUS VERSION ECHO\n")
+                self.append("HELP CLEAR STATUS VERSION ECHO [TEXT]\n")
             else if (bytesEqual(command, "status"))
                 self.append("CSOS READY\n")
             else if (bytesEqual(command, "version"))
@@ -872,7 +872,7 @@ test "SDL software event queue and surface contract" {
     terminal.clearOutput();
     terminal.input.replace("help");
     try @import("std").testing.expect(terminal.submit());
-    try @import("std").testing.expectEqualStrings("> help\nHELP CLEAR STATUS VERSION ECHO\n", terminal.outputSlice());
+    try @import("std").testing.expectEqualStrings("> help\nHELP CLEAR STATUS VERSION ECHO [TEXT]\n", terminal.outputSlice());
     terminal.clearOutput();
     try @import("std").testing.expect(terminal.historyPrevious());
     try @import("std").testing.expectEqualStrings("help", terminal.input.slice());
