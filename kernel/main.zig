@@ -2181,13 +2181,13 @@ pub fn start(info: BootInfo) noreturn {
                         };
                         if (changed) drawFilesSurface(&files_window, root_files[0..root_file_count], &files_selection);
                     }
-                    if (!files_preview_open and event.a == 0x28 and root_file_count != 0) {
+                    if (!files_preview_open and (event.a == 0x28 or event.a == 0x2c) and root_file_count != 0) {
                         files_preview_pager.reset(root_files[files_selection.selected].size);
                         _ = loadFilePreview(&volume, root_files[files_selection.selected], &files_preview_pager, &files_preview, &files_window) catch panic("UI file preview read failed");
                         files_preview_open = true;
                         files_preview_back_hover = false;
                         file_browser_consumed = true;
-                        serial.write("UI files selected: ");
+                        serial.write(if (event.a == 0x28) "UI files selected: " else "UI files opened (Space): ");
                         serial.write(&root_files[files_selection.selected].name);
                         serial.write(" bytes: ");
                         serial.writeDecimal(root_files[files_selection.selected].size);

@@ -123,6 +123,7 @@ No preview, o botão `BACK` também recebe realce ao passar o ponteiro antes do
 clique de retorno.
 O teclado também usa `Home`, `End`, `PageUp` e `PageDown` para navegar entre
 blocos da prévia.
+Na lista, `Space` abre o item selecionado como alternativa ao `Enter`.
 No ciclo de standby, páginas somente-leitura da imagem principal podem ser
 descartadas e restauradas; intérprete e bibliotecas compartilhadas permanecem
 residentes até haver metadado de backing individual para recuperação segura.
