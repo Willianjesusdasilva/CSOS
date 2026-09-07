@@ -196,6 +196,7 @@ pub const Stream = struct {
     phase: u16 = 0,
 
     pub fn init(format: Format) !Stream {
+        if (!isSupportedRate(format.sample_rate)) return error.UnsupportedFormat;
         var stream = Stream{ .device = .{ .state = .discovered, .format = format } };
         try stream.device.validate(1000, 4096);
         return stream;
@@ -906,6 +907,16 @@ test "device manager resetStream rebuilds a configurable stream" {
     try manager.configure();
     try manager.start();
     try std.testing.expectEqual(State.streaming, manager.device.state);
+}
+
+test "device manager resetStream preserves stream on invalid format" {
+    var manager = DeviceManager{};
+    try manager.attach(.{ .channels = 2, .bits_per_sample = 16, .sample_rate = 48_000 }, 1000, 4096);
+    try manager.configure();
+    manager.device.format.sample_rate = 123;
+    try std.testing.expectError(error.UnsupportedFormat, manager.resetStream());
+    try std.testing.expect(manager.stream != null);
+    try std.testing.expectEqual(State.configured, manager.device.state);
 }
 
 test "device manager reports whether recovery was needed" {
