@@ -598,7 +598,7 @@ pub const Controller = struct {
         write32(self.doorbells + @as(u64, slot) * 4, 0, 1);
         const event = try self.waitEvent(32);
         if (event.completion != 1 and event.completion != 13) return error.TransferFailed;
-        return length - @as(u16, @truncate(event.residual));
+        return transferredReportSize(length, event.residual);
     }
 
     fn controlTransfer(self: *Controller, slot: u8, ring: u64, setup: u32, value: u32, length: u16, payload: ?u64) !void {
