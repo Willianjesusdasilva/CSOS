@@ -889,6 +889,10 @@ test "SDL software event queue and surface contract" {
     const aliased = input.slice()[1..];
     input.replace(aliased);
     try @import("std").testing.expectEqualStrings("bcdef", input.slice());
+    var long_text: [64]u8 = [_]u8{'x'} ** 64;
+    input.replace(&long_text);
+    input.replace("z");
+    try @import("std").testing.expectEqual(@as(u8, 0), input.bytes[63]);
     var terminal = Terminal{};
     for ("discard") |byte| try @import("std").testing.expect(terminal.input.insert(byte));
     terminal.cancel();
