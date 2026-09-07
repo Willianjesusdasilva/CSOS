@@ -162,6 +162,7 @@ aplicação focada. O toggle possui debounce e o atalho alternativo evita captur
 da tecla Super pelo host do QEMU.
 Com o lançador aberto, as teclas `1`–`4` selecionam diretamente as quatro
 aplicações disponíveis.
+`Ctrl+Alt+T` abre ou focaliza diretamente o TERMINAL.
 A tabela fixa do compositor saiu do frame de `kernel.start` para não consumir a
 stack limitada recebida do firmware; o boot QEMU voltou a alcançar a sessão
 gráfica depois dessa correção.
