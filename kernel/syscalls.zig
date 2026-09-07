@@ -2597,7 +2597,10 @@ fn mmap(requested: u64, length: u64, protection: u64, flags: u64, fd: u64, file_
         const address = if (requested != 0) requested else (device_mmap_next + 4095) & ~@as(u64, 4095);
         if (address < mmap_limit or address > device_mmap_limit or aligned_length > device_mmap_limit - address) return errno(12);
         const hook = device_mmap_hook orelse return errno(19);
-        const physical_address = if (drm_object) |object| object.physical_address + (file_offset - object.map_offset) else framebuffer.base + file_offset;
+        const physical_address = if (drm_object) |object|
+            std.math.add(u64, object.physical_address, file_offset - object.map_offset) catch return errno(12)
+        else
+            std.math.add(u64, framebuffer.base, file_offset) catch return errno(12);
         if (!hook(address, physical_address, aligned_length, (protection & 2) != 0)) return errno(12);
         device_mmap_next = address + aligned_length;
         if (drm_device) drm_mmaps +%= 1 else framebuffer_mmaps +%= 1;
