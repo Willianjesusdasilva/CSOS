@@ -109,8 +109,7 @@ pub const AddressSpace = struct {
     }
 
     pub fn mapUserPage(self: *AddressSpace, virtual: u64, physical_address: u64, writable: bool, executable: bool) !void {
-        if (virtual > user_address_limit or (virtual & (page_size - 1)) != 0 or (physical_address & (page_size - 1)) != 0)
-            return error.Unaligned;
+        try validateUserMapping(virtual, physical_address);
         const pml4 = table(self.root);
         const pml4_index = (virtual >> 39) & 0x1ff;
         const pdpt = try childUserTable(self.pages, pml4, pml4_index);
@@ -167,6 +166,18 @@ pub const AddressSpace = struct {
 };
 
 pub const Permissions = struct { writable: bool, executable: bool };
+
+fn validateUserMapping(virtual: u64, physical_address: u64) !void {
+    if (virtual > user_address_limit or (virtual & (page_size - 1)) != 0 or
+        physical_address > address_mask or (physical_address & (page_size - 1)) != 0)
+        return error.Unaligned;
+}
+
+test "user mapping rejects physical addresses outside the page-table mask" {
+    try std.testing.expectError(error.Unaligned, validateUserMapping(0x4000, address_mask + page_size));
+    try std.testing.expectError(error.Unaligned, validateUserMapping(0x4001, 0x4000));
+    try validateUserMapping(0x4000, 0x4000);
+}
 
 pub fn activateRoot(root: u64) void {
     asm volatile ("mov %[root], %%cr3"
