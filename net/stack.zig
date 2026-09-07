@@ -81,7 +81,7 @@ pub const Stack = struct {
         self.gateway_ip = acknowledgement.router;
         self.subnet_mask = acknowledgement.mask;
         self.dns_ip = acknowledgement.dns;
-        if (zero(&self.local_ip) or zero(&self.gateway_ip) or zero(&self.subnet_mask) or zero(&self.dns_ip)) return error.IncompleteDhcpLease;
+        if (zero(&self.local_ip) or zero(&self.gateway_ip) or !validSubnetMask(self.subnet_mask) or zero(&self.dns_ip)) return error.IncompleteDhcpLease;
     }
 
     pub fn resolveGateway(self: *Stack) !void {
@@ -583,6 +583,13 @@ test "DHCP lease address rejects the unspecified address" {
     try @import("std").testing.expect(validLeaseAddress(.{ 192, 0, 2, 10 }));
 }
 
+test "DHCP subnet mask must be contiguous" {
+    try @import("std").testing.expect(validSubnetMask(.{ 255, 255, 255, 0 }));
+    try @import("std").testing.expect(validSubnetMask(.{ 255, 255, 255, 255 }));
+    try @import("std").testing.expect(!validSubnetMask(.{ 255, 0, 255, 0 }));
+    try @import("std").testing.expect(!validSubnetMask(.{ 0, 0, 0, 0 }));
+}
+
 test "TCP port validation rejects the unspecified port" {
     try @import("std").testing.expect(!Stack.validTcpPort(0));
     try @import("std").testing.expect(Stack.validTcpPort(1));
@@ -627,4 +634,11 @@ fn validArpSenderMac(value: []const u8) bool {
 
 fn validLeaseAddress(value: [4]u8) bool {
     return !zero(&value);
+}
+
+fn validSubnetMask(value: [4]u8) bool {
+    const mask = (@as(u32, value[0]) << 24) | (@as(u32, value[1]) << 16) | (@as(u32, value[2]) << 8) | value[3];
+    if (mask == 0) return false;
+    const inverted = ~mask;
+    return (inverted & (inverted +% 1)) == 0;
 }
