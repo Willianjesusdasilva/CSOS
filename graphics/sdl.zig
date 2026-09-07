@@ -1,3 +1,5 @@
+const std = @import("std");
+
 pub const PixelFormat = enum { rgba8888 };
 pub const Rect = struct { x: usize, y: usize, width: usize, height: usize };
 pub const AudioSpec = struct { sample_rate: u32, channels: u8 };
@@ -99,9 +101,9 @@ pub const EventQueue = struct {
         if (self.write != self.read) {
             const slot = (self.write - 1) % self.items.len;
             if (self.items[slot] == .mouse and self.items[slot].mouse.buttons == buttons) {
-                self.items[slot].mouse.x += x;
-                self.items[slot].mouse.y += y;
-                self.items[slot].mouse.wheel += wheel;
+                self.items[slot].mouse.x = saturatingAdd(self.items[slot].mouse.x, x);
+                self.items[slot].mouse.y = saturatingAdd(self.items[slot].mouse.y, y);
+                self.items[slot].mouse.wheel = saturatingAdd(self.items[slot].mouse.wheel, wheel);
                 self.items[slot].mouse.buttons = buttons;
                 return true;
             }
@@ -485,6 +487,10 @@ fn bytesEqual(left: []const u8, right: []const u8) bool {
     return true;
 }
 
+fn saturatingAdd(left: i32, right: i32) i32 {
+    return std.math.add(i32, left, right) catch if (right < 0) std.math.minInt(i32) else std.math.maxInt(i32);
+}
+
 pub const AudioDevice = struct {
     spec: AudioSpec,
     queued_frames: u64 = 0,
@@ -598,6 +604,9 @@ test "SDL software event queue and surface contract" {
     try @import("std").testing.expectEqual(@as(usize, 2), events.len());
     try @import("std").testing.expectEqual(Event{ .mouse = .{ .x = 1, .y = 0, .wheel = 0, .buttons = 0 } }, events.poll().?);
     try @import("std").testing.expectEqual(Event{ .mouse = .{ .x = 1, .y = 0, .wheel = 0, .buttons = 1 } }, events.poll().?);
+    try @import("std").testing.expect(events.pushMouse(std.math.maxInt(i32), 0, 0, 1));
+    try @import("std").testing.expect(events.pushMouseCoalesced(1, 0, 0, 1));
+    try @import("std").testing.expectEqual(std.math.maxInt(i32), events.poll().?.mouse.x);
     var full = EventQueue{};
     var index: usize = 0;
     while (index < full.items.len) : (index += 1)
