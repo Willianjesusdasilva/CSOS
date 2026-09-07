@@ -690,6 +690,8 @@ raiz.
 terminal.
 `echo texto > arquivo` usa `openAt`/`write` para criar ou truncar um arquivo FAT
 real, tornando o terminal capaz de persistir dados durante a sessão.
+O formato `echo texto >> arquivo` preserva o conteúdo existente e acrescenta uma
+nova linha, usando o modo append do VFS.
 Espaços e tabulações nas bordas do comando são ignorados, permitindo, por
 exemplo, executar `  status  ` sem gerar um comando desconhecido.
 Setas para cima/baixo percorrem o histórico, Home/End movem o cursor, Delete

@@ -206,6 +206,8 @@ diretório raiz real na sessão gráfica.
 com erro explícito quando o caminho não existe.
 `echo texto > arquivo` agora cria/trunca e grava no arquivo FAT via callback VFS,
 permitindo alterar dados pela sessão gráfica sem sair do SO.
+`echo texto >> arquivo` também usa o modo append do descritor, permitindo logs
+incrementais sem apagar o conteúdo anterior.
 `Ctrl+R` também recupera a entrada anterior, como em shells convencionais.
 O compositor associa a superfície SDL à janela proprietária e aplica clipping
 à área de conteúdo; a aplicação deixa de atravessar bordas ou aparecer por cima
