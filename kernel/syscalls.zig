@@ -359,6 +359,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         89 => readlinkat(@bitCast(@as(i64, -100)), arg1, arg2, arg3),
         96 => writeTime(arg1, 16),
         95 => umask(arg1),
+        97 => getRlimit(arg1, arg2),
         102, 104 => 0,
         105, 106 => if (arg1 == 0) 0 else errno(1),
         110 => 0,
@@ -374,6 +375,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         143 => getSchedulerParam(arg1, arg2),
         145 => getScheduler(arg1),
         158 => archPrctl(arg1, arg2),
+        160 => setRlimit(arg1, arg2),
         // The current userspace model has one kernel thread per process.  Keep
         // gettid consistent with getpid so musl's thread-local setup does not
         // fall through to ENOSYS while loading real shared libraries.
@@ -2879,6 +2881,28 @@ fn umask(value: u64) u64 {
     const previous = process_umask;
     process_umask = @truncate(value & 0o777);
     return previous;
+}
+
+fn getRlimit(resource: u64, output: u64) u64 {
+    if (resource > 16 or !validUserSlice(output, 16)) return errno(22);
+    const bytes: [*]u8 = @ptrFromInt(output);
+    const limit: u64 = switch (resource) {
+        3 => 128 * 1024, // RLIMIT_STACK
+        9 => 16 * 1024 * 1024, // RLIMIT_AS
+        else => std.math.maxInt(u64),
+    };
+    put64(bytes, limit);
+    put64(bytes + 8, limit);
+    return 0;
+}
+
+fn setRlimit(resource: u64, address: u64) u64 {
+    if (resource > 16 or !validUserSlice(address, 16)) return errno(22);
+    const bytes: [*]const u8 = @ptrFromInt(address);
+    const soft = read64(bytes);
+    const hard = read64(bytes + 8);
+    if (soft > hard or ((resource == 3 or resource == 9) and hard > 16 * 1024 * 1024)) return errno(1);
+    return 0;
 }
 
 fn getGroups(count: u64, output: u64) u64 {
