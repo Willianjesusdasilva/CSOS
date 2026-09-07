@@ -461,6 +461,10 @@ pub const Terminal = struct {
                 self.append("CSOS 0.1\n")
             else if (bytesEqual(command, "echo"))
                 self.append("ECHO READY\n")
+            else if (command.len > 5 and bytesEqual(command[0..5], "echo ")) {
+                self.append(command[5..]);
+                self.append("\n");
+            }
             else
                 self.append("UNKNOWN COMMAND\n");
         }
@@ -861,6 +865,10 @@ test "SDL software event queue and surface contract" {
     terminal.input.replace("echo");
     try @import("std").testing.expect(terminal.submit());
     try @import("std").testing.expectEqualStrings("> echo\nECHO READY\n", terminal.outputSlice());
+    terminal.clearOutput();
+    terminal.input.replace("echo hello CSOS");
+    try @import("std").testing.expect(terminal.submit());
+    try @import("std").testing.expectEqualStrings("> echo hello CSOS\nhello CSOS\n", terminal.outputSlice());
     terminal.clearOutput();
     terminal.input.replace("help");
     try @import("std").testing.expect(terminal.submit());
