@@ -604,9 +604,14 @@ fn fcntl(fd: u64, command: u64, argument: u64) u64 {
             sockets[index].close_on_exec = (argument & 1) != 0;
             break :blk 0;
         },
-        3 => if (sockets[index].nonblocking) 0x800 else 0,
+        // Sockets are opened read/write.  Linux exposes that access mode in
+        // F_GETFL even when no mutable status flags are set; omitting it makes
+        // runtimes misclassify a connected descriptor as write-only.
+        3 => @as(u64, 2) | if (sockets[index].nonblocking) @as(u64, 0x800) else 0,
         4 => blk: {
-            if ((argument & ~@as(u64, 0x800)) != 0) break :blk errno(22);
+            // Access mode is immutable, while O_NONBLOCK is the status bit
+            // that this kernel can change for a socket.
+            if ((argument & ~@as(u64, 0x802)) != 0) break :blk errno(22);
             sockets[index].nonblocking = (argument & 0x800) != 0;
             break :blk 0;
         },
