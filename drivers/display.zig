@@ -119,7 +119,7 @@ pub const WindowManager = struct {
         self.windows[self.count] = window;
         const index = self.count;
         self.count += 1;
-        self.focused = index;
+        self.focused = if (window.visible) index else self.topVisible();
         // A nova janela assume o desktop; overlays não devem cobrir seu primeiro frame.
         self.launcher_open = false;
         self.launcher_selection = 0;
@@ -481,6 +481,9 @@ test "window manager focus alt-tab hit-test and close" {
     var manager = WindowManager{};
     try std.testing.expectError(error.InvalidWindowSize, manager.create(.{ .id = 1, .x = 0, .y = 0, .width = 31, .height = 24 }));
     try std.testing.expectEqual(@as(usize, 0), manager.count);
+    _ = try manager.create(.{ .id = 5, .visible = false, .x = 0, .y = 0, .width = 64, .height = 32 });
+    try std.testing.expect(manager.focused == null);
+    manager.close(0);
     const first = try manager.create(.{ .id = 10, .x = 8, .y = 8, .width = 80, .height = 48 });
     const second = try manager.create(.{ .id = 20, .x = 32, .y = 24, .width = 96, .height = 56 });
     try std.testing.expectEqual(@as(usize, 1), second);
