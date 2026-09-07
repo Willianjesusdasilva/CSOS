@@ -108,7 +108,7 @@ pub const Stack = struct {
         try self.sendUdp(self.dns_ip, dns_mac, 49152, 53, query[0..offset]);
         var response: [512]u8 = undefined;
         const size = try self.receiveUdp(self.dns_ip, 53, 49152, &response);
-        if (size < 12 or get16(response[0..]) != dns_transaction or (get16(response[2..]) & 0x800f) != 0x8000 or get16(response[6..]) == 0) return error.InvalidDnsReply;
+        if (!validDnsResponse(response[0..size], dns_transaction)) return error.InvalidDnsReply;
         offset = 12;
         var question: u16 = 0;
         while (question < get16(response[4..])) : (question += 1) {
@@ -491,6 +491,11 @@ fn skipDnsName(message: []const u8, start: usize) !usize {
     return error.InvalidDnsReply;
 }
 
+fn validDnsResponse(response: []const u8, transaction: u16) bool {
+    return response.len >= 12 and get16(response.ptr) == transaction and
+        (get16(response.ptr + 2) & 0x800f) == 0x8000 and get16(response.ptr + 6) != 0;
+}
+
 test "DNS name skipping rejects malformed labels and accepts compression" {
     const testing = @import("std").testing;
     try testing.expectEqual(@as(usize, 3), try skipDnsName(&[_]u8{ 1, 'a', 0 }, 0));
@@ -503,6 +508,18 @@ test "DNS name skipping rejects malformed labels and accepts compression" {
     var malformed = [_]u8{0} ** 65;
     malformed[0] = 64;
     try testing.expectError(error.InvalidDnsReply, skipDnsName(&malformed, 0));
+}
+
+test "DNS response validation matches transaction and answer presence" {
+    var response = [_]u8{0} ** 12;
+    put16(&response, 0x4353);
+    put16(response[2..].ptr, 0x8000);
+    put16(response[6..].ptr, 1);
+    try @import("std").testing.expect(validDnsResponse(&response, 0x4353));
+    try @import("std").testing.expect(!validDnsResponse(&response, 0x4354));
+    response[6] = 0;
+    try @import("std").testing.expect(!validDnsResponse(&response, 0x4353));
+    try @import("std").testing.expect(!validDnsResponse(response[0..11], 0x4353));
 }
 
 fn put16(output: []u8, value: u16) void { output[0] = @truncate(value >> 8); output[1] = @truncate(value); }
