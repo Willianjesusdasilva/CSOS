@@ -39,14 +39,14 @@ pub const EventQueue = struct {
             return false;
         }
         self.items[self.write % self.items.len] = event;
-        self.write += 1;
+        self.write +%= 1;
         return true;
     }
 
     pub fn poll(self: *EventQueue) ?Event {
         if (self.read == self.write) return null;
         const event = self.items[self.read % self.items.len];
-        self.read += 1;
+        self.read +%= 1;
         return event;
     }
 
