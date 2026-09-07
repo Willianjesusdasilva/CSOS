@@ -705,6 +705,13 @@ pub fn createWindow(storage: []u32, width: usize, height: usize) !Window {
     return .{ .width = width, .height = height, .pixels = storage };
 }
 
+test "SDL window creation rejects invalid storage dimensions" {
+    var storage = [_]u32{0} ** 4;
+    try @import("std").testing.expectError(error.InvalidSurface, createWindow(&storage, 3, 3));
+    try @import("std").testing.expectError(error.InvalidSurface, createWindow(&storage, std.math.maxInt(usize), 2));
+    try @import("std").testing.expectError(error.InvalidSurface, createWindow(&storage, 0, 4));
+}
+
 pub fn glyph3x5(character: u8) [5]u8 {
     const upper = if (character >= 'a' and character <= 'z') character - 32 else character;
     return switch (upper) {
