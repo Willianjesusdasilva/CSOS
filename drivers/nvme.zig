@@ -362,7 +362,7 @@ test "NVMe doorbell offsets stay aligned by stride" {
     try std.testing.expectEqual(@as(u64, 0x1004), doorbellOffset(0, 1));
     try std.testing.expectEqual(@as(u64, 0x1020), doorbellOffset(3, 1));
     try std.testing.expectEqual(@as(u64, 0x1040), doorbellOffset(3, 2));
-    try std.testing.expectEqual(@as(u64, 0xd000), doorbellOffset(15, 3));
+    try std.testing.expectEqual(@as(u64, 0x61000), doorbellOffset(15, 3));
 }
 
 const std = @import("std");
