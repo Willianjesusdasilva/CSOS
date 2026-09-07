@@ -216,6 +216,7 @@ pub const Controller = struct {
 
     fn releaseAudioBuffers(self: *Controller, pages: *physical.Allocator) void {
         if (self.audio.ring != 0) pages.release(self.audio.ring, 1) catch {};
+        if (self.audio.configure != 0) pages.release(self.audio.configure, 1) catch {};
         if (self.audio.rate_payload) |address| pages.release(address, 1) catch {};
         if (self.audio.sample) |address| pages.release(address, 1) catch {};
         for (self.audio.buffers) |buffer| if (buffer) |address| pages.release(address, 1) catch {};
@@ -252,7 +253,9 @@ pub const Controller = struct {
         if (self.audio.configured) return;
         const device = self.devices[self.audio.device_index];
         const ring = pages.allocate(1) orelse return error.OutOfMemory;
+        errdefer pages.release(ring, 1) catch {};
         const configure = pages.allocate(1) orelse return error.OutOfMemory;
+        errdefer pages.release(configure, 1) catch {};
         zeroPage(ring);
         zeroPage(configure);
         const endpoint_id: u5 = @intCast((self.audio.endpoint_address & 0x0f) * 2);
@@ -270,6 +273,7 @@ pub const Controller = struct {
             (@as(u32, self.audio.endpoint_packet) << 16);
         _ = try self.command(configure, 0, 0, 12, device.slot);
         self.audio.ring = ring;
+        self.audio.configure = configure;
         self.audio.configured = true;
     }
 
@@ -800,6 +804,7 @@ pub const AudioDevices = struct {
     interval: u8 = 0,
     device_index: u8 = 0,
     ring: u64 = 0,
+    configure: u64 = 0,
     configured: bool = false,
     slot: u8 = 0,
     endpoint_id: u5 = 0,
