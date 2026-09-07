@@ -121,10 +121,10 @@ fn parseMadt(table: [*]const u8) !Madt {
     var result = Madt{ .local_apic_address = read32(table + 36) };
 
     var offset: usize = 44;
-    while (offset + 2 <= length) {
+    while (offset <= length and length - offset >= 2) {
         const entry = table + offset;
         const entry_length = entry[1];
-        if (entry_length < 2 or offset + entry_length > length) return error.InvalidMadtEntry;
+        if (entry_length < 2 or entry_length > length - offset) return error.InvalidMadtEntry;
         switch (entry[0]) {
             0 => if (entry_length >= 8 and (read32(entry + 4) & 1) != 0 and result.cpu_count < max_cpus) {
                 result.cpus[result.cpu_count] = .{ .apic_id = entry[3] };
