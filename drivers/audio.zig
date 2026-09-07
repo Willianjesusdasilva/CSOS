@@ -851,6 +851,23 @@ test "device manager stop preserves absent state" {
     try @import("std").testing.expect(manager.stream == null);
 }
 
+test "device manager reset clears stream mixer and metrics" {
+    var manager = DeviceManager{};
+    const format = Format{ .channels = 2, .bits_per_sample = 16, .sample_rate = 48_000 };
+    try manager.attach(format, 1000, 4096);
+    try manager.configure();
+    try manager.start();
+    try manager.noteSubmit();
+    manager.setVolume(12);
+    manager.setMuted(true);
+    manager.reset();
+    try std.testing.expect(manager.stream == null);
+    try std.testing.expectEqual(State.absent, manager.device.state);
+    try std.testing.expectEqual(@as(u8, 100), manager.mixer.volume);
+    try std.testing.expect(!manager.mixer.muted);
+    try std.testing.expectEqual(@as(u64, 0), manager.metrics.submitted);
+}
+
 test "device resume preserves non-streaming state" {
     var device = Device{ .state = .configured };
     device.suspendDevice();
