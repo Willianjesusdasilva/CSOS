@@ -23,6 +23,17 @@ test "window manager keeps focus when closing a sibling" {
     try std.testing.expectEqual(@as(u32, 1), manager.windows[manager.focused.?].id);
 }
 
+test "window manager recovers stale focus after close" {
+    var manager = WindowManager{};
+    _ = try manager.create(.{ .id = 1, .x = 4, .y = 4, .width = 64, .height = 48 });
+    _ = try manager.create(.{ .id = 2, .x = 12, .y = 12, .width = 64, .height = 48 });
+    manager.focused = 99;
+    manager.close(0);
+    try std.testing.expectEqual(@as(usize, 1), manager.count);
+    try std.testing.expectEqual(@as(?usize, 0), manager.focused);
+    try std.testing.expectEqual(@as(u32, 2), manager.windows[0].id);
+}
+
 pub const Adapter = struct {
     vendor: u16,
     device: u16,
