@@ -29,6 +29,7 @@ var robust_head: u64 = 0;
 var robust_len: u64 = 0;
 var clear_tid_address: u64 = 0;
 var process_umask: u32 = 0o022;
+var process_name: [16]u8 = .{ 'c', 's', 'o', 's', 0 } ++ .{0} ** 11;
 pub var file_mmaps: u64 = 0;
 pub var protected_mmaps: u64 = 0;
 pub var unmapped_mmaps: u64 = 0;
@@ -376,6 +377,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         143 => getSchedulerParam(arg1, arg2),
         145 => getScheduler(arg1),
         148 => schedRrInterval(arg1, arg2),
+        157 => prctl(arg1, arg2, arg3),
         158 => archPrctl(arg1, arg2),
         160 => setRlimit(arg1, arg2),
         // The current userspace model has one kernel thread per process.  Keep
@@ -2970,6 +2972,23 @@ fn setResGid(real: u64, effective: u64, saved: u64) u64 {
 
 fn personality(value: u64) u64 {
     if (value == 0xffffffffffffffff or value == 0) return 0;
+    return errno(22);
+}
+
+fn prctl(option: u64, arg2: u64, _: u64) u64 {
+    if (option == 15) { // PR_SET_NAME
+        if (!validUserSlice(arg2, 16)) return errno(14);
+        const source: [*]const u8 = @ptrFromInt(arg2);
+        @memcpy(&process_name, source[0..16]);
+        process_name[15] = 0;
+        return 0;
+    }
+    if (option == 16) { // PR_GET_NAME
+        if (!validUserSlice(arg2, 16)) return errno(14);
+        const target: [*]u8 = @ptrFromInt(arg2);
+        @memcpy(target[0..16], &process_name);
+        return 0;
+    }
     return errno(22);
 }
 
