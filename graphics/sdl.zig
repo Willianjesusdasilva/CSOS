@@ -444,7 +444,7 @@ pub const Terminal = struct {
     history_cursor: usize = 0,
 
     pub fn submit(self: *Terminal) bool {
-        const command = self.input.slice();
+        const command = trimCommand(self.input.slice());
         if (command.len == 0) return false;
         self.remember(command);
         if (bytesEqual(command, "clear")) {
@@ -547,6 +547,14 @@ pub const Terminal = struct {
         }
     }
 };
+
+fn trimCommand(bytes: []const u8) []const u8 {
+    var first: usize = 0;
+    while (first < bytes.len and (bytes[first] == ' ' or bytes[first] == '\t')) : (first += 1) {}
+    var last = bytes.len;
+    while (last > first and (bytes[last - 1] == ' ' or bytes[last - 1] == '\t')) : (last -= 1) {}
+    return bytes[first..last];
+}
 
 fn bytesEqual(left: []const u8, right: []const u8) bool {
     if (left.len != right.len) return false;
@@ -869,6 +877,10 @@ test "SDL software event queue and surface contract" {
     terminal.input.replace("echo hello CSOS");
     try @import("std").testing.expect(terminal.submit());
     try @import("std").testing.expectEqualStrings("> echo hello CSOS\nhello CSOS\n", terminal.outputSlice());
+    terminal.clearOutput();
+    terminal.input.replace("  status \t");
+    try @import("std").testing.expect(terminal.submit());
+    try @import("std").testing.expectEqualStrings("> status\nCSOS READY\n", terminal.outputSlice());
     terminal.clearOutput();
     terminal.input.replace("help");
     try @import("std").testing.expect(terminal.submit());
