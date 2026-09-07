@@ -227,6 +227,10 @@ test "hardware profile baseline append rolls back on overflow" {
         1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
     ));
     try @import("std").testing.expectEqual(@as(usize, profile.bytes.len - 1), profile.length);
+    profile.length = profile.bytes.len + 1;
+    try @import("std").testing.expectError(error.ProfileTooLarge, profile.addBaseline(
+        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
+    ));
 }
 
 pub fn build(cpu: Cpu, facts: Facts) !Profile {
@@ -321,7 +325,7 @@ fn hashBytes(initial: u64, bytes: []const u8) u64 {
 }
 
 fn append(profile: *Profile, value: []const u8) !void {
-    if (value.len > profile.bytes.len - profile.length) return error.ProfileTooLarge;
+    if (profile.length > profile.bytes.len or value.len > profile.bytes.len - profile.length) return error.ProfileTooLarge;
     @memcpy(profile.bytes[profile.length .. profile.length + value.len], value);
     profile.length += value.len;
 }
