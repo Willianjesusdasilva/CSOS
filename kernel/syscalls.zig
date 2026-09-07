@@ -32,6 +32,7 @@ var process_umask: u32 = 0o022;
 var process_name: [16]u8 = .{ 'c', 's', 'o', 's', 0 } ++ .{0} ** 11;
 var process_group: u64 = 1;
 var process_session: u64 = 1;
+var signal_stack: [32]u8 = .{0} ** 32;
 pub var file_mmaps: u64 = 0;
 pub var protected_mmaps: u64 = 0;
 pub var unmapped_mmaps: u64 = 0;
@@ -386,6 +387,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         119 => setResGid(arg1, arg2, arg3),
         120 => getResGid(arg1, arg2, arg3),
         135 => personality(arg1),
+        131 => sigaltstack(arg1, arg2),
         140 => getPriority(arg1, arg2),
         141 => setPriority(arg1, arg2, @bitCast(arg3)),
         142 => setScheduler(arg1, arg2, arg3),
@@ -3038,6 +3040,18 @@ fn setResGid(real: u64, effective: u64, saved: u64) u64 {
 fn personality(value: u64) u64 {
     if (value == 0xffffffffffffffff or value == 0) return 0;
     return errno(22);
+}
+
+fn sigaltstack(new_stack: u64, old_stack: u64) u64 {
+    if (old_stack != 0) {
+        if (!validUserSlice(old_stack, 32)) return errno(14);
+        @memcpy(@as([*]u8, @ptrFromInt(old_stack))[0..32], &signal_stack);
+    }
+    if (new_stack != 0) {
+        if (!validUserSlice(new_stack, 32)) return errno(14);
+        @memcpy(&signal_stack, @as([*]const u8, @ptrFromInt(new_stack))[0..32]);
+    }
+    return 0;
 }
 
 fn prctl(option: u64, arg2: u64, _: u64) u64 {
