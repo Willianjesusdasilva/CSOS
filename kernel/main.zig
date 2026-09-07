@@ -2338,6 +2338,11 @@ pub fn start(info: BootInfo) noreturn {
                     const changed = if (wheel < 0) files_preview_pager.next() else files_preview_pager.previous();
                     if (changed) _ = loadFilePreview(&volume, root_files[files_selection.selected], &files_preview_pager, &files_preview, &files_window) catch panic("UI mouse file preview page read failed");
                 }
+                if (!files_preview_open and pointer_state_changed and root_file_count != 0) {
+                    if (window_manager.contentListRowHitTest(window_manager.focused.?, cursor_x, cursor_y, 17, 11, 10, files_selection.visible_rows)) |row| {
+                        if (files_selection.selectVisibleRow(row)) drawFilesSurface(&files_window, root_files[0..root_file_count], &files_selection);
+                    }
+                }
             }
             if (focusedWindowIs(window_manager, 1)) {
                 _ = sdl_events.pushMouseCoalesced(@intCast(dx), @intCast(dy), @intCast(wheel), event.a);
