@@ -230,9 +230,10 @@ reposto ao reabrir a janela SYSTEM; novas ativações alternam entre os dois
 estados e atualizam o marcador serial. A janela também exibe um segundo botão
 `RESET`, que restaura o estado inicial sem fechar a aplicação.
 Os controles HTML possuem foco visual independente: Tab alterna entre estado,
-`RESET`, `TERMINAL` e `MONITOR`; Enter ativa o controle selecionado. Os botões
-`TERMINAL` e `MONITOR` abrem ou focam aplicações reais pelo window manager, e o
-estado HTML `ONLINE` permanece visível na mesma janela.
+`RESET`, `TERMINAL`, `MONITOR` e `FILES`; Enter ativa o controle selecionado.
+Os botões de aplicação abrem ou focam janelas reais pelo window manager, com a
+listagem FILES atualizada ao ser aberta, e o estado HTML `ONLINE` permanece
+visível na mesma janela.
 O framebuffer base também ganhou chrome persistente inspirado na referência:
 barra superior e dock inferior com sete áreas de aplicação, atrás das janelas
 SDL.
