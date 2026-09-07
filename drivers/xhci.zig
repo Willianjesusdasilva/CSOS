@@ -123,8 +123,11 @@ pub const Controller = struct {
             if (endpoint_address == 0 or !validHidPacketSize(device.speed, endpoint_packet) or !validHidInterval(interval)) return error.HidEndpointMissing;
             const endpoint_id: u5 = @intCast((endpoint_address & 0x0f) * 2 + 1);
             const interrupt_ring = pages.allocate(1) orelse return error.OutOfMemory;
+            errdefer pages.release(interrupt_ring, 1) catch {};
             const report = pages.allocate(1) orelse return error.OutOfMemory;
+            errdefer pages.release(report, 1) catch {};
             const configure = pages.allocate(1) orelse return error.OutOfMemory;
+            errdefer pages.release(configure, 1) catch {};
             zeroPage(interrupt_ring);
             zeroPage(report);
             zeroPage(configure);
