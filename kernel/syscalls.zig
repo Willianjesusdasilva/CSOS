@@ -29,6 +29,9 @@ var robust_head: u64 = 0;
 var robust_len: u64 = 0;
 var clear_tid_address: u64 = 0;
 var process_umask: u32 = 0o022;
+var limit_stack: u64 = 128 * 1024;
+var limit_address_space: u64 = 16 * 1024 * 1024;
+var limit_nofile: u64 = 32;
 var process_name: [16]u8 = .{ 'c', 's', 'o', 's', 0 } ++ .{0} ** 11;
 var process_group: u64 = 1;
 var process_session: u64 = 1;
@@ -3220,9 +3223,9 @@ fn getRlimit(resource: u64, output: u64) u64 {
     if (resource > 16 or !validUserSlice(output, 16)) return errno(22);
     const bytes: [*]u8 = @ptrFromInt(output);
     const limit: u64 = switch (resource) {
-        3 => 128 * 1024, // RLIMIT_STACK
-        7 => 32, // RLIMIT_NOFILE matches the fixed VFS descriptor table
-        9 => 16 * 1024 * 1024, // RLIMIT_AS
+        3 => limit_stack, // RLIMIT_STACK
+        7 => limit_nofile, // RLIMIT_NOFILE
+        9 => limit_address_space, // RLIMIT_AS
         else => std.math.maxInt(u64),
     };
     put64(bytes, limit);
@@ -3279,6 +3282,12 @@ fn setRlimit(resource: u64, address: u64) u64 {
     const soft = read64(bytes);
     const hard = read64(bytes + 8);
     if (soft > hard or (resource == 7 and hard > 32) or ((resource == 3 or resource == 9) and hard > 16 * 1024 * 1024)) return errno(1);
+    switch (resource) {
+        3 => limit_stack = soft,
+        7 => limit_nofile = soft,
+        9 => limit_address_space = soft,
+        else => {},
+    }
     return 0;
 }
 
