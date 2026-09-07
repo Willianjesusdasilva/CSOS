@@ -773,6 +773,11 @@ Page Up, Home e roda do mouse navegam blocos de 192 bytes, com limites no iníci
 e no EOF. O cabeçalho mostra o offset atual, permitindo inspecionar arquivos
 maiores mantendo consumo fixo de memória.
 
+O runner QEMU possui `-SmokeDesktopFiles`: após o marcador de sessão pronta,
+abre um monitor HMP local efêmero e injeta a sequência launcher → FILES →
+prévia. O teste só passa ao observar `UI files selected:` no serial e sempre
+encerra o emulador. Esse fluxo substitui o boot passivo em `test-system.ps1`.
+
 O inventário do host também encontrou uma AMD Radeon(TM) Graphics (`1002:164e`)
 e uma NVIDIA GeForce RTX 4060 Ti (`10de:2803`), ambas ativas. Isso viabiliza a
 próxima validação física, mas detecção no host não é evidência de suporte do

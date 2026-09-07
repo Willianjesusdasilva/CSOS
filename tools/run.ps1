@@ -12,7 +12,8 @@ param(
     [switch]$ResetDisk,
     [string]$AudioBackend = 'none',
     [ValidateRange(0, 300)][int]$SmokeTestSeconds = 0,
-    [string]$ExpectSerial = 'CSOS M14 userspace DRM core ready'
+    [string]$ExpectSerial = 'CSOS M14 userspace DRM core ready',
+    [switch]$SmokeDesktopFiles
 )
 
 $ErrorActionPreference = 'Stop'
@@ -74,12 +75,21 @@ if ($SmokeTestSeconds -gt 0) {
     $runId = [Guid]::NewGuid().ToString('N')
     $serialLog = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\zig-out\smoke-$runId.serial.log"))
     $errorLog = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\zig-out\smoke-$runId.stderr.log"))
-    $qemuArguments += @('-display', 'none', '-monitor', 'none', '-serial', "file:$serialLog")
+    $monitorPort = $null
+    $monitorTarget = 'none'
+    if ($SmokeDesktopFiles) {
+        $reservation = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
+        $reservation.Start()
+        try { $monitorPort = ([Net.IPEndPoint]$reservation.LocalEndpoint).Port } finally { $reservation.Stop() }
+        $monitorTarget = "tcp:127.0.0.1:$monitorPort,server=on,wait=off"
+    }
+    $qemuArguments += @('-display', 'none', '-monitor', $monitorTarget, '-serial', "file:$serialLog")
     # Start-Process joins ArgumentList into a Windows command line. Quote each
     # argument explicitly so installation/workspace paths with spaces survive.
     $quotedArguments = $qemuArguments | ForEach-Object { '"' + $_.Replace('"', '\"') + '"' }
     $testProcess = $null
     $testResult = 124
+    $uiInjected = $false
     try {
         $testProcess = Start-Process -FilePath $qemu.FullName -ArgumentList $quotedArguments -PassThru -WindowStyle Hidden -RedirectStandardError $errorLog
         $timer = [Diagnostics.Stopwatch]::StartNew()
@@ -89,6 +99,22 @@ if ($SmokeTestSeconds -gt 0) {
                 $stream = [IO.File]::Open($serialLog, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
                 $reader = New-Object IO.StreamReader($stream)
                 try { $serialText = $reader.ReadToEnd() } finally { $reader.Dispose() }
+            }
+            if ($SmokeDesktopFiles -and -not $uiInjected -and $serialText.Contains('CSOS graphical session ready')) {
+                $monitor = [Net.Sockets.TcpClient]::new()
+                try {
+                    $monitor.Connect('127.0.0.1', $monitorPort)
+                    $writer = [IO.StreamWriter]::new($monitor.GetStream())
+                    try {
+                        $writer.AutoFlush = $true
+                        foreach ($key in @('meta_l', 'down', 'down', 'down', 'ret', 'ret')) {
+                            $writer.WriteLine("sendkey $key")
+                            Start-Sleep -Milliseconds 180
+                        }
+                    } finally { $writer.Dispose() }
+                    $uiInjected = $true
+                    Write-Output 'Injected desktop smoke sequence: launcher -> FILES -> preview'
+                } finally { $monitor.Dispose() }
             }
             if ($serialText.Contains($ExpectSerial)) { $testResult = 0; break }
             if ($testProcess.HasExited) { $testResult = 1; break }

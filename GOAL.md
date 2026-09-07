@@ -251,6 +251,11 @@ A prévia de `FILES` pagina o conteúdo em blocos fixos de 192 bytes com Page
 Up/Down, Home e roda do mouse. O offset visível é mostrado e a navegação satura
 em zero/EOF, permitindo leitura de arquivos grandes sem alocação proporcional.
 
+O smoke QEMU pode agora operar o desktop via monitor HMP efêmero. A sequência
+automatizada abriu launcher, selecionou FILES e abriu `SYSTEM.TXT` de 25 bytes,
+confirmada por `UI files selected:`. `test-system.ps1` usa esse gate interativo
+no lugar do boot normal que apenas aguardava o desktop.
+
 Esta porcentagem não é uma contagem simples de milestones. M0–M13 têm bases relevantes, mas M14 ainda não possui triângulos Vulkan validados em AMD e NVIDIA, e M15–M30 permanecem majoritariamente pendentes. Código preparatório ou teste no host não equivale a hardware funcional.
 
 Verificação mais recente em 2026-09-06: `zig build test` concluiu `17/17` etapas
