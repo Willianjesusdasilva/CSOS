@@ -515,6 +515,10 @@ pub const AudioDevice = struct {
         return used;
     }
 
+    pub fn drain(self: *AudioDevice) u64 {
+        return self.consume(self.queued_frames);
+    }
+
     pub fn pause(self: *AudioDevice, value: bool) void {
         self.paused = value;
     }
@@ -732,7 +736,10 @@ test "SDL software event queue and surface contract" {
     try @import("std").testing.expectEqual(@as(u64, 0), audio.availableFrames());
     try @import("std").testing.expectEqual(@as(u64, 0), audio.consume(64));
     try @import("std").testing.expectEqual(@as(u64, 128), audio.queued_frames);
-    try @import("std").testing.expectEqual(@as(u64, 128), audio.clearQueue());
+    audio.pause(false);
+    try @import("std").testing.expectEqual(@as(u64, 128), audio.drain());
+    try @import("std").testing.expectEqual(@as(u64, 0), audio.queuedFrames());
+    try @import("std").testing.expectEqual(@as(u64, 0), audio.clearQueue());
     try @import("std").testing.expectEqual(@as(u64, 0), audio.queuedFrames());
     audio.pause(false);
     try @import("std").testing.expect(!audio.isPaused());
