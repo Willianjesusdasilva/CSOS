@@ -424,8 +424,8 @@ pub const TextInput = struct {
     pub fn eraseWordBackward(self: *TextInput) void {
         self.cursor = @min(self.cursor, self.len);
         const old_cursor = self.cursor;
-        while (self.cursor > 0 and self.bytes[self.cursor - 1] == ' ') : (self.cursor -= 1) {}
-        while (self.cursor > 0 and self.bytes[self.cursor - 1] != ' ') : (self.cursor -= 1) {}
+        while (self.cursor > 0 and isWordSeparator(self.bytes[self.cursor - 1])) : (self.cursor -= 1) {}
+        while (self.cursor > 0 and !isWordSeparator(self.bytes[self.cursor - 1])) : (self.cursor -= 1) {}
         const old_len = self.len;
         const tail = old_len - old_cursor;
         if (tail > 0) @memmove(self.bytes[self.cursor..self.cursor + tail], self.bytes[old_cursor..old_len]);
@@ -584,6 +584,10 @@ fn trimCommand(bytes: []const u8) []const u8 {
     var last = bytes.len;
     while (last > first and (bytes[last - 1] == ' ' or bytes[last - 1] == '\t')) : (last -= 1) {}
     return bytes[first..last];
+}
+
+fn isWordSeparator(byte: u8) bool {
+    return byte == ' ' or byte == '\t';
 }
 
 fn bytesEqualIgnoreCase(left: []const u8, right: []const u8) bool {
@@ -921,6 +925,9 @@ test "SDL software event queue and surface contract" {
     try @import("std").testing.expectEqualStrings("one two ", input.slice());
     input.eraseWordBackward();
     try @import("std").testing.expectEqualStrings("one ", input.slice());
+    input.replace("one\ttwo");
+    input.eraseWordBackward();
+    try @import("std").testing.expectEqualStrings("one\t", input.slice());
     input.replace("one two three");
     input.cursor = 7;
     input.eraseWordBackward();
