@@ -229,8 +229,10 @@ Após a ativação, o estado visual do botão muda de `READY` para `ACTIVE` e é
 reposto ao reabrir a janela SYSTEM; novas ativações alternam entre os dois
 estados e atualizam o marcador serial. A janela também exibe um segundo botão
 `RESET`, que restaura o estado inicial sem fechar a aplicação.
-Os dois botões possuem foco visual independente: Tab alterna o foco e Enter
-ativa o botão selecionado.
+Os controles HTML possuem foco visual independente: Tab alterna entre estado,
+`RESET` e `TERMINAL`; Enter ativa o controle selecionado. O botão `TERMINAL`
+abre ou foca a aplicação terminal real pelo window manager, e o estado HTML
+`ONLINE` permanece visível na mesma janela.
 O framebuffer base também ganhou chrome persistente inspirado na referência:
 barra superior e dock inferior com sete áreas de aplicação, atrás das janelas
 SDL.
