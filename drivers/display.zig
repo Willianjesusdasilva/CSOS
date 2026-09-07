@@ -906,11 +906,12 @@ test "display telemetry counters saturate" {
                 '9' => .{ 0b111, 0b101, 0b111, 0b001, 0b110 },
                 else => .{ 0, 0, 0, 0, 0 },
             };
+            const glyph_offset = std.math.mul(usize, index, 8) catch std.math.maxInt(usize);
             for (glyph, 0..) |row_bits, row| {
                 var bit: usize = 0;
                 while (bit < 3) : (bit += 1)
                     if ((row_bits & (@as(u8, 1) << @intCast(2 - bit))) != 0)
-                        self.fillRect(x +| index * 8 +| bit * 2, y +| row * 2, 2, 2, 0xffffff);
+                        self.fillRect(x +| glyph_offset +| bit * 2, y +| row * 2, 2, 2, 0xffffff);
             }
         }
     }
