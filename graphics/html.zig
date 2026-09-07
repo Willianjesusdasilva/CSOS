@@ -2,6 +2,7 @@ const std = @import("std");
 
 pub const Kind = enum { heading, paragraph, button };
 pub const Element = struct { kind: Kind, text: []const u8 };
+pub const DrawText = *const fn (x: usize, y: usize, text: []const u8, color: u32) void;
 
 /// Small allocation-free HTML subset used by the planned system UI.
 /// Supported elements are h1, p and button; unknown tags are ignored while
@@ -31,7 +32,24 @@ pub const Document = struct {
         }
         return document;
     }
+
+    /// Emits a simple vertical layout consumable by any text renderer.
+    pub fn render(self: *const Document, draw: DrawText, origin_x: usize, origin_y: usize) void {
+        var y = origin_y;
+        for (self.elements[0..self.count]) |element| {
+            const color: u32 = switch (element.kind) {
+                .heading => 0x70d0ffff,
+                .paragraph => 0xa0b8d0ff,
+                .button => 0xffd070ff,
+            };
+            draw(origin_x, y, element.text, color);
+            y += if (element.kind == .heading) 16 else 12;
+        }
+    }
 };
+
+var rendered_count: usize = 0;
+fn countDraw(_: usize, _: usize, _: []const u8, _: u32) void { rendered_count += 1; }
 
 test "HTML subset parses UI elements in document order" {
     const document = Document.parse("<h1>CSOS</h1><p>Ready</p><button>Launch</button>");
@@ -45,4 +63,11 @@ test "HTML subset ignores unsupported tags" {
     const document = Document.parse("<div>x</div><p>ok</p><script>bad</script>");
     try std.testing.expectEqual(@as(usize, 1), document.count);
     try std.testing.expectEqualStrings("ok", document.elements[0].text);
+}
+
+test "HTML subset emits vertical render operations" {
+    const document = Document.parse("<h1>Title</h1><p>Body</p><button>Go</button>");
+    rendered_count = 0;
+    document.render(&countDraw, 4, 8);
+    try std.testing.expectEqual(@as(usize, 3), rendered_count);
 }
