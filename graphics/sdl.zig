@@ -951,6 +951,9 @@ test "SDL software event queue and surface contract" {
     input.cursor = 3;
     input.moveWordRight();
     try @import("std").testing.expectEqual(@as(usize, 5), input.cursor);
+    input.cursor = 5;
+    input.moveWordLeft();
+    try @import("std").testing.expectEqual(@as(usize, 0), input.cursor);
     input.replace("one two three");
     input.cursor = 7;
     input.eraseWordBackward();
