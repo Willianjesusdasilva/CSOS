@@ -629,6 +629,13 @@ test "window manager focus alt-tab hit-test and close" {
     try std.testing.expectEqual(@as(u8, 0), manager.launcher_selection);
 }
 
+test "taskbar maps compact visible slots to real window indices" {
+    var manager = WindowManager{};
+    _ = try manager.create(.{ .id = 1, .visible = false, .x = 0, .y = 0, .width = 64, .height = 32 });
+    _ = try manager.create(.{ .id = 2, .x = 0, .y = 0, .width = 64, .height = 32 });
+    try std.testing.expectEqual(@as(?usize, 1), manager.taskbarHitTest(80, 119, 128));
+}
+
 test "window manager dismisses launcher when focusing a window" {
     var manager = WindowManager{};
     _ = try manager.create(.{ .id = 1, .x = 0, .y = 0, .width = 80, .height = 48 });
