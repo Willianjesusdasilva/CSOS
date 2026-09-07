@@ -2598,6 +2598,7 @@ fn handleSdlDemoEvent(app: *sdl.Application, event: sdl.Event) void {
 fn resetSdlDemoApplication(app: *sdl.Application) void {
     sdl_terminal = .{};
     sdl_terminal.file_reader = &readTerminalFile;
+    sdl_terminal.directory_reader = &listTerminalDirectory;
     app.running = true;
     app.window.clear(0x182838ff);
     drawSdlTerminal(app);
@@ -2608,6 +2609,32 @@ fn readTerminalFile(path: []const u8, output: []u8) ?[]const u8 {
     defer vfs.close(fd) catch {};
     const count = vfs.read(fd, output) catch return null;
     return output[0..count];
+}
+
+fn listTerminalDirectory(output: []u8) ?[]const u8 {
+    const fd = vfs.openAt(-100, "/", 0) catch return null;
+    defer vfs.close(fd) catch {};
+    var raw: [512]u8 = undefined;
+    const count = vfs.getDents(fd, &raw) catch return null;
+    var raw_offset: usize = 0;
+    var output_offset: usize = 0;
+    while (raw_offset < count) {
+        if (count - raw_offset < 19) return null;
+        const record_length = @as(usize, raw[raw_offset + 16]) | (@as(usize, raw[raw_offset + 17]) << 8);
+        if (record_length < 24 or record_length > count - raw_offset) return null;
+        const name_start = raw_offset + 19;
+        var name_end = name_start;
+        while (name_end < raw_offset + record_length and raw[name_end] != 0) : (name_end += 1) {}
+        if (name_end == raw_offset + record_length) return null;
+        const name = raw[name_start..name_end];
+        if (name.len + 2 > output.len -| output_offset) return null;
+        @memcpy(output[output_offset .. output_offset + name.len], name);
+        output_offset += name.len;
+        output[output_offset] = '\n';
+        output_offset += 1;
+        raw_offset += record_length;
+    }
+    return output[0..output_offset];
 }
 
 fn drawSdlTerminal(app: *sdl.Application) void {

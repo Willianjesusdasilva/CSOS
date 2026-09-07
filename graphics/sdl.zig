@@ -578,9 +578,11 @@ pub const TextInput = struct {
 
 pub const Terminal = struct {
     pub const FileReader = *const fn (path: []const u8, output: []u8) ?[]const u8;
+    pub const DirectoryReader = *const fn (output: []u8) ?[]const u8;
     input: TextInput = .{},
     output: [256]u8 = undefined,
     file_reader: ?FileReader = null,
+    directory_reader: ?DirectoryReader = null,
     file_scratch: [128]u8 = undefined,
     output_len: usize = 0,
     history: [4][64]u8 = undefined,
@@ -612,8 +614,11 @@ pub const Terminal = struct {
                 self.append("root\n")
             else if (bytesEqualIgnoreCase(command, "pwd"))
                 self.append("/\n")
-            else if (bytesEqualIgnoreCase(command, "ls"))
-                self.append("SYSTEM.TXT  BOOT.CFG  CONFIG/\n")
+            else if (bytesEqualIgnoreCase(command, "ls")) {
+                if (self.directory_reader) |reader| {
+                    if (reader(&self.file_scratch)) |listing| self.append(listing) else self.append("ls: READ ERROR\n");
+                } else self.append("SYSTEM.TXT  BOOT.CFG  CONFIG/\n");
+            }
             else if (command.len >= 4 and bytesEqualIgnoreCase(command[0..4], "cat ")) {
                 const path = trimCommand(command[4..]);
                 if (path.len == 0) {
@@ -928,6 +933,12 @@ pub fn glyph3x5(character: u8) [5]u8 {
 fn testApplicationEvent(_: *Application, _: Event) void {}
 fn testApplicationDraw(window: *Window) void {
     window.fillRect(0, 0, 1, 1, 0xffffffff);
+}
+
+fn testDirectoryReader(output: []u8) ?[]const u8 {
+    if (output.len < 11) return null;
+    @memcpy(output[0..11], "SYSTEM.TXT\n");
+    return output[0..11];
 }
 
 test "SDL software event queue and surface contract" {
@@ -1326,6 +1337,13 @@ test "SDL software event queue and surface contract" {
     try @import("std").testing.expectError(error.InvalidAudioSpec, AudioDevice.init(.{ .sample_rate = 0, .channels = 2 }));
     try @import("std").testing.expectError(error.InvalidAudioSpec, AudioDevice.init(.{ .sample_rate = 48000, .channels = 0 }));
     try @import("std").testing.expectError(error.InvalidAudioSpec, AudioDevice.init(.{ .sample_rate = 48000, .channels = 9 }));
+}
+
+test "SDL terminal uses directory callback for real ls output" {
+    var terminal = Terminal{ .directory_reader = &testDirectoryReader };
+    terminal.input.replace("ls");
+    try @import("std").testing.expect(terminal.submit());
+    try @import("std").testing.expectEqualStrings("> ls\nSYSTEM.TXT\n", terminal.outputSlice());
 }
 
 test "SDL text input displaces oldest mouse event in a full queue" {
