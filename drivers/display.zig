@@ -116,6 +116,9 @@ pub const WindowManager = struct {
     pub fn create(self: *WindowManager, window: Window) !usize {
         if (self.count == max_windows) return error.WindowLimit;
         if (window.width < 32 or window.height < 24) return error.InvalidWindowSize;
+        for (self.windows[0..self.count]) |existing| {
+            if (existing.id == window.id) return error.DuplicateWindowId;
+        }
         self.windows[self.count] = window;
         const index = self.count;
         self.count += 1;
@@ -485,6 +488,7 @@ test "window manager focus alt-tab hit-test and close" {
     try std.testing.expect(manager.focused == null);
     manager.close(0);
     const first = try manager.create(.{ .id = 10, .x = 8, .y = 8, .width = 80, .height = 48 });
+    try std.testing.expectError(error.DuplicateWindowId, manager.create(.{ .id = 10, .x = 0, .y = 0, .width = 64, .height = 32 }));
     const second = try manager.create(.{ .id = 20, .x = 32, .y = 24, .width = 96, .height = 56 });
     try std.testing.expectEqual(@as(usize, 1), second);
     try std.testing.expectEqual(@as(?usize, 1), manager.hitTest(40, 30));
