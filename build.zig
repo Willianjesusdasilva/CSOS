@@ -222,6 +222,14 @@ pub fn build(b: *std.Build) void {
     const gpu_tests = b.addTest(.{ .root_module = gpu_test_module });
     const run_gpu_tests = b.addRunArtifact(gpu_tests);
     const test_step = b.step("test", "Run CSOS host-side tests");
+    const pci_test_module = b.createModule(.{
+        .root_source_file = b.path("drivers/pci.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+    });
+    const pci_tests = b.addTest(.{ .root_module = pci_test_module });
+    const run_pci_tests = b.addRunArtifact(pci_tests);
+    test_step.dependOn(&run_pci_tests.step);
     test_step.dependOn(&run_acpi_tests.step);
     test_step.dependOn(&run_gpu_tests.step);
     const metrics_test_module = b.createModule(.{
