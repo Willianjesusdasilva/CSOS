@@ -151,6 +151,12 @@ pub const ListSelection = struct {
     }
 };
 
+pub fn displayTextByte(byte: u8) u8 {
+    if (byte == '\t') return ' ';
+    if (byte >= 0x20 and byte <= 0x7e) return byte;
+    return '.';
+}
+
 pub const Window = struct {
     width: usize,
     height: usize,
@@ -653,4 +659,8 @@ test "list selection keeps the selected row inside its viewport" {
     var empty = ListSelection.init(0, 0);
     try testing.expectEqual(@as(usize, 1), empty.visible_rows);
     try testing.expect(!empty.next());
+    try testing.expectEqual(@as(u8, 'A'), displayTextByte('A'));
+    try testing.expectEqual(@as(u8, ' '), displayTextByte('\t'));
+    try testing.expectEqual(@as(u8, '.'), displayTextByte(0));
+    try testing.expectEqual(@as(u8, '.'), displayTextByte(0xff));
 }

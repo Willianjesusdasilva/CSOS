@@ -1560,6 +1560,9 @@ pub fn start(info: BootInfo) noreturn {
     var root_files: [32]fat16.Volume.DirectoryEntry = undefined;
     const root_file_count = volume.listRootFiles(&root_files) catch panic("FAT16 root listing failed");
     var files_selection = sdl.ListSelection.init(root_file_count, 7);
+    var files_preview: [192]u8 = undefined;
+    var files_preview_length: usize = 0;
+    var files_preview_open = false;
     drawFilesSurface(&files_window, root_files[0..root_file_count], &files_selection);
     serial.write("UI files application entries: ");
     serial.writeDecimal(root_file_count);
@@ -2074,6 +2077,7 @@ pub fn start(info: BootInfo) noreturn {
             if (event.kind == .keyboard) {
                 var launcher_consumed = false;
                 var switcher_consumed = false;
+                var file_browser_consumed = false;
                 const alt_held = (event.b & 0x44) != 0;
                 const alt_tab_pressed = alt_held and event.a == 0x2b;
                 const gui_pressed = (event.b & 0x88) != 0;
@@ -2095,6 +2099,10 @@ pub fn start(info: BootInfo) noreturn {
                             const was_open = window_manager.findById(application_id) != null;
                             _ = launchDesktopWindow(window_manager, application_id, &demo_app.window, &monitor_window, &system_window, &files_window) catch panic("desktop keyboard application launch failed");
                             if (application_id == 1 and !was_open) resetSdlDemoApplication(&demo_app);
+                            if (application_id == 4 and !was_open) {
+                                files_preview_open = false;
+                                drawFilesSurface(&files_window, root_files[0..root_file_count], &files_selection);
+                            }
                             window_manager.launcher_open = false;
                             serial.write("UI launch application (keyboard): ");
                             serial.writeDecimal(application_id);
@@ -2104,13 +2112,23 @@ pub fn start(info: BootInfo) noreturn {
                     }
                 }
                 if (!launcher_consumed and !alt_tab_pressed and focusedWindowIs(window_manager, 4) and event.a != 0) {
-                    const changed = switch (event.a) {
-                        0x51 => files_selection.next(),
-                        0x52 => files_selection.previous(),
-                        else => false,
-                    };
-                    if (changed) drawFilesSurface(&files_window, root_files[0..root_file_count], &files_selection);
-                    if (event.a == 0x28 and root_file_count != 0) {
+                    if (files_preview_open and event.a == 0x29) {
+                        files_preview_open = false;
+                        drawFilesSurface(&files_window, root_files[0..root_file_count], &files_selection);
+                        file_browser_consumed = true;
+                    } else if (!files_preview_open) {
+                        const changed = switch (event.a) {
+                            0x51 => files_selection.next(),
+                            0x52 => files_selection.previous(),
+                            else => false,
+                        };
+                        if (changed) drawFilesSurface(&files_window, root_files[0..root_file_count], &files_selection);
+                    }
+                    if (!files_preview_open and event.a == 0x28 and root_file_count != 0) {
+                        files_preview_length = volume.readRootFileAt(&root_files[files_selection.selected].name, &files_preview, 0) catch panic("UI file preview read failed");
+                        files_preview_open = true;
+                        drawFilePreview(&files_window, root_files[files_selection.selected], files_preview[0..files_preview_length]);
+                        file_browser_consumed = true;
                         serial.write("UI files selected: ");
                         serial.write(&root_files[files_selection.selected].name);
                         serial.write(" bytes: ");
@@ -2168,12 +2186,13 @@ pub fn start(info: BootInfo) noreturn {
                 }
                 if (!alt_held) window_manager.switcher_open = false;
                 alt_tab_down = alt_tab_pressed;
-                const close_shortcut = !launcher_consumed and !switcher_consumed and (event.a == 0x29 or ((event.b & 0x01) != 0 and event.a == 0x1a));
+                const close_shortcut = !launcher_consumed and !switcher_consumed and !file_browser_consumed and (event.a == 0x29 or ((event.b & 0x01) != 0 and event.a == 0x1a));
                 if (close_shortcut and window_manager.focused != null) {
                     const closing = window_manager.focused.?;
                     const closed_id = window_manager.windows[closing].id;
                     window_manager.close(closing);
                     if (closed_id == 1) demo_app.running = false;
+                    if (closed_id == 4) files_preview_open = false;
                     serial.write(if (event.a == 0x29) "UI close window (Esc): " else "UI close window (Ctrl+W): ");
                     serial.writeDecimal(closed_id);
                     serial.write("\n");
@@ -2213,7 +2232,7 @@ pub fn start(info: BootInfo) noreturn {
             // previous report's coordinates.
             cursor_x = display.applyPointerDelta(cursor_x, dx, screen.framebuffer.width);
             cursor_y = display.applyPointerDelta(cursor_y, dy, screen.framebuffer.height);
-            if (focusedWindowIs(window_manager, 4) and files_selection.wheel(wheel))
+            if (focusedWindowIs(window_manager, 4) and !files_preview_open and files_selection.wheel(wheel))
                 drawFilesSurface(&files_window, root_files[0..root_file_count], &files_selection);
             if (focusedWindowIs(window_manager, 1)) {
                 _ = sdl_events.pushMouseCoalesced(@intCast(dx), @intCast(dy), @intCast(wheel), event.a);
@@ -2238,6 +2257,10 @@ pub fn start(info: BootInfo) noreturn {
                         const was_open = window_manager.findById(application_id) != null;
                         _ = launchDesktopWindow(window_manager, application_id, &demo_app.window, &monitor_window, &system_window, &files_window) catch panic("desktop application launch failed");
                         if (application_id == 1 and !was_open) resetSdlDemoApplication(&demo_app);
+                        if (application_id == 4 and !was_open) {
+                            files_preview_open = false;
+                            drawFilesSurface(&files_window, root_files[0..root_file_count], &files_selection);
+                        }
                         window_manager.launcher_open = false;
                         serial.write("UI launch application: ");
                         serial.writeDecimal(application_id);
@@ -2254,6 +2277,7 @@ pub fn start(info: BootInfo) noreturn {
                             const closed_id = window.id;
                             window_manager.close(hit);
                             if (closed_id == 1) demo_app.running = false;
+                            if (closed_id == 4) files_preview_open = false;
                             serial.write("UI close window: ");
                             serial.writeDecimal(closed_id);
                             serial.write("\n");
@@ -2431,6 +2455,27 @@ fn drawFilesSurface(window: *sdl.Window, entries: []const fat16.Volume.Directory
         window.drawText(4, y, &entry.name, 0xd8d0c0ff);
         drawSurfaceNumber(window, 108, y, entry.size, 0x90b0d0ff);
     }
+}
+
+fn drawFilePreview(window: *sdl.Window, entry: fat16.Volume.DirectoryEntry, data: []const u8) void {
+    window.clear(0x181c20ff);
+    window.drawText(4, 4, &entry.name, 0xf0c080ff);
+    drawSurfaceNumber(window, 108, 4, entry.size, 0x90b0d0ff);
+    var line: [26]u8 = undefined;
+    var line_length: usize = 0;
+    var row: usize = 0;
+    for (data) |byte| {
+        if (byte == '\n' or line_length == line.len) {
+            window.drawText(4, 20 + row * 12, line[0..line_length], 0xd8e0e8ff);
+            row += 1;
+            line_length = 0;
+            if (row == 6) break;
+            if (byte == '\n') continue;
+        }
+        line[line_length] = sdl.displayTextByte(byte);
+        line_length += 1;
+    }
+    if (row < 6 and line_length != 0) window.drawText(4, 20 + row * 12, line[0..line_length], 0xd8e0e8ff);
 }
 
 fn drawMonitorSurface(window: *sdl.Window, screen: *const display.Context) void {

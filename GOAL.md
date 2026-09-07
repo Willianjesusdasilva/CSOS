@@ -231,6 +231,10 @@ e permite selecionar por setas ou roda do mouse; Enter publica nome e tamanho do
 item. O QEMU encontrou 14 arquivos reais, exercitando rolagem além da primeira
 tela antes de chegar ao desktop.
 
+Enter em `FILES` abre uma prévia limitada a 192 bytes lidos do arquivo real.
+Quebras de linha são preservadas, bytes binários são sanitizados e Esc volta à
+lista antes de participar do fechamento normal da janela.
+
 Esta porcentagem não é uma contagem simples de milestones. M0–M13 têm bases relevantes, mas M14 ainda não possui triângulos Vulkan validados em AMD e NVIDIA, e M15–M30 permanecem majoritariamente pendentes. Código preparatório ou teste no host não equivale a hardware funcional.
 
 Verificação mais recente em 2026-09-06: `zig build test` concluiu `17/17` etapas

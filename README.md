@@ -748,6 +748,11 @@ operações in-place. Marcadores individuais tornam futuras falhas localizáveis
 do mouse. Enter registra o nome/tamanho selecionado. O boot mais recente
 enumerou as 14 entradas reais do volume e manteve a sessão gráfica pronta.
 
+Enter agora abre uma prévia real do arquivo selecionado, lendo de forma limitada
+os primeiros 192 bytes pelo FAT16. Texto preserva linhas e bytes binários ou de
+controle são sanitizados; Esc retorna à lista sem fechar a janela, formando o
+ciclo básico listar → abrir → voltar.
+
 O inventário do host também encontrou uma AMD Radeon(TM) Graphics (`1002:164e`)
 e uma NVIDIA GeForce RTX 4060 Ti (`10de:2803`), ambas ativas. Isso viabiliza a
 próxima validação física, mas detecção no host não é evidência de suporte do
