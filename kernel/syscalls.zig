@@ -228,7 +228,10 @@ pub fn configure(base: u64, size: u64, stack: u64, stack_length: u64, initial_br
     mmap_base = mmap_start;
     mmap_limit = mmap_end;
     device_mmap_next = mmap_end;
-    device_mmap_limit = mmap_end + max_drm_objects * drm_object_stride;
+    // Keep the device-mapping window bounded even if a malformed layout puts
+    // its end near the top of the address space. An overflow disables the
+    // optional window instead of wrapping it below mmap_end.
+    device_mmap_limit = @import("std").math.add(u64, mmap_end, max_drm_objects * drm_object_stride) catch mmap_end;
     writes = 0;
     unknown_seen = .{false} ** unknown_seen.len;
     process_exit_status = 0xffffffffffffffff;
