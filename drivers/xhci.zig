@@ -1,3 +1,4 @@
+const std = @import("std");
 const pci = @import("pci");
 const physical = @import("physical");
 const apic = @import("apic");
@@ -743,7 +744,7 @@ pub const HidDevices = struct {
 
     fn push(self: *HidDevices, event: InputEvent) void {
         const next: u8 = (self.queue_tail + 1) % 64;
-        self.events_total +%= 1;
+        self.events_total = saturatingCount(self.events_total, 1);
         if (next == self.queue_head) {
             const previous_slot: u8 = if (self.queue_tail == 0) 63 else self.queue_tail - 1;
             const previous = &self.queue[previous_slot];
@@ -752,11 +753,11 @@ pub const HidDevices = struct {
                 previous.c = coalesceHidDelta(previous.c, event.c);
                 previous.d = coalesceHidDelta(previous.d, event.d);
                 self.queue_tsc[previous_slot] = timestamp();
-                self.mouse_events_coalesced +%= 1;
+                self.mouse_events_coalesced = saturatingCount(self.mouse_events_coalesced, 1);
                 return;
             }
             self.queue_head = (self.queue_head + 1) % 64;
-            self.events_dropped +%= 1;
+            self.events_dropped = saturatingCount(self.events_dropped, 1);
         }
         self.queue[self.queue_tail] = event;
         self.queue_tsc[self.queue_tail] = timestamp();
@@ -772,6 +773,10 @@ pub const HidDevices = struct {
         return event;
     }
 };
+
+fn saturatingCount(value: u64, increment: u64) u64 {
+    return std.math.add(u64, value, increment) catch std.math.maxInt(u64);
+}
 
 fn coalesceHidDelta(left: u8, right: u8) u8 {
     const left_signed: i8 = @bitCast(left);

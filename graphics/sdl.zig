@@ -35,7 +35,7 @@ pub const EventQueue = struct {
 
     pub fn push(self: *EventQueue, event: Event) bool {
         if (self.write -% self.read == self.items.len) {
-            self.dropped +%= 1;
+            self.dropped = saturatingCount(self.dropped, 1);
             return false;
         }
         self.items[self.write % self.items.len] = event;
@@ -119,7 +119,7 @@ pub const EventQueue = struct {
             // Encerramento é controle de vida da aplicação: preserve-o mesmo
             // sob uma rajada de input, descartando o evento mais antigo.
             self.items[self.read % self.items.len] = .{ .quit = {} };
-            self.dropped +%= 1;
+            self.dropped = saturatingCount(self.dropped, 1);
             return true;
         }
         return self.push(.{ .quit = {} });
@@ -631,6 +631,10 @@ fn bytesEqual(left: []const u8, right: []const u8) bool {
 
 fn saturatingAdd(left: i32, right: i32) i32 {
     return std.math.add(i32, left, right) catch if (right < 0) std.math.minInt(i32) else std.math.maxInt(i32);
+}
+
+fn saturatingCount(value: u64, increment: u64) u64 {
+    return std.math.add(u64, value, increment) catch std.math.maxInt(u64);
 }
 
 pub const AudioDevice = struct {
