@@ -2147,12 +2147,12 @@ pub fn start(info: BootInfo) noreturn {
                     }
                 }
                 if (!launcher_consumed and !tab_switch_pressed and event.c != 0 and focusedWindowIs(window_manager, 4) and event.a != 0) {
-                    if (event.a == 0x3e) {
+                    if (event.a == 0x3e or (event.a == 0x15 and (event.b & 0x11) != 0)) {
                         root_file_count = refreshFiles(&volume, &root_files, &files_selection, &files_window) catch panic("UI files F5 refresh failed");
                         files_preview_open = false;
                         files_preview_back_hover = false;
                         file_browser_consumed = true;
-                        serial.write("UI files refreshed\n");
+                        serial.write(if (event.a == 0x3e) "UI files refreshed\n" else "UI files refreshed (Ctrl+R)\n");
                     } else if (files_preview_open and event.a == 0x29) {
                         files_preview_open = false;
                         drawFilesSurface(&files_window, root_files[0..root_file_count], &files_selection);
