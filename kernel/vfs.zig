@@ -355,9 +355,11 @@ pub fn write(fd: usize, input: []const u8) !usize {
     if (descriptor.size != 0) _ = try volume.readRootFile(&descriptor.fat_name, contents[0..descriptor.size]);
     if (descriptor.offset > descriptor.size) @memset(contents[descriptor.size..descriptor.offset], 0);
     @memcpy(contents[descriptor.offset .. descriptor.offset + input.len], input);
-    descriptor.offset += input.len;
-    descriptor.size = @max(descriptor.size, descriptor.offset);
-    try volume.writeRootFile(&descriptor.fat_name, contents[0..descriptor.size]);
+    const new_offset = descriptor.offset + input.len;
+    const new_size = @max(descriptor.size, new_offset);
+    try volume.writeRootFile(&descriptor.fat_name, contents[0..new_size]);
+    descriptor.offset = new_offset;
+    descriptor.size = new_size;
     return input.len;
 }
 
