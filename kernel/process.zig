@@ -455,7 +455,7 @@ fn unmapMmap(address: u64, length: u64) callconv(.c) bool {
 
 fn mapDevice(virtual: u64, physical_address: u64, length: u64, writable: bool) callconv(.c) bool {
     const address_space = active_address_space orelse return false;
-    if ((virtual & (page_size - 1)) != 0 or (physical_address & (page_size - 1)) != 0 or
+    if (length == 0 or (virtual & (page_size - 1)) != 0 or (physical_address & (page_size - 1)) != 0 or
         length > std.math.maxInt(u64) - virtual or length > std.math.maxInt(u64) - physical_address) return false;
     var offset: u64 = 0;
     while (offset < length) : (offset += @min(@as(u64, page_size), length - offset))
