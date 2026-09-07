@@ -801,10 +801,13 @@ prévia, e o botão `BACK` da própria superfície retorna à lista. O hit-test 
 botão é recortado pela área útil da janela, inclusive após move, resize ou
 maximize.
 
-`FILES` relê a raiz FAT16 ao ser aberta ou restaurada e também por F5. A seleção
+`FILES` relê a raiz FAT16 ao ser aberta ou restaurada e também por F5 ou
+`Ctrl+R`. A seleção
 e o início do viewport são preservados quando ainda válidos e reduzidos para a
 nova contagem quando arquivos desaparecem; voltar ao launcher nunca mostra uma
 lista permanentemente obsoleta.
+No launcher, `1`–`4` selecionam diretamente as aplicações; `Alt+F4` fecha a
+janela focada e `Alt+F10` alterna maximização.
 
 Prévia de arquivo agora é paginada sem carregar o objeto inteiro: Page Down,
 Page Up, Home e roda do mouse navegam blocos de 192 bytes, com limites no início
