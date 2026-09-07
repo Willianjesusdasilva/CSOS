@@ -526,7 +526,7 @@ fn clockGetRes(clock: u64, output: u64) u64 {
 }
 
 fn supportedClock(clock: u64) bool {
-    return clock == 0 or clock == 1 or clock == 4 or clock == 7;
+    return clock == 0 or clock == 1 or clock == 4 or clock == 7 or clock == 11;
 }
 
 fn read(fd: u64, address: u64, length: u64) u64 {
