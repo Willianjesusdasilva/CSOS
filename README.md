@@ -775,6 +775,7 @@ atual observado, não apenas os valores do boot.
 Atalhos `Ctrl+Alt+T/M/S/F` abrem diretamente TERMINAL, MONITOR, SYSTEM e FILES;
 no FILES, o último atalho também atualiza a enumeração.
 `Ctrl+Alt+L` alterna diretamente o launcher.
+Com MONITOR focado, `Ctrl+R` zera a telemetria para iniciar uma nova medição.
 
 O FAT16 expõe agora enumeração limitada da raiz, e o launcher inclui `FILES`,
 uma quarta aplicação SDL que apresenta nomes 8.3 e tamanhos reais. O boot QEMU
