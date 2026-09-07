@@ -2106,6 +2106,7 @@ pub fn start(info: BootInfo) noreturn {
                 const monitor_shortcut_pressed = event.c != 0 and event.a == 0x10 and ctrl_held and alt_held;
                 const system_shortcut_pressed = event.c != 0 and event.a == 0x16 and ctrl_held and alt_held;
                 const files_shortcut_pressed = event.c != 0 and event.a == 0x09 and ctrl_held and alt_held;
+                const launcher_direct_shortcut = event.c != 0 and event.a == 0x0f and ctrl_held and alt_held;
                 if (terminal_shortcut_pressed) {
                     const was_open = window_manager.findById(1) != null;
                     if (!demo_app.running) {
@@ -2129,6 +2130,11 @@ pub fn start(info: BootInfo) noreturn {
                         root_file_count = refreshFiles(&volume, &root_files, &files_selection, &files_window) catch panic("UI files shortcut refresh failed");
                     }
                     serial.write(if (system_shortcut_pressed) "UI system shortcut\n" else "UI files shortcut\n");
+                }
+                if (launcher_direct_shortcut) {
+                    window_manager.toggleLauncher();
+                    launcher_consumed = true;
+                    serial.write(if (window_manager.launcher_open) "UI launcher open (Ctrl+Alt+L)\n" else "UI launcher closed (Ctrl+Alt+L)\n");
                 }
                 if (launcher_shortcut_pressed and !launcher_key_down) {
                     window_manager.toggleLauncher();
