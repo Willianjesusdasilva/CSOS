@@ -604,6 +604,12 @@ fn fcntl(fd: u64, command: u64, argument: u64) u64 {
             sockets[index].close_on_exec = (argument & 1) != 0;
             break :blk 0;
         },
+        3 => if (sockets[index].nonblocking) 0x800 else 0,
+        4 => blk: {
+            if ((argument & ~@as(u64, 0x800)) != 0) break :blk errno(22);
+            sockets[index].nonblocking = (argument & 0x800) != 0;
+            break :blk 0;
+        },
         else => errno(22),
     };
     return switch (command) {
@@ -2781,6 +2787,7 @@ fn write(fd: u64, address: u64, length: u64) u64 {
 const Socket = struct {
     allocated: bool = false,
     close_on_exec: bool = false,
+    nonblocking: bool = false,
     connection: ?net.TcpConnection = null,
     reuse_address: bool = false,
     reuse_port: bool = false,
@@ -2795,7 +2802,7 @@ fn socket(domain: u64, kind: u64, protocol: u64) u64 {
     if (domain != 2 or (kind & 0xf) != 1 or (kind & ~@as(u64, 0x80801)) != 0 or (protocol != 0 and protocol != 6)) return errno(97);
     for (&sockets, 0..) |*entry, index| {
         if (!entry.allocated) {
-            entry.* = .{ .allocated = true, .close_on_exec = (kind & 0x80000) != 0 };
+            entry.* = .{ .allocated = true, .close_on_exec = (kind & 0x80000) != 0, .nonblocking = (kind & 0x800) != 0 };
             return 32 + index;
         }
     }
