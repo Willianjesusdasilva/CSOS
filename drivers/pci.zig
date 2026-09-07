@@ -312,6 +312,7 @@ pub fn barInfo(device: Device, index: u3, probe_size: bool) ?Bar {
         write16(device.bus, device.slot, device.function, 4, command);
         if (mask != 0) size = if (is_64_bit) (~mask) +% 1 else @as(u64, (~@as(u32, @truncate(mask))) +% 1);
     }
+    if (size != 0 and address > std.math.maxInt(u64) - (size - 1)) return null;
     return .{ .address = address, .size = size, .is_64_bit = is_64_bit, .prefetchable = (low & 8) != 0 };
 }
 
