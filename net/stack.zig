@@ -103,7 +103,9 @@ pub const Stack = struct {
             const length = label_end - label_start;
             const next_offset = @import("std").math.add(usize, offset, 1 + length) catch return error.InvalidDnsName;
             const query_end = @import("std").math.add(usize, next_offset, 5) catch return error.InvalidDnsName;
-            if (length == 0 or length > 63 or query_end > query.len) return error.InvalidDnsName;
+            // The encoded DNS name includes one length octet per label and
+            // the terminating zero; RFC 1035 limits that wire form to 255.
+            if (length == 0 or length > 63 or query_end > query.len or query_end - 12 > 255) return error.InvalidDnsName;
             query[offset] = @intCast(length); offset += 1;
             @memcpy(query[offset .. offset + length], name[label_start..label_end]); offset += length;
             label_start = label_end + 1;
