@@ -1279,7 +1279,7 @@ pub fn handlePageFault(address: u64, instruction: u64, code: u64) callconv(.c) b
             pages.release(physical_address, 1) catch {};
             return false;
         }
-        address_space.mapUserPage(page_virtual, physical_address, false, mapping.executable) catch {
+        address_space.mapUserPage(page_virtual, physical_address, mapping.writable, mapping.executable) catch {
             pages.release(physical_address, 1) catch {};
             return false;
         };
