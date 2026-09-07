@@ -163,10 +163,15 @@ pub fn openAt(directory_fd: i64, path: []const u8, flags: u64) !usize {
     while (fd < descriptors.len and descriptors[fd].kind != .unused) : (fd += 1) {}
     if (fd == descriptors.len) return error.TooManyFiles;
     if (toFatName(path)) |fat_name| if (disk) |volume| {
+        var existed = true;
         var size = volume.fileSize(&fat_name) catch |err| switch (err) {
-            error.NotFound => if ((flags & 0x40) != 0) @as(usize, 0) else return error.NotFound,
+            error.NotFound => blk: {
+                existed = false;
+                break :blk if ((flags & 0x40) != 0) @as(usize, 0) else return error.NotFound;
+            },
             else => return err,
         };
+        if (existed and (flags & 0xc0) == 0xc0) return error.AlreadyExists;
         const writable = (flags & 0x3) != 0;
         if ((flags & 0x200) != 0 and writable or (size == 0 and (flags & 0x40) != 0)) {
             try volume.writeRootFile(&fat_name, "");
