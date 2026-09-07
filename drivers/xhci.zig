@@ -117,7 +117,7 @@ pub const Controller = struct {
                 }
             }
             if (protocol == 0) continue;
-            if (endpoint_address == 0 or !validHidPacketSize(endpoint_packet)) return error.HidEndpointMissing;
+            if (endpoint_address == 0 or !validHidPacketSize(endpoint_packet) or !validHidInterval(interval)) return error.HidEndpointMissing;
             const endpoint_id: u5 = @intCast((endpoint_address & 0x0f) * 2 + 1);
             const interrupt_ring = pages.allocate(1) orelse return error.OutOfMemory;
             const report = pages.allocate(1) orelse return error.OutOfMemory;
@@ -789,6 +789,10 @@ fn validHidPacketSize(packet_size: u16) bool {
     return packet_size != 0 and packet_size <= 1024;
 }
 
+fn validHidInterval(interval: u8) bool {
+    return interval != 0;
+}
+
 test "full HID queue coalesces mouse motion without losing buttons" {
     var devices = HidDevices{};
     for (0..63) |_| devices.push(.{ .kind = .mouse, .a = 1, .b = 1, .c = 0, .d = 0 });
@@ -832,6 +836,12 @@ test "HID endpoint packet size stays within USB interrupt limits" {
     try @import("std").testing.expect(validHidPacketSize(1024));
     try @import("std").testing.expect(!validHidPacketSize(1025));
     try @import("std").testing.expect(!validHidPacketSize(2047));
+}
+
+test "HID endpoint interval must be present in the descriptor" {
+    try @import("std").testing.expect(!validHidInterval(0));
+    try @import("std").testing.expect(validHidInterval(1));
+    try @import("std").testing.expect(validHidInterval(255));
 }
 
 pub const AudioDevices = struct {
