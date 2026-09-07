@@ -540,7 +540,11 @@ pub const Controller = struct {
                 @memcpy(endpoint.last_report[0..saved_size], report[0..saved_size]);
                 endpoint.last_size = @intCast(saved_size);
                 if (endpoint.slot == devices.keyboard.slot) {
-                    devices.push(.{ .kind = .keyboard, .a = keyboardReportUsage(report[0..size]), .b = if (size > 0) report[0] else 0, .c = @intFromBool(keyboardReportPressed(report[0..size])) });
+                    const pressed = keyboardReportPressed(report[0..size]);
+                    const usage = keyboardReportUsage(report[0..size]);
+                    const event_usage = if (pressed) usage else devices.keyboard_usage;
+                    devices.push(.{ .kind = .keyboard, .a = event_usage, .b = if (size > 0) report[0] else 0, .c = @intFromBool(pressed) });
+                    if (pressed and usage != 0) devices.keyboard_usage = usage else if (!pressed) devices.keyboard_usage = 0;
                 } else {
                     devices.push(.{ .kind = .mouse, .a = if (size > 0) report[0] else 0, .b = if (size > 1) report[1] else 0, .c = if (size > 2) report[2] else 0, .d = if (size > 3) report[3] else 0 });
                 }
@@ -743,6 +747,7 @@ pub const HidDevices = struct {
     mice: u8 = 0,
     keyboard: Endpoint = .{},
     mouse: Endpoint = .{},
+    keyboard_usage: u8 = 0,
     queue: [64]InputEvent = undefined,
     queue_tsc: [64]u64 = undefined,
     queue_head: u8 = 0,
