@@ -423,12 +423,12 @@ pub const Controller = struct {
             link[1] = @truncate(self.audio.ring >> 32);
             link[2] = 0;
             link[3] = (6 << 10) | (1 << 1) | @as(u32, self.audio.cycle);
-            self.audio.completed +%= 255;
+            self.audio.completed = saturatingCount(self.audio.completed, 255);
             write32(self.doorbells + @as(u64, self.audio.slot) * 4, 0, self.audio.endpoint_id);
             return true;
         }
         if (event.completion != 1 and event.completion != 13) {
-            self.audio.underruns +%= 1;
+            self.audio.underruns = saturatingCount(self.audio.underruns, 1);
             return switch (event.completion) {
                 21 => error.AudioMissedService,
                 15 => error.AudioRingOverrun,
@@ -445,7 +445,7 @@ pub const Controller = struct {
         trb[3] = (5 << 10) | (1 << 31) | (1 << 5) | (1 << 2) | @as(u32, self.audio.cycle ^ 1);
         self.audio.dequeue = if (period == 254) 0 else period + 1;
         if (self.audio.dequeue == 0) self.audio.cycle ^= 1;
-        self.audio.completed +%= 1;
+        self.audio.completed = saturatingCount(self.audio.completed, 1);
         write32(self.doorbells + @as(u64, self.audio.slot) * 4, 0, self.audio.endpoint_id);
         return true;
     }
