@@ -370,6 +370,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         257 => openat(arg1, arg2, arg3),
         262 => stat(arg2, arg3, @bitCast(arg1)),
         267 => readlinkat(@bitCast(arg1), arg2, arg3, arg4),
+        271 => ppoll(arg1, arg2, arg3, arg4),
         436 => closeRange(arg1, arg2, arg3),
         else => unsupported(number),
     };
@@ -2502,6 +2503,20 @@ fn poll(address: u64, count: u64, timeout: i64) u64 {
     }
     if (ready == 0 and timeout > 0) if (idle_hook) |hook| hook();
     return ready;
+}
+
+fn ppoll(address: u64, count: u64, timespec: u64, signal_mask: u64) u64 {
+    if (signal_mask != 0 and !validUserSlice(signal_mask, 8)) return errno(14);
+    var timeout: i64 = 0;
+    if (timespec != 0) {
+        if (!validUserSlice(timespec, 16)) return errno(14);
+        const value: [*]const u8 = @ptrFromInt(timespec);
+        const seconds = read64(value);
+        const nanoseconds = read64(value + 8);
+        if (nanoseconds >= 1_000_000_000 or seconds > @as(u64, @intCast(std.math.maxInt(i64) / 1000))) return errno(22);
+        timeout = if (seconds != 0 or nanoseconds != 0) 1 else 0;
+    }
+    return poll(address, count, timeout);
 }
 
 fn uname(address: u64) u64 {
