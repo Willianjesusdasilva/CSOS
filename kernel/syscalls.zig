@@ -3221,6 +3221,7 @@ fn getRlimit(resource: u64, output: u64) u64 {
     const bytes: [*]u8 = @ptrFromInt(output);
     const limit: u64 = switch (resource) {
         3 => 128 * 1024, // RLIMIT_STACK
+        7 => 32, // RLIMIT_NOFILE matches the fixed VFS descriptor table
         9 => 16 * 1024 * 1024, // RLIMIT_AS
         else => std.math.maxInt(u64),
     };
@@ -3277,7 +3278,7 @@ fn setRlimit(resource: u64, address: u64) u64 {
     const bytes: [*]const u8 = @ptrFromInt(address);
     const soft = read64(bytes);
     const hard = read64(bytes + 8);
-    if (soft > hard or ((resource == 3 or resource == 9) and hard > 16 * 1024 * 1024)) return errno(1);
+    if (soft > hard or (resource == 7 and hard > 32) or ((resource == 3 or resource == 9) and hard > 16 * 1024 * 1024)) return errno(1);
     return 0;
 }
 
