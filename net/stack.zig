@@ -264,7 +264,8 @@ pub const Stack = struct {
             if (length < 42 or get16(received[12..]) != 0x0806 or get16(received[14..]) != 1 or
                 get16(received[16..]) != 0x0800 or received[18] != 6 or received[19] != 4 or
                 get16(received[20..]) != 2) continue;
-            if (!equal(received[28..32], &address) or !equal(received[38..42], &self.local_ip)) continue;
+            if (!equal(received[28..32], &address) or !equal(received[38..42], &self.local_ip) or
+                !validArpSenderMac(received[22..28])) continue;
             return received[22..28].*;
         }
         return error.ArpReplyMissing;
@@ -522,9 +523,21 @@ test "DNS response validation matches transaction and answer presence" {
     try @import("std").testing.expect(!validDnsResponse(response[0..11], 0x4353));
 }
 
+test "ARP sender validation rejects empty and broadcast MACs" {
+    try @import("std").testing.expect(validArpSenderMac(&[_]u8{ 0x52, 0x54, 0, 0x12, 0x34, 0x56 }));
+    try @import("std").testing.expect(!validArpSenderMac(&[_]u8{0} ** 6));
+    try @import("std").testing.expect(!validArpSenderMac(&[_]u8{0xff} ** 6));
+}
+
 fn put16(output: []u8, value: u16) void { output[0] = @truncate(value >> 8); output[1] = @truncate(value); }
 fn put32(output: []u8, value: u32) void { output[0] = @truncate(value >> 24); output[1] = @truncate(value >> 16); output[2] = @truncate(value >> 8); output[3] = @truncate(value); }
 fn get16(input: []const u8) u16 { return (@as(u16, input[0]) << 8) | input[1]; }
 fn get32(input: []const u8) u32 { return (@as(u32, get16(input)) << 16) | get16(input[2..]); }
 fn equal(left: []const u8, right: []const u8) bool { for (left, right) |a, b| if (a != b) return false; return true; }
 fn zero(value: []const u8) bool { for (value) |byte| if (byte != 0) return false; return true; }
+
+fn validArpSenderMac(value: []const u8) bool {
+    if (value.len != 6 or zero(value)) return false;
+    for (value) |byte| if (byte != 0xff) return true;
+    return false;
+}
