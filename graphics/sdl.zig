@@ -83,7 +83,8 @@ pub const EventQueue = struct {
 
     pub fn clear(self: *EventQueue) void {
         // Discard pending input but preserve the drop counter for diagnostics.
-        self.read = self.write;
+        self.read = 0;
+        self.write = 0;
     }
 
     pub fn pushKeyboard(self: *EventQueue, scancode: u8, pressed: bool, modifiers: u8) bool {
