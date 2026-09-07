@@ -630,6 +630,14 @@ test "window manager rejects hit tests outside the screen" {
     try std.testing.expect(manager.launcherItemHitTest(8, 90, 90) == null);
 }
 
+test "window manager taskbar hit testing ignores slot gaps" {
+    var manager = WindowManager{};
+    _ = try manager.create(.{ .id = 1, .title = "A", .x = 8, .y = 8, .width = 80, .height = 60 });
+    try std.testing.expectEqual(@as(?usize, 0), manager.taskbarHitTest(70, 110, 128));
+    try std.testing.expect(manager.taskbarHitTest(64 + 104, 110, 128) == null);
+    try std.testing.expect(manager.taskbarHitTest(64, 108, 128) == null);
+}
+
 test "window manager reset clears desktop session state" {
     var manager = WindowManager{};
     _ = try manager.create(.{ .id = 1, .x = 0, .y = 0, .width = 80, .height = 48 });
