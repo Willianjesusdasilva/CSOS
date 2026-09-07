@@ -206,6 +206,9 @@ diretório raiz real na sessão gráfica.
 com erro explícito quando o caminho não existe.
 `run echo ...`, `run ls ...` e outros comandos BusyBox agora podem ser lançados
 diretamente pelo terminal gráfico através do loader userspace real.
+Enquanto o applet foreground roda, a saída de stdout/stderr é encaminhada ao
+buffer visível do terminal SDL (e preservada no serial), fechando o ciclo de
+execução e feedback visual de aplicações reais.
 `echo texto > arquivo` agora cria/trunca e grava no arquivo FAT via callback VFS,
 permitindo alterar dados pela sessão gráfica sem sair do SO.
 `echo texto >> arquivo` também usa o modo append do descritor, permitindo logs

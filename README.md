@@ -690,6 +690,9 @@ raiz.
 terminal.
 O comando `run ...` inicia applets BusyBox pelo loader de userspace real, por
 exemplo `run echo pronto` ou `run ls /`.
+Durante a execução foreground, stdout e stderr dos applets são duplicados para
+o buffer do terminal SDL e continuam disponíveis no console serial, permitindo
+usar `run` como um terminal de aplicações real.
 O harness QEMU também oferece `-SmokeTerminalRun` para injetar esse fluxo pelo
 teclado e verificar o marcador serial do lançamento.
 `echo texto > arquivo` usa `openAt`/`write` para criar ou truncar um arquivo FAT
