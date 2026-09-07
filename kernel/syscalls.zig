@@ -372,7 +372,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         75 => syncFile(arg1),
         79 => getcwd(arg1, arg2),
         89 => readlinkat(@bitCast(@as(i64, -100)), arg1, arg2, arg3),
-        96 => writeTime(arg1, 16),
+        96 => getTimeOfDay(arg1, arg2),
         95 => umask(arg1),
         97 => getRlimit(arg1, arg2),
         98 => getRusage(arg1, arg2),
@@ -465,6 +465,17 @@ fn writeTime(address: u64, size: u64) u64 {
     if (!validUserSlice(address, size)) return errno(14);
     const bytes: [*]u8 = @ptrFromInt(address);
     @memset(bytes[0..@intCast(size)], 0);
+    return 0;
+}
+
+fn getTimeOfDay(address: u64, timezone: u64) u64 {
+    _ = timezone; // Linux retains this obsolete pointer for ABI compatibility.
+    if (address == 0) return 0;
+    if (!validUserSlice(address, 16)) return errno(14);
+    monotonic_time_ns +%= 1_000;
+    const bytes: [*]u8 = @ptrFromInt(address);
+    put64(bytes, monotonic_time_ns / 1_000_000_000);
+    put64(bytes + 8, (monotonic_time_ns % 1_000_000_000) / 1_000);
     return 0;
 }
 
