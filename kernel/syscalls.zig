@@ -334,6 +334,10 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         16 => ioctl(arg1, @truncate(arg2), arg3),
         20 => writev(arg1, arg2, arg3),
         21 => access(arg1, @truncate(arg2)),
+        // Let libc/runtimes yield through the same bounded idle hook used by
+        // the console loop; this is a real no-op only when no scheduler hook
+        // is installed, and avoids advertising ENOSYS for a core Linux ABI.
+        24 => schedYield(),
         33 => duplicate(arg1, arg2),
         39 => 1,
         40 => sendfile(arg1, arg2, arg3, arg4),
@@ -2662,6 +2666,11 @@ fn unsupported(number: u64) u64 {
         serial.write("\n");
     }
     return errno(38);
+}
+
+fn schedYield() u64 {
+    if (idle_hook) |hook| hook();
+    return 0;
 }
 
 fn validUserSlice(address: u64, length: u64) bool {
