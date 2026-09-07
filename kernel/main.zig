@@ -54,6 +54,7 @@ var files_preview_back_hover = false;
 const SystemSurfaceStatus = struct { storage_blocks: u64, input_devices: usize, audio_endpoints: usize };
 var system_surface_cache: ?SystemSurfaceStatus = null;
 var system_html_active: bool = false;
+var system_html_focus: usize = 0;
 var desktop_menu_open: u8 = 0;
 // Keep the compositor's fixed-capacity window table off the UEFI boot stack.
 // kernel.start already coordinates the entire bring-up and must not grow with
@@ -2259,11 +2260,18 @@ pub fn start(info: BootInfo) noreturn {
                         serial.write("\n");
                     }
                 }
+                if (!terminal_shortcut_pressed and !monitor_shortcut_pressed and !system_shortcut_pressed and !files_shortcut_pressed and !launcher_consumed and !tab_switch_pressed and event.c != 0 and event.a == 0x2b and focusedWindowIs(window_manager, 3)) {
+                    system_html_focus = (system_html_focus + 1) % 2;
+                    drawSystemSurface(&system_window, storage.block_count, @as(usize, hid.keyboards) + hid.mice, audio_info.playback_endpoints);
+                    serial.write("UI HTML focus: ");
+                    serial.writeDecimal(system_html_focus);
+                    serial.write("\n");
+                }
                 if (!terminal_shortcut_pressed and !monitor_shortcut_pressed and !system_shortcut_pressed and !files_shortcut_pressed and !launcher_consumed and !tab_switch_pressed and event.c != 0 and event.a == 0x28 and focusedWindowIs(window_manager, 3)) {
-                    system_html_active = !system_html_active;
+                    if (system_html_focus == 1) system_html_active = false else system_html_active = !system_html_active;
                     drawSystemSurface(&system_window, storage.block_count, @as(usize, hid.keyboards) + hid.mice, audio_info.playback_endpoints);
                     serial.write("UI HTML button: ");
-                    serial.write(if (system_html_active) "ACTIVE (keyboard)\n" else "READY (keyboard)\n");
+                    serial.write(if (system_html_focus == 1) "RESET (keyboard)\n" else if (system_html_active) "ACTIVE (keyboard)\n" else "READY (keyboard)\n");
                 }
                 if (!terminal_shortcut_pressed and !monitor_shortcut_pressed and !system_shortcut_pressed and !files_shortcut_pressed and !launcher_consumed and !tab_switch_pressed and focusedWindowIs(window_manager, 1)) {
                     _ = sdl_events.pushKeyboard(event.a, event.a != 0, event.b);
@@ -2565,10 +2573,12 @@ pub fn start(info: BootInfo) noreturn {
                                     serial.write("\n");
                                 }
                             } else if (window.id == 3 and window_manager.contentRectHitTest(hit, cursor_x, cursor_y, 4, 30, 44, 14)) {
+                                system_html_focus = 1;
                                 system_html_active = false;
                                 drawSystemSurface(&system_window, storage.block_count, @as(usize, hid.keyboards) + hid.mice, audio_info.playback_endpoints);
                                 serial.write("UI HTML button: RESET\n");
                             } else if (window.id == 3 and window_manager.contentRectHitTest(hit, cursor_x, cursor_y, 4, 18, 48, 14)) {
+                                system_html_focus = 0;
                                 system_html_active = !system_html_active;
                                 drawSystemSurface(&system_window, storage.block_count, @as(usize, hid.keyboards) + hid.mice, audio_info.playback_endpoints);
                                 serial.write("UI HTML button: ");
@@ -2799,10 +2809,10 @@ fn drawSdlTerminal(app: *sdl.Application) void {
 fn launchDesktopWindow(manager: *display.WindowManager, application_id: u32, app_surface: *sdl.Window, monitor_surface: *sdl.Window, system_surface: *sdl.Window, files_surface: *sdl.Window) !usize {
     if (manager.findById(application_id)) |existing| {
         _ = manager.restore(existing);
-        if (application_id == 3) { system_surface_cache = null; system_html_active = false; }
+        if (application_id == 3) { system_surface_cache = null; system_html_active = false; system_html_focus = 0; }
         return manager.focused.?;
     }
-    if (application_id == 3) { system_surface_cache = null; system_html_active = false; }
+    if (application_id == 3) { system_surface_cache = null; system_html_active = false; system_html_focus = 0; }
     return switch (application_id) {
         1 => manager.create(.{ .id = 1, .title = "TERMINAL", .x = 32, .y = 220, .width = 260, .height = 140, .title_color = 0x405070, .body_color = 0x18202c, .surface = app_surface }),
         2 => manager.create(.{ .id = 2, .title = "MONITOR", .x = 180, .y = 280, .width = 260, .height = 140, .title_color = 0x604070, .body_color = 0x241828, .surface = monitor_surface }),
@@ -2815,7 +2825,7 @@ fn launchDesktopWindow(manager: *display.WindowManager, application_id: u32, app
 fn drawSystemSurface(window: *sdl.Window, storage_blocks: u64, input_devices: usize, audio_endpoints: usize) void {
     window.clear(0x14201cff);
     const document = if (system_html_active) html.Document.parse("<h1>CSOS SYSTEM</h1><button>ACTIVE</button><button>RESET</button>") else html.Document.parse("<h1>CSOS SYSTEM</h1><button>READY</button><button>RESET</button>");
-    window.drawHtml(&document, 4, 2);
+    window.drawHtmlFocused(&document, 4, 2, 1 + system_html_focus);
     window.drawText(4, 48, "DISK BLOCKS", 0xa0b8d0ff);
     drawSurfaceNumber(window, 108, 48, storage_blocks, 0xe0e8f0ff);
     window.drawText(4, 66, "USB INPUT", 0xa0b8d0ff);
