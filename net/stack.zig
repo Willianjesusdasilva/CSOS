@@ -483,6 +483,16 @@ fn skipDnsName(message: []const u8, start: usize) !usize {
     return error.InvalidDnsReply;
 }
 
+test "DNS name skipping rejects malformed labels and accepts compression" {
+    const testing = @import("std").testing;
+    try testing.expectEqual(@as(usize, 3), try skipDnsName(&[_]u8{ 1, 'a', 0 }, 0));
+    try testing.expectEqual(@as(usize, 2), try skipDnsName(&[_]u8{ 0xc0, 0x0c }, 0));
+    try testing.expectError(error.InvalidDnsReply, skipDnsName(&[_]u8{ 0xc0 }, 0));
+    var malformed = [_]u8{0} ** 65;
+    malformed[0] = 64;
+    try testing.expectError(error.InvalidDnsReply, skipDnsName(&malformed, 0));
+}
+
 fn put16(output: []u8, value: u16) void { output[0] = @truncate(value >> 8); output[1] = @truncate(value); }
 fn put32(output: []u8, value: u32) void { output[0] = @truncate(value >> 24); output[1] = @truncate(value >> 16); output[2] = @truncate(value >> 8); output[3] = @truncate(value); }
 fn get16(input: []const u8) u16 { return (@as(u16, input[0]) << 8) | input[1]; }
