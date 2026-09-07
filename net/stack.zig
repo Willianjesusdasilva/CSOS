@@ -46,6 +46,8 @@ pub const Stack = struct {
         var attempts: u8 = 0;
         while (attempts < 64) : (attempts += 1) {
             const segment = try self.receiveTcp(connection.destination, connection.destination_port, connection.source_port, output);
+            if ((segment.flags & tcp_ack) != 0 and sequenceAhead(segment.acknowledgement, connection.sequence))
+                return error.InvalidTcpAcknowledgement;
             if (segment.sequence != connection.peer_sequence and segment.payload_length != 0) continue;
             if (segment.payload_length != 0) connection.peer_sequence +%= @intCast(segment.payload_length);
             if ((segment.flags & tcp_fin) != 0) {
@@ -509,6 +511,13 @@ fn validDnsResponse(response: []const u8, transaction: u16) bool {
         (get16(response[2..]) & 0x800f) == 0x8000 and get16(response[6..]) != 0;
 }
 
+// TCP sequence arithmetic is modulo 2^32. Values in the forward half of the
+// sequence space are considered ahead; this also handles wraparound safely.
+fn sequenceAhead(value: u32, reference: u32) bool {
+    const delta = value -% reference;
+    return delta != 0 and delta < 0x80000000;
+}
+
 test "DNS name skipping rejects malformed labels and accepts compression" {
     const testing = @import("std").testing;
     try testing.expectError(error.InvalidDnsReply, skipDnsName(&[_]u8{ 1, 'a', 0 }, 3));
@@ -546,6 +555,13 @@ test "TCP port validation rejects the unspecified port" {
     try @import("std").testing.expect(!Stack.validTcpPort(0));
     try @import("std").testing.expect(Stack.validTcpPort(1));
     try @import("std").testing.expect(Stack.validTcpPort(65535));
+}
+
+test "TCP ACK validation handles forward values and wraparound" {
+    try @import("std").testing.expect(sequenceAhead(11, 10));
+    try @import("std").testing.expect(!sequenceAhead(10, 10));
+    try @import("std").testing.expect(!sequenceAhead(9, 10));
+    try @import("std").testing.expect(sequenceAhead(1, 0xffff_fffe));
 }
 
 fn put16(output: []u8, value: u16) void { output[0] = @truncate(value >> 8); output[1] = @truncate(value); }
