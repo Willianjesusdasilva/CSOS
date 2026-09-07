@@ -731,6 +731,7 @@ test "SDL software event queue and surface contract" {
     try @import("std").testing.expect(app.frame(&app_events, &testApplicationEvent, &testApplicationDraw));
     var audio = try AudioDevice.init(.{ .sample_rate = 48000, .channels = 2 });
     try @import("std").testing.expectEqual(@as(u64, 256), audio.queue(256));
+    try @import("std").testing.expectEqual(@as(u64, 256), audio.queue(0));
     try @import("std").testing.expectEqual(@as(u64, 256), audio.queuedFrames());
     try @import("std").testing.expectEqual(@as(u64, 256), audio.availableFrames());
     try @import("std").testing.expectEqual(@as(u64, 128), audio.consume(128));
