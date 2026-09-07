@@ -243,12 +243,18 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
                 const header: usize = @intCast(shared_program_offset + @as(u64, shared_program_entry_size) * header_index);
                 if (read32At(header) != 7) continue;
                 const file_offset = read64At(header + 8);
+                const tls_virtual = read64At(header + 16);
                 const file_size = read64At(header + 32);
                 const memory_size = read64At(header + 40);
-                if (memory_size == 0 or memory_size > tls_stride or file_size > memory_size) return error.InvalidTlsSegment;
-                const module_tls = tls_address + @as(u64, provider_count) * tls_stride;
+                const tls_module_offset = @as(u64, provider_count) * tls_stride;
+                if (memory_size == 0 or memory_size > tls_stride or file_size > memory_size or
+                    file_offset > std.math.maxInt(u64) - file_size or file_offset + file_size > image.len or
+                    tls_module_offset > std.math.maxInt(u64) - tls_address or
+                    tls_address + tls_module_offset > std.math.maxInt(u64) - memory_size or
+                    tls_virtual > std.math.maxInt(u64) - shared_base) return error.InvalidTlsSegment;
+                const module_tls = tls_address + tls_module_offset;
                 musl_bootstrap.images[provider_count] = .{
-                    .image = shared_base + read64At(header + 16),
+                    .image = shared_base + tls_virtual,
                     .file_size = file_size,
                     .memory_size = memory_size,
                     .alignment = read64At(header + 48),
