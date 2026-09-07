@@ -417,8 +417,8 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
         enter_user(user_instruction, user_stack);
         const pause = syscalls.takePause() orelse break;
         lifecycle = .frozen;
-        pause_count +%= 1;
-        standby_pages +%= try discardCleanPages(&address_space, pages, mappings[0..mapping_count], owned[0..owned_count]);
+        pause_count = saturatingAdd(pause_count, 1);
+        standby_pages = saturatingAdd(standby_pages, try discardCleanPages(&address_space, pages, mappings[0..mapping_count], owned[0..owned_count]));
         lifecycle = .standby;
         user_instruction = pause.instruction;
         user_stack = pause.stack;
@@ -815,6 +815,11 @@ test "standby reclaim only selects clean resident main-image pages" {
     try @import("std").testing.expect(!shouldReclaimMapping(true, true, true));
     try @import("std").testing.expect(!shouldReclaimMapping(false, false, true));
     try @import("std").testing.expect(!shouldReclaimMapping(false, true, false));
+}
+
+test "standby counters saturate instead of wrapping" {
+    try @import("std").testing.expectEqual(std.math.maxInt(u64), saturatingAdd(std.math.maxInt(u64), 1));
+    try @import("std").testing.expectEqual(@as(u64, 7), saturatingAdd(6, 1));
 }
 
 test "standby reclaim preflight rejects missing ownership" {
@@ -1245,10 +1250,14 @@ pub fn handlePageFault(address: u64, instruction: u64, code: u64) callconv(.c) b
         mapping.physical = physical_address;
         mapping.resident = true;
         owned[mapping.owner_index] = .{ .address = physical_address, .pages = 1 };
-        restored_pages +%= 1;
+        restored_pages = saturatingAdd(restored_pages, 1);
         return true;
     }
     return false;
+}
+
+fn saturatingAdd(value: u64, increment: u64) u64 {
+    return std.math.add(u64, value, increment) catch std.math.maxInt(u64);
 }
 
 fn restoreFilePage(page_virtual: u64, physical_address: u64) void {
