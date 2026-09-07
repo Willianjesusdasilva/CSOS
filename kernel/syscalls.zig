@@ -468,6 +468,8 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         234 => tgkill(arg1, arg2, arg3),
         35 => clockNanosleep(1, 0, arg1, arg2),
         257 => openat(arg1, arg2, arg3),
+        263 => unlinkat(arg1, arg2, arg3),
+        264 => renameat(arg1, arg2, arg3, arg4),
         262 => stat(arg2, arg3, @bitCast(arg1)),
         267 => readlinkat(@bitCast(arg1), arg2, arg3, arg4),
         247 => waitId(arg1, arg2, arg3, arg4),
@@ -478,6 +480,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         233 => epollCtl(arg1, arg2, arg3, arg4),
         291 => epollCreate(arg1),
         273 => setRobustList(arg1, arg2),
+        316 => renameat2(arg1, arg2, arg3, arg4, arg5),
         274 => getRobustList(arg1, arg2, arg3, arg4),
         309 => getcpu(arg1, arg2),
         318 => getRandom(arg1, arg2, arg3),
@@ -2640,6 +2643,29 @@ fn stat(path_address: u64, output_address: u64, directory_fd: i64) u64 {
     const path = userString(path_address, &path_buffer) orelse return errno(14);
     const info = vfs.infoAt(directory_fd, path) catch |err| return vfsError(err);
     return writeStat(output_address, info);
+}
+
+fn unlinkat(directory_fd: u64, path_address: u64, flags: u64) u64 {
+    if ((flags & ~@as(u64, 0x200)) != 0) return errno(22);
+    var path_buffer: [256]u8 = undefined;
+    const path = userString(path_address, &path_buffer) orelse return errno(14);
+    vfs.unlinkAt(@bitCast(directory_fd), path) catch |err| return vfsError(err);
+    return 0;
+}
+
+fn renameat(old_directory_fd: u64, old_path_address: u64, new_path_address: u64, flags: u64) u64 {
+    if (flags != 0) return errno(22);
+    var old_buffer: [256]u8 = undefined;
+    var new_buffer: [256]u8 = undefined;
+    const old_path = userString(old_path_address, &old_buffer) orelse return errno(14);
+    const new_path = userString(new_path_address, &new_buffer) orelse return errno(14);
+    vfs.renameAt(@bitCast(old_directory_fd), old_path, new_path) catch |err| return vfsError(err);
+    return 0;
+}
+
+fn renameat2(old_directory_fd: u64, old_path_address: u64, new_directory_fd: u64, new_path_address: u64, flags: u64) u64 {
+    if (new_directory_fd != old_directory_fd) return errno(18);
+    return renameat(old_directory_fd, old_path_address, new_path_address, flags);
 }
 
 fn statx(directory_fd: u64, path_address: u64, flags: u64, mask: u64, output_address: u64) u64 {
