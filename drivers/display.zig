@@ -24,9 +24,9 @@ pub const Adapter = struct {
 pub const max_windows = 16;
 pub const min_window_width = 64;
 pub const min_window_height = 48;
-pub const launcher_item_count = 3;
+pub const launcher_item_count = 4;
 const launcher_menu_height = launcher_item_count * 24 + 24;
-const launcher_labels = [_][]const u8{ "TERMINAL", "MONITOR", "SYSTEM" };
+const launcher_labels = [_][]const u8{ "TERMINAL", "MONITOR", "SYSTEM", "FILES" };
 
 pub fn applyPointerDelta(position: usize, delta: i8, extent: usize) usize {
     if (extent == 0) return 0;
@@ -413,14 +413,17 @@ test "window manager focus alt-tab hit-test and close" {
     manager.launcherSelectNext();
     try std.testing.expectEqual(@as(?u32, 3), manager.launcherSelectedApplication());
     manager.launcherSelectNext();
+    try std.testing.expectEqual(@as(?u32, 4), manager.launcherSelectedApplication());
+    manager.launcherSelectNext();
     try std.testing.expectEqual(@as(?u32, 1), manager.launcherSelectedApplication());
     manager.launcherSelectPrevious();
-    try std.testing.expectEqual(@as(?u32, 3), manager.launcherSelectedApplication());
+    try std.testing.expectEqual(@as(?u32, 4), manager.launcherSelectedApplication());
     manager.launcher_selection = 0;
-    try std.testing.expectEqual(@as(?u32, 1), manager.launcherItemHitTest(20, 38, 128));
-    try std.testing.expectEqual(@as(?u32, 2), manager.launcherItemHitTest(20, 62, 128));
-    try std.testing.expectEqual(@as(?u32, 3), manager.launcherItemHitTest(20, 86, 128));
-    try std.testing.expect(manager.launcherItemHitTest(200, 38, 128) == null);
+    try std.testing.expectEqual(@as(?u32, 1), manager.launcherItemHitTest(20, 14, 128));
+    try std.testing.expectEqual(@as(?u32, 2), manager.launcherItemHitTest(20, 38, 128));
+    try std.testing.expectEqual(@as(?u32, 3), manager.launcherItemHitTest(20, 62, 128));
+    try std.testing.expectEqual(@as(?u32, 4), manager.launcherItemHitTest(20, 86, 128));
+    try std.testing.expect(manager.launcherItemHitTest(200, 14, 128) == null);
     manager.launcher_open = false;
     try std.testing.expect(manager.launcherSelectedApplication() == null);
     manager.switcher_open = true;

@@ -174,7 +174,7 @@ do fallback por árvore, eliminando um travamento observado no cleanup de um
 smoke test sem deixar o emulador aberto.
 
 Após esses incrementos, `zig build` recompila o EFI em `14/14` etapas e
-`zig build test` conclui `17/17` etapas e `29/29` testes aprovados; um boot QEMU limitado também voltou a alcançar
+`zig build test` conclui `17/17` etapas e `30/30` testes aprovados; um boot QEMU limitado também voltou a alcançar
 `CSOS graphical session ready`.
 
 O caminho NVMe agora enumera a lista de namespaces ativos em vez de tratar o
@@ -217,10 +217,19 @@ O launcher passou de duas entradas genéricas para três aplicações nomeadas:
 própria e apresenta estado do SO, capacidade NVMe, dispositivos USB de input e
 endpoints de áudio; mouse e teclado percorrem o mesmo caminho de launch/restore.
 
+O volume FAT16 agora enumera arquivos regulares da raiz com limite explícito do
+buffer de saída. A quarta aplicação SDL, `FILES`, mostra nomes 8.3 e tamanhos;
+o boot QEMU enumerou sete entradas reais antes de liberar o desktop.
+
+A BSS adicional revelou um estouro preexistente da stack UEFI no autoteste GART.
+O rollback AMD foi migrado para captura/aplicação/restauração in-place no
+workspace global já destinado ao bootstrap, removendo cópias grandes por valor.
+Marcadores por fase confirmaram o GART pronto e o boot completo após a correção.
+
 Esta porcentagem não é uma contagem simples de milestones. M0–M13 têm bases relevantes, mas M14 ainda não possui triângulos Vulkan validados em AMD e NVIDIA, e M15–M30 permanecem majoritariamente pendentes. Código preparatório ou teste no host não equivale a hardware funcional.
 
 Verificação mais recente em 2026-09-06: `zig build test` concluiu `17/17` etapas
-e `29/29` testes, e o boot QEMU chegou a `CSOS graphical session ready`. A
+e `30/30` testes, e o boot QEMU chegou a `CSOS graphical session ready`. A
 sessão gráfica assume teclado e mouse sem aguardar a saída do shell BusyBox e o
 terminal já voltou como aplicação não bloqueante; isso não altera a ausência de
 validação Vulkan física.

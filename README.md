@@ -682,7 +682,7 @@ SDL, sem fundir mudanças de botão ou teclado. Contadores separados expõem
 eventos coalescidos e descartes inevitáveis no log serial.
 
 Verificação atual: `zig build` recompilou o EFI em `14/14` etapas e
-`zig build test` passou `17/17` etapas e `29/29` testes. O
+`zig build test` passou `17/17` etapas e `30/30` testes. O
 boot interativo agora entrega o input diretamente à sessão gráfica, sem ficar
 bloqueado pelo shell BusyBox, e publica `CSOS graphical session ready`. O shell
 será reintegrado como uma aplicação de terminal não bloqueante; isso ainda não
@@ -732,6 +732,16 @@ e inclui uma terceira aplicação SDL, `SYSTEM`. Ela mostra estado READY,
 capacidade em blocos do NVMe, quantidade de dispositivos USB de input e
 endpoints de áudio, podendo ser aberta/restaurada tanto por mouse quanto por
 teclado e fechada pelo mesmo lifecycle das outras janelas.
+
+O FAT16 expõe agora enumeração limitada da raiz, e o launcher inclui `FILES`,
+uma quarta aplicação SDL que apresenta nomes 8.3 e tamanhos reais. O boot QEMU
+encontrou sete arquivos no volume e publicou a superfície antes da sessão
+gráfica ficar pronta.
+
+Esse incremento expôs um estouro latente da stack UEFI no autoteste de rollback
+GART. Captura, aplicação e restauração deixaram de copiar grandes snapshots e
+transactions por valor no boot; o teste usa o workspace global já reservado e
+operações in-place. Marcadores individuais tornam futuras falhas localizáveis.
 
 O inventário do host também encontrou uma AMD Radeon(TM) Graphics (`1002:164e`)
 e uma NVIDIA GeForce RTX 4060 Ti (`10de:2803`), ambas ativas. Isso viabiliza a

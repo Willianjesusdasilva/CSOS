@@ -244,9 +244,15 @@ pub fn start(info: BootInfo) noreturn {
     if (info.memory_map_len == 0 or info.memory_descriptor_size == 0) panic("empty memory map");
     var pages = physical.Allocator.init(info.memory_map, info.memory_map_len, info.memory_descriptor_size);
     syscalls.configureDrmMemory(&pages);
+    serial.write("AMDGPU PSP handoff self-test start\n");
     gpu.validateAmdPspHandoff(&pages) catch panic("AMDGPU PSP handoff self-test failed");
+    serial.write("AMDGPU PSP handoff self-test ready\n");
+    serial.write("AMDGPU PSP GTT self-test start\n");
     gpu.validateAmdPspGtt(&pages) catch panic("AMDGPU PSP GTT self-test failed");
+    serial.write("AMDGPU PSP GTT self-test ready\n");
+    serial.write("AMDGPU GART rollback self-test start\n");
     gpu.validateAmdGmc11GartRollbackSelfTest() catch panic("AMDGPU GART rollback self-test failed");
+    serial.write("AMDGPU GART rollback self-test ready\n");
     serial.write("CSOS M14 PSP handoff state machine ready\n");
     serial.write("physical allocator ready\n");
 
@@ -1547,6 +1553,16 @@ pub fn start(info: BootInfo) noreturn {
     drawMonitorSurface(&monitor_window, &screen);
     var system_window = sdl.createWindow(&sdl_system_pixels, 224, 96) catch panic("SDL system surface creation failed");
     drawSystemSurface(&system_window, storage.block_count, @as(usize, hid.keyboards) + hid.mice, audio_info.playback_endpoints);
+    const files_surface_page_count = (224 * 96 * @sizeOf(u32) + 4095) / 4096;
+    const files_surface_address = pages.allocate(files_surface_page_count) orelse panic("SDL files surface allocation failed");
+    const files_surface_pixels: [*]u32 = @ptrFromInt(files_surface_address);
+    var files_window = sdl.createWindow(files_surface_pixels[0 .. 224 * 96], 224, 96) catch panic("SDL files surface creation failed");
+    var root_files: [7]fat16.Volume.DirectoryEntry = undefined;
+    const root_file_count = volume.listRootFiles(&root_files) catch panic("FAT16 root listing failed");
+    drawFilesSurface(&files_window, root_files[0..root_file_count]);
+    serial.write("UI files application entries: ");
+    serial.writeDecimal(root_file_count);
+    serial.write("\n");
     const window_manager = &desktop_window_manager;
     window_manager.* = .{};
     _ = window_manager.create(.{ .id = 1, .title = "TERMINAL", .x = 32, .y = 220, .width = 260, .height = 140, .title_color = 0x405070, .body_color = 0x18202c, .surface = &demo_app.window }) catch panic("desktop window creation failed");
@@ -2076,7 +2092,7 @@ pub fn start(info: BootInfo) noreturn {
                         0x29 => window_manager.launcher_open = false,
                         0x28 => if (window_manager.launcherSelectedApplication()) |application_id| {
                             const was_open = window_manager.findById(application_id) != null;
-                            _ = launchDesktopWindow(window_manager, application_id, &demo_app.window, &monitor_window, &system_window) catch panic("desktop keyboard application launch failed");
+                            _ = launchDesktopWindow(window_manager, application_id, &demo_app.window, &monitor_window, &system_window, &files_window) catch panic("desktop keyboard application launch failed");
                             if (application_id == 1 and !was_open) resetSdlDemoApplication(&demo_app);
                             window_manager.launcher_open = false;
                             serial.write("UI launch application (keyboard): ");
@@ -2202,7 +2218,7 @@ pub fn start(info: BootInfo) noreturn {
                         serial.write(if (window_manager.launcher_open) "UI launcher open\n" else "UI launcher closed\n");
                     } else if (window_manager.launcherItemHitTest(cursor_x, cursor_y, screen.framebuffer.height)) |application_id| {
                         const was_open = window_manager.findById(application_id) != null;
-                        _ = launchDesktopWindow(window_manager, application_id, &demo_app.window, &monitor_window, &system_window) catch panic("desktop application launch failed");
+                        _ = launchDesktopWindow(window_manager, application_id, &demo_app.window, &monitor_window, &system_window, &files_window) catch panic("desktop application launch failed");
                         if (application_id == 1 and !was_open) resetSdlDemoApplication(&demo_app);
                         window_manager.launcher_open = false;
                         serial.write("UI launch application: ");
@@ -2355,7 +2371,7 @@ fn drawSdlTerminal(app: *sdl.Application) void {
     app.window.fillRect(12 + cursor_column * 8, 92, 6, 2, 0xe0e8f0ff);
 }
 
-fn launchDesktopWindow(manager: *display.WindowManager, application_id: u32, app_surface: *sdl.Window, monitor_surface: *sdl.Window, system_surface: *sdl.Window) !usize {
+fn launchDesktopWindow(manager: *display.WindowManager, application_id: u32, app_surface: *sdl.Window, monitor_surface: *sdl.Window, system_surface: *sdl.Window, files_surface: *sdl.Window) !usize {
     if (manager.findById(application_id)) |existing| {
         _ = manager.restore(existing);
         return manager.focused.?;
@@ -2364,6 +2380,7 @@ fn launchDesktopWindow(manager: *display.WindowManager, application_id: u32, app
         1 => manager.create(.{ .id = 1, .title = "TERMINAL", .x = 32, .y = 220, .width = 260, .height = 140, .title_color = 0x405070, .body_color = 0x18202c, .surface = app_surface }),
         2 => manager.create(.{ .id = 2, .title = "MONITOR", .x = 180, .y = 280, .width = 260, .height = 140, .title_color = 0x604070, .body_color = 0x241828, .surface = monitor_surface }),
         3 => manager.create(.{ .id = 3, .title = "SYSTEM", .x = 328, .y = 220, .width = 260, .height = 140, .title_color = 0x406858, .body_color = 0x182820, .surface = system_surface }),
+        4 => manager.create(.{ .id = 4, .title = "FILES", .x = 108, .y = 160, .width = 260, .height = 140, .title_color = 0x705840, .body_color = 0x281f18, .surface = files_surface }),
         else => error.UnknownDesktopApplication,
     };
 }
@@ -2379,6 +2396,20 @@ fn drawSystemSurface(window: *sdl.Window, storage_blocks: u64, input_devices: us
     drawSurfaceNumber(window, 108, 58, @intCast(input_devices), 0xe0e8f0ff);
     window.drawText(4, 76, "AUDIO", 0xa0b8d0ff);
     drawSurfaceNumber(window, 108, 76, @intCast(audio_endpoints), 0xe0e8f0ff);
+}
+
+fn drawFilesSurface(window: *sdl.Window, entries: []const fat16.Volume.DirectoryEntry) void {
+    window.clear(0x201a14ff);
+    window.drawText(4, 4, "FILES /", 0xf0c080ff);
+    if (entries.len == 0) {
+        window.drawText(4, 22, "EMPTY", 0xa0b8d0ff);
+        return;
+    }
+    for (entries[0..@min(entries.len, 7)], 0..) |entry, index| {
+        const y = 18 + index * 11;
+        window.drawText(4, y, &entry.name, 0xd8d0c0ff);
+        drawSurfaceNumber(window, 108, y, entry.size, 0x90b0d0ff);
+    }
 }
 
 fn drawMonitorSurface(window: *sdl.Window, screen: *const display.Context) void {

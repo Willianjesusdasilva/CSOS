@@ -2005,7 +2005,8 @@ pub fn submitAmdGfx11IndirectBuffers(
     var polls: u32 = 0;
     while (polls < poll_limit) : (polls += 1) {
         if (@atomicLoad(u64, fence, .seq_cst) == sequence and
-            @atomicLoad(u64, &pointers[0], .seq_cst) == final_wptr) {
+            @atomicLoad(u64, &pointers[0], .seq_cst) == final_wptr)
+        {
             queue.committed_wptr = final_wptr;
             queue.next_sequence +%= 1;
             if (queue.next_sequence == 0) queue.next_sequence = 1;
@@ -4362,7 +4363,7 @@ pub fn captureAmdGmc11GartSnapshot(registers: AmdGmc11GartRegisterSet, io: AmdRe
     return snapshot;
 }
 
-pub fn restoreAmdGmc11GartSnapshot(snapshot: AmdGmc11GartSnapshot, io: AmdRegisterIo) !void {
+fn restoreAmdGmc11GartSnapshotInPlace(snapshot: *const AmdGmc11GartSnapshot, io: AmdRegisterIo) !void {
     if (snapshot.count == 0 or snapshot.count > snapshot.offsets.len) return error.InvalidAmdGartSnapshot;
     var failed = false;
     var index = snapshot.count;
@@ -4380,6 +4381,10 @@ pub fn restoreAmdGmc11GartSnapshot(snapshot: AmdGmc11GartSnapshot, io: AmdRegist
         if (observed != expected) failed = true;
     }
     if (failed) return error.AmdGartRollbackFailed;
+}
+
+pub fn restoreAmdGmc11GartSnapshot(snapshot: AmdGmc11GartSnapshot, io: AmdRegisterIo) !void {
+    return restoreAmdGmc11GartSnapshotInPlace(&snapshot, io);
 }
 
 pub fn applyAmdGmc11RegisterTransaction(
@@ -4431,20 +4436,20 @@ fn applyAmdGmc11RegisterTransactionInPlace(
         };
         if (!known) return error.AmdRegisterWriteOutsideSnapshot;
     }
-    transaction.snapshot = try captureAmdGmc11GartSnapshot(registers.*, io);
+    try captureAmdGmc11GartSnapshotInPlace(registers, io, &transaction.snapshot);
     transaction.writes_applied = 0;
     for (writes.writes[0..writes.count]) |write| {
         io.write(io.context, write.offset, write.value) catch {
-            restoreAmdGmc11GartSnapshot(transaction.snapshot, io) catch return error.AmdGartRollbackFailed;
+            restoreAmdGmc11GartSnapshotInPlace(&transaction.snapshot, io) catch return error.AmdGartRollbackFailed;
             return error.AmdGartRegisterWriteFailed;
         };
         transaction.writes_applied += 1;
         const observed = io.read(io.context, write.offset) catch {
-            restoreAmdGmc11GartSnapshot(transaction.snapshot, io) catch return error.AmdGartRollbackFailed;
+            restoreAmdGmc11GartSnapshotInPlace(&transaction.snapshot, io) catch return error.AmdGartRollbackFailed;
             return error.AmdGartRegisterReadbackFailed;
         };
         if ((observed & write.verify_mask) != (write.value & write.verify_mask)) {
-            restoreAmdGmc11GartSnapshot(transaction.snapshot, io) catch return error.AmdGartRollbackFailed;
+            restoreAmdGmc11GartSnapshotInPlace(&transaction.snapshot, io) catch return error.AmdGartRollbackFailed;
             return error.AmdGartRegisterReadbackMismatch;
         }
     }
@@ -4772,44 +4777,47 @@ var amd_bootstrap_test_workspace = AmdGmc11ActivationWorkspace{};
 
 pub fn validateAmdGmc11GartRollback(registers: AmdGmc11GartRegisterSet) !void {
     if (registers.count != 141) return error.InvalidAmdGartRegisterSet;
-    var bank = AmdGartRegisterTestBank{ .count = registers.count };
+    amd_bootstrap_test_bank = AmdGartRegisterTestBank{ .count = registers.count };
+    const bank = &amd_bootstrap_test_bank;
+    amd_bootstrap_test_workspace = AmdGmc11ActivationWorkspace{};
+    const workspace = &amd_bootstrap_test_workspace;
+    workspace.register_set = registers;
     for (registers.offsets[0..registers.count], 0..) |offset, index| {
         bank.offsets[index] = offset;
         bank.values[index] = 0xa5000000 | @as(u32, @intCast(index));
     }
-    const snapshot = try captureAmdGmc11GartSnapshot(registers, bank.io());
-    var writes = AmdRegisterWriteSet{};
-    try writes.add(.{ .offset = registers.offsets[0], .value = 0x11111111 });
-    try writes.add(.{ .offset = registers.offsets[1], .value = 0x22222222 });
-    try writes.add(.{ .offset = registers.offsets[2], .value = 0x33333333 });
-    const transaction = try applyAmdGmc11RegisterTransaction(registers, writes, bank.io());
-    if (transaction.writes_applied != 3 or bank.values[0] != 0x11111111 or bank.values[1] != 0x22222222 or bank.values[2] != 0x33333333)
+    try captureAmdGmc11GartSnapshotInPlace(&workspace.register_set, bank.io(), &workspace.transaction.snapshot);
+    try workspace.writes.add(.{ .offset = registers.offsets[0], .value = 0x11111111 });
+    try workspace.writes.add(.{ .offset = registers.offsets[1], .value = 0x22222222 });
+    try workspace.writes.add(.{ .offset = registers.offsets[2], .value = 0x33333333 });
+    try applyAmdGmc11RegisterTransactionInPlace(&workspace.register_set, &workspace.writes, bank.io(), &workspace.transaction);
+    if (workspace.transaction.writes_applied != 3 or bank.values[0] != 0x11111111 or bank.values[1] != 0x22222222 or bank.values[2] != 0x33333333)
         return error.AmdGartRegisterTransactionMismatch;
-    try restoreAmdGmc11GartSnapshot(transaction.snapshot, bank.io());
+    try restoreAmdGmc11GartSnapshotInPlace(&workspace.transaction.snapshot, bank.io());
     bank.fail_write_once = registers.offsets[1];
-    if (applyAmdGmc11RegisterTransaction(registers, writes, bank.io())) |_| return error.AmdGartWriteFailureNotDetected else |err| if (err != error.AmdGartRegisterWriteFailed) return err;
-    for (snapshot.values[0..snapshot.count], bank.values[0..bank.count]) |expected, observed|
+    if (applyAmdGmc11RegisterTransactionInPlace(&workspace.register_set, &workspace.writes, bank.io(), &workspace.transaction)) |_| return error.AmdGartWriteFailureNotDetected else |err| if (err != error.AmdGartRegisterWriteFailed) return err;
+    for (workspace.transaction.snapshot.values[0..workspace.transaction.snapshot.count], bank.values[0..bank.count]) |expected, observed|
         if (observed != expected) return error.AmdGartAutomaticRollbackMismatch;
 
     for (registers.offsets[0..registers.count], 0..) |offset, index|
         try bank.io().write(bank.io().context, offset, 0x5a000000 | @as(u32, @intCast(index)));
-    try restoreAmdGmc11GartSnapshot(snapshot, bank.io());
-    for (snapshot.values[0..snapshot.count], bank.values[0..bank.count]) |expected, observed|
+    try restoreAmdGmc11GartSnapshotInPlace(&workspace.transaction.snapshot, bank.io());
+    for (workspace.transaction.snapshot.values[0..workspace.transaction.snapshot.count], bank.values[0..bank.count]) |expected, observed|
         if (observed != expected) return error.AmdGartRollbackMismatch;
 
     for (bank.values[0..bank.count]) |*value| value.* = 0xcccccccc;
     const failed_index = registers.count / 2;
     bank.fail_write = registers.offsets[failed_index];
-    if (restoreAmdGmc11GartSnapshot(snapshot, bank.io())) |_| return error.AmdGartRollbackFailureNotDetected else |err| if (err != error.AmdGartRollbackFailed) return err;
-    for (bank.values[0..bank.count], snapshot.values[0..snapshot.count], 0..) |observed, expected, index| {
+    if (restoreAmdGmc11GartSnapshotInPlace(&workspace.transaction.snapshot, bank.io())) |_| return error.AmdGartRollbackFailureNotDetected else |err| if (err != error.AmdGartRollbackFailed) return err;
+    for (bank.values[0..bank.count], workspace.transaction.snapshot.values[0..workspace.transaction.snapshot.count], 0..) |observed, expected, index| {
         if (index == failed_index) {
             if (observed == expected) return error.AmdGartInjectedFailureMissing;
         } else if (observed != expected) return error.AmdGartRollbackDidNotContinue;
     }
     bank.fail_write = null;
-    try restoreAmdGmc11GartSnapshot(snapshot, bank.io());
+    try restoreAmdGmc11GartSnapshotInPlace(&workspace.transaction.snapshot, bank.io());
     bank.fail_read = registers.offsets[0];
-    if (captureAmdGmc11GartSnapshot(registers, bank.io())) |_| return error.AmdGartSnapshotFailureNotDetected else |err| if (err != error.InjectedAmdRegisterReadFailure) return err;
+    if (captureAmdGmc11GartSnapshotInPlace(&workspace.register_set, bank.io(), &workspace.transaction.snapshot)) |_| return error.AmdGartSnapshotFailureNotDetected else |err| if (err != error.InjectedAmdRegisterReadFailure) return err;
 }
 
 pub fn validateAmdGmc11GartRollbackSelfTest() !void {
@@ -4862,13 +4870,12 @@ pub fn validateAmdGfx11CpGfxResumeSelfTest() !void {
     if (plan.doorbell.assignment != 0x08b or plan.doorbell.register_index != 0x116 or plan.doorbell.byte_offset != 0x458)
         return error.AmdCpGfxDoorbellIdentityMismatch;
     const offsets = [_]u32{
-        registers.grbm_gfx_control, registers.me_control, registers.status, registers.wptr_delay,
-        registers.rb_vmid, registers.rb_control, registers.rb_wptr, registers.rb_wptr_high,
-        registers.rb_rptr_address, registers.rb_rptr_address_high, registers.wptr_poll_address,
-        registers.wptr_poll_address_high, registers.rb_base, registers.rb_base_high,
-        registers.rb_active, registers.doorbell_control, registers.gfx_doorbell_lower,
-        registers.gfx_doorbell_upper, registers.mec_doorbell_lower, registers.mec_doorbell_upper,
-        registers.max_context, registers.device_id, registers.scratch0,
+        registers.grbm_gfx_control,   registers.me_control,           registers.status,             registers.wptr_delay,
+        registers.rb_vmid,            registers.rb_control,           registers.rb_wptr,            registers.rb_wptr_high,
+        registers.rb_rptr_address,    registers.rb_rptr_address_high, registers.wptr_poll_address,  registers.wptr_poll_address_high,
+        registers.rb_base,            registers.rb_base_high,         registers.rb_active,          registers.doorbell_control,
+        registers.gfx_doorbell_lower, registers.gfx_doorbell_upper,   registers.mec_doorbell_lower, registers.mec_doorbell_upper,
+        registers.max_context,        registers.device_id,            registers.scratch0,
     };
     var bank = AmdGartRegisterTestBank{ .count = offsets.len };
     @memcpy(bank.offsets[0..offsets.len], &offsets);
@@ -4911,9 +4918,9 @@ pub fn validateAmdGfx11CpGfxResumeSelfTest() !void {
 
     const submission = try encodeAmdGfx11SubmissionFrame(3, 0x12345678000, 0x321, 0x22334455000, 0x1122334455667788);
     const expected_submission = [12]u32{
-        0xc0023f00, 0x45678000, 0x123, 0x03000321,
+        0xc0023f00, 0x45678000, 0x123,      0x03000321,
         0xc0064900, 0x06603514, 0x40000000, 0x34455000,
-        0x223, 0x55667788, 0x11223344, 0,
+        0x223,      0x55667788, 0x11223344, 0,
     };
     if (!std.mem.eql(u32, submission.dwords[0..submission.dword_count], &expected_submission) or submission.vmid != 3 or
         submission.ib_count != 1 or submission.sequence != 0x1122334455667788)
@@ -4924,10 +4931,10 @@ pub fn validateAmdGfx11CpGfxResumeSelfTest() !void {
     };
     const multiple_submission = try encodeAmdGfx11SubmissionFrames(3, &multiple_ibs, 0x22334455000, 7);
     const expected_multiple = [16]u32{
-        0xc0023f00, 0x45678000, 0x123, 0x03000321,
-        0xc0023f00, 0x34456000, 0x223, 0x03000123,
+        0xc0023f00, 0x45678000, 0x123,      0x03000321,
+        0xc0023f00, 0x34456000, 0x223,      0x03000123,
         0xc0064900, 0x06603514, 0x40000000, 0x34455000,
-        0x223, 7, 0, 0,
+        0x223,      7,          0,          0,
     };
     if (multiple_submission.ib_count != 2 or multiple_submission.dword_count != expected_multiple.len or
         !std.mem.eql(u32, multiple_submission.dwords[0..multiple_submission.dword_count], &expected_multiple))
@@ -4960,7 +4967,17 @@ pub fn validateAmdGfx11CpGfxResumeSelfTest() !void {
     doorbell.expected_wptr = 991;
     doorbell.fence_value = 2;
     const submitted_multiple = try submitAmdGfx11IndirectBuffers(
-        plan, &queue, &ring, &pointers, &fence, 0x22334455000, 3, &multiple_ibs, 2, bank.io(), doorbell.io(),
+        plan,
+        &queue,
+        &ring,
+        &pointers,
+        &fence,
+        0x22334455000,
+        3,
+        &multiple_ibs,
+        2,
+        bank.io(),
+        doorbell.io(),
     );
     var expected_multiple_transaction = expected_multiple;
     expected_multiple_transaction[13] = 2;

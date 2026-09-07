@@ -13,6 +13,11 @@ pub const Volume = struct {
     data_start: u32,
     cluster_count: u32,
 
+    pub const DirectoryEntry = struct {
+        name: [11]u8,
+        size: u32,
+    };
+
     pub fn mount(storage: *nvme.Controller, pages: *physical.Allocator) !Volume {
         if (storage.block_size != 512) return error.UnsupportedSectorSize;
         const buffer = pages.allocate(1) orelse return error.OutOfMemory;
@@ -82,6 +87,19 @@ pub const Volume = struct {
             }
         }
         return error.NotFound;
+    }
+
+    pub fn listRootFiles(self: *Volume, output: []DirectoryEntry) !usize {
+        var count: usize = 0;
+        var sector: u32 = 0;
+        while (sector < self.root_sectors) : (sector += 1) {
+            try self.storage.readBlock(self.root_start + sector, self.buffer);
+            const bytes: [*]const u8 = @ptrFromInt(self.buffer);
+            const result = collectRootEntries(bytes, output, count);
+            count = result.count;
+            if (result.end_of_directory or count == output.len) break;
+        }
+        return count;
     }
 
     pub fn readRootFileAt(self: *Volume, name: *const [11]u8, output: []u8, file_offset: usize) !usize {
@@ -274,6 +292,25 @@ fn entryIsRegularFile(entry: [*]const u8) bool {
     return entryIsAllocated(entry) and !entryIsLongName(entry) and (entry[11] & 0x18) == 0;
 }
 
+const CollectionResult = struct {
+    count: usize,
+    end_of_directory: bool,
+};
+
+fn collectRootEntries(sector: [*]const u8, output: []Volume.DirectoryEntry, initial_count: usize) CollectionResult {
+    var count = initial_count;
+    var offset: usize = 0;
+    while (offset < 512) : (offset += 32) {
+        if (sector[offset] == 0) return .{ .count = count, .end_of_directory = true };
+        if (!entryIsRegularFile(sector + offset)) continue;
+        if (count == output.len) return .{ .count = count, .end_of_directory = false };
+        @memcpy(&output[count].name, sector[offset .. offset + 11]);
+        output[count].size = get32(sector + offset + 28);
+        count += 1;
+    }
+    return .{ .count = count, .end_of_directory = false };
+}
+
 const Layout = struct {
     sectors_per_cluster: u8,
     fat_start: u32,
@@ -397,6 +434,29 @@ test "FAT16 entry classification excludes deleted names directories and labels" 
     entry[11] = 0x0f;
     try std.testing.expect(entryIsLongName(&entry));
     try std.testing.expect(!entryIsRegularFile(&entry));
+}
+
+test "FAT16 root collection returns regular files and honors output capacity" {
+    var sector = [_]u8{0} ** 512;
+    @memcpy(sector[0..11], "FIRST   TXT");
+    sector[11] = 0x20;
+    put32(sector[28..].ptr, 12);
+    @memcpy(sector[32..43], "SUBDIR     ");
+    sector[43] = 0x10;
+    @memcpy(sector[64..75], "SECOND  BIN");
+    sector[75] = 0x20;
+    put32(sector[92..].ptr, 4096);
+    var entries: [2]Volume.DirectoryEntry = undefined;
+    const result = collectRootEntries(&sector, &entries, 0);
+    try std.testing.expect(result.end_of_directory);
+    try std.testing.expectEqual(@as(usize, 2), result.count);
+    try std.testing.expectEqualSlices(u8, "FIRST   TXT", &entries[0].name);
+    try std.testing.expectEqual(@as(u32, 4096), entries[1].size);
+
+    var one: [1]Volume.DirectoryEntry = undefined;
+    const limited = collectRootEntries(&sector, &one, 0);
+    try std.testing.expectEqual(@as(usize, 1), limited.count);
+    try std.testing.expect(!limited.end_of_directory);
 }
 
 const std = @import("std");
