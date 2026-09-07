@@ -1041,6 +1041,17 @@ test "device manager attach replaces active stream cleanly" {
     try @import("std").testing.expect(manager.stream != null);
 }
 
+test "device manager failed attach preserves active stream" {
+    var manager = DeviceManager{};
+    try manager.attach(.{ .channels = 2, .bits_per_sample = 16, .sample_rate = 48000 }, 1000, 4096);
+    try manager.configure();
+    try manager.start();
+    try @import("std").testing.expectError(error.EndpointCapacity, manager.attach(.{ .channels = 2, .bits_per_sample = 32, .sample_rate = 48000 }, 1000, 1));
+    try @import("std").testing.expectEqual(State.streaming, manager.device.state);
+    try @import("std").testing.expectEqual(@as(u8, 2), manager.device.format.channels);
+    try @import("std").testing.expect(manager.stream != null);
+}
+
 test "device manager reset clears stream mixer and metrics" {
     var manager = DeviceManager{};
     const format = Format{ .channels = 2, .bits_per_sample = 16, .sample_rate = 48_000 };
