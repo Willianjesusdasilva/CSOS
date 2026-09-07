@@ -404,6 +404,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         229 => clockGetRes(arg1, arg2),
         230 => clockNanosleep(arg1, arg2, arg3, arg4),
         231 => exitSyscall(arg1),
+        234 => tgkill(arg1, arg2, arg3),
         35 => clockNanosleep(1, 0, arg1, arg2),
         257 => openat(arg1, arg2, arg3),
         262 => stat(arg2, arg3, @bitCast(arg1)),
@@ -2812,6 +2813,11 @@ fn kill(pid: u64, signal: u64) u64 {
     if (signal != 9 and signal != 15) return errno(22);
     process_exit_status = 128 + signal;
     return 0;
+}
+
+fn tgkill(pid: u64, tid: u64, signal: u64) u64 {
+    if ((pid != 0 and pid != 1) or (tid != 1 and tid != 0)) return errno(3);
+    return kill(1, signal);
 }
 
 fn wait4(pid: u64, status: u64, options: u64, usage: u64) u64 {
