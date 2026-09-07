@@ -223,7 +223,8 @@ manager e emite `UI HTML button activated: READY` no serial.
 A mesma ação também responde à tecla Enter quando SYSTEM está focada, com
 marcador `UI HTML button activated: READY (keyboard)`.
 Após a ativação, o estado visual do botão muda de `READY` para `ACTIVE` e é
-reposto ao reabrir a janela SYSTEM.
+reposto ao reabrir a janela SYSTEM; novas ativações alternam entre os dois
+estados e atualizam o marcador serial.
 `echo texto > arquivo` agora cria/trunca e grava no arquivo FAT via callback VFS,
 permitindo alterar dados pela sessão gráfica sem sair do SO.
 `echo texto >> arquivo` também usa o modo append do descritor, permitindo logs

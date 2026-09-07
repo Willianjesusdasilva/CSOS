@@ -2255,9 +2255,10 @@ pub fn start(info: BootInfo) noreturn {
                     }
                 }
                 if (!terminal_shortcut_pressed and !monitor_shortcut_pressed and !system_shortcut_pressed and !files_shortcut_pressed and !launcher_consumed and !tab_switch_pressed and event.c != 0 and event.a == 0x28 and focusedWindowIs(window_manager, 3)) {
-                    system_html_active = true;
+                    system_html_active = !system_html_active;
                     drawSystemSurface(&system_window, storage.block_count, @as(usize, hid.keyboards) + hid.mice, audio_info.playback_endpoints);
-                    serial.write("UI HTML button activated: READY (keyboard)\n");
+                    serial.write("UI HTML button: ");
+                    serial.write(if (system_html_active) "ACTIVE (keyboard)\n" else "READY (keyboard)\n");
                 }
                 if (!terminal_shortcut_pressed and !monitor_shortcut_pressed and !system_shortcut_pressed and !files_shortcut_pressed and !launcher_consumed and !tab_switch_pressed and focusedWindowIs(window_manager, 1)) {
                     _ = sdl_events.pushKeyboard(event.a, event.a != 0, event.b);
@@ -2540,9 +2541,10 @@ pub fn start(info: BootInfo) noreturn {
                                     serial.write("\n");
                                 }
                             } else if (window.id == 3 and window_manager.contentRectHitTest(hit, cursor_x, cursor_y, 4, 18, 48, 14)) {
-                                system_html_active = true;
+                                system_html_active = !system_html_active;
                                 drawSystemSurface(&system_window, storage.block_count, @as(usize, hid.keyboards) + hid.mice, audio_info.playback_endpoints);
-                                serial.write("UI HTML button activated: READY\n");
+                                serial.write("UI HTML button: ");
+                                serial.write(if (system_html_active) "ACTIVE\n" else "READY\n");
                             }
                             _ = window_manager.focus(hit);
                             if (!window_manager.windows[window_manager.focused.?].maximized and cursor_y >= window.y and cursor_y < window.y +| 20) {
