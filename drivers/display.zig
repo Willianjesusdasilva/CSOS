@@ -910,7 +910,7 @@ test "display telemetry counters saturate" {
                 var bit: usize = 0;
                 while (bit < 3) : (bit += 1)
                     if ((row_bits & (@as(u8, 1) << @intCast(2 - bit))) != 0)
-                        self.fillRect(x + index * 8 + bit * 2, y + row * 2, 2, 2, 0xffffff);
+                        self.fillRect(x +| index * 8 +| bit * 2, y +| row * 2, 2, 2, 0xffffff);
             }
         }
     }
