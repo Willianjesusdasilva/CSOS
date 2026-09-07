@@ -696,6 +696,7 @@ nova linha, usando o modo append do VFS.
 clusters ao espaço livre.
 `cp origem destino` copia arquivos regulares entre entradas do FAT usando as
 operações reais de leitura e escrita do VFS.
+Arquivos maiores que 8 KiB são copiados em múltiplos blocos até EOF.
 `mv origem destino` renomeia a entrada FAT diretamente, preservando seus dados.
 `touch arquivo` cria um arquivo regular vazio usando `openAt`/`write` no VFS.
 No aplicativo FILES, a tecla Delete remove o item selecionado e atualiza a lista

@@ -2679,8 +2679,11 @@ fn copyTerminalFile(source: []const u8, destination: []const u8) bool {
     const output = vfs.openAt(-100, destination, 0x241) catch return false;
     defer vfs.close(output) catch {};
     var buffer: [8192]u8 = undefined;
-    const count = vfs.read(input, &buffer) catch return false;
-    _ = vfs.write(output, buffer[0..count]) catch return false;
+    while (true) {
+        const count = vfs.read(input, &buffer) catch return false;
+        if (count == 0) break;
+        _ = vfs.write(output, buffer[0..count]) catch return false;
+    }
     return true;
 }
 

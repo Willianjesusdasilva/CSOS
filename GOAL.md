@@ -212,6 +212,8 @@ incrementais sem apagar o conteúdo anterior.
 cadeia de clusters através do VFS.
 `cp origem destino` copia arquivos regulares pela sessão gráfica, usando leitura
 e escrita reais do VFS.
+ A cópia agora percorre múltiplos blocos de 8 KiB até EOF, em vez de limitar-se
+ ao primeiro bloco.
 `mv origem destino` renomeia entradas regulares no diretório FAT sem copiar os
 dados, via operação nativa do VFS.
 `touch arquivo` cria ou zera um arquivo regular pelo mesmo caminho de escrita do
