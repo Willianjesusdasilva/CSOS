@@ -798,6 +798,7 @@ fn validateReclaimCandidates(mappings: []const Mapping, owned: []const OwnedRang
         if (mapping.physical == 0 or mapping.owner_index >= owned.len) return error.MappingMissing;
         const range = owned[mapping.owner_index];
         if (range.pages == 0) return error.MappingMissing;
+        if (range.address % page_size != 0) return error.MappingMismatch;
         const range_bytes = std.math.mul(u64, range.pages, page_size) catch return error.MappingMismatch;
         const range_end = std.math.add(u64, range.address, range_bytes) catch return error.MappingMismatch;
         if (mapping.physical < range.address or mapping.physical >= range_end or
@@ -833,6 +834,18 @@ test "standby reclaim preflight rejects a physical page outside ownership" {
     var mappings = [_]Mapping{.{
         .virtual = 0x8000,
         .physical = 0x5000,
+        .owner_index = 0,
+        .resident = true,
+        .reclaimable = true,
+    }};
+    try @import("std").testing.expectError(error.MappingMismatch, validateReclaimCandidates(&mappings, &owned));
+}
+
+test "standby reclaim preflight rejects unaligned ownership" {
+    const owned = [_]OwnedRange{.{ .address = 0x4001, .pages = 1 }};
+    var mappings = [_]Mapping{.{
+        .virtual = 0x8000,
+        .physical = 0x4001,
         .owner_index = 0,
         .resident = true,
         .reclaimable = true,
