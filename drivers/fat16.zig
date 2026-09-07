@@ -52,7 +52,7 @@ pub const Volume = struct {
                 const size = get32(bytes + offset + 28);
                 if (size > output.len) return error.UnsupportedFile;
                 if (size == 0) return 0;
-                if (cluster < 2) return error.BrokenChain;
+                try validateDataCluster(cluster, self.cluster_count);
                 var copied: usize = 0;
                 while (copied < size) {
                     var cluster_sector: u32 = 0;
@@ -65,7 +65,8 @@ pub const Volume = struct {
                     }
                     if (copied < size) {
                         cluster = try self.fatEntry(cluster);
-                        if (cluster < 2 or cluster >= 0xfff8) return error.BrokenChain;
+                        if (cluster >= 0xfff8) return error.BrokenChain;
+                        try validateDataCluster(cluster, self.cluster_count);
                     }
                 }
                 return copied;
