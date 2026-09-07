@@ -420,6 +420,7 @@ test "scheduler freeze and resume preserve sleeping state" {
     threads[0] = .{ .context = .{}, .entry = schedulerTestEntry, .state = .sleeping, .group = 9, .policy = .freeze, .lifecycle = .background };
     thread_count = 1;
     try std.testing.expectEqual(@as(usize, 1), freezeGroup(9));
+    try std.testing.expectEqual(@as(usize, 0), freezeGroup(9));
     try std.testing.expectEqual(State.frozen, threads[0].state);
     try std.testing.expectEqual(@as(usize, 1), resumeGroup(9));
     try std.testing.expectEqual(@as(usize, 0), resumeGroup(9));
