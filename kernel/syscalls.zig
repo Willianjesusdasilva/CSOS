@@ -339,6 +339,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         // the console loop; this is a real no-op only when no scheduler hook
         // is installed, and avoids advertising ENOSYS for a core Linux ABI.
         24 => schedYield(),
+        28 => madvise(arg1, arg2, arg3),
         33 => duplicate(arg1, arg2),
         39 => 1,
         40 => sendfile(arg1, arg2, arg3, arg4),
@@ -362,6 +363,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         186 => 1,
         202 => futex(arg1, arg2, arg3),
         217 => getdents(arg1, arg2, arg3),
+        221 => fadvise64(arg1, arg2, arg3, arg4),
         218 => 1,
         228 => writeTime(arg2, 16),
         257 => openat(arg1, arg2, arg3),
@@ -2690,6 +2692,21 @@ fn unsupported(number: u64) u64 {
 
 fn schedYield() u64 {
     if (idle_hook) |hook| hook();
+    return 0;
+}
+
+fn madvise(address: u64, length: u64, advice: u64) u64 {
+    _ = advice;
+    if (length == 0 or !validUserSlice(address, length)) return errno(22);
+    // Hints are accepted, but reclaim remains controlled by the process
+    // lifecycle and never trusts userspace to discard live mappings.
+    return 0;
+}
+
+fn fadvise64(fd: u64, offset: u64, length: u64, advice: u64) u64 {
+    _ = offset;
+    _ = advice;
+    if (!vfs.isOpen(@intCast(fd)) or length == 0) return if (length == 0) 0 else errno(9);
     return 0;
 }
 
