@@ -280,6 +280,15 @@ pub fn build(b: *std.Build) void {
     smp_module.addImport("physical", physical_module);
     const paging_module = b.createModule(.{ .root_source_file = b.path("memory/paging.zig") });
     paging_module.addImport("physical", physical_module);
+    const paging_test_module = b.createModule(.{
+        .root_source_file = b.path("memory/paging.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+    });
+    paging_test_module.addImport("physical", physical_module);
+    const paging_tests = b.addTest(.{ .root_module = paging_test_module });
+    const run_paging_tests = b.addRunArtifact(paging_tests);
+    test_step.dependOn(&run_paging_tests.step);
     const heap_module = b.createModule(.{ .root_source_file = b.path("memory/heap.zig") });
     heap_module.addImport("physical", physical_module);
     const scheduler_module = b.createModule(.{ .root_source_file = b.path("kernel/scheduler.zig") });
