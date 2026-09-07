@@ -596,10 +596,10 @@ pub const Context = struct {
     pub fn init(framebuffer: Framebuffer, device: pci.Device, pages: *physical.Allocator) !Context {
         if (framebuffer.base == 0 or framebuffer.width == 0 or framebuffer.height == 0) return error.InvalidFramebuffer;
         if (framebuffer.stride < framebuffer.width or framebuffer.pixel_format > 1) return error.UnsupportedFramebuffer;
-        const pixels = @as(usize, framebuffer.stride) * framebuffer.height;
+        const pixels = std.math.mul(usize, @as(usize, framebuffer.stride), framebuffer.height) catch return error.InvalidFramebufferSize;
         if (pixels > framebuffer.size / 4) return error.InvalidFramebufferSize;
-        const bytes = pixels * 4;
-        const page_count = (bytes + 4095) / 4096;
+        const bytes = std.math.mul(usize, pixels, 4) catch return error.InvalidFramebufferSize;
+        const page_count = (std.math.add(usize, bytes, 4095) catch return error.InvalidFramebufferSize) / 4096;
         const backbuffer = pages.allocate(page_count) orelse return error.OutOfMemory;
         const frontbuffer_shadow = pages.allocate(page_count) orelse {
             pages.release(backbuffer, page_count) catch {};
