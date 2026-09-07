@@ -2645,8 +2645,9 @@ fn statTerminalFile(path: []const u8, output: []u8) ?[]const u8 {
     return std.fmt.bufPrint(output, "{s} {d} bytes\n", .{ kind, info.size }) catch null;
 }
 
-fn writeTerminalFile(path: []const u8, contents: []const u8) bool {
-    const fd = vfs.openAt(-100, path, 0x241) catch return false;
+fn writeTerminalFile(path: []const u8, contents: []const u8, append: bool) bool {
+    const flags: u64 = if (append) 0x441 else 0x241;
+    const fd = vfs.openAt(-100, path, flags) catch return false;
     defer vfs.close(fd) catch {};
     _ = vfs.write(fd, contents) catch return false;
     return true;

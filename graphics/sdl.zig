@@ -580,7 +580,7 @@ pub const Terminal = struct {
     pub const FileReader = *const fn (path: []const u8, output: []u8) ?[]const u8;
     pub const DirectoryReader = *const fn (output: []u8) ?[]const u8;
     pub const StatReader = *const fn (path: []const u8, output: []u8) ?[]const u8;
-    pub const FileWriter = *const fn (path: []const u8, contents: []const u8) bool;
+    pub const FileWriter = *const fn (path: []const u8, contents: []const u8, append: bool) bool;
     input: TextInput = .{},
     output: [256]u8 = undefined,
     file_reader: ?FileReader = null,
@@ -656,9 +656,11 @@ pub const Terminal = struct {
                 const body = command[5..];
                 if (findRedirect(body)) |redirect| {
                     const text = trimCommand(body[0..redirect]);
-                    const path = trimCommand(body[redirect + 1 ..]);
+                    const append_mode = redirect + 1 < body.len and body[redirect + 1] == '>';
+                    const path_start = redirect + 1 + @intFromBool(append_mode);
+                    const path = trimCommand(body[path_start..]);
                     if (path.len == 0) self.append("echo: MISSING FILE\n") else if (self.file_writer) |writer| {
-                        if (writer(path, text)) self.append("OK\n") else self.append("echo: WRITE ERROR\n");
+                        if (writer(path, text, append_mode)) self.append("OK\n") else self.append("echo: WRITE ERROR\n");
                     } else self.append("echo: VFS UNAVAILABLE\n");
                 } else {
                     self.append(body);
@@ -971,8 +973,8 @@ fn testStatReader(_: []const u8, output: []u8) ?[]const u8 {
     return output[0..14];
 }
 
-fn testFileWriter(path: []const u8, contents: []const u8) bool {
-    return bytesEqual(path, "notes.txt") and bytesEqual(contents, "hello");
+fn testFileWriter(path: []const u8, contents: []const u8, append: bool) bool {
+    return bytesEqual(path, "notes.txt") and bytesEqual(contents, if (append) "again" else "hello") and append;
 }
 
 test "SDL software event queue and surface contract" {
@@ -1262,7 +1264,11 @@ test "SDL software event queue and surface contract" {
     terminal.file_writer = &testFileWriter;
     terminal.input.replace("echo hello > notes.txt");
     try @import("std").testing.expect(terminal.submit());
-    try @import("std").testing.expectEqualStrings("> echo hello > notes.txt\nOK\n", terminal.outputSlice());
+    try @import("std").testing.expectEqualStrings("> echo hello > notes.txt\necho: WRITE ERROR\n", terminal.outputSlice());
+    terminal.clearOutput();
+    terminal.input.replace("echo again >> notes.txt");
+    try @import("std").testing.expect(terminal.submit());
+    try @import("std").testing.expectEqualStrings("> echo again >> notes.txt\nOK\n", terminal.outputSlice());
     terminal.clearOutput();
     terminal.input.replace("cat /hello.txt");
     try @import("std").testing.expect(terminal.submit());
