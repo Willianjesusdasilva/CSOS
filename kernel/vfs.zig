@@ -15,6 +15,7 @@ const Node = enum {
 const Descriptor = struct {
     close_on_exec: bool = false,
     append: bool = false,
+    writable: bool = false,
     kind: Kind = .unused,
     node: Node = .root,
     offset: usize = 0,
@@ -180,6 +181,7 @@ pub fn openAt(directory_fd: i64, path: []const u8, flags: u64) !usize {
         descriptors[fd] = .{ .kind = .file, .node = .disk, .size = size, .fat_name = fat_name };
         descriptors[fd].close_on_exec = (flags & 0x80000) != 0;
         descriptors[fd].append = (flags & 0x400) != 0;
+        descriptors[fd].writable = (flags & 0x3) != 0;
         return fd;
     };
     const node = try resolve(directory_fd, path);
@@ -187,6 +189,7 @@ pub fn openAt(directory_fd: i64, path: []const u8, flags: u64) !usize {
     descriptors[fd] = .{ .kind = if (info.directory) .directory else if (node == .framebuffer or node == .drm or node == .render) .device else .file, .node = node, .size = @intCast(info.size) };
     descriptors[fd].close_on_exec = (flags & 0x80000) != 0;
     descriptors[fd].append = false;
+    descriptors[fd].writable = (flags & 0x3) != 0;
     return fd;
 }
 
@@ -278,6 +281,7 @@ pub fn pread(fd: usize, output: []u8, offset: usize) !usize {
 
 pub fn write(fd: usize, input: []const u8) !usize {
     if (fd >= descriptors.len or descriptors[fd].kind != .file or descriptors[fd].node != .disk) return error.BadFd;
+    if (!descriptors[fd].writable) return error.AccessDenied;
     const volume = disk orelse return error.NotFound;
     var contents: [8192]u8 = undefined;
     const descriptor = &descriptors[fd];
