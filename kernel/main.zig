@@ -2663,14 +2663,20 @@ fn hidCharacter(usage: u8, modifiers: u8) ?u8 {
         const base: u8 = if (shifted) 'A' else 'a';
         return base + usage - 4;
     }
-    if (usage >= 30 and usage <= 38) return "123456789"[usage - 30];
+    if (usage >= 30 and usage <= 38) return if (shifted) "!@#$%^&*("[usage - 30] else "123456789"[usage - 30];
     return switch (usage) {
-        39 => '0',
+        39 => if (shifted) ')' else '9',
         40 => '\n',
         42 => 0x7f,
         44 => ' ',
         45 => if (shifted) '_' else '-',
         46 => if (shifted) '+' else '=',
+        47 => if (shifted) '{' else '[',
+        48 => if (shifted) '}' else ']',
+        49 => if (shifted) '|' else '\\',
+        51 => if (shifted) ':' else ';',
+        52 => if (shifted) '"' else '\'',
+        53 => if (shifted) '~' else '`',
         54 => if (shifted) '<' else ',',
         55 => if (shifted) '>' else '.',
         56 => if (shifted) '?' else '/',
