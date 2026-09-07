@@ -724,6 +724,8 @@ fn testApplicationDraw(window: *Window) void {
 }
 
 test "SDL software event queue and surface contract" {
+    try @import("std").testing.expect(bytesEqualIgnoreCase("StAtUs", "STATUS"));
+    try @import("std").testing.expect(!bytesEqualIgnoreCase("status", "status "));
     try @import("std").testing.expectEqual([5]u8{ 0, 2, 0, 2, 0 }, glyph3x5(':'));
     try @import("std").testing.expectEqual([5]u8{ 1, 1, 2, 4, 4 }, glyph3x5('/'));
     try @import("std").testing.expectEqual([5]u8{ 4, 4, 2, 1, 1 }, glyph3x5('\\'));
