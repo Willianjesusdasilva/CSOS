@@ -363,6 +363,8 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         44 => sendTo(arg1, arg2, arg3),
         45 => receiveFrom(arg1, arg2, arg3),
         48 => shutdown(arg1),
+        51 => socketName(arg1, arg2, arg3, false),
+        52 => socketName(arg1, arg2, arg3, true),
         60 => exitSyscall(arg1),
         62 => kill(arg1, arg2),
         61 => wait4(arg1, arg2, arg3, arg4),
@@ -2759,6 +2761,8 @@ fn write(fd: u64, address: u64, length: u64) u64 {
 const Socket = struct {
     allocated: bool = false,
     connection: ?net.TcpConnection = null,
+    remote_address: [4]u8 = .{0} ** 4,
+    remote_port: u16 = 0,
 };
 
 fn socket(domain: u64, kind: u64, protocol: u64) u64 {
@@ -2782,6 +2786,26 @@ fn connect(fd: u64, address: u64, length: u64) u64 {
     const destination = [4]u8{ bytes[4], bytes[5], bytes[6], bytes[7] };
     const stack = network_stack orelse return errno(100);
     sockets[index].connection = stack.tcpConnect(destination, port, @intCast(49153 + index)) catch return errno(111);
+    sockets[index].remote_address = destination;
+    sockets[index].remote_port = port;
+    return 0;
+}
+
+fn socketName(fd: u64, address: u64, length_address: u64, peer: bool) u64 {
+    const index = socketIndex(fd) orelse return errno(9);
+    if (address == 0 or length_address == 0 or !validUserSlice(length_address, 4)) return errno(14);
+    if (sockets[index].connection == null) return errno(107);
+    if (!validUserSlice(address, 16)) return errno(14);
+    const available = @as(*align(1) u32, @ptrFromInt(length_address)).*;
+    if (available < 16) return errno(22);
+    const output: [*]u8 = @ptrFromInt(address);
+    @memset(output[0..16], 0);
+    output[0] = 2; // AF_INET
+    const port = if (peer) sockets[index].remote_port else @as(u16, @intCast(49153 + index));
+    output[2] = @truncate(port >> 8);
+    output[3] = @truncate(port);
+    if (peer) @memcpy(output[4..8], &sockets[index].remote_address);
+    @as(*align(1) u32, @ptrFromInt(length_address)).* = 16;
     return 0;
 }
 
