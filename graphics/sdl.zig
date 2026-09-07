@@ -114,6 +114,13 @@ pub const EventQueue = struct {
     }
 
     pub fn pushQuit(self: *EventQueue) bool {
+        if (self.isFull()) {
+            // Encerramento é controle de vida da aplicação: preserve-o mesmo
+            // sob uma rajada de input, descartando o evento mais antigo.
+            self.items[self.read % self.items.len] = .{ .quit = {} };
+            self.dropped +%= 1;
+            return true;
+        }
         return self.push(.{ .quit = {} });
     }
 };
@@ -868,7 +875,16 @@ test "SDL software event queue and surface contract" {
         }
     }
     try @import("std").testing.expect(full.poll() == null);
-    try @import("std").testing.expect(full.push(.{ .quit = {} }));
+    index = 0;
+    while (index < full.items.len) : (index += 1)
+        try @import("std").testing.expect(full.push(.{ .mouse = .{ .x = 0, .y = 0, .wheel = 0, .buttons = 0 } }));
+    try @import("std").testing.expect(full.pushQuit());
+    try @import("std").testing.expect(full.isFull());
+    var saw_quit = false;
+    while (full.poll()) |event| {
+        if (event == .quit) saw_quit = true;
+    }
+    try @import("std").testing.expect(saw_quit);
     full.dropped = 7;
     full.clear();
     try @import("std").testing.expectEqual(@as(usize, 0), full.len());
