@@ -1063,8 +1063,11 @@ fn virtualFileOffsetFor(bytes: []const u8, virtual: u64, size: u64, program_offs
         const file_offset = read64From(bytes, header + 8);
         const segment_virtual = read64From(bytes, header + 16);
         const file_size = read64From(bytes, header + 32);
-        if (virtual >= segment_virtual and size <= file_size and virtual - segment_virtual <= file_size - size)
-            return file_offset + virtual - segment_virtual;
+        if (virtual >= segment_virtual and size <= file_size and virtual - segment_virtual <= file_size - size) {
+            const delta = virtual - segment_virtual;
+            if (file_offset > std.math.maxInt(u64) - delta) continue;
+            return file_offset + delta;
+        }
     }
     return error.InvalidDynamicAddress;
 }
@@ -1098,8 +1101,11 @@ fn virtualFileOffset(virtual: u64, size: u64, program_offset: u64, program_entry
         const file_offset = read64At(header + 8);
         const segment_virtual = read64At(header + 16);
         const file_size = read64At(header + 32);
-        if (virtual >= segment_virtual and size <= file_size and virtual - segment_virtual <= file_size - size)
-            return file_offset + virtual - segment_virtual;
+        if (virtual >= segment_virtual and size <= file_size and virtual - segment_virtual <= file_size - size) {
+            const delta = virtual - segment_virtual;
+            if (file_offset > std.math.maxInt(u64) - delta) continue;
+            return file_offset + delta;
+        }
     }
     return error.InvalidDynamicAddress;
 }
