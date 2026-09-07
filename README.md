@@ -672,7 +672,8 @@ exemplo, executar `  status  ` sem gerar um comando desconhecido.
 Setas para cima/baixo percorrem o histórico, Home/End movem o cursor, Delete
 remove à frente, `Esc` cancela a edição e `Ctrl+L` limpa a saída sem apagar o
 histórico; `Ctrl+A`/`Ctrl+E` saltam para o início/fim da linha e `Ctrl+U` limpa a
-linha atual, e `Ctrl+K` remove até o fim da linha. A saída acompanha
+linha atual, `Ctrl+K` remove até o fim da linha e `Ctrl+C` cancela a edição.
+A saída acompanha
 automaticamente as seis linhas mais novas.
 Superfícies SDL são compostas dentro da camada de sua própria janela, com
 clipping pela área de conteúdo. Assim, respeitam sobreposição, foco,
