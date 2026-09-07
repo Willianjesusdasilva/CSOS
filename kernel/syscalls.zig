@@ -33,6 +33,7 @@ var process_name: [16]u8 = .{ 'c', 's', 'o', 's', 0 } ++ .{0} ** 11;
 var process_group: u64 = 1;
 var process_session: u64 = 1;
 var signal_stack: [32]u8 = .{0} ** 32;
+var random_state: u64 = 0x9e3779b97f4a7c15;
 const max_epoll_watch = 16;
 const EpollWatch = struct { fd: u32 = 0, generation: u32 = 0, events: u32 = 0, data: u64 = 0, active: bool = false };
 var epoll_watches: [32][max_epoll_watch]EpollWatch = .{.{EpollWatch{}} ** max_epoll_watch} ** 32;
@@ -432,6 +433,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         273 => setRobustList(arg1, arg2),
         274 => getRobustList(arg1, arg2, arg3, arg4),
         309 => getcpu(arg1, arg2),
+        318 => getRandom(arg1, arg2, arg3),
         436 => closeRange(arg1, arg2, arg3),
         439 => faccessat2(arg1, arg2, arg3, arg4),
         else => unsupported(number),
@@ -2609,6 +2611,24 @@ fn ppoll(address: u64, count: u64, timespec: u64, signal_mask: u64, signal_set_s
         timeout = if (seconds != 0 or nanoseconds != 0) 1 else 0;
     }
     return poll(address, count, timeout);
+}
+
+fn getRandom(address: u64, length: u64, flags: u64) u64 {
+    if ((flags & ~@as(u64, 3)) != 0) return errno(22);
+    if (length == 0) return 0;
+    if (!validUserSlice(address, length)) return errno(14);
+    // This is a deterministic bootstrap source until a hardware entropy
+    // provider is installed; it satisfies libc's ABI without claiming
+    // cryptographic randomness from a machine that has not been provisioned.
+    const bytes: [*]u8 = @ptrFromInt(address);
+    var index: u64 = 0;
+    while (index < length) : (index += 1) {
+        random_state ^= random_state << 13;
+        random_state ^= random_state >> 7;
+        random_state ^= random_state << 17;
+        bytes[index] = @truncate(random_state >> 24);
+    }
+    return length;
 }
 
 fn uname(address: u64) u64 {
