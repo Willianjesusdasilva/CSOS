@@ -27,6 +27,7 @@ var stdin_hook: ?*const fn ([*]u8, usize) callconv(.c) usize = null;
 var idle_hook: ?*const fn () callconv(.c) void = null;
 var robust_head: u64 = 0;
 var robust_len: u64 = 0;
+var clear_tid_address: u64 = 0;
 pub var file_mmaps: u64 = 0;
 pub var protected_mmaps: u64 = 0;
 pub var unmapped_mmaps: u64 = 0;
@@ -373,7 +374,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         204 => schedGetAffinity(arg1, arg2, arg3),
         217 => getdents(arg1, arg2, arg3),
         221 => fadvise64(arg1, arg2, arg3, arg4),
-        218 => 1,
+        218 => setTidAddress(arg1),
         228 => writeTime(arg2, 16),
         229 => clockGetRes(arg1, arg2),
         230 => clockNanosleep(arg1, arg2, arg3, arg4),
@@ -2858,6 +2859,12 @@ fn getSchedulerParam(pid: u64, output: u64) u64 {
     if (!validUserSlice(output, 4)) return errno(14);
     @as(*align(1) i32, @ptrFromInt(output)).* = 0;
     return 0;
+}
+
+fn setTidAddress(address: u64) u64 {
+    if (address != 0 and !validUserSlice(address, 4)) return errno(14);
+    clear_tid_address = address;
+    return 1;
 }
 
 fn setRobustList(head: u64, length: u64) u64 {
