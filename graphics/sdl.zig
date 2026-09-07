@@ -358,6 +358,7 @@ pub const TextInput = struct {
     }
 
     pub fn backspace(self: *TextInput) bool {
+        self.cursor = @min(self.cursor, self.len);
         if (self.cursor == 0) return false;
         var index = self.cursor - 1;
         while (index + 1 < self.len) : (index += 1) self.bytes[index] = self.bytes[index + 1];
@@ -367,6 +368,7 @@ pub const TextInput = struct {
     }
 
     pub fn delete(self: *TextInput) bool {
+        self.cursor = @min(self.cursor, self.len);
         if (self.cursor >= self.len) return false;
         var index = self.cursor;
         while (index + 1 < self.len) : (index += 1) self.bytes[index] = self.bytes[index + 1];
@@ -381,10 +383,12 @@ pub const TextInput = struct {
     }
 
     pub fn moveLeft(self: *TextInput) void {
+        self.cursor = @min(self.cursor, self.len);
         self.cursor -|= 1;
     }
 
     pub fn moveRight(self: *TextInput) void {
+        self.cursor = @min(self.cursor, self.len);
         self.cursor = @min(self.len, self.cursor + 1);
     }
 
@@ -752,6 +756,10 @@ test "SDL software event queue and surface contract" {
     input.cursor = input.bytes.len + 1;
     try @import("std").testing.expect(input.insert('x'));
     try @import("std").testing.expectEqual(@as(usize, 2), input.cursor);
+    input.cursor = input.bytes.len + 1;
+    try @import("std").testing.expect(!input.delete());
+    try @import("std").testing.expect(input.backspace());
+    try @import("std").testing.expectEqual(@as(usize, 1), input.cursor);
     var terminal = Terminal{};
     for ("status") |byte| try @import("std").testing.expect(terminal.input.insert(byte));
     try @import("std").testing.expect(terminal.submit());
