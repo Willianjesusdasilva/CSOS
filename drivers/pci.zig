@@ -167,11 +167,11 @@ comptime {
 pub fn enableMsi(device: Device, vector: u8, destination_apic: u8) !void {
     if (vector < 0x20) return error.MsiUnavailable;
     const offset = capabilityOffset(device, 0x05) orelse return error.MsiUnavailable;
-    if (@as(u16, offset) + 12 > 0xff) return error.MsiUnavailable;
     var control = read16(device.bus, device.slot, device.function, offset + 2);
+    const data_offset: u16 = if ((control & (1 << 7)) != 0) @as(u16, offset) + 12 else @as(u16, offset) + 8;
+    if (data_offset + 2 > 0x100) return error.MsiUnavailable;
     write32(device.bus, device.slot, device.function, offset + 4, 0xfee00000 | (@as(u32, destination_apic) << 12));
-    const data_offset: u8 = if ((control & (1 << 7)) != 0) offset + 12 else offset + 8;
-    write16(device.bus, device.slot, device.function, data_offset, vector);
+    write16(device.bus, device.slot, device.function, @intCast(data_offset), vector);
     control &= ~@as(u16, 0x70);
     control |= 1;
     write16(device.bus, device.slot, device.function, offset + 2, control);
