@@ -111,7 +111,7 @@ if ($SmokeTestSeconds -gt 0) {
                     $writer = [IO.StreamWriter]::new($monitor.GetStream())
                     try {
                         $writer.AutoFlush = $true
-                        foreach ($key in @('meta_l', 'down', 'down', 'down', 'ret', 'down', 'ret', 'pgdn', 'pgup', 'esc')) {
+                        foreach ($key in @('meta_l', 'down', 'down', 'down', 'ret', 'c', 'down', 'ret', 'pgdn', 'pgup', 'esc')) {
                             $writer.WriteLine("sendkey $key")
                             # QEMU's PS/2-to-HID path can coalesce adjacent
                             # key transitions; leave enough time for the
@@ -120,7 +120,7 @@ if ($SmokeTestSeconds -gt 0) {
                         }
                     } finally { $writer.Dispose() }
                     $uiInjected = $true
-                    Write-Output 'Injected desktop smoke sequence: launcher -> FILES -> preview -> page -> back'
+                    Write-Output 'Injected desktop smoke sequence: launcher -> FILES -> filter -> preview -> page -> back'
                 } finally { $monitor.Dispose() }
             }
             if ($SmokeDesktopMouse -and -not $mouseInjected -and $serialText.Contains('CSOS graphical session ready')) {
@@ -159,6 +159,7 @@ if ($SmokeTestSeconds -gt 0) {
             if ($SmokeDesktopFiles) {
                 $observed = $observed -and
                     $serialText.Contains('UI launch application (keyboard): 4') -and
+                    $serialText.Contains('UI files filter: c') -and
                     $serialText.Contains('UI files selected:') -and
                     $serialText.Contains('UI files preview offset: 192') -and
                     $serialText.Contains('UI files preview closed')

@@ -2202,14 +2202,17 @@ pub fn start(info: BootInfo) noreturn {
                         files_filter.clear();
                         root_file_count = refreshFiles(&volume, &root_files, &files_selection, &files_window, &files_filter) catch panic("UI files filter clear failed");
                         file_browser_consumed = true;
+                        serial.write("UI files filter cleared\n");
                     } else if (!files_preview_open and event.a == 0x2a) {
                         _ = files_filter.backspace();
                         root_file_count = refreshFiles(&volume, &root_files, &files_selection, &files_window, &files_filter) catch panic("UI files filter edit failed");
                         file_browser_consumed = true;
+                        serial.write("UI files filter: "); serial.write(files_filter.slice()); serial.write("\n");
                     } else if (!files_preview_open and event.a != 0x3e and event.a != 0x51 and event.a != 0x52 and event.a != 0x4a and event.a != 0x4d and event.a != 0x4b and event.a != 0x4e and event.a != 0x28 and event.a != 0x2c and event.a != 0x4c) {
                         if (hidCharacter(event.a, event.b, hid_caps_lock)) |byte| {
                             if (files_filter.insert(byte)) root_file_count = refreshFiles(&volume, &root_files, &files_selection, &files_window, &files_filter) catch panic("UI files filter edit failed");
                             file_browser_consumed = true;
+                            serial.write("UI files filter: "); serial.write(files_filter.slice()); serial.write("\n");
                         }
                     } else if (event.a == 0x3e or (event.a == 0x15 and (event.b & 0x11) != 0)) {
                         root_file_count = refreshFiles(&volume, &root_files, &files_selection, &files_window, &files_filter) catch panic("UI files F5 refresh failed");
