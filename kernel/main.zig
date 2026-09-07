@@ -2120,6 +2120,7 @@ pub fn start(info: BootInfo) noreturn {
                         files_preview_open = false;
                         drawFilesSurface(&files_window, root_files[0..root_file_count], &files_selection);
                         file_browser_consumed = true;
+                        serial.write("UI files preview closed\n");
                     } else if (files_preview_open) {
                         const changed = switch (event.a) {
                             0x4e => files_preview_pager.next(),
@@ -2130,6 +2131,9 @@ pub fn start(info: BootInfo) noreturn {
                         if (changed) {
                             _ = loadFilePreview(&volume, root_files[files_selection.selected], &files_preview_pager, &files_preview, &files_window) catch panic("UI file preview page read failed");
                             file_browser_consumed = true;
+                            serial.write("UI files preview offset: ");
+                            serial.writeDecimal(files_preview_pager.offset);
+                            serial.write("\n");
                         }
                     } else if (!files_preview_open) {
                         const changed = switch (event.a) {

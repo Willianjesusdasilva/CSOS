@@ -256,6 +256,10 @@ automatizada abriu launcher, selecionou FILES e abriu `SYSTEM.TXT` de 25 bytes,
 confirmada por `UI files selected:`. `test-system.ps1` usa esse gate interativo
 no lugar do boot normal que apenas aguardava o desktop.
 
+O gate interativo foi ampliado para selecionar `LIBCSOS.SO` de 2200 bytes,
+avançar ao offset 192, voltar ao offset 0 e fechar a prévia. O runner exige todos
+os marcadores de launch, seleção, paginação e retorno antes de declarar sucesso.
+
 Esta porcentagem não é uma contagem simples de milestones. M0–M13 têm bases relevantes, mas M14 ainda não possui triângulos Vulkan validados em AMD e NVIDIA, e M15–M30 permanecem majoritariamente pendentes. Código preparatório ou teste no host não equivale a hardware funcional.
 
 Verificação mais recente em 2026-09-06: `zig build test` concluiu `17/17` etapas

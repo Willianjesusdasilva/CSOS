@@ -107,16 +107,24 @@ if ($SmokeTestSeconds -gt 0) {
                     $writer = [IO.StreamWriter]::new($monitor.GetStream())
                     try {
                         $writer.AutoFlush = $true
-                        foreach ($key in @('meta_l', 'down', 'down', 'down', 'ret', 'ret')) {
+                        foreach ($key in @('meta_l', 'down', 'down', 'down', 'ret', 'down', 'ret', 'pgdn', 'pgup', 'esc')) {
                             $writer.WriteLine("sendkey $key")
                             Start-Sleep -Milliseconds 180
                         }
                     } finally { $writer.Dispose() }
                     $uiInjected = $true
-                    Write-Output 'Injected desktop smoke sequence: launcher -> FILES -> preview'
+                    Write-Output 'Injected desktop smoke sequence: launcher -> FILES -> preview -> page -> back'
                 } finally { $monitor.Dispose() }
             }
-            if ($serialText.Contains($ExpectSerial)) { $testResult = 0; break }
+            $observed = $serialText.Contains($ExpectSerial)
+            if ($SmokeDesktopFiles) {
+                $observed = $observed -and
+                    $serialText.Contains('UI launch application (keyboard): 4') -and
+                    $serialText.Contains('UI files selected:') -and
+                    $serialText.Contains('UI files preview offset: 192') -and
+                    $serialText.Contains('UI files preview closed')
+            }
+            if ($observed) { $testResult = 0; break }
             if ($testProcess.HasExited) { $testResult = 1; break }
             Start-Sleep -Milliseconds 200
         }

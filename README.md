@@ -775,7 +775,8 @@ maiores mantendo consumo fixo de memória.
 
 O runner QEMU possui `-SmokeDesktopFiles`: após o marcador de sessão pronta,
 abre um monitor HMP local efêmero e injeta a sequência launcher → FILES →
-prévia. O teste só passa ao observar `UI files selected:` no serial e sempre
+prévia → Page Down → Page Up → Esc. O teste exige simultaneamente launch do app
+4, arquivo selecionado, offsets 192/0 e prévia fechada no serial, e sempre
 encerra o emulador. Esse fluxo substitui o boot passivo em `test-system.ps1`.
 
 O inventário do host também encontrou uma AMD Radeon(TM) Graphics (`1002:164e`)
