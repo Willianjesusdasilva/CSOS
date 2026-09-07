@@ -408,6 +408,7 @@ pub const TextInput = struct {
     pub fn clear(self: *TextInput) void {
         self.len = 0;
         self.cursor = 0;
+        @memset(&self.bytes, 0);
     }
 
     pub fn moveLeft(self: *TextInput) void {
