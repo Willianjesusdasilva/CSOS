@@ -257,7 +257,9 @@ pub const Stack = struct {
         var attempts: u8 = 0;
         while (attempts < 16) : (attempts += 1) {
             const length = try self.device.receive(&received);
-            if (length < 42 or get16(received[12..]) != 0x0806 or get16(received[20..]) != 2) continue;
+            if (length < 42 or get16(received[12..]) != 0x0806 or get16(received[14..]) != 1 or
+                get16(received[16..]) != 0x0800 or received[18] != 6 or received[19] != 4 or
+                get16(received[20..]) != 2) continue;
             if (!equal(received[28..32], &address) or !equal(received[38..42], &self.local_ip)) continue;
             return received[22..28].*;
         }
