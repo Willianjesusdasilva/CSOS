@@ -275,8 +275,8 @@ pub const Firmware = struct {
                 .ucode_version = parsed.ucode_version,
             };
             result.count += 1;
-            result.image_bytes += entry.data.len;
-            result.payload_bytes += parsed.payload.len;
+            result.image_bytes = std.math.add(usize, result.image_bytes, entry.data.len) catch return error.FirmwareSelectionTooLarge;
+            result.payload_bytes = std.math.add(usize, result.payload_bytes, parsed.payload.len) catch return error.FirmwareSelectionTooLarge;
             if (psp) |package| {
                 for (package.components[0..package.count]) |component| {
                     if (result.psp_component_count == result.psp_components.len) return error.TooManyAmdPspFirmwareComponents;
