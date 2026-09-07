@@ -247,8 +247,9 @@ pub fn close(fd: usize) !void {
 pub fn duplicate(old_fd: usize, new_fd: usize) !usize {
     if (old_fd >= descriptors.len or new_fd >= descriptors.len or descriptors[old_fd].kind == .unused) return error.BadFd;
     if (old_fd != new_fd) {
+        const generation = try newGeneration();
         descriptors[new_fd] = descriptors[old_fd];
-        descriptors[new_fd].generation = try newGeneration();
+        descriptors[new_fd].generation = generation;
         descriptors[new_fd].close_on_exec = false;
     }
     return new_fd;
