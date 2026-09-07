@@ -82,8 +82,8 @@ implementado ou validado, nem aumenta a porcentagem concluída do projeto.
 Snapshot em 2026-09-07, ponderado por funcionalidade real:
 
 ```text
-concluído: aproximadamente 40%
-restante:  aproximadamente 60%
+concluído: aproximadamente 42%
+restante:  aproximadamente 58%
 ```
 
 Prioridade operacional atualizada: a validação de GPU física AMD/NVIDIA fica
@@ -96,8 +96,11 @@ O framebuffer atual já produz uma saída visual verificável (`zig-out/display.
 com painel de status, barra, cursor e elementos de diagnóstico. Isso é um
 primeiro passo gráfico em QEMU e já é uma sessão interativa básica: SDL software,
 eventos de teclado/mouse, compositor, janelas, foco e FILES estão ligados ao
-loop principal. Ainda faltam texto completo, runtime HTML/CSS/Jinja, áudio SDL
-real e aplicações completas. O cursor acompanha deltas de mouse USB com
+loop principal. O runtime HTML inicial já renderiza títulos, parágrafos e
+botões com foco/ativação no SYSTEM; o terminal gráfico também executa probes
+HTTP, framebuffer, DRM, libdrm e RADV (incluindo o diagnóstico `run gpu`).
+Ainda faltam texto completo, runtime HTML/CSS/Jinja, áudio SDL real e aplicações
+completas. O cursor acompanha deltas de mouse USB com
 redesenho seguro; cliques e estado dos botões são refletidos visualmente e no
 serial, enquanto o gerenciamento de janelas cobre o conjunto atualmente
 implementado abaixo.
@@ -1051,7 +1054,7 @@ cross-host tentava inserir. A detecção AVX2 não foi desativada: o símbolo
 como PIC pela revisão fixada `3623fe661ae35c6c80ac221f14d85be76aa870f1`.
 Isto comprova o build real do driver, não seu carregamento no CSOS, command
 submission em Radeon nem triângulo Vulkan físico; o progresso global permanece
-em aproximadamente 40% concluído e 60% restante.
+em aproximadamente 42% concluído e 58% restante.
 
 O primeiro inventário do ELF mostra que os tipos de relocation do RADV já são
 os quatro tratados pelo loader (`RELATIVE`, `JUMP_SLOT`, `GLOB_DAT` e
@@ -1068,7 +1071,7 @@ BSS, deixando espaço para o RADV e suas dependências diretas. Isso deverá vir
 estado por processo quando houver `exec` concorrente. A suíte consolidada passou
 10/10 testes de host e os dois boots QEMU limitados até o console; ambos foram
 encerrados automaticamente. O teste ainda não carrega o RADV e não altera a
-estimativa global de 40%/60%.
+estimativa global de 42%/58%.
 
 O inventário agora é um gate automático de `build-radv.ps1`: arquitetura,
 SONAME, NEEDED, exports, ausência de RUNPATH, runtime de CPU, relocations e
