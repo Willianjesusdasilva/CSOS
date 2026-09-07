@@ -438,6 +438,8 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         119 => setResGid(arg1, arg2, arg3),
         120 => getResGid(arg1, arg2, arg3),
         135 => personality(arg1),
+        137 => statfs(arg1, arg2),
+        138 => fstatfs(arg1, arg2),
         131 => sigaltstack(arg1, arg2),
         140 => getPriority(arg1, arg2),
         141 => setPriority(arg1, arg2, @bitCast(arg3)),
@@ -2680,6 +2682,35 @@ fn fstat(fd: u64, output_address: u64) u64 {
     if (fd <= 2) return writeStat(output_address, .{ .mode = 0o020666, .size = 0, .directory = false });
     const info = vfs.infoFd(@intCast(fd)) catch |err| return vfsError(err);
     return writeStat(output_address, info);
+}
+
+fn statfs(path_address: u64, output_address: u64) u64 {
+    var path_buffer: [256]u8 = undefined;
+    const path = userString(path_address, &path_buffer) orelse return errno(14);
+    _ = vfs.infoAt(-100, path) catch |err| return vfsError(err);
+    return writeStatfs(output_address);
+}
+
+fn fstatfs(fd: u64, output_address: u64) u64 {
+    _ = vfs.infoFd(@intCast(fd)) catch |err| return vfsError(err);
+    return writeStatfs(output_address);
+}
+
+fn writeStatfs(address: u64) u64 {
+    if (!validUserSlice(address, 120)) return errno(14);
+    const bytes: [*]u8 = @ptrFromInt(address);
+    @memset(bytes[0..120], 0);
+    // Linux struct statfs: ext2-compatible magic, 4 KiB blocks and a
+    // conservative bounded volume estimate for the current FAT backend.
+    put64(bytes + 0, 0xEF53);
+    put64(bytes + 8, 4096);
+    put64(bytes + 16, 1024);
+    put64(bytes + 24, 512);
+    put64(bytes + 32, 512);
+    put64(bytes + 40, 32);
+    put64(bytes + 48, 0x00000000_0000ffff);
+    put64(bytes + 56, 255);
+    return 0;
 }
 
 fn writeStat(address: u64, info: vfs.Info) u64 {
