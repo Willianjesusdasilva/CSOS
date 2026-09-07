@@ -1105,15 +1105,17 @@ fn requiredSymbolVersion(bytes: []const u8, symbols: DynamicSymbols, symbol_inde
         var auxiliary_index: u16 = 0;
         while (auxiliary_index < auxiliary_count) : (auxiliary_index += 1) {
             if (auxiliary > bytes.len or bytes.len - auxiliary < 16) return error.InvalidVersionNeed;
-            if ((read16From(bytes, auxiliary + 6) & 0x7fff) == version_index)
-                return try stringFrom(bytes, symbols.string_file + read32From(bytes, auxiliary + 8));
+            if ((read16From(bytes, auxiliary + 6) & 0x7fff) == version_index) {
+                const string_offset = std.math.add(u64, symbols.string_file, read32From(bytes, auxiliary + 8)) catch return error.InvalidVersionNeed;
+                return try stringFrom(bytes, string_offset);
+            }
             const next = read32From(bytes, auxiliary + 12);
             if (next == 0) break;
-            auxiliary += next;
+            auxiliary = std.math.add(usize, auxiliary, next) catch return error.InvalidVersionNeed;
         }
         const next = read32From(bytes, need_offset + 12);
         if (next == 0) break;
-        need_offset += next;
+        need_offset = std.math.add(usize, need_offset, next) catch return error.InvalidVersionNeed;
     }
     return error.RequiredVersionMissing;
 }
@@ -1127,13 +1129,14 @@ fn definedSymbolVersion(bytes: []const u8, symbols: DynamicSymbols, symbol_index
     while (definition_index < symbols.version_definition_count) : (definition_index += 1) {
         if (definition > bytes.len or bytes.len - definition < 20) return error.InvalidVersionDefinition;
         if ((read16From(bytes, definition + 4) & 0x7fff) == version_index) {
-            const auxiliary = definition + read32From(bytes, definition + 12);
+            const auxiliary = std.math.add(usize, definition, read32From(bytes, definition + 12)) catch return error.InvalidVersionDefinition;
             if (auxiliary > bytes.len or bytes.len - auxiliary < 8) return error.InvalidVersionDefinition;
-            return try stringFrom(bytes, symbols.string_file + read32From(bytes, auxiliary));
+            const string_offset = std.math.add(u64, symbols.string_file, read32From(bytes, auxiliary)) catch return error.InvalidVersionDefinition;
+            return try stringFrom(bytes, string_offset);
         }
         const next = read32From(bytes, definition + 16);
         if (next == 0) break;
-        definition += next;
+        definition = std.math.add(usize, definition, next) catch return error.InvalidVersionDefinition;
     }
     return error.DefinedVersionMissing;
 }
@@ -1150,7 +1153,7 @@ fn dynamicSymbols(bytes: []const u8, program_offset: u64, program_entry_size: u1
         break;
     }
     const table = dynamic_file orelse return error.DynamicTableMissing;
-    if (dynamic_size < 16 or table > std.math.maxInt(u64) - dynamic_size) return error.InvalidDynamicSymbols;
+    if (dynamic_size < 16 or table > bytes.len or dynamic_size > bytes.len - table) return error.InvalidDynamicSymbols;
     const table_end = table + dynamic_size;
     var symbol_virtual: u64 = 0;
     var string_virtual: u64 = 0;

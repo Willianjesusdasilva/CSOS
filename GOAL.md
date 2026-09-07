@@ -346,6 +346,8 @@ Relocações simbólicas validam a soma entre valor do símbolo e base do módul
 antes de gravar o destino, rejeitando endereços que ultrapassem `u64`.
 Índices de símbolos vindos das relocations agora precisam estar dentro de
 `symbol_count`, com offsets de entradas convertidos de forma checked.
+`dynamicSymbols` exige que a tabela dinâmica caiba no objeto e os caminhos
+`DT_VERNEED`/`DT_VERDEF` usam somas checked para avançar e resolver strings.
 
 Mapeamentos anônimos também possuem rollback transacional: uma falha no meio da
 criação remove as páginas já instaladas e devolve a alocação e o ownership.

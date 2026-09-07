@@ -865,6 +865,8 @@ O linker de símbolos também usa soma checked para bases de consumidor e
 provedor antes de aplicar relocations.
 Relocations com índice fora da tabela são rejeitadas antes de ler entradas de
 24 bytes, incluindo overflow na conversão do offset para `usize`.
+O parser dinâmico também valida o tamanho da tabela contra o buffer e protege
+os saltos e offsets das tabelas de versões.
 
 Mapeamentos anônimos fazem rollback transacional quando uma página falha: os
 mapeamentos parciais são removidos e a memória física é devolvida ao allocator.
