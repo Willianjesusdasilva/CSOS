@@ -2178,6 +2178,8 @@ pub fn start(info: BootInfo) noreturn {
                             sdl_terminal.cancel();
                         } else if (event.a == 0x0e and (event.b & 0x01) != 0) {
                             sdl_terminal.input.eraseToEnd();
+                        } else if (event.a == 0x07 and (event.b & 0x01) != 0) {
+                            _ = sdl_terminal.input.delete();
                         } else if (event.a == 0x2a) {
                             if ((event.b & 0x01) != 0) sdl_terminal.input.eraseWordBackward() else _ = sdl_terminal.input.backspace();
                         } else if (event.a == 0x4c) {
