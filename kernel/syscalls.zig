@@ -3043,7 +3043,9 @@ fn closeRange(first: u64, last: u64, flags: u64) u64 {
     const limit = @min(last, 1023);
     var fd = first;
     while (fd <= limit) : (fd += 1) {
-        if (vfs.isOpen(@intCast(fd))) {
+        if (socketIndex(fd)) |_| {
+            if ((flags & 2) == 0) _ = close(fd);
+        } else if (vfs.isOpen(@intCast(fd))) {
             if ((flags & 2) != 0) _ = vfs.setDescriptorFlags(@intCast(fd), 1) catch {} else _ = vfs.close(@intCast(fd)) catch {};
         }
     }
