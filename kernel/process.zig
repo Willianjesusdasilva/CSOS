@@ -814,7 +814,9 @@ fn applyRelativeRelocations(mappings: []const Mapping, load_bias: u64, program_o
     var rela_offset: u64 = 0;
     while (rela_offset < rela_size) : (rela_offset += rela_entry_size) {
         const item: usize = @intCast(rela_file + rela_offset);
-        const target = read64At(item) + load_bias;
+        const raw_target = read64At(item);
+        if (raw_target > std.math.maxInt(u64) - load_bias) return error.InvalidRelaTable;
+        const target = raw_target + load_bias;
         const info = read64At(item + 8);
         const addend: i64 = @bitCast(read64At(item + 16));
         if (@as(u32, @truncate(info)) != 8 or (info >> 32) != 0) {
