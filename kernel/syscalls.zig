@@ -3261,15 +3261,15 @@ fn sysinfo(output: u64) u64 {
     put64(bytes + 8, 1); // one-second load averages, fixed-point 0.0
     put64(bytes + 16, 1);
     put64(bytes + 24, 1);
-    put64(bytes + 32, 256 * 1024 * 1024); // totalram
-    put64(bytes + 40, 192 * 1024 * 1024); // freeram
+    put64(bytes + 32, 256 * 1024 * 1024 / 4096); // totalram units
+    put64(bytes + 40, 192 * 1024 * 1024 / 4096); // freeram units
     put64(bytes + 48, 0); // sharedram
-    put64(bytes + 56, 64 * 1024 * 1024); // bufferram
+    put64(bytes + 56, 64 * 1024 * 1024 / 4096); // bufferram units
     put64(bytes + 64, 0); // totalswap
     put64(bytes + 72, 0); // freeswap
     put16(bytes + 80, 1); // procs
-    put64(bytes + 88, 128 * 1024 * 1024); // totalhigh
-    put64(bytes + 96, 96 * 1024 * 1024); // freehigh
+    put64(bytes + 88, 128 * 1024 * 1024 / 4096); // totalhigh units
+    put64(bytes + 96, 96 * 1024 * 1024 / 4096); // freehigh units
     put32(bytes + 104, 4096); // mem_unit
     return 0;
 }
