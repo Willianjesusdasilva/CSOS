@@ -202,6 +202,8 @@ Na sessão real, o comando agora usa um callback VFS do kernel (`openAt`/`read`)
 e deixa o fallback apenas para testes isolados do módulo SDL.
 O `ls` segue o mesmo caminho: o callback usa `vfs.getDents` para listar o
 diretório raiz real na sessão gráfica.
+`stat <arquivo>` agora consulta `vfs.infoAt` e mostra tipo e tamanho reais,
+com erro explícito quando o caminho não existe.
 `Ctrl+R` também recupera a entrada anterior, como em shells convencionais.
 O compositor associa a superfície SDL à janela proprietária e aplica clipping
 à área de conteúdo; a aplicação deixa de atravessar bordas ou aparecer por cima
@@ -220,7 +222,7 @@ do fallback por árvore, eliminando um travamento observado no cleanup de um
 smoke test sem deixar o emulador aberto.
 
 Após esses incrementos, `zig build` recompila o EFI em `14/14` etapas e
-`zig build test` conclui `41/41` etapas e `198/198` testes aprovados; um boot QEMU limitado também voltou a alcançar
+`zig build test` conclui `41/41` etapas e `199/199` testes aprovados; um boot QEMU limitado também voltou a alcançar
 `CSOS graphical session ready`.
 
 O caminho NVMe agora enumera a lista de namespaces ativos em vez de tratar o
@@ -317,7 +319,7 @@ os marcadores de launch, seleção, paginação e retorno antes de declarar suce
 Esta porcentagem não é uma contagem simples de milestones. M0–M13 têm bases relevantes, mas M14 ainda não possui triângulos Vulkan validados em AMD e NVIDIA, e M15–M30 permanecem majoritariamente pendentes. Código preparatório ou teste no host não equivale a hardware funcional.
 
 Verificação mais recente em 2026-09-07: `zig build test` concluiu `41/41` etapas
-e `198/198` testes, e o boot QEMU chegou a `Linux PIE userspace ready`. A
+e `199/199` testes, e o boot QEMU chegou a `Linux PIE userspace ready`. A
 sessão gráfica assume teclado e mouse sem aguardar a saída do shell BusyBox e o
 terminal já voltou como aplicação não bloqueante; isso não altera a ausência de
 validação Vulkan física.

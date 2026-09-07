@@ -579,10 +579,12 @@ pub const TextInput = struct {
 pub const Terminal = struct {
     pub const FileReader = *const fn (path: []const u8, output: []u8) ?[]const u8;
     pub const DirectoryReader = *const fn (output: []u8) ?[]const u8;
+    pub const StatReader = *const fn (path: []const u8, output: []u8) ?[]const u8;
     input: TextInput = .{},
     output: [256]u8 = undefined,
     file_reader: ?FileReader = null,
     directory_reader: ?DirectoryReader = null,
+    stat_reader: ?StatReader = null,
     file_scratch: [128]u8 = undefined,
     output_len: usize = 0,
     history: [4][64]u8 = undefined,
@@ -605,7 +607,7 @@ pub const Terminal = struct {
             self.append(command);
             self.append("\n");
             if (bytesEqualIgnoreCase(command, "help"))
-                self.append("HELP CLEAR RESET STATUS VERSION WHOAMI PWD LS CAT ECHO HISTORY [TEXT]\n")
+                self.append("HELP CLEAR RESET STATUS VERSION WHOAMI PWD LS CAT STAT ECHO HISTORY [TEXT]\n")
             else if (bytesEqualIgnoreCase(command, "status"))
                 self.append("CSOS READY\n")
             else if (bytesEqualIgnoreCase(command, "version"))
@@ -618,6 +620,12 @@ pub const Terminal = struct {
                 if (self.directory_reader) |reader| {
                     if (reader(&self.file_scratch)) |listing| self.append(listing) else self.append("ls: READ ERROR\n");
                 } else self.append("SYSTEM.TXT  BOOT.CFG  CONFIG/\n");
+            }
+            else if (command.len >= 5 and bytesEqualIgnoreCase(command[0..5], "stat ")) {
+                const path = trimCommand(command[5..]);
+                if (self.stat_reader) |reader| {
+                    if (reader(path, &self.file_scratch)) |metadata| self.append(metadata) else self.append("stat: FILE NOT FOUND\n");
+                } else self.append("stat: VFS UNAVAILABLE\n");
             }
             else if (command.len >= 4 and bytesEqualIgnoreCase(command[0..4], "cat ")) {
                 const path = trimCommand(command[4..]);
@@ -941,6 +949,12 @@ fn testDirectoryReader(output: []u8) ?[]const u8 {
     return output[0..11];
 }
 
+fn testStatReader(_: []const u8, output: []u8) ?[]const u8 {
+    if (output.len < 14) return null;
+    @memcpy(output[0..14], "file 42 bytes\n");
+    return output[0..14];
+}
+
 test "SDL software event queue and surface contract" {
     try @import("std").testing.expectEqual(std.math.maxInt(i32), saturatingAdd(std.math.maxInt(i32), 1));
     try @import("std").testing.expectEqual(std.math.minInt(i32), saturatingAdd(std.math.minInt(i32), -1));
@@ -1223,7 +1237,7 @@ test "SDL software event queue and surface contract" {
     terminal.clearOutput();
     terminal.input.replace("help");
     try @import("std").testing.expect(terminal.submit());
-    try @import("std").testing.expectEqualStrings("> help\nHELP CLEAR RESET STATUS VERSION WHOAMI PWD LS CAT ECHO HISTORY [TEXT]\n", terminal.outputSlice());
+    try @import("std").testing.expectEqualStrings("> help\nHELP CLEAR RESET STATUS VERSION WHOAMI PWD LS CAT STAT ECHO HISTORY [TEXT]\n", terminal.outputSlice());
     terminal.clearOutput();
     terminal.input.replace("cat /hello.txt");
     try @import("std").testing.expect(terminal.submit());
@@ -1344,6 +1358,13 @@ test "SDL terminal uses directory callback for real ls output" {
     terminal.input.replace("ls");
     try @import("std").testing.expect(terminal.submit());
     try @import("std").testing.expectEqualStrings("> ls\nSYSTEM.TXT\n", terminal.outputSlice());
+}
+
+test "SDL terminal uses stat callback for file metadata" {
+    var terminal = Terminal{ .stat_reader = &testStatReader };
+    terminal.input.replace("stat hello.txt");
+    try @import("std").testing.expect(terminal.submit());
+    try @import("std").testing.expectEqualStrings("> stat hello.txt\nfile 42 bytes\n", terminal.outputSlice());
 }
 
 test "SDL text input displaces oldest mouse event in a full queue" {

@@ -686,6 +686,8 @@ Durante o boot, o terminal é conectado à VFS real por `openAt` e `read`, em ve
 de responder somente com conteúdo embutido na aplicação.
 `ls` também usa `vfs.getDents` no boot para mostrar entradas reais do diretório
 raiz.
+`stat <arquivo>` consulta `vfs.infoAt` para exibir tipo e tamanho reais no
+terminal.
 Espaços e tabulações nas bordas do comando são ignorados, permitindo, por
 exemplo, executar `  status  ` sem gerar um comando desconhecido.
 Setas para cima/baixo percorrem o histórico, Home/End movem o cursor, Delete
@@ -726,7 +728,7 @@ O caminho de rede correlaciona IDs DNS e sequências ICMP e descarta respostas A
 com MAC de emissor inválido.
 
 Verificação atual: `zig build` recompilou o EFI em `14/14` etapas e
-`zig build test` passou `41/41` etapas e `198/198` testes. O
+`zig build test` passou `41/41` etapas e `199/199` testes. O
 boot interativo agora entrega o input diretamente à sessão gráfica, sem ficar
 bloqueado pelo shell BusyBox, e publica `CSOS graphical session ready`. O shell
 será reintegrado como uma aplicação de terminal não bloqueante; isso ainda não
