@@ -382,6 +382,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         // fall through to ENOSYS while loading real shared libraries.
         186 => 1,
         202 => futex(arg1, arg2, arg3),
+        203 => schedSetAffinity(arg1, arg2, arg3),
         204 => schedGetAffinity(arg1, arg2, arg3),
         217 => getdents(arg1, arg2, arg3),
         221 => fadvise64(arg1, arg2, arg3, arg4),
@@ -2836,6 +2837,15 @@ fn schedGetAffinity(pid: u64, size: u64, mask: u64) u64 {
     // process; secondary kernel workers do not imply extra userspace CPUs.
     bytes[0] = 1;
     return 8;
+}
+
+fn schedSetAffinity(pid: u64, size: u64, mask: u64) u64 {
+    if (pid != 0 and pid != 1 or size < 8 or !validUserSlice(mask, size)) return errno(22);
+    const bytes: [*]const u8 = @ptrFromInt(mask);
+    if ((bytes[0] & 1) == 0) return errno(22);
+    var index: u64 = 1;
+    while (index < size) : (index += 1) if (bytes[index] != 0) return errno(22);
+    return 0;
 }
 
 fn getcpu(cpu: u64, node: u64) u64 {
