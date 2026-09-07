@@ -596,8 +596,8 @@ test "SDL software event queue and surface contract" {
     try @import("std").testing.expect(events.pushMouse(1, 0, 0, 0));
     try @import("std").testing.expect(events.pushMouseCoalesced(1, 0, 0, 1));
     try @import("std").testing.expectEqual(@as(usize, 2), events.len());
-    _ = events.poll();
-    _ = events.poll();
+    try @import("std").testing.expectEqual(Event{ .mouse = .{ .x = 1, .y = 0, .wheel = 0, .buttons = 0 } }, events.poll().?);
+    try @import("std").testing.expectEqual(Event{ .mouse = .{ .x = 1, .y = 0, .wheel = 0, .buttons = 1 } }, events.poll().?);
     var full = EventQueue{};
     var index: usize = 0;
     while (index < full.items.len) : (index += 1)
