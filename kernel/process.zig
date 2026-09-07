@@ -401,6 +401,7 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
     syscalls.configureMmap(&protectMmap, &unmapMmap, &mapDevice);
     syscalls.configureUserSlice(&validMappedUserSlice);
     defer {
+        lifecycle = .finished;
         active_address_space = null;
         active_pages = null;
         active_mappings = null;
