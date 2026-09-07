@@ -1557,9 +1557,10 @@ pub fn start(info: BootInfo) noreturn {
     const files_surface_address = pages.allocate(files_surface_page_count) orelse panic("SDL files surface allocation failed");
     const files_surface_pixels: [*]u32 = @ptrFromInt(files_surface_address);
     var files_window = sdl.createWindow(files_surface_pixels[0 .. 224 * 96], 224, 96) catch panic("SDL files surface creation failed");
-    var root_files: [7]fat16.Volume.DirectoryEntry = undefined;
+    var root_files: [32]fat16.Volume.DirectoryEntry = undefined;
     const root_file_count = volume.listRootFiles(&root_files) catch panic("FAT16 root listing failed");
-    drawFilesSurface(&files_window, root_files[0..root_file_count]);
+    var files_selection = sdl.ListSelection.init(root_file_count, 7);
+    drawFilesSurface(&files_window, root_files[0..root_file_count], &files_selection);
     serial.write("UI files application entries: ");
     serial.writeDecimal(root_file_count);
     serial.write("\n");
@@ -2102,6 +2103,21 @@ pub fn start(info: BootInfo) noreturn {
                         else => {},
                     }
                 }
+                if (!launcher_consumed and !alt_tab_pressed and focusedWindowIs(window_manager, 4) and event.a != 0) {
+                    const changed = switch (event.a) {
+                        0x51 => files_selection.next(),
+                        0x52 => files_selection.previous(),
+                        else => false,
+                    };
+                    if (changed) drawFilesSurface(&files_window, root_files[0..root_file_count], &files_selection);
+                    if (event.a == 0x28 and root_file_count != 0) {
+                        serial.write("UI files selected: ");
+                        serial.write(&root_files[files_selection.selected].name);
+                        serial.write(" bytes: ");
+                        serial.writeDecimal(root_files[files_selection.selected].size);
+                        serial.write("\n");
+                    }
+                }
                 if (!launcher_consumed and !alt_tab_pressed and focusedWindowIs(window_manager, 1)) {
                     _ = sdl_events.pushKeyboard(event.a, event.a != 0, event.b);
                     if (event.a != 0) {
@@ -2197,6 +2213,8 @@ pub fn start(info: BootInfo) noreturn {
             // previous report's coordinates.
             cursor_x = display.applyPointerDelta(cursor_x, dx, screen.framebuffer.width);
             cursor_y = display.applyPointerDelta(cursor_y, dy, screen.framebuffer.height);
+            if (focusedWindowIs(window_manager, 4) and files_selection.wheel(wheel))
+                drawFilesSurface(&files_window, root_files[0..root_file_count], &files_selection);
             if (focusedWindowIs(window_manager, 1)) {
                 _ = sdl_events.pushMouseCoalesced(@intCast(dx), @intCast(dy), @intCast(wheel), event.a);
                 demo_app.pump(&sdl_events, &handleSdlDemoEvent);
@@ -2398,15 +2416,18 @@ fn drawSystemSurface(window: *sdl.Window, storage_blocks: u64, input_devices: us
     drawSurfaceNumber(window, 108, 76, @intCast(audio_endpoints), 0xe0e8f0ff);
 }
 
-fn drawFilesSurface(window: *sdl.Window, entries: []const fat16.Volume.DirectoryEntry) void {
+fn drawFilesSurface(window: *sdl.Window, entries: []const fat16.Volume.DirectoryEntry, selection: *const sdl.ListSelection) void {
     window.clear(0x201a14ff);
     window.drawText(4, 4, "FILES /", 0xf0c080ff);
     if (entries.len == 0) {
         window.drawText(4, 22, "EMPTY", 0xa0b8d0ff);
         return;
     }
-    for (entries[0..@min(entries.len, 7)], 0..) |entry, index| {
-        const y = 18 + index * 11;
+    const end = @min(entries.len, selection.first_visible + selection.visible_rows);
+    for (entries[selection.first_visible..end], selection.first_visible..) |entry, index| {
+        const row = index - selection.first_visible;
+        const y = 18 + row * 11;
+        if (index == selection.selected) window.fillRect(2, y - 1, 220, 10, 0x50402cff);
         window.drawText(4, y, &entry.name, 0xd8d0c0ff);
         drawSurfaceNumber(window, 108, y, entry.size, 0x90b0d0ff);
     }

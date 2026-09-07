@@ -174,7 +174,7 @@ do fallback por árvore, eliminando um travamento observado no cleanup de um
 smoke test sem deixar o emulador aberto.
 
 Após esses incrementos, `zig build` recompila o EFI em `14/14` etapas e
-`zig build test` conclui `17/17` etapas e `30/30` testes aprovados; um boot QEMU limitado também voltou a alcançar
+`zig build test` conclui `17/17` etapas e `31/31` testes aprovados; um boot QEMU limitado também voltou a alcançar
 `CSOS graphical session ready`.
 
 O caminho NVMe agora enumera a lista de namespaces ativos em vez de tratar o
@@ -226,10 +226,15 @@ O rollback AMD foi migrado para captura/aplicação/restauração in-place no
 workspace global já destinado ao bootstrap, removendo cópias grandes por valor.
 Marcadores por fase confirmaram o GART pronto e o boot completo após a correção.
 
+A aplicação `FILES` agora enumera até 32 entradas, apresenta sete por viewport
+e permite selecionar por setas ou roda do mouse; Enter publica nome e tamanho do
+item. O QEMU encontrou 14 arquivos reais, exercitando rolagem além da primeira
+tela antes de chegar ao desktop.
+
 Esta porcentagem não é uma contagem simples de milestones. M0–M13 têm bases relevantes, mas M14 ainda não possui triângulos Vulkan validados em AMD e NVIDIA, e M15–M30 permanecem majoritariamente pendentes. Código preparatório ou teste no host não equivale a hardware funcional.
 
 Verificação mais recente em 2026-09-06: `zig build test` concluiu `17/17` etapas
-e `30/30` testes, e o boot QEMU chegou a `CSOS graphical session ready`. A
+e `31/31` testes, e o boot QEMU chegou a `CSOS graphical session ready`. A
 sessão gráfica assume teclado e mouse sem aguardar a saída do shell BusyBox e o
 terminal já voltou como aplicação não bloqueante; isso não altera a ausência de
 validação Vulkan física.

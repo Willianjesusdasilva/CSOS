@@ -114,6 +114,43 @@ pub const EventQueue = struct {
     }
 };
 
+pub const ListSelection = struct {
+    count: usize = 0,
+    selected: usize = 0,
+    first_visible: usize = 0,
+    visible_rows: usize,
+
+    pub fn init(count: usize, visible_rows: usize) ListSelection {
+        return .{ .count = count, .visible_rows = @max(@as(usize, 1), visible_rows) };
+    }
+
+    pub fn next(self: *ListSelection) bool {
+        if (self.count == 0 or self.selected + 1 >= self.count) return false;
+        self.selected += 1;
+        self.reveal();
+        return true;
+    }
+
+    pub fn previous(self: *ListSelection) bool {
+        if (self.count == 0 or self.selected == 0) return false;
+        self.selected -= 1;
+        self.reveal();
+        return true;
+    }
+
+    pub fn wheel(self: *ListSelection, delta: i16) bool {
+        if (delta < 0) return self.next();
+        if (delta > 0) return self.previous();
+        return false;
+    }
+
+    fn reveal(self: *ListSelection) void {
+        if (self.selected < self.first_visible) self.first_visible = self.selected;
+        if (self.selected >= self.first_visible + self.visible_rows)
+            self.first_visible = self.selected - self.visible_rows + 1;
+    }
+};
+
 pub const Window = struct {
     width: usize,
     height: usize,
@@ -596,4 +633,24 @@ test "SDL software event queue and surface contract" {
     try @import("std").testing.expectError(error.InvalidAudioSpec, AudioDevice.init(.{ .sample_rate = 0, .channels = 2 }));
     try @import("std").testing.expectError(error.InvalidAudioSpec, AudioDevice.init(.{ .sample_rate = 48000, .channels = 0 }));
     try @import("std").testing.expectError(error.InvalidAudioSpec, AudioDevice.init(.{ .sample_rate = 48000, .channels = 9 }));
+}
+
+test "list selection keeps the selected row inside its viewport" {
+    const testing = @import("std").testing;
+    var list = ListSelection.init(10, 3);
+    try testing.expect(!list.previous());
+    try testing.expect(list.next());
+    try testing.expect(list.next());
+    try testing.expectEqual(@as(usize, 0), list.first_visible);
+    try testing.expect(list.next());
+    try testing.expectEqual(@as(usize, 1), list.first_visible);
+    try testing.expect(list.wheel(-1));
+    try testing.expectEqual(@as(usize, 4), list.selected);
+    try testing.expect(list.wheel(1));
+    try testing.expectEqual(@as(usize, 3), list.selected);
+    try testing.expect(!list.wheel(0));
+
+    var empty = ListSelection.init(0, 0);
+    try testing.expectEqual(@as(usize, 1), empty.visible_rows);
+    try testing.expect(!empty.next());
 }
