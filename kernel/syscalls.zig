@@ -3527,6 +3527,7 @@ fn getRobustList(pid: u64, head_address: u64, length_address: u64, _: u64) u64 {
 }
 
 fn validUserSlice(address: u64, length: u64) bool {
+    if (length > std.math.maxInt(usize)) return false;
     if (inRegion(address, length, user_base, user_size) or
         inRegion(address, length, stack_base, stack_size) or
         inRegion(address, length, user_base + user_size, break_limit - (user_base + user_size)) or
