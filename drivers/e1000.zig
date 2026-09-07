@@ -41,6 +41,8 @@ pub const Controller = struct {
         errdefer pages.release(tx_ring, 1) catch {};
         const tx_buffer = pages.allocate(1) orelse return error.OutOfMemory;
         errdefer pages.release(tx_buffer, 1) catch {};
+        if (!validDmaBuffer(rx_ring) or !validDmaBuffer(tx_ring) or !validDmaBuffer(tx_buffer))
+            return error.InvalidDmaBuffer;
         zeroPage(rx_ring); zeroPage(tx_ring); zeroPage(tx_buffer);
         var buffers: [descriptor_count]u64 = undefined;
         var buffer_count: usize = 0;
@@ -51,6 +53,7 @@ pub const Controller = struct {
         for (0..descriptor_count) |index| {
             buffers[index] = pages.allocate(1) orelse return error.OutOfMemory;
             buffer_count += 1;
+            if (!validDmaBuffer(buffers[index])) return error.InvalidDmaBuffer;
             zeroPage(buffers[index]);
             rx_descriptors[index * 2] = buffers[index];
             rx_descriptors[index * 2 + 1] = 0;

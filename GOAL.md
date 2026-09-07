@@ -359,6 +359,8 @@ O cálculo do tamanho das tabelas VM AMD usa multiplicação e arredondamento
 checked, preservando o contrato mesmo com futura expansão do limite.
 O caminhamento de capabilities PCI rejeita ponteiros não nulos desalinhados ou
 fora do intervalo antes de seguir para o próximo registro.
+O E1000 valida anéis e todos os buffers DMA antes de programar seus registradores,
+recusando endereços fora da máscara do dispositivo.
 
 Mapeamentos anônimos também possuem rollback transacional: uma falha no meio da
 criação remove as páginas já instaladas e devolve a alocação e o ownership.

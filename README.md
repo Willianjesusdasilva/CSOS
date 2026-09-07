@@ -879,6 +879,8 @@ de validar o intervalo alinhado, evitando vazamento em falhas intermediárias.
 arredondamento do tamanho da tabela.
 A enumeração PCI agora valida ponteiros `next` de capabilities, aceitando apenas
 offsets alinhados dentro da região padrão.
+Na inicialização E1000, anéis RX/TX e buffers individuais passam por validação
+de endereço DMA antes de qualquer programação MMIO.
 
 Mapeamentos anônimos fazem rollback transacional quando uma página falha: os
 mapeamentos parciais são removidos e a memória física é devolvida ao allocator.
