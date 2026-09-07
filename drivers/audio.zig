@@ -296,7 +296,26 @@ pub const PcmRing = struct {
         self.ready -= 1;
         return buffer;
     }
+
+    pub fn clear(self: *PcmRing) void {
+        self.buffers = .{null} ** self.buffers.len;
+        self.ready = 0;
+        self.read_index = 0;
+        self.write_index = 0;
+    }
 };
+
+test "PCM ring clear drops queued buffers and rewinds indices" {
+    var ring = PcmRing{};
+    try ring.enqueue(0x11);
+    try ring.enqueue(0x22);
+    try std.testing.expectEqual(@as(u8, 2), ring.ready);
+    ring.clear();
+    try std.testing.expectEqual(@as(u8, 0), ring.ready);
+    try std.testing.expect(ring.dequeue() == null);
+    try ring.enqueue(0x33);
+    try std.testing.expectEqual(@as(?u64, 0x33), ring.dequeue());
+}
 
 pub const DeviceManager = struct {
     device: Device = .{},
