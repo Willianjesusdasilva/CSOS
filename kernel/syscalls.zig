@@ -1911,6 +1911,8 @@ fn amdgpuGemVa(address: u64, extended: bool) u64 {
         return errno(22);
     const object = drmObjectForHandle(handle) orelse return errno(2);
     if ((object.domains & 0x6) == 0 or bo_offset > object.size or map_size > object.size - bo_offset) return errno(22);
+    if (va_address > std.math.maxInt(u64) - (map_size - 1) or object.gpu_address > std.math.maxInt(u64) - bo_offset)
+        return errno(22);
 
     if (operation == 1) {
         if (flags == 0 or (flags & ~@as(u32, 0x0e)) != 0) return errno(95);
