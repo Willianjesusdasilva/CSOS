@@ -64,7 +64,6 @@ pub const Controller = struct {
         const identify_data: [*]const u8 = @ptrFromInt(buffer);
         const maximum_namespace_id = get32(identify_data + 516);
         if (maximum_namespace_id == 0) return error.NoNamespace;
-        const inventory = try parseActiveNamespaces(identify_data, maximum_namespace_id);
 
         zeroPage(buffer);
         const namespace_command = self.submissionCommand();
@@ -75,6 +74,7 @@ pub const Controller = struct {
         put32(namespace_command + 40, 2);
         self.submit();
         try self.complete();
+        const inventory = try parseActiveNamespaces(identify_data, maximum_namespace_id);
 
         self.namespace_id = inventory.first;
         self.namespace_count = inventory.count;

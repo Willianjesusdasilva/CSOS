@@ -488,7 +488,12 @@ pub fn start(info: BootInfo) noreturn {
     if (!mapper.identityIsUncached(nvme_bar)) panic("NVMe MMIO cache policy failed");
     mapper.activate();
     var storage = nvme.Controller.init(nvme_device, &pages) catch panic("NVMe setup failed");
-    const namespaces = storage.identify(&pages) catch panic("NVMe identify failed");
+    const namespaces = storage.identify(&pages) catch |err| {
+        serial.write("NVMe identify error: ");
+        serial.write(@errorName(err));
+        serial.write("\n");
+        panic("NVMe identify failed");
+    };
     serial.write("NVMe namespaces: ");
     serial.writeDecimal(namespaces);
     serial.write("\n");
