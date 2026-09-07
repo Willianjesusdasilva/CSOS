@@ -700,9 +700,11 @@ test "device manager pauses and resumes stream" {
     try manager.configure();
     try manager.start();
     try manager.pause();
+    try @import("std").testing.expectError(error.DeviceNotStreaming, manager.pause());
     try @import("std").testing.expectEqual(State.configured, manager.device.state);
     try @import("std").testing.expectEqual(State.configured, manager.stream.?.device.state);
     try manager.resume();
+    try @import("std").testing.expectError(error.DeviceNotConfigured, manager.resume());
     try @import("std").testing.expectEqual(State.streaming, manager.device.state);
     try @import("std").testing.expectEqual(State.streaming, manager.stream.?.device.state);
 }
