@@ -454,11 +454,13 @@ pub const Terminal = struct {
             self.append(command);
             self.append("\n");
             if (bytesEqual(command, "help"))
-                self.append("HELP CLEAR STATUS VERSION\n")
+                self.append("HELP CLEAR STATUS VERSION ECHO\n")
             else if (bytesEqual(command, "status"))
                 self.append("CSOS READY\n")
             else if (bytesEqual(command, "version"))
                 self.append("CSOS 0.1\n")
+            else if (bytesEqual(command, "echo"))
+                self.append("ECHO READY\n")
             else
                 self.append("UNKNOWN COMMAND\n");
         }
@@ -855,6 +857,10 @@ test "SDL software event queue and surface contract" {
     terminal.input.replace("version");
     try @import("std").testing.expect(terminal.submit());
     try @import("std").testing.expectEqualStrings("> version\nCSOS 0.1\n", terminal.outputSlice());
+    terminal.clearOutput();
+    terminal.input.replace("echo");
+    try @import("std").testing.expect(terminal.submit());
+    try @import("std").testing.expectEqualStrings("> echo\nECHO READY\n", terminal.outputSlice());
     terminal.clearOutput();
     try @import("std").testing.expect(terminal.historyPrevious());
     try @import("std").testing.expectEqualStrings("version", terminal.input.slice());
