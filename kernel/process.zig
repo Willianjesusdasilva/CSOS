@@ -1227,13 +1227,15 @@ fn gnuHashSymbolCount(bytes: []const u8, raw_offset: u64) !u32 {
         if (first == 0) continue;
         if (first < symbol_offset) return error.InvalidGnuHash;
         var symbol = first;
-        while (true) : (symbol += 1) {
+        while (true) {
             const chain_index = @as(usize, symbol - symbol_offset);
             const chain_offset = std.math.add(usize, chains_offset, std.math.mul(usize, chain_index, 4) catch return error.InvalidGnuHash) catch return error.InvalidGnuHash;
             if (chain_offset > bytes.len - 4) return error.InvalidGnuHash;
             const hash = read32From(bytes, chain_offset);
-            highest = @max(highest, symbol + 1);
+            const next_symbol = std.math.add(u32, symbol, 1) catch return error.InvalidGnuHash;
+            highest = @max(highest, next_symbol);
             if ((hash & 1) != 0) break;
+            symbol = next_symbol;
         }
     }
     return highest;

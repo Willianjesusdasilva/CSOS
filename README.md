@@ -855,6 +855,8 @@ A busca de `DT_NEEDED` valida a tabela de programas e a soma dos offsets de
 strings antes de consultar a imagem.
 As regiões bloom/bucket/chain de `.gnu.hash` agora usam multiplicações e somas
 checked antes de serem indexadas.
+O contador de símbolos também rejeita overflow ao avançar pelas chains, em vez
+de permitir embrulho e loop infinito.
 
 Mapeamentos anônimos fazem rollback transacional quando uma página falha: os
 mapeamentos parciais são removidos e a memória física é devolvida ao allocator.
