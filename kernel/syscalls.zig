@@ -257,6 +257,7 @@ pub fn configure(base: u64, size: u64, stack: u64, stack_length: u64, initial_br
     unknown_seen = .{false} ** unknown_seen.len;
     process_exit_status = 0xffffffffffffffff;
     process_pause = null;
+    process_nice = 0;
     framebuffer_ioctls = 0;
     framebuffer_mmaps = 0;
     drm_ioctls = 0;
