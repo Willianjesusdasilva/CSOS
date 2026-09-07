@@ -83,6 +83,7 @@ pub fn findPower(rsdp_address: u64) !Power {
 }
 
 fn findTable(rsdp_address: u64, signature: []const u8) ![*]const u8 {
+    if (rsdp_address == 0) return error.InvalidRsdp;
     const rsdp: [*]const u8 = @ptrFromInt(rsdp_address);
     if (!equal(rsdp, "RSD PTR ") or !checksum(rsdp, 20)) return error.InvalidRsdp;
 
@@ -264,6 +265,10 @@ test "ACPI GAS rejects unsafe register ranges before MMIO" {
     try @import("std").testing.expectError(error.UnsupportedRegister, writeGas(.{
         .space = 0, .width = 16, .offset = 0, .access = 0, .address = std.math.maxInt(u64),
     }, 0));
+}
+
+test "ACPI rejects a null RSDP address" {
+    try @import("std").testing.expectError(error.InvalidRsdp, findTable(0, "APIC"));
 }
 
 fn halt() noreturn {
