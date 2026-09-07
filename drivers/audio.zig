@@ -701,6 +701,14 @@ test "audio PCM buffer validation enforces frame alignment" {
     try std.testing.expectError(error.InvalidChannels, validatePcmBuffer(8, 0, 16));
 }
 
+test "audio PCM frame sizing enforces channel and width limits" {
+    try std.testing.expectEqual(@as(usize, 4), try pcmFrameBytes(2, 16));
+    try std.testing.expectEqual(@as(usize, 32), try pcmFrameBytes(8, 32));
+    try std.testing.expectError(error.InvalidChannels, pcmFrameBytes(0, 16));
+    try std.testing.expectError(error.InvalidSampleWidth, pcmFrameBytes(2, 12));
+    try std.testing.expectError(error.FrameTooLarge, pcmFrameBytes(8, 64));
+}
+
 pub fn normalizeFormat(channels: u16, bits_per_sample: u16, sample_rate: u64) !Format {
     if (channels == 0 or channels > 8) return error.InvalidChannels;
     if (bits_per_sample == 0 or bits_per_sample > 32 or bits_per_sample % 8 != 0) return error.InvalidSampleWidth;
