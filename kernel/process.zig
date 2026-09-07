@@ -1268,7 +1268,10 @@ pub fn handlePageFault(address: u64, instruction: u64, code: u64) callconv(.c) b
         const physical_address = pages.allocate(1) orelse return false;
         const bytes: [*]u8 = @ptrFromInt(physical_address);
         @memset(bytes[0..page_size], 0);
-        restoreFilePage(page_virtual, physical_address);
+        if (!restoreFilePage(page_virtual, physical_address)) {
+            pages.release(physical_address, 1) catch {};
+            return false;
+        }
         address_space.mapUserPage(page_virtual, physical_address, false, mapping.executable) catch {
             pages.release(physical_address, 1) catch {};
             return false;
@@ -1286,7 +1289,7 @@ fn saturatingAdd(value: u64, increment: u64) u64 {
     return std.math.add(u64, value, increment) catch std.math.maxInt(u64);
 }
 
-fn restoreFilePage(page_virtual: u64, physical_address: u64) void {
+fn restoreFilePage(page_virtual: u64, physical_address: u64) bool {
     const program_offset = read64(32);
     const program_entry_size = read16(54);
     const program_count = read16(56);
@@ -1295,22 +1298,23 @@ fn restoreFilePage(page_virtual: u64, physical_address: u64) void {
         const header: usize = @intCast(program_offset + @as(u64, program_entry_size) * header_index);
         if (read32At(header) != 1) continue;
         const file_offset = read64At(header + 8);
-        const virtual = std.math.add(u64, read64At(header + 16), active_load_bias) catch continue;
+        const virtual = std.math.add(u64, read64At(header + 16), active_load_bias) catch return false;
         const file_size = read64At(header + 32);
-        const page_end = std.math.add(u64, page_virtual, page_size) catch continue;
-        const segment_end = std.math.add(u64, virtual, file_size) catch continue;
+        const page_end = std.math.add(u64, page_virtual, page_size) catch return false;
+        const segment_end = std.math.add(u64, virtual, file_size) catch return false;
         const copy_start = @max(page_virtual, virtual);
         const copy_end = @min(page_end, segment_end);
         if (copy_start >= copy_end) continue;
         const destination_offset = copy_start - page_virtual;
-        const destination_address = std.math.add(u64, physical_address, destination_offset) catch continue;
+        const destination_address = std.math.add(u64, physical_address, destination_offset) catch return false;
         const destination: [*]u8 = @ptrFromInt(destination_address);
-        const source_offset = std.math.add(u64, file_offset, copy_start - virtual) catch continue;
-        const source: usize = std.math.cast(usize, source_offset) orelse continue;
+        const source_offset = std.math.add(u64, file_offset, copy_start - virtual) catch return false;
+        const source: usize = std.math.cast(usize, source_offset) orelse return false;
         const length: usize = @intCast(copy_end - copy_start);
-        if (source > image.len or length > image.len - source) continue;
+        if (source > image.len or length > image.len - source) return false;
         @memcpy(destination[0..length], image[source .. source + length]);
     }
+    return true;
 }
 
 fn own(ranges: *[max_owned_ranges]OwnedRange, count: *usize, address: u64, pages: u64) !void {
