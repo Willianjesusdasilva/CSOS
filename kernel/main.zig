@@ -2269,12 +2269,15 @@ pub fn start(info: BootInfo) noreturn {
                 }
                 if (!terminal_shortcut_pressed and !monitor_shortcut_pressed and !system_shortcut_pressed and !files_shortcut_pressed and !launcher_consumed and !tab_switch_pressed and event.c != 0 and event.a == 0x28 and focusedWindowIs(window_manager, 3)) {
                     if (system_html_focus >= 2) {
-                        const application_id: u32 = if (system_html_focus == 2) 1 else if (system_html_focus == 3) 2 else 4;
+                        const route = systemHtmlRoute(system_html_focus) orelse unreachable;
+                        const application_id: u32 = if (std.mem.eql(u8, route, "/terminal")) 1 else if (std.mem.eql(u8, route, "/monitor")) 2 else 4;
                         const application_was_open = window_manager.findById(application_id) != null;
                         _ = launchDesktopWindow(window_manager, application_id, &demo_app.window, &monitor_window, &system_window, &files_window) catch panic("UI HTML application launch failed");
                         if (application_id == 1 and !application_was_open) resetSdlDemoApplication(&demo_app);
                         if (application_id == 4) root_file_count = refreshFiles(&volume, &root_files, &files_selection, &files_window) catch panic("UI HTML files refresh failed");
-                        serial.write(if (application_id == 1) "UI HTML button: TERMINAL (keyboard)\n" else if (application_id == 2) "UI HTML button: MONITOR (keyboard)\n" else "UI HTML button: FILES (keyboard)\n");
+                        serial.write("UI HTML link: ");
+                        serial.write(route);
+                        serial.write(" (keyboard)\n");
                     } else {
                         if (system_html_focus == 1) system_html_active = false else system_html_active = !system_html_active;
                         drawSystemSurface(&system_window, storage.block_count, @as(usize, hid.keyboards) + hid.mice, audio_info.playback_endpoints);
@@ -2879,6 +2882,15 @@ fn drawSystemSurface(window: *sdl.Window, storage_blocks: u64, input_devices: us
     drawSurfaceNumber(window, 108, 66, @intCast(input_devices), 0xe0e8f0ff);
     window.drawText(4, 84, "AUDIO", 0xa0b8d0ff);
     drawSurfaceNumber(window, 108, 84, @intCast(audio_endpoints), 0xe0e8f0ff);
+}
+
+fn systemHtmlRoute(focus: usize) ?[]const u8 {
+    return switch (focus) {
+        2 => "/terminal",
+        3 => "/monitor",
+        4 => "/files",
+        else => null,
+    };
 }
 
 fn refreshSystemSurface(window: *sdl.Window, storage_blocks: u64, input_devices: usize, audio_endpoints: usize) void {
