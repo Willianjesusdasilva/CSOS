@@ -359,6 +359,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         // gettid consistent with getpid so musl's thread-local setup does not
         // fall through to ENOSYS while loading real shared libraries.
         186 => 1,
+        202 => futex(arg1, arg2, arg3),
         217 => getdents(arg1, arg2, arg3),
         218 => 1,
         228 => writeTime(arg2, 16),
@@ -2671,6 +2672,21 @@ fn unsupported(number: u64) u64 {
 fn schedYield() u64 {
     if (idle_hook) |hook| hook();
     return 0;
+}
+
+fn futex(address: u64, operation: u64, expected: u64) u64 {
+    if ((address & 3) != 0 or !validUserSlice(address, 4)) return errno(14);
+    const command = operation & 0x7f;
+    const word: *align(1) volatile u32 = @ptrFromInt(address);
+    switch (command) {
+        0 => { // FUTEX_WAIT: never sleep indefinitely in the single-thread core.
+            if (word.* != @as(u32, @truncate(expected))) return errno(11);
+            if (idle_hook) |hook| hook();
+            return errno(11);
+        },
+        1 => return 0, // FUTEX_WAKE: no blocked waiter exists yet.
+        else => return errno(38),
+    }
 }
 
 fn validUserSlice(address: u64, length: u64) bool {
