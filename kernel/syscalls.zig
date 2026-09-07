@@ -399,6 +399,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         157 => prctl(arg1, arg2, arg3),
         158 => archPrctl(arg1, arg2),
         160 => setRlimit(arg1, arg2),
+        162 => syncAll(),
         // The current userspace model has one kernel thread per process.  Keep
         // gettid consistent with getpid so musl's thread-local setup does not
         // fall through to ENOSYS while loading real shared libraries.
@@ -2882,6 +2883,10 @@ fn faccessat2(directory_fd: u64, path: u64, mode: u64, flags: u64) u64 {
 
 fn syncFile(fd: u64) u64 {
     if (!vfs.isOpen(@intCast(fd))) return errno(9);
+    return 0;
+}
+
+fn syncAll() u64 {
     return 0;
 }
 
