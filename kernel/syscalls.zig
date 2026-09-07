@@ -360,6 +360,8 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         102, 104 => 0,
         105, 106 => if (arg1 == 0) 0 else errno(1),
         110 => 0,
+        115 => getGroups(arg1, arg2),
+        116 => setGroups(arg1, arg2),
         140 => getPriority(arg1, arg2),
         141 => setPriority(arg1, arg2, @bitCast(arg3)),
         142 => setScheduler(arg1, arg2, arg3),
@@ -2865,6 +2867,20 @@ fn setTidAddress(address: u64) u64 {
     if (address != 0 and !validUserSlice(address, 4)) return errno(14);
     clear_tid_address = address;
     return 1;
+}
+
+fn getGroups(count: u64, output: u64) u64 {
+    if (count == 0) return 1;
+    const bytes = std.math.mul(u64, count, 4) catch return errno(22);
+    if (!validUserSlice(output, bytes)) return errno(14);
+    @as(*align(1) u32, @ptrFromInt(output)).* = 0;
+    return 1;
+}
+
+fn setGroups(count: u64, groups: u64) u64 {
+    const bytes = std.math.mul(u64, count, 4) catch return errno(22);
+    if (count > 1 or (count != 0 and !validUserSlice(groups, bytes))) return errno(22);
+    return 0;
 }
 
 fn setRobustList(head: u64, length: u64) u64 {
