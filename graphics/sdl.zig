@@ -776,6 +776,7 @@ test "SDL software event queue and surface contract" {
     terminal.history_cursor = terminal.history_len + 1;
     try @import("std").testing.expect(terminal.historyPrevious());
     try @import("std").testing.expectEqualStrings("status", terminal.input.slice());
+    terminal.input.replace("");
     for ("clear") |byte| try @import("std").testing.expect(terminal.input.insert(byte));
     try @import("std").testing.expect(terminal.submit());
     try @import("std").testing.expectEqual(@as(usize, 0), terminal.output_len);
