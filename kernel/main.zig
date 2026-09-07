@@ -3085,6 +3085,38 @@ fn drawDisplay(framebuffer: Framebuffer, hid: xhci.HidDevices, audio_info: xhci.
     }
     drawDisplayStatusPanel(framebuffer, hid, audio_info);
     drawDisplayHeader(framebuffer);
+    drawDesktopChrome(framebuffer);
+}
+
+fn drawDesktopChrome(framebuffer: Framebuffer) void {
+    if (framebuffer.base == 0 or framebuffer.width < 240 or framebuffer.height < 120) return;
+    const pixels: [*]volatile u32 = @ptrFromInt(framebuffer.base);
+    const top_height: usize = @min(28, framebuffer.height);
+    var y: usize = 0;
+    while (y < top_height) : (y += 1) {
+        var x: usize = 0;
+        while (x < framebuffer.width) : (x += 1) pixels[y * framebuffer.stride + x] = 0x18253fff;
+    }
+    const dock_height: usize = @min(52, framebuffer.height / 4);
+    const dock_top = framebuffer.height - dock_height;
+    y = dock_top;
+    while (y < framebuffer.height) : (y += 1) {
+        var x: usize = 0;
+        while (x < framebuffer.width) : (x += 1) pixels[y * framebuffer.stride + x] = 0x18253fbb;
+    }
+    const icon_size: usize = 28;
+    const gap: usize = 10;
+    const total = 7 * icon_size + 6 * gap;
+    const dock_start = if (framebuffer.width > total) (framebuffer.width - total) / 2 else 4;
+    for (0..7) |icon| {
+        const left = dock_start + icon * (icon_size + gap);
+        const color: u32 = switch (icon) { 0 => 0x40b8ffff, 1 => 0x70d090ff, 2 => 0x8090e8ff, 3 => 0xe0a060ff, 4 => 0xd080d0ff, 5 => 0x70d0d0ff, else => 0xe0e0e0ff };
+        var row = dock_top + 10;
+        while (row < @min(framebuffer.height, dock_top + 10 + icon_size)) : (row += 1) {
+            var column = left;
+            while (column < @min(framebuffer.width, left + icon_size)) : (column += 1) pixels[row * framebuffer.stride + column] = color;
+        }
+    }
 }
 
 fn drawDisplayHeader(framebuffer: Framebuffer) void {

@@ -226,6 +226,9 @@ Após a ativação, o estado visual do botão muda de `READY` para `ACTIVE` e é
 reposto ao reabrir a janela SYSTEM; novas ativações alternam entre os dois
 estados e atualizam o marcador serial. A janela também exibe um segundo botão
 `RESET`, que restaura o estado inicial sem fechar a aplicação.
+O framebuffer base também ganhou chrome persistente inspirado na referência:
+barra superior e dock inferior com sete áreas de aplicação, atrás das janelas
+SDL.
 `echo texto > arquivo` agora cria/trunca e grava no arquivo FAT via callback VFS,
 permitindo alterar dados pela sessão gráfica sem sair do SO.
 `echo texto >> arquivo` também usa o modo append do descritor, permitindo logs
