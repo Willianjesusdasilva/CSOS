@@ -2186,6 +2186,10 @@ pub fn start(info: BootInfo) noreturn {
                             sdl_terminal.input.moveHome();
                         } else if (event.a == 0x4d) {
                             sdl_terminal.input.moveEnd();
+                        } else if (event.a == 0x50 and (event.b & 0x01) != 0) {
+                            sdl_terminal.input.moveWordLeft();
+                        } else if (event.a == 0x4f and (event.b & 0x01) != 0) {
+                            sdl_terminal.input.moveWordRight();
                         } else if (event.a == 0x50) {
                             sdl_terminal.input.moveLeft();
                         } else if (event.a == 0x4f) {

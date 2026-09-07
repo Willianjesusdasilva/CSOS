@@ -443,6 +443,18 @@ pub const TextInput = struct {
         self.cursor = @min(self.len, self.cursor + 1);
     }
 
+    pub fn moveWordLeft(self: *TextInput) void {
+        self.cursor = @min(self.cursor, self.len);
+        while (self.cursor > 0 and isWordSeparator(self.bytes[self.cursor - 1])) : (self.cursor -= 1) {}
+        while (self.cursor > 0 and !isWordSeparator(self.bytes[self.cursor - 1])) : (self.cursor -= 1) {}
+    }
+
+    pub fn moveWordRight(self: *TextInput) void {
+        self.cursor = @min(self.cursor, self.len);
+        while (self.cursor < self.len and !isWordSeparator(self.bytes[self.cursor])) : (self.cursor += 1) {}
+        while (self.cursor < self.len and isWordSeparator(self.bytes[self.cursor])) : (self.cursor += 1) {}
+    }
+
     pub fn moveHome(self: *TextInput) void {
         self.cursor = 0;
     }
@@ -928,6 +940,13 @@ test "SDL software event queue and surface contract" {
     input.replace("one\ttwo");
     input.eraseWordBackward();
     try @import("std").testing.expectEqualStrings("one\t", input.slice());
+    input.replace("one two three");
+    input.moveWordLeft();
+    try @import("std").testing.expectEqual(@as(usize, 8), input.cursor);
+    input.moveWordLeft();
+    try @import("std").testing.expectEqual(@as(usize, 4), input.cursor);
+    input.moveWordRight();
+    try @import("std").testing.expectEqual(@as(usize, 8), input.cursor);
     input.replace("one two three");
     input.cursor = 7;
     input.eraseWordBackward();
