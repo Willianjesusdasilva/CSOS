@@ -362,6 +362,10 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         110 => 0,
         115 => getGroups(arg1, arg2),
         116 => setGroups(arg1, arg2),
+        117 => setResUid(arg1, arg2, arg3),
+        118 => getResUid(arg1, arg2, arg3),
+        119 => setResGid(arg1, arg2, arg3),
+        120 => getResGid(arg1, arg2, arg3),
         140 => getPriority(arg1, arg2),
         141 => setPriority(arg1, arg2, @bitCast(arg3)),
         142 => setScheduler(arg1, arg2, arg3),
@@ -2881,6 +2885,27 @@ fn setGroups(count: u64, groups: u64) u64 {
     const bytes = std.math.mul(u64, count, 4) catch return errno(22);
     if (count > 1 or (count != 0 and !validUserSlice(groups, bytes))) return errno(22);
     return 0;
+}
+
+fn setResUid(real: u64, effective: u64, saved: u64) u64 {
+    if ((real != 0 and real != std.math.maxInt(u32)) or (effective != 0 and effective != std.math.maxInt(u32)) or (saved != 0 and saved != std.math.maxInt(u32))) return errno(1);
+    return 0;
+}
+
+fn getResUid(real: u64, effective: u64, saved: u64) u64 {
+    if (!validUserSlice(real, 4) or !validUserSlice(effective, 4) or !validUserSlice(saved, 4)) return errno(14);
+    @as(*align(1) u32, @ptrFromInt(real)).* = 0;
+    @as(*align(1) u32, @ptrFromInt(effective)).* = 0;
+    @as(*align(1) u32, @ptrFromInt(saved)).* = 0;
+    return 0;
+}
+
+fn setResGid(real: u64, effective: u64, saved: u64) u64 {
+    return setResUid(real, effective, saved);
+}
+
+fn getResGid(real: u64, effective: u64, saved: u64) u64 {
+    return getResUid(real, effective, saved);
 }
 
 fn setRobustList(head: u64, length: u64) u64 {
