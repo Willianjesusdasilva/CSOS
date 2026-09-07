@@ -927,6 +927,12 @@ test "HID endpoint interval must be present in the descriptor" {
     try @import("std").testing.expect(validHidInterval(255));
 }
 
+test "xHCI audio period rejects invalid destination ranges" {
+    fillAudioPeriod(0, 64, 2);
+    fillAudioPeriod(std.math.maxInt(u64) - 31, 64, 2);
+    fillAudioPeriod(0x1000, 0, 2);
+}
+
 pub const AudioDevices = struct {
     interfaces: u8 = 0,
     playback_endpoints: u8 = 0,
@@ -1022,7 +1028,7 @@ fn get24(source: [*]const u8) u32 {
 }
 
 fn fillAudioPeriod(address: u64, length: u16, channels: u8) void {
-    if (channels == 0) return;
+    if (channels == 0 or address == 0 or (length != 0 and address > std.math.maxInt(u64) - (@as(u64, length) - 1))) return;
     const output: [*]u8 = @ptrFromInt(address);
     const frame_size = @as(usize, channels) * 2;
     var offset: usize = 0;
