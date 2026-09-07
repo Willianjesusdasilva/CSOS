@@ -130,7 +130,7 @@ pub const Allocator = struct {
         if (count > std.math.maxInt(u64) - self.free_pages or count > std.math.maxInt(u64) - self.reclaimed_pages)
             return error.CounterOverflow;
         const bytes = count * page_size;
-        const end = address +% bytes;
+        const end = std.math.add(u64, address, bytes) catch return error.InvalidRelease;
         if (end <= address) return error.InvalidRelease;
         if (self.managed_count != 0) {
             var owned = false;
