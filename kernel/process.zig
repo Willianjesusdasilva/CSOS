@@ -1168,6 +1168,9 @@ fn gnuHashSymbolCount(bytes: []const u8, raw_offset: u64) !u32 {
 }
 
 fn virtualFileOffsetFor(bytes: []const u8, virtual: u64, size: u64, program_offset: u64, program_entry_size: u16, program_count: u16) !u64 {
+    const table_bytes = std.math.mul(u64, program_entry_size, program_count) catch return error.InvalidDynamicAddress;
+    if (program_entry_size < 56 or program_offset > bytes.len or table_bytes > bytes.len - program_offset)
+        return error.InvalidDynamicAddress;
     var header_index: usize = 0;
     while (header_index < program_count) : (header_index += 1) {
         const header: usize = @intCast(program_offset + @as(u64, program_entry_size) * header_index);
@@ -1208,6 +1211,9 @@ fn read64From(bytes: []const u8, offset: usize) u64 {
 }
 
 fn virtualFileOffset(virtual: u64, size: u64, program_offset: u64, program_entry_size: u16, program_count: u16) !u64 {
+    const table_bytes = std.math.mul(u64, program_entry_size, program_count) catch return error.InvalidDynamicAddress;
+    if (program_entry_size < 56 or program_offset > image.len or table_bytes > image.len - program_offset)
+        return error.InvalidDynamicAddress;
     var header_index: usize = 0;
     while (header_index < program_count) : (header_index += 1) {
         const header: usize = @intCast(program_offset + @as(u64, program_entry_size) * header_index);
