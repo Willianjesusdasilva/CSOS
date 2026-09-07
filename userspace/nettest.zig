@@ -2,6 +2,7 @@ pub export const socket_address: [16]u8 = .{ 2, 0, 0, 80, 1, 1, 1, 1, 0, 0, 0, 0
 pub export const request: [63]u8 = "GET / HTTP/1.0\r\nHost: cloudflare-dns.com\r\nConnection: close\r\n\r\n".*;
 pub export var response: [512]u8 = undefined;
 pub export const success: [29]u8 = "Linux socket userspace ready\n".*;
+pub export const http_success: [25]u8 = "HTTP GET userspace ready\n".*;
 
 pub export fn _start() callconv(.naked) noreturn {
     asm volatile (
@@ -51,6 +52,11 @@ pub export fn _start() callconv(.naked) noreturn {
         \\movq $1, %%rdi
         \\leaq success(%%rip), %%rsi
         \\movq $29, %%rdx
+        \\syscall
+        \\movq $1, %%rax
+        \\movq $1, %%rdi
+        \\leaq http_success(%%rip), %%rsi
+        \\movq $25, %%rdx
         \\syscall
         \\movq $24, %%rax
         \\syscall
