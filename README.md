@@ -692,6 +692,9 @@ O comando `run ...` inicia applets BusyBox pelo loader de userspace real, por
 exemplo `run echo pronto` ou `run ls /`.
 `run http` também inicia o cliente HTTP userspace integrado; sua resposta
 validada é encaminhada ao terminal SDL.
+`run framebuffer` e `run drm` iniciam os probes userspace correspondentes pelo
+mesmo caminho do terminal, permitindo validar a ABI gráfica sem sair da sessão
+desktop.
 O teste userspace de rede também publica `HTTP GET userspace ready` depois de
 enviar um GET HTTP/1.0 e receber dados pela conexão TCP emulada; a resposta é
 validada pelo prefixo `HTTP/` antes do marcador ser emitido, e os bytes da

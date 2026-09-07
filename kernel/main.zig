@@ -2775,6 +2775,10 @@ fn runTerminalProgram(command: []const u8) ?u8 {
     defer syscalls.console_write_hook = null;
     if (count == 2 and std.mem.eql(u8, arguments[1], "http")) {
         process.runNetTest(desktop_kernel_root, &pages) catch return null;
+    } else if (count == 2 and std.mem.eql(u8, arguments[1], "framebuffer")) {
+        process.runFramebufferTest(desktop_kernel_root, &pages) catch return null;
+    } else if (count == 2 and std.mem.eql(u8, arguments[1], "drm")) {
+        process.runDrmTest(desktop_kernel_root, &pages) catch return null;
     } else {
         process.runBusyBox(desktop_kernel_root, &pages, arguments[0..count]) catch return null;
     }
