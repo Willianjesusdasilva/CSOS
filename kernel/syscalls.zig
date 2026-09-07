@@ -356,6 +356,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         44 => sendTo(arg1, arg2, arg3),
         45 => receiveFrom(arg1, arg2, arg3),
         48 => shutdown(arg1),
+        60 => exitSyscall(arg1),
         63 => uname(arg1),
         72 => fcntl(arg1, arg2, arg3),
         79 => getcwd(arg1, arg2),
@@ -400,6 +401,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         228 => writeTime(arg2, 16),
         229 => clockGetRes(arg1, arg2),
         230 => clockNanosleep(arg1, arg2, arg3, arg4),
+        231 => exitSyscall(arg1),
         35 => clockNanosleep(1, 0, arg1, arg2),
         257 => openat(arg1, arg2, arg3),
         262 => stat(arg2, arg3, @bitCast(arg1)),
@@ -2793,6 +2795,11 @@ fn unsupported(number: u64) u64 {
 
 fn schedYield() u64 {
     if (idle_hook) |hook| hook();
+    return 0;
+}
+
+fn exitSyscall(status: u64) u64 {
+    process_exit_status = status;
     return 0;
 }
 
