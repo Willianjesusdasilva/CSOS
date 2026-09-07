@@ -359,6 +359,8 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         102, 104 => 0,
         105, 106 => if (arg1 == 0) 0 else errno(1),
         110 => 0,
+        140 => getPriority(arg1, arg2),
+        141 => setPriority(arg1, arg2, @bitCast(arg3)),
         158 => archPrctl(arg1, arg2),
         // The current userspace model has one kernel thread per process.  Keep
         // gettid consistent with getpid so musl's thread-local setup does not
@@ -2825,6 +2827,16 @@ fn getcpu(cpu: u64, node: u64) u64 {
     if (node != 0 and !validUserSlice(node, 4)) return errno(14);
     if (cpu != 0) @as(*align(1) u32, @ptrFromInt(cpu)).* = 0;
     if (node != 0) @as(*align(1) u32, @ptrFromInt(node)).* = 0;
+    return 0;
+}
+
+fn getPriority(which: u64, who: u64) u64 {
+    if (which > 2 or (who != 0 and who != 1)) return errno(3);
+    return 20; // Linux syscall returns the user-visible nice value + 20.
+}
+
+fn setPriority(which: u64, who: u64, priority: i64) u64 {
+    if (which > 2 or (who != 0 and who != 1) or priority < -20 or priority > 19) return errno(22);
     return 0;
 }
 
