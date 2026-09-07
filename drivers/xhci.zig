@@ -169,6 +169,7 @@ pub const Controller = struct {
         self.releaseAudioBuffers(pages);
         self.audio = .{};
         var devices = AudioDevices{};
+        errdefer if (devices.rate_payload) |address| pages.release(address, 1) catch {};
         try self.enumerateDevices(pages);
         for (self.devices[0..self.device_count], 0..) |device, device_index| {
             const bytes: [*]const u8 = @ptrFromInt(device.descriptor);
