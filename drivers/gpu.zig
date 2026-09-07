@@ -278,6 +278,9 @@ pub const Firmware = struct {
             if (psp) |package| {
                 for (package.components[0..package.count]) |component| {
                     if (result.psp_component_count == result.psp_components.len) return error.TooManyAmdPspFirmwareComponents;
+                    const staged_bytes = page_count * 4096;
+                    if (component.offset > staged_bytes or component.bytes > staged_bytes - component.offset or
+                        component.offset > std.math.maxInt(u64) - address) return error.InvalidAmdPspFirmwareComponent;
                     result.psp_components[result.psp_component_count] = .{
                         .kind = component.kind,
                         .version = component.version,
