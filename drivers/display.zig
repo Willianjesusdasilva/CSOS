@@ -264,6 +264,20 @@ pub const WindowManager = struct {
         return row;
     }
 
+    pub fn contentRectHitTest(self: *const WindowManager, index: usize, x: usize, y: usize, left: usize, top: usize, width: usize, height: usize) bool {
+        if (index >= self.count or width == 0 or height == 0) return false;
+        const window = self.windows[index];
+        if (!window.visible or window.minimized or window.surface == null or window.width <= 24 or window.height <= 32) return false;
+        const content_width = window.width - 24;
+        const content_height = window.height - 32;
+        if (left >= content_width or top >= content_height) return false;
+        const clipped_width = @min(width, content_width - left);
+        const clipped_height = @min(height, content_height - top);
+        const rect_x = window.x +| 12 +| left;
+        const rect_y = window.y +| 28 +| top;
+        return x >= rect_x and x < rect_x +| clipped_width and y >= rect_y and y < rect_y +| clipped_height;
+    }
+
     pub fn taskbarHitTest(self: *const WindowManager, x: usize, y: usize, screen_height: usize) ?usize {
         if (screen_height < 24 or y < screen_height - 20) return null;
         if (x < 64) return null;
@@ -405,6 +419,9 @@ test "window manager focus alt-tab hit-test and close" {
     try std.testing.expectEqual(@as(?usize, 1), manager.contentListRowHitTest(1, 50, 80, 17, 11, 10, 7));
     try std.testing.expect(manager.contentListRowHitTest(1, 50, 79, 17, 11, 10, 7) == null);
     try std.testing.expect(manager.contentListRowHitTest(1, 20, 69, 17, 11, 10, 7) == null);
+    try std.testing.expect(manager.contentRectHitTest(1, 50, 56, 4, 4, 20, 10));
+    try std.testing.expect(!manager.contentRectHitTest(1, 40, 56, 4, 4, 20, 10));
+    try std.testing.expect(!manager.contentRectHitTest(1, 50, 56, 500, 4, 20, 10));
     try std.testing.expect(manager.focus(first));
     try std.testing.expectEqual(@as(u32, 10), manager.windows[manager.focused.?].id);
     try std.testing.expectEqual(@as(?usize, 1), manager.altTab());

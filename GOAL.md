@@ -239,6 +239,10 @@ Seleção em `FILES` agora aceita clique direto nas linhas do conteúdo. O hit-t
 considera posição da janela, margem da superfície, viewport rolado, altura útil
 da linha e quantidade real de arquivos, sem conflitar com drag da barra de título.
 
+O mouse completa o ciclo de `FILES`: clique numa linha abre a prévia real e o
+botão `BACK` retorna à lista. Retângulos interativos do conteúdo respeitam a
+área recortada da janela em qualquer posição e tamanho.
+
 Esta porcentagem não é uma contagem simples de milestones. M0–M13 têm bases relevantes, mas M14 ainda não possui triângulos Vulkan validados em AMD e NVIDIA, e M15–M30 permanecem majoritariamente pendentes. Código preparatório ou teste no host não equivale a hardware funcional.
 
 Verificação mais recente em 2026-09-06: `zig build test` concluiu `17/17` etapas

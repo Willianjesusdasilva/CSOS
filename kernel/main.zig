@@ -2307,14 +2307,19 @@ pub fn start(info: BootInfo) noreturn {
                             serial.write("\n");
                         } else {
                             window_manager.launcher_open = false;
-                            if (window.id == 4 and !files_preview_open) {
+                            if (window.id == 4 and files_preview_open and window_manager.contentRectHitTest(hit, cursor_x, cursor_y, 164, 2, 58, 12)) {
+                                files_preview_open = false;
+                                drawFilesSurface(&files_window, root_files[0..root_file_count], &files_selection);
+                                serial.write("UI files mouse back\n");
+                            } else if (window.id == 4 and !files_preview_open and root_file_count != 0) {
                                 if (window_manager.contentListRowHitTest(hit, cursor_x, cursor_y, 17, 11, 10, files_selection.visible_rows)) |row| {
-                                    if (files_selection.selectVisibleRow(row)) {
-                                        drawFilesSurface(&files_window, root_files[0..root_file_count], &files_selection);
-                                        serial.write("UI files mouse selection: ");
-                                        serial.writeDecimal(files_selection.selected);
-                                        serial.write("\n");
-                                    }
+                                    _ = files_selection.selectVisibleRow(row);
+                                    files_preview_length = volume.readRootFileAt(&root_files[files_selection.selected].name, &files_preview, 0) catch panic("UI mouse file preview read failed");
+                                    files_preview_open = true;
+                                    drawFilePreview(&files_window, root_files[files_selection.selected], files_preview[0..files_preview_length]);
+                                    serial.write("UI files mouse open: ");
+                                    serial.writeDecimal(files_selection.selected);
+                                    serial.write("\n");
                                 }
                             }
                             _ = window_manager.focus(hit);
@@ -2471,6 +2476,8 @@ fn drawFilePreview(window: *sdl.Window, entry: fat16.Volume.DirectoryEntry, data
     window.clear(0x181c20ff);
     window.drawText(4, 4, &entry.name, 0xf0c080ff);
     drawSurfaceNumber(window, 108, 4, entry.size, 0x90b0d0ff);
+    window.fillRect(164, 2, 58, 12, 0x50402cff);
+    window.drawText(172, 4, "BACK", 0xf0d8b0ff);
     var line: [26]u8 = undefined;
     var line_length: usize = 0;
     var row: usize = 0;

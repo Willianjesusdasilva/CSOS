@@ -758,6 +758,11 @@ seleciona a linha visível correspondente mesmo depois de rolar o viewport, sem
 transformar o gesto em arraste; linhas vazias e o espaço entre linhas são
 ignorados com segurança.
 
+O fluxo de arquivos não depende mais do teclado: clicar numa linha abre sua
+prévia, e o botão `BACK` da própria superfície retorna à lista. O hit-test do
+botão é recortado pela área útil da janela, inclusive após move, resize ou
+maximize.
+
 O inventário do host também encontrou uma AMD Radeon(TM) Graphics (`1002:164e`)
 e uma NVIDIA GeForce RTX 4060 Ti (`10de:2803`), ambas ativas. Isso viabiliza a
 próxima validação física, mas detecção no host não é evidência de suporte do
