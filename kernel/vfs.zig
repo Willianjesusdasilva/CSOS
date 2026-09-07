@@ -1,3 +1,4 @@
+const std = @import("std");
 const busybox = @embedFile("busybox_elf");
 const fat16 = @import("fat16");
 const hello = "Hello from initramfs\n";
@@ -255,7 +256,7 @@ pub fn read(fd: usize, output: []u8) !usize {
     if (descriptors[fd].node == .disk) {
         const volume = disk orelse return error.NotFound;
         const count = try volume.readRootFileAt(&descriptors[fd].fat_name, output, descriptors[fd].offset);
-        descriptors[fd].offset += count;
+        descriptors[fd].offset = std.math.add(usize, descriptors[fd].offset, count) catch return error.FileTooLarge;
         return count;
     }
     const data = nodeData(descriptors[fd].node);
