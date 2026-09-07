@@ -594,6 +594,16 @@ test "TCP ACK validation handles forward values and wraparound" {
     try @import("std").testing.expect(sequenceAhead(1, 0xffff_fffe));
 }
 
+test "TCP checksum detects payload corruption" {
+    var segment = [_]u8{ 0x13, 0x88, 0x00, 0x50, 0, 0, 0, 1, 0, 0, 0, 0, 0x50, 0x18, 0x20, 0, 0, 0, 0, 'o', 'k' };
+    const source = [_]u8{ 192, 0, 2, 10 };
+    const destination = [_]u8{ 198, 51, 100, 20 };
+    put16(segment[16..], tcpChecksum(source, destination, &segment));
+    try @import("std").testing.expectEqual(@as(u16, 0), tcpChecksum(source, destination, &segment));
+    segment[20] ^= 1;
+    try @import("std").testing.expect(tcpChecksum(source, destination, &segment) != 0);
+}
+
 fn put16(output: []u8, value: u16) void { output[0] = @truncate(value >> 8); output[1] = @truncate(value); }
 fn put32(output: []u8, value: u32) void { output[0] = @truncate(value >> 24); output[1] = @truncate(value >> 16); output[2] = @truncate(value >> 8); output[3] = @truncate(value); }
 fn get16(input: []const u8) u16 { return (@as(u16, input[0]) << 8) | input[1]; }
