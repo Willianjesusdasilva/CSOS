@@ -65,10 +65,16 @@ fn pageCountForBytes(size: u64) !u64 {
     return (try std.math.add(u64, size, 4095)) / 4096;
 }
 
+fn bytesForPages(pages: u64) !u64 {
+    return std.math.mul(u64, pages, 4096);
+}
+
 test "DRM page count rounds and rejects overflow" {
     try std.testing.expectEqual(@as(u64, 1), try pageCountForBytes(1));
     try std.testing.expectEqual(@as(u64, 2), try pageCountForBytes(4097));
     try std.testing.expectError(error.Overflow, pageCountForBytes(std.math.maxInt(u64)));
+    try std.testing.expectEqual(@as(u64, 8192), try bytesForPages(2));
+    try std.testing.expectError(error.Overflow, bytesForPages(std.math.maxInt(u64)));
 }
 pub var drm_last_request: u64 = 0;
 pub var drm_last_result: u64 = 0;
@@ -996,7 +1002,8 @@ fn drmCreateDumb(address: u64) u64 {
         return errno(12);
     }
     const memory: [*]u8 = @ptrFromInt(allocation);
-    @memset(memory[0..@intCast(page_count * 4096)], 0);
+    const allocation_bytes = bytesForPages(page_count) catch return errno(12);
+    @memset(memory[0..@intCast(allocation_bytes)], 0);
     const handle: u32 = @intCast(object_index + 1);
     put32(output + 16, handle);
     put32(output + 20, @intCast(pitch));
@@ -1024,7 +1031,8 @@ fn amdgpuGemCreate(address: u64) u64 {
     const object_index = free_index orelse return errno(12);
     const page_count = pageCountForBytes(size) catch return errno(12);
     if ((domains & 0x4) != 0) if (amdgpu_vram_endpoint) |endpoint| {
-        const allocation = endpoint.allocate(endpoint.context, page_count * 4096, alignment) catch null;
+        const allocation_bytes = bytesForPages(page_count) catch return errno(12);
+        const allocation = endpoint.allocate(endpoint.context, allocation_bytes, alignment) catch null;
         if (allocation) |vram| {
             const memory: [*]u8 = @ptrFromInt(vram.cpu_address);
             @memset(memory[0..@intCast(vram.bytes)], 0);
@@ -1044,7 +1052,8 @@ fn amdgpuGemCreate(address: u64) u64 {
         return errno(12);
     }
     const memory: [*]u8 = @ptrFromInt(allocation);
-    @memset(memory[0..@intCast(page_count * 4096)], 0);
+    const allocation_bytes = bytesForPages(page_count) catch return errno(12);
+    @memset(memory[0..@intCast(allocation_bytes)], 0);
     const handle: u32 = @intCast(object_index + 1);
     drm_objects[object_index] = .{ .allocated = true, .handle_open = true, .handle = handle, .size = size, .physical_address = allocation, .gpu_address = allocation, .pages = page_count, .map_offset = @as(u64, @intCast(object_index)) * drm_object_stride, .alignment = alignment, .domains = domains & 0x3, .allocation_flags = flags };
     put32(io, handle);
