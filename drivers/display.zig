@@ -449,10 +449,12 @@ pub const WindowManager = struct {
     }
 
     pub fn launcherSelectNext(self: *WindowManager) void {
+        self.launcher_hover = null;
         self.launcher_selection = (self.launcher_selection + 1) % launcher_item_count;
     }
 
     pub fn launcherSelectPrevious(self: *WindowManager) void {
+        self.launcher_hover = null;
         self.launcher_selection = if (self.launcher_selection == 0) launcher_item_count - 1 else self.launcher_selection - 1;
     }
 
@@ -469,6 +471,7 @@ pub const WindowManager = struct {
 
     pub fn launcherSelectApplication(self: *WindowManager, application_id: u32) bool {
         if (!self.launcher_open or application_id == 0 or application_id > launcher_item_count) return false;
+        self.launcher_hover = null;
         self.launcher_selection = @intCast(application_id - 1);
         return true;
     }
@@ -863,6 +866,16 @@ test "launcher hover updates selection" {
     try std.testing.expectEqual(@as(u8, 0), manager.launcher_selection);
     try std.testing.expect(manager.updateLauncherHover(300, 20, 180));
     try std.testing.expectEqual(@as(u8, 0), manager.launcher_selection);
+    try std.testing.expect(manager.launcher_hover == null);
+}
+
+test "launcher keyboard navigation clears mouse hover" {
+    var manager = WindowManager{};
+    manager.launcher_open = true;
+    manager.launcher_hover = 2;
+    manager.launcher_selection = 1;
+    manager.launcherSelectNext();
+    try std.testing.expectEqual(@as(u8, 2), manager.launcher_selection);
     try std.testing.expect(manager.launcher_hover == null);
 }
 
