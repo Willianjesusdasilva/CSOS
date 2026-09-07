@@ -753,6 +753,11 @@ os primeiros 192 bytes pelo FAT16. Texto preserva linhas e bytes binários ou de
 controle são sanitizados; Esc retorna à lista sem fechar a janela, formando o
 ciclo básico listar → abrir → voltar.
 
+As linhas de `FILES` também possuem hit-test no conteúdo da janela. Um clique
+seleciona a linha visível correspondente mesmo depois de rolar o viewport, sem
+transformar o gesto em arraste; linhas vazias e o espaço entre linhas são
+ignorados com segurança.
+
 O inventário do host também encontrou uma AMD Radeon(TM) Graphics (`1002:164e`)
 e uma NVIDIA GeForce RTX 4060 Ti (`10de:2803`), ambas ativas. Isso viabiliza a
 próxima validação física, mas detecção no host não é evidência de suporte do

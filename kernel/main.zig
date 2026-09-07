@@ -2307,6 +2307,16 @@ pub fn start(info: BootInfo) noreturn {
                             serial.write("\n");
                         } else {
                             window_manager.launcher_open = false;
+                            if (window.id == 4 and !files_preview_open) {
+                                if (window_manager.contentListRowHitTest(hit, cursor_x, cursor_y, 17, 11, 10, files_selection.visible_rows)) |row| {
+                                    if (files_selection.selectVisibleRow(row)) {
+                                        drawFilesSurface(&files_window, root_files[0..root_file_count], &files_selection);
+                                        serial.write("UI files mouse selection: ");
+                                        serial.writeDecimal(files_selection.selected);
+                                        serial.write("\n");
+                                    }
+                                }
+                            }
                             _ = window_manager.focus(hit);
                             if (!window_manager.windows[window_manager.focused.?].maximized and cursor_y >= window.y and cursor_y < window.y +| 20) {
                                 drag_window = window_manager.focused;

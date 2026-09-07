@@ -235,6 +235,10 @@ Enter em `FILES` abre uma prévia limitada a 192 bytes lidos do arquivo real.
 Quebras de linha são preservadas, bytes binários são sanitizados e Esc volta à
 lista antes de participar do fechamento normal da janela.
 
+Seleção em `FILES` agora aceita clique direto nas linhas do conteúdo. O hit-test
+considera posição da janela, margem da superfície, viewport rolado, altura útil
+da linha e quantidade real de arquivos, sem conflitar com drag da barra de título.
+
 Esta porcentagem não é uma contagem simples de milestones. M0–M13 têm bases relevantes, mas M14 ainda não possui triângulos Vulkan validados em AMD e NVIDIA, e M15–M30 permanecem majoritariamente pendentes. Código preparatório ou teste no host não equivale a hardware funcional.
 
 Verificação mais recente em 2026-09-06: `zig build test` concluiu `17/17` etapas

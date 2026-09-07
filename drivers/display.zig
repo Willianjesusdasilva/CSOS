@@ -250,6 +250,20 @@ pub const WindowManager = struct {
             y >= window.y +| window.height -| 12 and y < window.y +| window.height;
     }
 
+    pub fn contentListRowHitTest(self: *const WindowManager, index: usize, x: usize, y: usize, top: usize, row_height: usize, row_pixels: usize, visible_rows: usize) ?usize {
+        if (index >= self.count or row_height == 0 or row_pixels == 0 or row_pixels > row_height) return null;
+        const window = self.windows[index];
+        if (!window.visible or window.minimized or window.surface == null or window.width <= 24 or window.height <= 32) return null;
+        const content_left = window.x +| 12;
+        const content_right = window.x +| window.width -| 12;
+        const list_top = window.y +| 28 +| top;
+        if (x < content_left or x >= content_right or y < list_top) return null;
+        const local_y = y - list_top;
+        const row = local_y / row_height;
+        if (row >= visible_rows or local_y % row_height >= row_pixels) return null;
+        return row;
+    }
+
     pub fn taskbarHitTest(self: *const WindowManager, x: usize, y: usize, screen_height: usize) ?usize {
         if (screen_height < 24 or y < screen_height - 20) return null;
         if (x < 64) return null;
@@ -386,6 +400,11 @@ test "window manager focus alt-tab hit-test and close" {
     try std.testing.expect(!manager.minimizeHitTest(1, 94, 24));
     try std.testing.expect(manager.resizeHitTest(1, 126, 78));
     try std.testing.expect(!manager.resizeHitTest(1, 100, 50));
+    manager.windows[1].surface = @ptrFromInt(@as(usize, 8));
+    try std.testing.expectEqual(@as(?usize, 0), manager.contentListRowHitTest(1, 50, 69, 17, 11, 10, 7));
+    try std.testing.expectEqual(@as(?usize, 1), manager.contentListRowHitTest(1, 50, 80, 17, 11, 10, 7));
+    try std.testing.expect(manager.contentListRowHitTest(1, 50, 79, 17, 11, 10, 7) == null);
+    try std.testing.expect(manager.contentListRowHitTest(1, 20, 69, 17, 11, 10, 7) == null);
     try std.testing.expect(manager.focus(first));
     try std.testing.expectEqual(@as(u32, 10), manager.windows[manager.focused.?].id);
     try std.testing.expectEqual(@as(?usize, 1), manager.altTab());
