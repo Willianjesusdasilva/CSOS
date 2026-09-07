@@ -436,6 +436,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         309 => getcpu(arg1, arg2),
         318 => getRandom(arg1, arg2, arg3),
         334 => rseq(arg1, arg2, arg3, arg4),
+        332 => statx(arg1, arg2, arg3, arg4, arg5),
         436 => closeRange(arg1, arg2, arg3),
         439 => faccessat2(arg1, arg2, arg3, arg4),
         else => unsupported(number),
@@ -2483,6 +2484,32 @@ fn stat(path_address: u64, output_address: u64, directory_fd: i64) u64 {
     const path = userString(path_address, &path_buffer) orelse return errno(14);
     const info = vfs.infoAt(directory_fd, path) catch |err| return vfsError(err);
     return writeStat(output_address, info);
+}
+
+fn statx(directory_fd: u64, path_address: u64, flags: u64, mask: u64, output_address: u64) u64 {
+    if ((flags & ~@as(u64, 0x100)) != 0 or mask == 0) return errno(22);
+    var path_buffer: [256]u8 = undefined;
+    const path = userString(path_address, &path_buffer) orelse return errno(14);
+    const info = vfs.infoAt(@bitCast(directory_fd), path) catch |err| return vfsError(err);
+    if (!validUserSlice(output_address, 256)) return errno(14);
+    const bytes: [*]u8 = @ptrFromInt(output_address);
+    @memset(bytes[0..256], 0);
+    // struct statx: fixed-width fields through the timestamps and device IDs.
+    put32(bytes, 0x07ff); // STATX_BASIC_STATS | STATX_BTIME
+    put32(bytes + 4, 4096);
+    put32(bytes + 16, 1); // nlink
+    put32(bytes + 28, info.mode);
+    put64(bytes + 32, 1); // inode
+    put64(bytes + 40, info.size);
+    put64(bytes + 48, (info.size + 511) / 512);
+    put64(bytes + 56, 0);
+    put64(bytes + 64, 0);
+    put64(bytes + 80, 0);
+    put64(bytes + 96, 0);
+    put64(bytes + 112, 0);
+    put32(bytes + 128, @truncate(info.rdev >> 32));
+    put32(bytes + 132, @truncate(info.rdev));
+    return 0;
 }
 
 fn access(path_address: u64, mode: u32) u64 {
