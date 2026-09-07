@@ -5,6 +5,7 @@ const page_size: u64 = 4096;
 const huge_page_size: u64 = 2 * 1024 * 1024;
 const entry_count = 512;
 const address_mask: u64 = 0x000ffffffffff000;
+const user_address_limit: u64 = 0x00007ffffffff000;
 const present_writable: u64 = 0x003;
 const huge_present_writable: u64 = 0x083;
 const cache_disable: u64 = 0x018;
@@ -108,7 +109,8 @@ pub const AddressSpace = struct {
     }
 
     pub fn mapUserPage(self: *AddressSpace, virtual: u64, physical_address: u64, writable: bool, executable: bool) !void {
-        if ((virtual & (page_size - 1)) != 0 or (physical_address & (page_size - 1)) != 0) return error.Unaligned;
+        if (virtual > user_address_limit or (virtual & (page_size - 1)) != 0 or (physical_address & (page_size - 1)) != 0)
+            return error.Unaligned;
         const pml4 = table(self.root);
         const pml4_index = (virtual >> 39) & 0x1ff;
         const pdpt = try childUserTable(self.pages, pml4, pml4_index);
