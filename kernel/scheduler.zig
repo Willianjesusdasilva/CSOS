@@ -439,6 +439,7 @@ test "scheduler match mode moves a group through standby and resume" {
     thread_count = 1;
     system_mode = .match;
     try std.testing.expectEqual(@as(usize, 2), applyMode(21));
+    try std.testing.expectEqual(@as(usize, 0), applyMode(21));
     try std.testing.expectEqual(State.frozen, threads[0].state);
     try std.testing.expectEqual(Lifecycle.standby, threads[0].lifecycle);
     try std.testing.expectEqual(@as(usize, 1), resumeGroup(21));
