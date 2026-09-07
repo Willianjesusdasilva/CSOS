@@ -231,11 +231,12 @@ pub const Controller = struct {
     pub fn audioFormatFits(self: *const Controller) bool {
         if (self.audio.sample_rate == 0 or self.audio.channels == 0 or self.audio.bits_per_sample == 0 or
             self.audio.bits_per_sample % 8 != 0) return false;
-        const bytes_per_second = @as(u64, self.audio.sample_rate) *
-            @as(u64, self.audio.channels) *
-            (@as(u64, self.audio.bits_per_sample) / 8);
+        const bytes_per_sample = @as(u64, self.audio.bits_per_sample) / 8;
+        const channel_bytes = std.math.mul(u64, @as(u64, self.audio.channels), bytes_per_sample) catch return false;
+        const bytes_per_second = std.math.mul(u64, @as(u64, self.audio.sample_rate), channel_bytes) catch return false;
         const periods_per_second: u64 = if (self.audio.interval == 0) 1000 else @max(@as(u64, 1), @as(u64, 8000) >> @as(u6, @intCast(@min(self.audio.interval - 1, 7))));
-        const bytes_per_period = (bytes_per_second + periods_per_second - 1) / periods_per_second;
+        const rounded = std.math.add(u64, bytes_per_second, periods_per_second - 1) catch return false;
+        const bytes_per_period = rounded / periods_per_second;
         return bytes_per_period <= self.audio.endpoint_packet;
     }
 
