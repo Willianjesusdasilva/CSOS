@@ -167,10 +167,13 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
         if (read32At(header) != 1) continue;
         const flags = read32At(header + 4);
         const file_offset = read64At(header + 8);
-        const virtual = read64At(header + 16) + load_bias;
+        const segment_virtual = read64At(header + 16);
+        if (segment_virtual > std.math.maxInt(u64) - load_bias) return error.InvalidElf;
+        const virtual = segment_virtual + load_bias;
         const file_size = read64At(header + 32);
         const memory_size = read64At(header + 40);
-        if (file_size > memory_size or file_offset + file_size > image.len or memory_size == 0) return error.InvalidElf;
+        if (file_size > memory_size or file_offset > std.math.maxInt(u64) - file_size or file_offset + file_size > image.len or
+            virtual > std.math.maxInt(u64) - memory_size or memory_size == 0) return error.InvalidElf;
         image_start = @min(image_start, virtual);
         image_end = @max(image_end, virtual + memory_size);
         try loadSegment(&address_space, pages, mappings, &mapping_count, owned, &owned_count, virtual, file_offset, file_size, memory_size, (flags & 2) != 0, (flags & 1) != 0);
@@ -314,10 +317,13 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
             if (read32At(header) != 1) continue;
             const flags = read32At(header + 4);
             const file_offset = read64At(header + 8);
-            const virtual = read64At(header + 16) + interpreter_base;
+            const segment_virtual = read64At(header + 16);
+            if (segment_virtual > std.math.maxInt(u64) - interpreter_base) return error.InvalidInterpreter;
+            const virtual = segment_virtual + interpreter_base;
             const file_size = read64At(header + 32);
             const memory_size = read64At(header + 40);
-            if (file_size > memory_size or file_offset + file_size > image.len or memory_size == 0) return error.InvalidInterpreter;
+            if (file_size > memory_size or file_offset > std.math.maxInt(u64) - file_size or file_offset + file_size > image.len or
+                virtual > std.math.maxInt(u64) - memory_size or memory_size == 0) return error.InvalidInterpreter;
             image_start = @min(image_start, virtual);
             image_end = @max(image_end, virtual + memory_size);
             try loadSegment(&address_space, pages, mappings, &mapping_count, owned, &owned_count, virtual, file_offset, file_size, memory_size, (flags & 2) != 0, (flags & 1) != 0);
