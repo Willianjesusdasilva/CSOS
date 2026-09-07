@@ -205,6 +205,10 @@ pub const Stack = struct {
         return port != 0;
     }
 
+    fn validUdpPort(port: u16) bool {
+        return port != 0;
+    }
+
     fn sendTcp(self: *Stack, destination: [4]u8, destination_mac: [6]u8, source_port: u16, destination_port: u16, sequence: u32, acknowledgement: u32, flags: u8, payload: []const u8) !void {
         if (payload.len > 1400) return error.SegmentTooLarge;
         var frame: [1454]u8 = undefined;
@@ -385,6 +389,7 @@ pub const Stack = struct {
     }
 
     fn sendUdp(self: *Stack, destination: [4]u8, destination_mac: [6]u8, source_port: u16, destination_port: u16, payload: []const u8) !void {
+        if (!validUdpPort(source_port) or !validUdpPort(destination_port)) return error.InvalidUdpPort;
         if (payload.len > 1400) return error.DatagramTooLarge;
         var frame: [1442]u8 = undefined;
         const size = 14 + 20 + 8 + payload.len;
@@ -402,6 +407,7 @@ pub const Stack = struct {
     }
 
     fn receiveUdp(self: *Stack, source: [4]u8, source_port: u16, destination_port: u16, output: []u8) !usize {
+        if (!validUdpPort(source_port) or !validUdpPort(destination_port)) return error.InvalidUdpPort;
         var frame: [2048]u8 = undefined;
         var attempts: u8 = 0;
         while (attempts < 32) : (attempts += 1) {
@@ -561,6 +567,12 @@ test "TCP port validation rejects the unspecified port" {
     try @import("std").testing.expect(!Stack.validTcpPort(0));
     try @import("std").testing.expect(Stack.validTcpPort(1));
     try @import("std").testing.expect(Stack.validTcpPort(65535));
+}
+
+test "UDP port validation rejects the unspecified port" {
+    try @import("std").testing.expect(!Stack.validUdpPort(0));
+    try @import("std").testing.expect(Stack.validUdpPort(1));
+    try @import("std").testing.expect(Stack.validUdpPort(65535));
 }
 
 test "TCP ACK validation handles forward values and wraparound" {
