@@ -594,7 +594,7 @@ fn sendfile(output_fd: u64, input_fd: u64, offset_address: u64, count: u64) u64 
             vfs.read(@intCast(input_fd), buffer[0..wanted]) catch |err| return if (transferred == 0) vfsError(err) else transferred;
         if (read_count == 0) break;
         const written = writeKernel(output_fd, buffer[0..read_count]) catch |err| return if (transferred == 0) vfsError(err) else transferred;
-        transferred = std.math.add(u64, transferred, written) catch
+        transferred = advanceSendfileTransfer(transferred, written) catch
             return if (transferred == 0) errno(75) else transferred;
         if (written != read_count) break;
     }
@@ -606,6 +606,15 @@ fn sendfile(output_fd: u64, input_fd: u64, offset_address: u64, count: u64) u64 
     }
     sendfile_calls = saturatingCount(sendfile_calls, 1);
     return transferred;
+}
+
+fn advanceSendfileTransfer(transferred: u64, written: usize) !u64 {
+    return std.math.add(u64, transferred, written) catch error.Overflow;
+}
+
+test "sendfile transfer counter rejects overflow" {
+    try std.testing.expectEqual(@as(u64, 12), try advanceSendfileTransfer(10, 2));
+    try std.testing.expectError(error.Overflow, advanceSendfileTransfer(std.math.maxInt(u64), 1));
 }
 
 fn writeKernel(fd: u64, bytes: []const u8) !usize {
