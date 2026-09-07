@@ -1138,3 +1138,17 @@ test "list selection keeps the selected row inside its viewport" {
     try testing.expect(pager.home());
     try testing.expectEqual(@as(usize, 0), pager.offset);
 }
+
+test "SDL pager clamps page movement and zero page sizes" {
+    var pager = Pager.init(0);
+    try @import("std").testing.expectEqual(@as(usize, 1), pager.page_size);
+    pager.reset(3);
+    try @import("std").testing.expect(pager.next());
+    try @import("std").testing.expectEqual(@as(usize, 1), pager.offset);
+    try @import("std").testing.expect(pager.next());
+    try @import("std").testing.expectEqual(@as(usize, 2), pager.offset);
+    try @import("std").testing.expect(!pager.next());
+    try @import("std").testing.expect(pager.previous());
+    try @import("std").testing.expect(pager.home());
+    try @import("std").testing.expectEqual(@as(usize, 0), pager.offset);
+}
