@@ -394,6 +394,12 @@ pub const WindowManager = struct {
         self.launcher_selection = if (self.launcher_selection == 0) launcher_item_count - 1 else self.launcher_selection - 1;
     }
 
+    pub fn launcherSelectWheel(self: *WindowManager, delta: i16) bool {
+        if (!self.launcher_open or delta == 0) return false;
+        if (delta < 0) self.launcherSelectNext() else self.launcherSelectPrevious();
+        return true;
+    }
+
     pub fn launcherSelectedApplication(self: *const WindowManager) ?u32 {
         if (!self.launcher_open) return null;
         return @as(u32, self.launcher_selection % launcher_item_count) + 1;
@@ -662,6 +668,16 @@ test "launcher hover selects the matching application" {
     try std.testing.expect(!manager.launcherSelectApplication(99));
     manager.launcher_open = false;
     try std.testing.expect(!manager.launcherSelectApplication(1));
+}
+
+test "launcher wheel navigation wraps selection" {
+    var manager = WindowManager{};
+    manager.launcher_open = true;
+    try std.testing.expect(manager.launcherSelectWheel(1));
+    try std.testing.expectEqual(@as(u8, launcher_item_count - 1), manager.launcher_selection);
+    try std.testing.expect(manager.launcherSelectWheel(-1));
+    try std.testing.expectEqual(@as(u8, 0), manager.launcher_selection);
+    try std.testing.expect(!manager.launcherSelectWheel(0));
 }
 
 test "window manager rejects hit tests outside the screen" {

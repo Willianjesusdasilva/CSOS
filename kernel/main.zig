@@ -2322,7 +2322,7 @@ pub fn start(info: BootInfo) noreturn {
                 }
             }
             if (window_manager.launcher_open and wheel != 0) {
-                if (wheel < 0) window_manager.launcherSelectNext() else window_manager.launcherSelectPrevious();
+                _ = window_manager.launcherSelectWheel(wheel);
             }
             if (focusedWindowIs(window_manager, 4)) {
                 if (!files_preview_open and files_selection.wheel(wheel)) {
