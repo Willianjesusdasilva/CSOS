@@ -539,7 +539,7 @@ pub const Controller = struct {
                 @memcpy(endpoint.last_report[0..saved_size], report[0..saved_size]);
                 endpoint.last_size = @intCast(saved_size);
                 if (endpoint.slot == devices.keyboard.slot) {
-                    devices.push(.{ .kind = .keyboard, .a = if (size > 2) report[2] else 0, .b = if (size > 0) report[0] else 0, .c = if ((size > 0 and report[0] != 0) or (size > 2 and report[2] != 0)) 1 else 0 });
+                    devices.push(.{ .kind = .keyboard, .a = if (size > 2) report[2] else 0, .b = if (size > 0) report[0] else 0, .c = @intFromBool(keyboardReportPressed(report[0..size])) });
                 } else {
                     devices.push(.{ .kind = .mouse, .a = if (size > 0) report[0] else 0, .b = if (size > 1) report[1] else 0, .c = if (size > 2) report[2] else 0, .d = if (size > 3) report[3] else 0 });
                 }
@@ -721,6 +721,10 @@ const UsbDevice = struct {
 
 pub const InputKind = enum { keyboard, mouse };
 pub const InputEvent = struct { kind: InputKind, a: u8, b: u8, c: u8 = 0, d: u8 = 0 };
+
+fn keyboardReportPressed(report: []const u8) bool {
+    return (report.len > 0 and report[0] != 0) or (report.len > 2 and report[2] != 0);
+}
 pub const HidDevices = struct {
     keyboards: u8 = 0,
     mice: u8 = 0,
@@ -794,6 +798,13 @@ test "full HID queue records non-coalescible event loss" {
     devices.push(.{ .kind = .keyboard, .a = 4, .b = 0 });
     try @import("std").testing.expectEqual(@as(u64, 1), devices.events_dropped);
     try @import("std").testing.expectEqual(@as(u64, 0), devices.mouse_events_coalesced);
+}
+
+test "HID modifier-only reports count as pressed" {
+    const super_down = [_]u8{ 0x08, 0, 0, 0, 0, 0, 0, 0 };
+    const released = [_]u8{ 0, 0, 0, 0, 0, 0, 0, 0 };
+    try @import("std").testing.expect(keyboardReportPressed(&super_down));
+    try @import("std").testing.expect(!keyboardReportPressed(&released));
 }
 
 pub const AudioDevices = struct {
