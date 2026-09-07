@@ -1139,6 +1139,15 @@ test "SDL drop counter saturates" {
     try std.testing.expectEqual(std.math.maxInt(u64), queue.droppedCount());
 }
 
+test "SDL quit preservation saturates drop counter" {
+    var queue = EventQueue{};
+    queue.write = EventQueue.capacity;
+    queue.dropped = std.math.maxInt(u64);
+    try std.testing.expect(queue.pushQuit());
+    try std.testing.expectEqual(std.math.maxInt(u64), queue.droppedCount());
+    try std.testing.expectEqual(Event{ .quit = {} }, queue.peek().?);
+}
+
 test "SDL audio queue saturates on frame overflow" {
     var audio = try AudioDevice.init(.{ .sample_rate = 48_000, .channels = 2 });
     try @import("std").testing.expectEqual(std.math.maxInt(u64), audio.queue(std.math.maxInt(u64)));
