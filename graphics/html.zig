@@ -61,6 +61,22 @@ pub const Document = struct {
         const index = self.hitTest(x, y, origin_x, origin_y) orelse return null;
         return self.elements[index].text;
     }
+
+    pub fn nextButton(self: *const Document, current: ?usize, forward: bool) ?usize {
+        if (self.count == 0) return null;
+        var offset: usize = if (current) |value| if (forward) (value + 1) % self.count else if (value == 0) self.count - 1 else value - 1 else if (forward) 0 else self.count - 1;
+        var checked: usize = 0;
+        while (checked < self.count) : (checked += 1) {
+            if (self.elements[offset].kind == .button) return offset;
+            offset = if (forward) (offset + 1) % self.count else if (offset == 0) self.count - 1 else offset - 1;
+        }
+        return null;
+    }
+
+    pub fn activateIndex(self: *const Document, index: usize) ?[]const u8 {
+        if (index >= self.count or self.elements[index].kind != .button) return null;
+        return self.elements[index].text;
+    }
 };
 
 var rendered_count: usize = 0;
@@ -92,4 +108,14 @@ test "HTML buttons support hit testing and activation" {
     try std.testing.expect(document.hitTest(12, 13, 4, 4) == null);
     try std.testing.expectEqualStrings("Launch", document.activateAt(12, 20, 4, 4).?);
     try std.testing.expect(document.activateAt(60, 20, 4, 4) == null);
+}
+
+test "HTML button focus cycles with keyboard direction" {
+    const document = Document.parse("<p>Top</p><button>One</button><p>Middle</p><button>Two</button>");
+    const first = document.nextButton(null, true).?;
+    const second = document.nextButton(first, true).?;
+    try std.testing.expectEqualStrings("One", document.activateIndex(first).?);
+    try std.testing.expectEqualStrings("Two", document.activateIndex(second).?);
+    try std.testing.expectEqual(first, document.nextButton(second, true).?);
+    try std.testing.expectEqualStrings("Two", document.activateIndex(document.nextButton(null, false).?).?);
 }
