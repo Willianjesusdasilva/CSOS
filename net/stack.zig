@@ -362,6 +362,8 @@ pub const Stack = struct {
             if (get16(frame[udp..]) != 67 or get16(frame[udp + 2 ..]) != 68) continue;
             const udp_length = get16(frame[udp + 4 ..]);
             if (udp_length < 248 or udp_length > total_length - ip_header or udp + udp_length > length) continue;
+            const udp_packet = frame[udp .. udp + udp_length];
+            if (get16(udp_packet[6..]) != 0 and udpChecksum(frame[26..30].*, frame[30..34].*, udp_packet) != 0) continue;
             const bootp = frame[udp + 8 ..];
             if (bootp[0] != 2 or get32(bootp[4..]) != self.dhcp_transaction or !equal(bootp[28..34], &self.device.mac)) continue;
             if (bootp[236] != 99 or bootp[237] != 130 or bootp[238] != 83 or bootp[239] != 99) continue;
