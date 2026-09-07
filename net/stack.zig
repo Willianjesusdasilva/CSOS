@@ -299,7 +299,8 @@ pub const Stack = struct {
             if (checksum(received[14 .. 14 + header_length]) != 0) continue;
             if (!equal(received[26..30], &self.gateway_ip) or !equal(received[30..34], &self.local_ip)) continue;
             const reply = received[14 + header_length ..];
-            if (reply[0] == 0 and reply[1] == 0 and get16(reply[4..]) == 0x4353 and checksum(reply[0 .. total_length - header_length]) == 0) return;
+            if (reply[0] == 0 and reply[1] == 0 and get16(reply[4..]) == 0x4353 and get16(reply[6..]) == 1 and
+                checksum(reply[0 .. total_length - header_length]) == 0) return;
         }
         return error.EchoReplyMissing;
     }
