@@ -2820,11 +2820,12 @@ fn copyZ(target: [*]u8, text: []const u8) void { @memcpy(target[0..text.len], te
 
 fn write(fd: u64, address: u64, length: u64) u64 {
     if (!validUserSlice(address, length)) return errno(14);
+    const length_usize = std.math.cast(usize, length) orelse return errno(14);
     const text: [*]const u8 = @ptrFromInt(address);
-    if (socketIndex(fd)) |index| return socketSend(index, text[0..@intCast(length)]);
-    if (vfs.isDiskFile(@intCast(fd))) return vfs.write(@intCast(fd), text[0..@intCast(length)]) catch |err| vfsError(err);
+    if (socketIndex(fd)) |index| return socketSend(index, text[0..length_usize]);
+    if (vfs.isDiskFile(@intCast(fd))) return vfs.write(@intCast(fd), text[0..length_usize]) catch |err| vfsError(err);
     if (!vfs.isConsole(@intCast(fd))) return errno(9);
-    serial.write(text[0..@intCast(length)]);
+    serial.write(text[0..length_usize]);
     if (writes != std.math.maxInt(usize)) writes += 1;
     return length;
 }
