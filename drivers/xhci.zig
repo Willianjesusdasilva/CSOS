@@ -602,6 +602,7 @@ pub const Controller = struct {
     }
 
     fn getDescriptor(self: *Controller, slot: u8, ring: u64, buffer: u64, value: u16, length: u16) !usize {
+        if (buffer == 0 or length == 0) return error.DescriptorBufferMissing;
         const trbs: [*]volatile u32 = @ptrFromInt(ring);
         trbs[0] = 0x80 | (6 << 8) | (@as(u32, value) << 16);
         trbs[1] = @as(u32, length) << 16;
