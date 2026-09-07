@@ -34,6 +34,18 @@ test "window manager recovers stale focus after close" {
     try std.testing.expectEqual(@as(u32, 2), manager.windows[0].id);
 }
 
+test "window manager closes focused window and selects top visible window" {
+    var manager = WindowManager{};
+    _ = try manager.create(.{ .id = 1, .x = 4, .y = 4, .width = 64, .height = 48 });
+    _ = try manager.create(.{ .id = 2, .x = 12, .y = 12, .width = 64, .height = 48 });
+    _ = try manager.create(.{ .id = 3, .minimized = true, .x = 20, .y = 20, .width = 64, .height = 48 });
+    try std.testing.expect(manager.focus(1));
+    manager.close(manager.focused.?);
+    try std.testing.expectEqual(@as(usize, 2), manager.count);
+    try std.testing.expectEqual(@as(u32, 1), manager.windows[manager.focused.?].id);
+    try std.testing.expect(!manager.windows[manager.focused.?].minimized);
+}
+
 pub const Adapter = struct {
     vendor: u16,
     device: u16,
