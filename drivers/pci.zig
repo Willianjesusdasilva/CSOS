@@ -163,6 +163,7 @@ comptime {
 
 pub fn enableMsi(device: Device, vector: u8, destination_apic: u8) !void {
     const offset = capabilityOffset(device, 0x05) orelse return error.MsiUnavailable;
+    if (@as(u16, offset) + 12 > 0xff) return error.MsiUnavailable;
     var control = read16(device.bus, device.slot, device.function, offset + 2);
     write32(device.bus, device.slot, device.function, offset + 4, 0xfee00000 | (@as(u32, destination_apic) << 12));
     const data_offset: u8 = if ((control & (1 << 7)) != 0) offset + 12 else offset + 8;
@@ -174,6 +175,7 @@ pub fn enableMsi(device: Device, vector: u8, destination_apic: u8) !void {
 
 pub fn enableMsix(device: Device, vector: u8, destination_apic: u8) !void {
     const offset = capabilityOffset(device, 0x11) orelse return error.MsixUnavailable;
+    if (@as(u16, offset) + 6 > 0xff) return error.MsixUnavailable;
     var control = read16(device.bus, device.slot, device.function, offset + 2);
     const table = read32(device.bus, device.slot, device.function, offset + 4);
     const bir: u3 = @truncate(table & 7);
