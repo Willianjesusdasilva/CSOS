@@ -28,6 +28,7 @@ var idle_hook: ?*const fn () callconv(.c) void = null;
 var robust_head: u64 = 0;
 var robust_len: u64 = 0;
 var clear_tid_address: u64 = 0;
+var process_umask: u32 = 0o022;
 pub var file_mmaps: u64 = 0;
 pub var protected_mmaps: u64 = 0;
 pub var unmapped_mmaps: u64 = 0;
@@ -357,6 +358,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         79 => getcwd(arg1, arg2),
         89 => readlinkat(@bitCast(@as(i64, -100)), arg1, arg2, arg3),
         96 => writeTime(arg1, 16),
+        95 => umask(arg1),
         102, 104 => 0,
         105, 106 => if (arg1 == 0) 0 else errno(1),
         110 => 0,
@@ -2871,6 +2873,12 @@ fn setTidAddress(address: u64) u64 {
     if (address != 0 and !validUserSlice(address, 4)) return errno(14);
     clear_tid_address = address;
     return 1;
+}
+
+fn umask(value: u64) u64 {
+    const previous = process_umask;
+    process_umask = @truncate(value & 0o777);
+    return previous;
 }
 
 fn getGroups(count: u64, output: u64) u64 {
