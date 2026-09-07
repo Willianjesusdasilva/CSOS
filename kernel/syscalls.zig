@@ -526,6 +526,9 @@ fn clockGetRes(clock: u64, output: u64) u64 {
 }
 
 fn supportedClock(clock: u64) bool {
+    // Until RTC calibration is wired into the boot path, all accepted clock
+    // IDs intentionally share the monotonic source; this preserves ordering
+    // without fabricating a wall-clock offset.
     return clock == 0 or clock == 1 or clock == 4 or clock == 7 or clock == 11;
 }
 
