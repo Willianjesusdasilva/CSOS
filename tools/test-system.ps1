@@ -30,8 +30,18 @@ try {
 } finally {
     # Remove only emulator processes created by this test run. This keeps the
     # user's unrelated QEMU sessions untouched while preventing test leaks.
-    Get-Process qemu-system-x86_64 -ErrorAction SilentlyContinue |
-        Where-Object { $qemuBefore -notcontains $_.Id } |
-        Stop-Process -Force -ErrorAction SilentlyContinue
+    $qemuAfter = @(Get-Process qemu-system-x86_64 -ErrorAction SilentlyContinue)
+    foreach ($process in $qemuAfter) {
+        if ($qemuBefore -contains $process.Id) { continue }
+        Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+        try { Wait-Process -Id $process.Id -Timeout 2 -ErrorAction Stop } catch {}
+        if (Get-Process -Id $process.Id -ErrorAction SilentlyContinue) {
+            & taskkill.exe /PID $process.Id /T /F *> $null
+        }
+    }
+    if (Get-Process qemu-system-x86_64 -ErrorAction SilentlyContinue |
+        Where-Object { $qemuBefore -notcontains $_.Id }) {
+        throw 'QEMU cleanup failed: an emulator created by this test is still running.'
+    }
     Pop-Location
 }
