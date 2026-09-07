@@ -1028,10 +1028,13 @@ pub fn mapAmdMesControlIntoGart(
         return error.InvalidAmdMesControlResources;
     const first_page: u64 = 11 + firmware.gart_pages;
     if (first_page >= 512) return error.AmdMesControlExceedsGartWindow;
+    if (first_page > std.math.maxInt(u64) / 4096 or window_start > std.math.maxInt(u64) - first_page * 4096)
+        return error.InvalidAmdMesControlResources;
     const table: [*]u64 = @ptrFromInt(staging.page_table_address);
     if (table[first_page] != 0) return error.AmdMesControlGartPageAlreadyMapped;
     table[first_page] = amdGttPte(resources.page);
     const gpu_page = window_start + first_page * 4096;
+    if (gpu_page > std.math.maxInt(u64) - 32) return error.InvalidAmdMesControlResources;
     return .{
         .page = gpu_page,
         .scheduler_context = gpu_page,
