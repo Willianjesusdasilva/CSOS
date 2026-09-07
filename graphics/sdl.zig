@@ -421,6 +421,18 @@ pub const TextInput = struct {
         self.len = self.cursor;
     }
 
+    pub fn eraseWordBackward(self: *TextInput) void {
+        self.cursor = @min(self.cursor, self.len);
+        const old_cursor = self.cursor;
+        while (self.cursor > 0 and self.bytes[self.cursor - 1] == ' ') : (self.cursor -= 1) {}
+        while (self.cursor > 0 and self.bytes[self.cursor - 1] != ' ') : (self.cursor -= 1) {}
+        const old_len = self.len;
+        const tail = old_len - old_cursor;
+        if (tail > 0) @memmove(self.bytes[self.cursor..self.cursor + tail], self.bytes[old_cursor..old_len]);
+        self.len = self.cursor + tail;
+        @memset(self.bytes[self.len..old_len], 0);
+    }
+
     pub fn moveLeft(self: *TextInput) void {
         self.cursor = @min(self.cursor, self.len);
         self.cursor -|= 1;
@@ -904,6 +916,11 @@ test "SDL software event queue and surface contract" {
     input.eraseToEnd();
     try @import("std").testing.expectEqualStrings("ab", input.slice());
     try @import("std").testing.expectEqual(@as(u8, 0), input.bytes[2]);
+    input.replace("one two three");
+    input.eraseWordBackward();
+    try @import("std").testing.expectEqualStrings("one two ", input.slice());
+    input.eraseWordBackward();
+    try @import("std").testing.expectEqualStrings("one ", input.slice());
     var terminal = Terminal{};
     for ("discard") |byte| try @import("std").testing.expect(terminal.input.insert(byte));
     terminal.cancel();
