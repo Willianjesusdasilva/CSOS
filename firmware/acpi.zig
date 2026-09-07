@@ -305,6 +305,15 @@ test "ACPI rejects null or invalid root table descriptors" {
     try @import("std").testing.expectError(error.InvalidRootTable, scanRoot(0x1000, 6, "APIC"));
 }
 
+test "ACPI root parser rejects a mismatched table signature" {
+    var root = [_]u8{0} ** 36;
+    root[0] = 'R';
+    root[1] = 'S';
+    root[2] = 'D';
+    root[3] = 'T';
+    try @import("std").testing.expectError(error.InvalidRootTable, scanRoot(@intFromPtr(&root), 8, "APIC"));
+}
+
 fn halt() noreturn {
     while (true) asm volatile ("cli; hlt");
 }
