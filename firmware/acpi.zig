@@ -253,6 +253,18 @@ fn writeGas(register: Gas, value: u64) !void {
     }
 }
 
+test "ACPI GAS rejects unsafe register ranges before MMIO" {
+    try @import("std").testing.expectError(error.UnsupportedRegister, writeGas(.{
+        .space = 0, .width = 64, .offset = 0, .access = 0, .address = 0x1000,
+    }, 0));
+    try @import("std").testing.expectError(error.UnsupportedRegister, writeGas(.{
+        .space = 0, .width = 32, .offset = 1, .access = 0, .address = 0x1000,
+    }, 0));
+    try @import("std").testing.expectError(error.UnsupportedRegister, writeGas(.{
+        .space = 0, .width = 16, .offset = 0, .access = 0, .address = std.math.maxInt(u64),
+    }, 0));
+}
+
 fn halt() noreturn {
     while (true) asm volatile ("cli; hlt");
 }
