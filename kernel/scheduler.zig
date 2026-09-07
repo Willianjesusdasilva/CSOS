@@ -442,6 +442,22 @@ test "scheduler queue rejects the entry beyond capacity" {
     try std.testing.expectError(error.QueueFull, enqueue(7, schedulerTestEntry));
 }
 
+test "scheduler queue capacity survives index wrap" {
+    const saved_cpu_count = cpu_count;
+    const saved_queue = cpu_queues[0];
+    const saved_id = cpu_ids[0];
+    defer {
+        cpu_count = saved_cpu_count;
+        cpu_queues[0] = saved_queue;
+        cpu_ids[0] = saved_id;
+    }
+    cpu_count = 1;
+    cpu_ids[0] = 9;
+    cpu_queues[0] = .{ .read_index = std.math.maxInt(u32) - 3, .write_index = std.math.maxInt(u32) - 3 };
+    for (0..queue_capacity) |_| try enqueue(9, schedulerTestEntry);
+    try std.testing.expectError(error.QueueFull, enqueue(9, schedulerTestEntry));
+}
+
 fn saveFxState(state: *[512]u8) void {
     asm volatile ("fxsave64 (%[state])"
         :
