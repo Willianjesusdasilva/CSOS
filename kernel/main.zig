@@ -2667,8 +2667,8 @@ fn consoleRead(output: [*]u8, length: usize) callconv(.c) usize {
         if (console_hid) |hid| {
             while (hid.pop()) |event| {
                 if (event.kind != .keyboard) continue;
-                if (event.a == 0) {
-                    console_last_key = 0;
+                if (event.c == 0) {
+                    if (event.a == console_last_key) console_last_key = 0;
                     continue;
                 }
                 if (event.a == console_last_key) continue;
