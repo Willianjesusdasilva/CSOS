@@ -169,7 +169,19 @@ test "hardware profile signatures accept upper-case hexadecimal" {
     try @import("std").testing.expect(!matchesSignature("signature=10000000000000000\n", 0));
 }
 
+test "hardware profile rejects zero CPU topology" {
+    var cpu = @import("std").mem.zeroes(Cpu);
+    const facts = @import("std").mem.zeroes(Facts);
+    cpu.threads_per_core = 0;
+    cpu.logical_per_package = 1;
+    try @import("std").testing.expectError(error.InvalidCpuTopology, build(cpu, facts));
+    cpu.threads_per_core = 1;
+    cpu.logical_per_package = 0;
+    try @import("std").testing.expectError(error.InvalidCpuTopology, build(cpu, facts));
+}
+
 pub fn build(cpu: Cpu, facts: Facts) !Profile {
+    if (cpu.threads_per_core == 0 or cpu.logical_per_package == 0) return error.InvalidCpuTopology;
     var result = Profile{};
     result.signature = signature(cpu, facts);
     try append(&result, "[system]\nversion="); try appendDecimal(&result, profile_version);
