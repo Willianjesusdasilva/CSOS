@@ -349,6 +349,12 @@ pub const Window = struct {
     }
 
     pub fn drawText(self: *Window, x: usize, y: usize, text: []const u8, color: u32) void {
+        self.drawTextScaled(x, y, text, color, 2);
+    }
+
+    /// Draw built-in glyphs at an integer scale for readable headings.
+    pub fn drawTextScaled(self: *Window, x: usize, y: usize, text: []const u8, color: u32, scale: usize) void {
+        if (scale == 0) return;
         var cursor_x = x;
         var cursor_y = y;
         for (text) |character| {
@@ -359,7 +365,7 @@ pub const Window = struct {
             }
             if (character == '\n') {
                 cursor_x = x;
-                cursor_y +|= 12;
+                cursor_y +|= 6 * scale;
                 continue;
             }
             if (character == '\t') {
@@ -367,23 +373,23 @@ pub const Window = struct {
                 cursor_x = x +| ((column + 4) & ~@as(usize, 3)) * 8;
                 if (cursor_x >= self.width) {
                     cursor_x = x;
-                    cursor_y +|= 12;
+                    cursor_y +|= 6 * scale;
                 }
                 continue;
             }
             const glyph_x = cursor_x;
             const glyph = glyph3x5(character);
             for (glyph, 0..) |row_bits, row| {
-                const glyph_y = cursor_y +| row * 2;
+                const glyph_y = cursor_y +| row * scale;
                 for (0..3) |column| {
                     if ((row_bits & (@as(u8, 1) << @intCast(2 - column))) != 0)
-                        self.fillRect(glyph_x +| column * 2, glyph_y, 2, 2, color);
+                        self.fillRect(glyph_x +| column * scale, glyph_y, scale, scale, color);
                 }
             }
-            cursor_x +|= 8;
+            cursor_x +|= 4 * scale;
             if (cursor_x >= self.width) {
                 cursor_x = x;
-                cursor_y +|= 12;
+                cursor_y +|= 6 * scale;
             }
         }
     }
@@ -402,9 +408,11 @@ pub const Window = struct {
                 .link => 0x70b8ffff,
             };
             if (focused != null and focused.? == index and (element.kind == .button or element.kind == .link)) {
-                self.fillRect(x -| 2, cursor_y -| 2, element.text.len * 8 + 4, 14, 0x304860ff);
+                const text_width: usize = element.text.len * (if (element.kind == .heading) @as(usize, 12) else 8) + 4;
+                const text_height: usize = if (element.kind == .heading) 20 else 14;
+                self.fillRect(x -| 2, cursor_y -| 2, text_width, text_height, 0x304860ff);
             }
-            self.drawText(x, cursor_y, element.text, color);
+            if (element.kind == .heading) self.drawTextScaled(x, cursor_y, element.text, color, 3) else self.drawText(x, cursor_y, element.text, color);
             cursor_y +|= if (element.kind == .heading) 16 else 12;
         }
     }
