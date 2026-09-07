@@ -776,7 +776,7 @@ fn loadSegment(
 fn discardCleanPages(address_space: *paging.AddressSpace, pages: *physical.Allocator, mappings: []Mapping, owned: []OwnedRange) !u64 {
     var discarded: u64 = 0;
     for (mappings) |*mapping| {
-        if (mapping.writable or !mapping.resident or !mapping.reclaimable) continue;
+        if (!shouldReclaimMapping(mapping.writable, mapping.resident, mapping.reclaimable)) continue;
         const physical_address = address_space.unmapUserPage(mapping.virtual) orelse return error.MappingMissing;
         if (physical_address != mapping.physical) return error.MappingMismatch;
         try pages.release(physical_address, 1);
@@ -786,6 +786,17 @@ fn discardCleanPages(address_space: *paging.AddressSpace, pages: *physical.Alloc
         discarded += 1;
     }
     return discarded;
+}
+
+fn shouldReclaimMapping(writable: bool, resident: bool, reclaimable: bool) bool {
+    return !writable and resident and reclaimable;
+}
+
+test "standby reclaim only selects clean resident main-image pages" {
+    try @import("std").testing.expect(shouldReclaimMapping(false, true, true));
+    try @import("std").testing.expect(!shouldReclaimMapping(true, true, true));
+    try @import("std").testing.expect(!shouldReclaimMapping(false, false, true));
+    try @import("std").testing.expect(!shouldReclaimMapping(false, true, false));
 }
 
 fn applyRelativeRelocations(mappings: []const Mapping, load_bias: u64, program_offset: u64, program_entry_size: u16, program_count: u16, allow_unresolved: bool) !void {
