@@ -2346,9 +2346,14 @@ pub fn start(info: BootInfo) noreturn {
                     serial.write(if (action_button_active) "active\n" else "inactive\n");
                 }
                 if (left_pressed and !left_was_pressed) {
-                    // A mouse click commits/dismisses the Alt+Tab overlay;
-                    // otherwise it could remain painted over the desktop.
-                    if (window_manager.switcher_open) window_manager.switcher_open = false;
+                    // A click on an Alt+Tab slot selects that window; clicks
+                    // elsewhere simply dismiss the overlay.
+                    if (window_manager.switcher_open) {
+                        if (window_manager.switcherHitTest(cursor_x, cursor_y, screen.framebuffer.width, screen.framebuffer.height)) |slot| {
+                            _ = window_manager.focus(slot);
+                        }
+                        window_manager.switcher_open = false;
+                    }
                     if (window_manager.launcherButtonHitTest(cursor_x, cursor_y, screen.framebuffer.height)) {
                         window_manager.launcher_open = !window_manager.launcher_open;
                         if (window_manager.launcher_open) window_manager.launcher_selection = 0;

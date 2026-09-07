@@ -382,6 +382,28 @@ pub const WindowManager = struct {
         self.taskbar_hover = self.taskbarHitTest(x, y, screen_height);
     }
 
+    pub fn switcherHitTest(self: *const WindowManager, x: usize, y: usize, screen_width: usize, screen_height: usize) ?usize {
+        if (!self.switcher_open or self.count == 0 or screen_width < 144 or screen_height < 96) return null;
+        var visible_count: usize = 0;
+        for (self.windows[0..self.count]) |window| {
+            if (window.visible) visible_count += 1;
+        }
+        const slots = @min(visible_count, (screen_width - 32) / 112);
+        if (slots == 0) return null;
+        const overlay_width = slots * 112 + 16;
+        const overlay_x = (screen_width - overlay_width) / 2;
+        const overlay_y = screen_height / 2 -| 24;
+        if (x < overlay_x + 8 or x >= overlay_x + 8 + slots * 112 or y < overlay_y + 8 or y >= overlay_y + 40) return null;
+        const slot = (x - (overlay_x + 8)) / 112;
+        var visible_slot: usize = 0;
+        for (self.windows[0..self.count], 0..) |window, index| {
+            if (!window.visible) continue;
+            if (visible_slot == slot) return index;
+            visible_slot += 1;
+        }
+        return null;
+    }
+
     pub fn launcherButtonHitTest(_: *const WindowManager, x: usize, y: usize, screen_height: usize) bool {
         return screen_height >= 24 and y < screen_height and x >= 4 and x < 56 and y >= screen_height - 17 and y < screen_height - 3;
     }
@@ -682,6 +704,16 @@ test "focus and close clear taskbar hover" {
     manager.taskbar_hover = 0;
     manager.close(0);
     try std.testing.expect(manager.taskbar_hover == null);
+}
+
+test "switcher hit test maps visible slots" {
+    var manager = WindowManager{};
+    _ = try manager.create(.{ .id = 1, .x = 0, .y = 0, .width = 64, .height = 32 });
+    _ = try manager.create(.{ .id = 2, .x = 4, .y = 4, .width = 64, .height = 32 });
+    manager.switcher_open = true;
+    try std.testing.expectEqual(@as(?usize, 0), manager.switcherHitTest(50, 48, 320, 128));
+    try std.testing.expectEqual(@as(?usize, 1), manager.switcherHitTest(160, 48, 320, 128));
+    try std.testing.expect(manager.switcherHitTest(10, 10, 320, 128) == null);
 }
 
 test "window manager dismisses launcher when focusing a window" {
