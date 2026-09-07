@@ -104,6 +104,7 @@ pub const WindowManager = struct {
     launcher_selection: u8 = 0,
     switcher_open: bool = false,
     taskbar_hover: ?usize = null,
+    switcher_hover: ?usize = null,
 
     pub fn reset(self: *WindowManager) void {
         for (&self.windows) |*window| window.* = undefined;
@@ -113,7 +114,9 @@ pub const WindowManager = struct {
         self.launcher_selection = 0;
         self.switcher_open = false;
         self.taskbar_hover = null;
+        self.switcher_hover = null;
         self.taskbar_hover = null;
+        self.switcher_hover = null;
     }
 
     pub fn create(self: *WindowManager, window: Window) !usize {
@@ -131,6 +134,7 @@ pub const WindowManager = struct {
         self.launcher_selection = 0;
         self.switcher_open = false;
         self.taskbar_hover = null;
+        self.switcher_hover = null;
         return index;
     }
 
@@ -139,6 +143,7 @@ pub const WindowManager = struct {
         self.launcher_open = false;
         self.launcher_selection = 0;
         self.taskbar_hover = null;
+        self.switcher_hover = null;
         self.switcher_open = false;
         const old_focused = self.focused;
         var i = index;
@@ -404,6 +409,10 @@ pub const WindowManager = struct {
         return null;
     }
 
+    pub fn updateSwitcherHover(self: *WindowManager, x: usize, y: usize, screen_width: usize, screen_height: usize) void {
+        self.switcher_hover = self.switcherHitTest(x, y, screen_width, screen_height);
+    }
+
     pub fn launcherButtonHitTest(_: *const WindowManager, x: usize, y: usize, screen_height: usize) bool {
         return screen_height >= 24 and y < screen_height and x >= 4 and x < 56 and y >= screen_height - 17 and y < screen_height - 3;
     }
@@ -531,7 +540,8 @@ pub const WindowManager = struct {
             var slot: usize = 0;
             for (self.windows[0..self.count], 0..) |window, window_index| {
                 if (!window.visible or slot >= visible_slots) continue;
-                context.fillRect(overlay_x + 8 + slot * 112, overlay_y + 8, 104, 32, if (self.focused == window_index) 0x5070a0 else 0x303848);
+                const hovered = self.switcher_hover == window_index;
+                context.fillRect(overlay_x + 8 + slot * 112, overlay_y + 8, 104, 32, if (hovered) 0x406080 else if (self.focused == window_index) 0x5070a0 else 0x303848);
                 context.drawWindowTitleLimited(overlay_x + 16 + slot * 112, overlay_y + 19, window.title, 88);
                 slot += 1;
             }
