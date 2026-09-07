@@ -179,7 +179,7 @@ O requisito NVIDIA não implica compatibilidade com todas as GeForce. A matriz
 de suporte deve distinguir modelos validados, experimentais e não suportados,
 com evidências reproduzíveis para cada modelo anunciado como funcional.
 
-Estado em 2026-09-06: o caminho NVIDIA está **0% validado em hardware**. A
+Estado em 2026-09-07: o caminho NVIDIA está **0% validado em hardware**. A
 infraestrutura compartilhada existente não conta como suporte NVIDIA entregue.
 M14 continuará aberta até uma GeForce real suportada concluir inicialização,
 display, memória, filas, sincronização e triângulo Vulkan reproduzível usando
@@ -619,7 +619,7 @@ Steam Runtime, Steam e CS2 são deliberadamente as últimas etapas funcionais. A
 
 O arquivo `GOAL.md` é a fonte de verdade técnica do roadmap e das prioridades de implementação.
 
-Estimativa de progresso em 2026-09-06: **aproximadamente 40% concluído e 60% a
+Estimativa de progresso em 2026-09-07: **aproximadamente 40% concluído e 60% a
 fazer**. É uma estimativa ponderada por funcionalidade, não uma simples contagem
 de milestones: M0–M13 possuem fundações implementadas, mas M14 ainda não tem
 command submission nem triângulo Vulkan validados em AMD ou NVIDIA, e M15–M30
@@ -715,7 +715,7 @@ O caminho de rede correlaciona IDs DNS e sequências ICMP e descarta respostas A
 com MAC de emissor inválido.
 
 Verificação atual: `zig build` recompilou o EFI em `14/14` etapas e
-`zig build test` passou `17/17` etapas e `38/38` testes. O
+`zig build test` passou `27/27` etapas e `85/85` testes. O
 boot interativo agora entrega o input diretamente à sessão gráfica, sem ficar
 bloqueado pelo shell BusyBox, e publica `CSOS graphical session ready`. O shell
 será reintegrado como uma aplicação de terminal não bloqueante; isso ainda não

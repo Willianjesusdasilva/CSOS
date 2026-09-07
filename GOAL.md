@@ -40,7 +40,7 @@ NVIDIA GeForce + Nouveau/NVK ou stack compatível + triângulo Vulkan em hardwar
 
 AMD permanece como primeiro backend de referência. O trabalho NVIDIA começa depois do primeiro triângulo AMD/RADV real. M14 só termina quando ao menos uma família explicitamente suportada de cada fabricante comprovar inicialização, memória, filas, sincronização e triângulo Vulkan em hardware real.
 
-Estado do requisito NVIDIA em 2026-09-06: **0% validado em hardware e ainda
+Estado do requisito NVIDIA em 2026-09-07: **0% validado em hardware e ainda
 pendente**. Há infraestrutura genérica que poderá ser reutilizada, mas ela não
 deve ser contabilizada como backend NVIDIA até uma GeForce executar o caminho
 completo. A próxima frente continua sendo concluir AMD/RADV; imediatamente após
@@ -79,7 +79,7 @@ implementado ou validado, nem aumenta a porcentagem concluída do projeto.
 
 ## Progresso atual
 
-Snapshot em 2026-09-06, ponderado por funcionalidade real:
+Snapshot em 2026-09-07, ponderado por funcionalidade real:
 
 ```text
 concluído: aproximadamente 40%
@@ -191,7 +191,7 @@ do fallback por árvore, eliminando um travamento observado no cleanup de um
 smoke test sem deixar o emulador aberto.
 
 Após esses incrementos, `zig build` recompila o EFI em `14/14` etapas e
-`zig build test` conclui `17/17` etapas e `38/38` testes aprovados; um boot QEMU limitado também voltou a alcançar
+`zig build test` conclui `27/27` etapas e `85/85` testes aprovados; um boot QEMU limitado também voltou a alcançar
 `CSOS graphical session ready`.
 
 O caminho NVMe agora enumera a lista de namespaces ativos em vez de tratar o
@@ -279,8 +279,8 @@ os marcadores de launch, seleção, paginação e retorno antes de declarar suce
 
 Esta porcentagem não é uma contagem simples de milestones. M0–M13 têm bases relevantes, mas M14 ainda não possui triângulos Vulkan validados em AMD e NVIDIA, e M15–M30 permanecem majoritariamente pendentes. Código preparatório ou teste no host não equivale a hardware funcional.
 
-Verificação mais recente em 2026-09-07: `zig build test` concluiu `17/17` etapas
-e `38/38` testes, e o boot QEMU chegou a `CSOS graphical session ready`. A
+Verificação mais recente em 2026-09-07: `zig build test` concluiu `27/27` etapas
+e `85/85` testes, e o boot QEMU chegou a `CSOS graphical session ready`. A
 sessão gráfica assume teclado e mouse sem aguardar a saída do shell BusyBox e o
 terminal já voltou como aplicação não bloqueante; isso não altera a ausência de
 validação Vulkan física.
