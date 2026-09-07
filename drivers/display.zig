@@ -25,6 +25,12 @@ pub const max_windows = 16;
 pub const min_window_width = 64;
 pub const min_window_height = 48;
 
+pub fn applyPointerDelta(position: usize, delta: i8, extent: usize) usize {
+    if (extent == 0) return 0;
+    if (delta < 0) return position -| @as(usize, @intCast(-@as(i16, delta)));
+    return @min(extent - 1, position +| @as(usize, @intCast(delta)));
+}
+
 pub const Window = struct {
     id: u32,
     title: []const u8 = "APP",
@@ -461,6 +467,14 @@ test "window manager enforces maximum window count" {
     }
     try std.testing.expectEqual(max_windows, manager.count);
     try std.testing.expectError(error.WindowLimit, manager.create(.{ .id = 99, .x = 0, .y = 0, .width = 32, .height = 24 }));
+}
+
+test "pointer delta saturates at both display edges" {
+    try std.testing.expectEqual(@as(usize, 0), applyPointerDelta(4, -5, 100));
+    try std.testing.expectEqual(@as(usize, 0), applyPointerDelta(50, -128, 100));
+    try std.testing.expectEqual(@as(usize, 99), applyPointerDelta(96, 5, 100));
+    try std.testing.expectEqual(@as(usize, 15), applyPointerDelta(10, 5, 100));
+    try std.testing.expectEqual(@as(usize, 0), applyPointerDelta(10, 5, 0));
 }
 
 pub const Context = struct {

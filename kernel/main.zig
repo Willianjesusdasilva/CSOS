@@ -2173,6 +2173,11 @@ pub fn start(info: BootInfo) noreturn {
             const dx: i8 = @bitCast(event.b);
             const dy: i8 = @bitCast(event.c);
             const wheel: i8 = @bitCast(event.d);
+            // A HID report may carry movement and a button transition together.
+            // Hit-test at the position represented by that report, not at the
+            // previous report's coordinates.
+            cursor_x = display.applyPointerDelta(cursor_x, dx, screen.framebuffer.width);
+            cursor_y = display.applyPointerDelta(cursor_y, dy, screen.framebuffer.height);
             if (focusedWindowIs(window_manager, 1)) {
                 _ = sdl_events.pushMouseCoalesced(@intCast(dx), @intCast(dy), @intCast(wheel), event.a);
                 demo_app.pump(&sdl_events, &handleSdlDemoEvent);
@@ -2262,8 +2267,6 @@ pub fn start(info: BootInfo) noreturn {
                 serial.writeDecimal(mouse_buttons);
                 serial.write("\n");
             }
-            cursor_x = if (dx < 0) cursor_x -| @as(usize, @intCast(-@as(i16, dx))) else @min(@as(usize, screen.framebuffer.width) -| 1, cursor_x + @as(usize, @intCast(dx)));
-            cursor_y = if (dy < 0) cursor_y -| @as(usize, @intCast(-@as(i16, dy))) else @min(@as(usize, screen.framebuffer.height) -| 1, cursor_y + @as(usize, @intCast(dy)));
             if (mouse_buttons & 1 != 0) {
                 if (resize_window) |resizing| {
                     if (resizing < window_manager.count) {
