@@ -200,7 +200,7 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
             const dependency = dependency_names[provider_count];
             const dependency_info = try vfs.infoAt(-100, dependency);
             if (dependency_info.directory or dependency_info.size < 64 or dependency_info.size > max_shared_object_size) return error.InvalidSharedObject;
-            const dependency_pages = (dependency_info.size + page_size - 1) / page_size;
+            const dependency_pages = (std.math.add(u64, dependency_info.size, page_size - 1) catch return error.InvalidSharedObject) / page_size;
             const dependency_address = pages.allocate(dependency_pages) orelse return error.OutOfMemory;
             dependency_ranges[dependency_count] = .{ .address = dependency_address, .pages = dependency_pages };
             dependency_count += 1;
