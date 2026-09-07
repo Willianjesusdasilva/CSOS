@@ -135,8 +135,7 @@ pub const Volume = struct {
 
     pub fn writeRootFile(self: *Volume, name: *const [11]u8, data: []const u8) !void {
         const cluster_bytes = @as(usize, self.sectors_per_cluster) * 512;
-        const needed = if (data.len == 0) 0 else (data.len + cluster_bytes - 1) / cluster_bytes;
-        if (needed > 32) return error.FileTooLarge;
+        const needed = try clustersForLength(data.len, cluster_bytes, self.cluster_count);
         var directory_sector: u32 = 0;
         var directory_offset: usize = 0;
         var old_cluster: u16 = 0;
@@ -165,27 +164,27 @@ pub const Volume = struct {
         }
         if (!found and !have_free) return error.DirectoryFull;
 
-        var clusters: [32]u16 = undefined;
+        var first_cluster: u16 = 0;
+        var previous_cluster: u16 = 0;
         var allocated: usize = 0;
         var committed = false;
-        errdefer if (!committed and allocated != 0) self.freeChain(clusters[0]) catch {};
+        errdefer if (!committed and first_cluster != 0) self.freeChain(first_cluster) catch {};
         var search: u16 = 2;
+        var written: usize = 0;
         while (allocated < needed) {
             const cluster = try self.findFree(search);
-            clusters[allocated] = cluster;
             try self.setFatEntry(cluster, 0xffff);
-            if (allocated != 0) {
-                self.setFatEntry(clusters[allocated - 1], cluster) catch |err| {
+            if (previous_cluster != 0) {
+                self.setFatEntry(previous_cluster, cluster) catch |err| {
                     self.setFatEntry(cluster, 0) catch {};
                     return err;
                 };
+            } else {
+                first_cluster = cluster;
             }
+            previous_cluster = cluster;
             allocated += 1;
             search = cluster + 1;
-        }
-
-        var written: usize = 0;
-        for (clusters[0..needed]) |cluster| {
             var cluster_sector: u32 = 0;
             while (cluster_sector < self.sectors_per_cluster) : (cluster_sector += 1) {
                 const bytes: [*]u8 = @ptrFromInt(self.buffer);
@@ -202,7 +201,7 @@ pub const Volume = struct {
         @memset(entry[0..32], 0);
         @memcpy(entry[0..11], name);
         entry[11] = 0x20;
-        put16(entry + 26, if (needed == 0) 0 else clusters[0]);
+        put16(entry + 26, first_cluster);
         put32(entry + 28, @intCast(data.len));
         try self.storage.writeBlock(self.root_start + directory_sector, self.buffer);
         committed = true;
@@ -309,6 +308,14 @@ fn validateDataCluster(cluster: u16, cluster_count: u32) !void {
     if (cluster < 2 or @as(u32, cluster) >= cluster_count + 2 or cluster >= 0xfff0) return error.BrokenChain;
 }
 
+fn clustersForLength(length: usize, cluster_bytes: usize, cluster_count: u32) !usize {
+    if (length > std.math.maxInt(u32)) return error.FileTooLarge;
+    if (length == 0) return 0;
+    const needed = (length - 1) / cluster_bytes + 1;
+    if (needed > cluster_count) return error.DiskFull;
+    return needed;
+}
+
 fn validBootSector() [512]u8 {
     var boot = [_]u8{0} ** 512;
     put16(boot[11..].ptr, 512);
@@ -349,6 +356,15 @@ test "FAT16 data cluster validation excludes reserved and out-of-volume entries"
     try validateDataCluster(8001, 8000);
     try std.testing.expectError(error.BrokenChain, validateDataCluster(8002, 8000));
     try std.testing.expectError(error.BrokenChain, validateDataCluster(0xfff0, 65524));
+}
+
+test "FAT16 file sizing is volume-bound instead of stack-bound" {
+    try std.testing.expectEqual(@as(usize, 0), try clustersForLength(0, 512, 8000));
+    try std.testing.expectEqual(@as(usize, 33), try clustersForLength(33 * 512, 512, 8000));
+    try std.testing.expectError(error.DiskFull, clustersForLength(8001 * 512, 512, 8000));
+    if (@sizeOf(usize) > 4) {
+        try std.testing.expectError(error.FileTooLarge, clustersForLength(@as(usize, std.math.maxInt(u32)) + 1, 512, 65524));
+    }
 }
 
 const std = @import("std");

@@ -174,7 +174,7 @@ do fallback por árvore, eliminando um travamento observado no cleanup de um
 smoke test sem deixar o emulador aberto.
 
 Após esses incrementos, `zig build` recompila o EFI em `14/14` etapas e
-`zig build test` conclui `17/17` etapas e `26/26` testes aprovados; um boot QEMU limitado também voltou a alcançar
+`zig build test` conclui `17/17` etapas e `27/27` testes aprovados; um boot QEMU limitado também voltou a alcançar
 `CSOS graphical session ready`.
 
 O caminho NVMe agora enumera a lista de namespaces ativos em vez de tratar o
@@ -200,10 +200,14 @@ a cadeia antiga até gravar e publicar a nova, faz rollback dos clusters novos
 em falha e só então recupera a cadeia anterior. A liberação possui limite de
 travessia e rejeita clusters fora do volume, impedindo loops em FAT corrompida.
 
+Escritas FAT16 não possuem mais o teto de 32 clusters imposto por um array na
+stack. Alocação e gravação são incrementais, com rollback ancorado no primeiro
+cluster; arquivos agora são limitados pelo volume e pelo tamanho FAT de 32 bits.
+
 Esta porcentagem não é uma contagem simples de milestones. M0–M13 têm bases relevantes, mas M14 ainda não possui triângulos Vulkan validados em AMD e NVIDIA, e M15–M30 permanecem majoritariamente pendentes. Código preparatório ou teste no host não equivale a hardware funcional.
 
 Verificação mais recente em 2026-09-06: `zig build test` concluiu `17/17` etapas
-e `26/26` testes, e o boot QEMU chegou a `CSOS graphical session ready`. A
+e `27/27` testes, e o boot QEMU chegou a `CSOS graphical session ready`. A
 sessão gráfica assume teclado e mouse sem aguardar a saída do shell BusyBox e o
 terminal já voltou como aplicação não bloqueante; isso não altera a ausência de
 validação Vulkan física.
