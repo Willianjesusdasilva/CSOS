@@ -289,6 +289,14 @@ pub fn build(b: *std.Build) void {
     const sdl_tests = b.addTest(.{ .root_module = sdl_test_module });
     const run_sdl_tests = b.addRunArtifact(sdl_tests);
     test_step.dependOn(&run_sdl_tests.step);
+    const html_test_module = b.createModule(.{
+        .root_source_file = b.path("graphics/html.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+    });
+    const html_tests = b.addTest(.{ .root_module = html_test_module });
+    const run_html_tests = b.addRunArtifact(html_tests);
+    test_step.dependOn(&run_html_tests.step);
     const hardware_profile_module = b.createModule(.{ .root_source_file = b.path("hardware/profile.zig") });
     const hardware_profile_test_module = b.createModule(.{
         .root_source_file = b.path("hardware/profile.zig"),
