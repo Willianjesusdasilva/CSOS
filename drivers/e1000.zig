@@ -71,6 +71,7 @@ pub const Controller = struct {
 
     pub fn send(self: *Controller, frame: []const u8) !void {
         if (!validFrameLength(frame.len)) return if (frame.len < 14) error.FrameTooSmall else error.FrameTooLarge;
+        if (self.tx_index >= descriptor_count) return error.InvalidDescriptorIndex;
         const buffer: [*]u8 = @ptrFromInt(self.tx_buffer);
         @memcpy(buffer[0..frame.len], frame);
         const descriptor: [*]volatile u8 = @ptrFromInt(self.tx_ring + @as(u64, self.tx_index) * 16);
@@ -84,6 +85,7 @@ pub const Controller = struct {
     }
 
     pub fn receive(self: *Controller, output: []u8) !usize {
+        if (self.rx_index >= descriptor_count) return error.InvalidDescriptorIndex;
         const descriptor: [*]volatile u8 = @ptrFromInt(self.rx_ring + @as(u64, self.rx_index) * 16);
         var spins: usize = 0;
         while ((descriptor[12] & 1) == 0 and spins < 1_000_000_000) : (spins += 1) asm volatile ("pause");
