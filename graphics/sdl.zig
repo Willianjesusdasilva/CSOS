@@ -172,7 +172,7 @@ pub const ListSelection = struct {
 
     fn reveal(self: *ListSelection) void {
         if (self.selected < self.first_visible) self.first_visible = self.selected;
-        if (self.selected >= self.first_visible + self.visible_rows)
+        if (self.selected >= self.first_visible +| self.visible_rows)
             self.first_visible = self.selected - self.visible_rows + 1;
     }
 };
