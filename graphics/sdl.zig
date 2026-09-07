@@ -458,12 +458,14 @@ pub const Terminal = struct {
 
     pub fn historyPrevious(self: *Terminal) bool {
         if (self.history_len == 0) return false;
+        self.history_cursor = @min(self.history_cursor, self.history_len);
         if (self.history_cursor > 0) self.history_cursor -= 1;
         self.loadHistory(self.history_cursor);
         return true;
     }
 
     pub fn historyNext(self: *Terminal) bool {
+        self.history_cursor = @min(self.history_cursor, self.history_len);
         if (self.history_cursor >= self.history_len) return false;
         self.history_cursor += 1;
         if (self.history_cursor == self.history_len) self.input.replace("") else self.loadHistory(self.history_cursor);
@@ -769,6 +771,11 @@ test "SDL software event queue and surface contract" {
     try @import("std").testing.expectEqualStrings("status", terminal.input.slice());
     try @import("std").testing.expect(terminal.historyNext());
     try @import("std").testing.expectEqualStrings("", terminal.input.slice());
+    terminal.history_cursor = terminal.history_len + 1;
+    try @import("std").testing.expect(!terminal.historyNext());
+    terminal.history_cursor = terminal.history_len + 1;
+    try @import("std").testing.expect(terminal.historyPrevious());
+    try @import("std").testing.expectEqualStrings("status", terminal.input.slice());
     for ("clear") |byte| try @import("std").testing.expect(terminal.input.insert(byte));
     try @import("std").testing.expect(terminal.submit());
     try @import("std").testing.expectEqual(@as(usize, 0), terminal.output_len);
