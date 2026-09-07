@@ -524,8 +524,11 @@ fn buildInitialStack(
         const file_offset = read64At(header + 8);
         const virtual = read64At(header + 16);
         const file_size = read64At(header + 32);
-        if (program_offset >= file_offset and program_offset < file_offset + file_size) {
-            phdr_address = virtual + load_bias + program_offset - file_offset;
+        if (file_offset <= std.math.maxInt(u64) - file_size and program_offset >= file_offset and program_offset < file_offset + file_size and
+            virtual <= std.math.maxInt(u64) - load_bias) {
+            const mapped_virtual = virtual + load_bias;
+            const delta = program_offset - file_offset;
+            if (mapped_virtual <= std.math.maxInt(u64) - delta) phdr_address = mapped_virtual + delta;
         }
     }
     if (phdr_address == 0) return error.InvalidElf;
