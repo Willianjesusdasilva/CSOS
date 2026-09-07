@@ -111,7 +111,7 @@ pub const WindowManager = struct {
         self.count = 0;
         self.focused = null;
         self.dismissLauncher();
-        self.switcher_open = false;
+        self.dismissSwitcher();
         self.taskbar_hover = null;
         self.switcher_hover = null;
     }
@@ -128,7 +128,7 @@ pub const WindowManager = struct {
         self.focused = if (window.visible) index else self.topVisible();
         // A nova janela assume o desktop; overlays não devem cobrir seu primeiro frame.
         self.dismissLauncher();
-        self.switcher_open = false;
+        self.dismissSwitcher();
         self.taskbar_hover = null;
         self.switcher_hover = null;
         return index;
@@ -137,8 +137,7 @@ pub const WindowManager = struct {
     pub fn close(self: *WindowManager, index: usize) void {
         if (index >= self.count) return;
         self.dismissLauncher();
-        self.switcher_hover = null;
-        self.switcher_open = false;
+        self.dismissSwitcher();
         const old_focused = self.focused;
         var i = index;
         while (i + 1 < self.count) : (i += 1) self.windows[i] = self.windows[i + 1];
@@ -147,7 +146,7 @@ pub const WindowManager = struct {
         self.windows[self.count] = undefined;
         if (self.count == 0) {
             self.dismissLauncher();
-            self.switcher_open = false;
+            self.dismissSwitcher();
         }
         self.focused = if (self.count == 0) null else if (old_focused) |focused| blk: {
             if (focused >= self.count) break :blk self.topVisible();
@@ -163,7 +162,7 @@ pub const WindowManager = struct {
         // Clicking or otherwise focusing a window dismisses the launcher
         // overlay; leaving it open would paint the menu over the new focus.
         self.dismissLauncher();
-        self.switcher_hover = null;
+        self.dismissSwitcher();
         if (index + 1 < self.count) {
             const selected = self.windows[index];
             var i = index;
