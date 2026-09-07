@@ -5,6 +5,11 @@ pub const Region = struct { base: u64, size: u64 };
 pub fn append(regions: []Region, count: *usize, base: u64, size: u64) !void {
     if (count.* > regions.len) return error.TooManyUserRegions;
     if (size == 0 or base > std.math.maxInt(u64) - (size - 1)) return error.InvalidRegion;
+    const end = base + size;
+    for (regions[0..count.*]) |region| {
+        const region_end = region.base + region.size;
+        if (base < region_end and region.base < end) return error.OverlappingRegion;
+    }
     if (count.* != 0) {
         const previous = &regions[count.* - 1];
         if (base >= previous.base and base - previous.base == previous.size) {
@@ -59,4 +64,14 @@ test "mapped user regions reject corrupt count" {
     var regions: [1]Region = undefined;
     var count: usize = 2;
     try std.testing.expectError(error.TooManyUserRegions, append(&regions, &count, 0x1000, 0x1000));
+}
+
+test "mapped user regions reject overlap with any existing range" {
+    var regions: [3]Region = undefined;
+    var count: usize = 0;
+    try append(&regions, &count, 0x1000, 0x1000);
+    try append(&regions, &count, 0x4000, 0x1000);
+    try std.testing.expectError(error.OverlappingRegion, append(&regions, &count, 0x0fff, 2));
+    try std.testing.expectError(error.OverlappingRegion, append(&regions, &count, 0x1800, 0x2800));
+    try std.testing.expectEqual(@as(usize, 2), count);
 }
