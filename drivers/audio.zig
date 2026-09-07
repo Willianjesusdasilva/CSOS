@@ -1,4 +1,6 @@
-﻿pub const Format = struct {
+﻿const std = @import("std");
+
+pub const Format = struct {
     channels: u8 = 0,
     bits_per_sample: u8 = 0,
     sample_rate: u32 = 0,
@@ -80,12 +82,14 @@ pub const Subsystem = struct {
 
     pub fn configure(self: *Subsystem) !void {
         if (self.device.state != .discovered) return error.DeviceNotDiscovered;
+        if (self.periods == 0) return error.InvalidPeriodCount;
         if (self.device.frameBytes() == null) return error.UnsupportedFormat;
         self.device.state = .configured;
     }
 
     pub fn start(self: *Subsystem) !void {
         if (self.device.state != .configured) return error.DeviceNotConfigured;
+        if (self.periods == 0) return error.InvalidPeriodCount;
         self.period_index = 0;
         self.device.state = .streaming;
     }
@@ -110,6 +114,13 @@ pub const Subsystem = struct {
         self.metrics.recordComplete();
     }
 };
+
+test "audio subsystem rejects an empty period ring" {
+    var subsystem = Subsystem{};
+    subsystem.discover(1, 1, .{ .channels = 2, .bits_per_sample = 16, .sample_rate = 48_000 });
+    subsystem.periods = 0;
+    try std.testing.expectError(error.InvalidPeriodCount, subsystem.configure());
+}
 
 pub const Stream = struct {
     device: Device = .{},
