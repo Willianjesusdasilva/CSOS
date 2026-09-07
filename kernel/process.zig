@@ -724,7 +724,7 @@ fn loadSegment(
 ) !void {
     var page_virtual = virtual & ~(page_size - 1);
     const segment_end = virtual + memory_size;
-    while (page_virtual < segment_end) : (page_virtual += page_size) {
+    while (page_virtual < segment_end) : (page_virtual += @min(@as(u64, page_size), segment_end - page_virtual)) {
         var physical_address: ?u64 = null;
         for (mappings[0..mapping_count.*]) |mapping| {
             if (mapping.virtual == page_virtual) physical_address = mapping.physical;

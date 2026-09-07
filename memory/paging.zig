@@ -46,7 +46,7 @@ pub const Mapper = struct {
         if (last > address_mask + page_size or last > ~@as(u64, page_size - 1)) return error.InvalidPhysicalRange;
         var address = start & ~(page_size - 1);
         const end = (last + page_size - 1) & ~(page_size - 1);
-        while (address < end) : (address += page_size) {
+        while (address < end) : (address += @min(page_size, end - address)) {
             const leaf = try self.kernelLeaf(address);
             leaf.* = address | present_writable | cache_disable | no_execute;
         }
