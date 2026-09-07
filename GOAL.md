@@ -218,6 +218,8 @@ com parsing ordenado de `h1`, `p` e `button`; ainda falta ligá-lo ao compositor
 e às ações da UI.
 O runtime agora está ligado à janela SYSTEM via `Window.drawHtml`, com foco
 visual e hit-test/ativação de botões prontos para os eventos do compositor.
+O clique do botão `READY` na janela SYSTEM já percorre o hit-test do window
+manager e emite `UI HTML button activated: READY` no serial.
 `echo texto > arquivo` agora cria/trunca e grava no arquivo FAT via callback VFS,
 permitindo alterar dados pela sessão gráfica sem sair do SO.
 `echo texto >> arquivo` também usa o modo append do descritor, permitindo logs

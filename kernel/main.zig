@@ -2533,6 +2533,8 @@ pub fn start(info: BootInfo) noreturn {
                                     serial.writeDecimal(files_selection.selected);
                                     serial.write("\n");
                                 }
+                            } else if (window.id == 3 and window_manager.contentRectHitTest(hit, cursor_x, cursor_y, 4, 18, 48, 14)) {
+                                serial.write("UI HTML button activated: READY\n");
                             }
                             _ = window_manager.focus(hit);
                             if (!window_manager.windows[window_manager.focused.?].maximized and cursor_y >= window.y and cursor_y < window.y +| 20) {
