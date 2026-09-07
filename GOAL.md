@@ -114,6 +114,9 @@ podem ser arrastadas pela barra de título, fechadas pelo botão visual ou com
 texto completo e runtime HTML/CSS/Jinja continuam pendentes.
 `Ctrl+W` também fecha a janela focada como atalho equivalente para uso por
 teclado.
+No ciclo de standby, páginas somente-leitura da imagem principal podem ser
+descartadas e restauradas; intérprete e bibliotecas compartilhadas permanecem
+residentes até haver metadado de backing individual para recuperação segura.
 O runner QEMU agora possui `-SmokeDesktopMouse`, que injeta movimento relativo
 um evento de roda e um ciclo de botão esquerdo no dispositivo USB emulado; o
 teste exige movimento, `UI mouse wheel` e os marcadores `UI mouse buttons: 1/0`.

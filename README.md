@@ -700,6 +700,9 @@ que a aplicação continue podendo encerrar sob carga.
 A fila HID xHCI também coalesce deltas consecutivos quando cheia, antes da fila
 SDL, sem fundir mudanças de botão ou teclado. Contadores separados expõem
 eventos coalescidos e descartes inevitáveis no log serial.
+O reclaim de standby descarta somente páginas limpas da imagem principal;
+páginas de intérprete e bibliotecas compartilhadas ficam residentes para não
+serem restauradas com cabeçalhos ELF incorretos.
 
 Verificação atual: `zig build` recompilou o EFI em `14/14` etapas e
 `zig build test` passou `17/17` etapas e `38/38` testes. O
