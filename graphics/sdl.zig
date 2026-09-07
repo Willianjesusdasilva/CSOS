@@ -574,14 +574,17 @@ pub const Terminal = struct {
         const command = trimCommand(self.input.slice());
         if (command.len == 0) return false;
         self.remember(command);
-        if (bytesEqualIgnoreCase(command, "clear")) {
-            self.clearOutput();
-        } else {
+            if (bytesEqualIgnoreCase(command, "clear")) {
+                self.clearOutput();
+            } else if (bytesEqualIgnoreCase(command, "reset")) {
+                self.clearOutput();
+                self.history_cursor = self.history_len;
+            } else {
             self.append("> ");
             self.append(command);
             self.append("\n");
             if (bytesEqualIgnoreCase(command, "help"))
-                self.append("HELP CLEAR STATUS VERSION WHOAMI PWD LS ECHO HISTORY [TEXT]\n")
+                self.append("HELP CLEAR RESET STATUS VERSION WHOAMI PWD LS ECHO HISTORY [TEXT]\n")
             else if (bytesEqualIgnoreCase(command, "status"))
                 self.append("CSOS READY\n")
             else if (bytesEqualIgnoreCase(command, "version"))
@@ -1141,10 +1144,15 @@ test "SDL software event queue and surface contract" {
     terminal.input.replace("ClEaR");
     try @import("std").testing.expect(terminal.submit());
     try @import("std").testing.expectEqual(@as(usize, 0), terminal.output_len);
+    terminal.input.replace("status");
+    try @import("std").testing.expect(terminal.submit());
+    terminal.input.replace("reset");
+    try @import("std").testing.expect(terminal.submit());
+    try @import("std").testing.expectEqual(@as(usize, 0), terminal.output_len);
     terminal.clearOutput();
     terminal.input.replace("help");
     try @import("std").testing.expect(terminal.submit());
-    try @import("std").testing.expectEqualStrings("> help\nHELP CLEAR STATUS VERSION WHOAMI PWD LS ECHO HISTORY [TEXT]\n", terminal.outputSlice());
+    try @import("std").testing.expectEqualStrings("> help\nHELP CLEAR RESET STATUS VERSION WHOAMI PWD LS ECHO HISTORY [TEXT]\n", terminal.outputSlice());
     terminal.clearOutput();
     terminal.input.replace("whoami");
     try @import("std").testing.expect(terminal.submit());
