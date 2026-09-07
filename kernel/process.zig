@@ -166,7 +166,10 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
 
     var header_index: usize = 0;
     while (header_index < program_count) : (header_index += 1) {
-        const header: usize = @intCast(program_offset + @as(u64, program_entry_size) * header_index);
+        const entry_size = @as(u64, program_entry_size);
+        if (entry_size != 0 and header_index > (std.math.maxInt(u64) - program_offset) / entry_size)
+            return error.InvalidInterpreterPath;
+        const header: usize = @intCast(program_offset + entry_size * header_index);
         if (read32At(header) != 1) continue;
         const flags = read32At(header + 4);
         const file_offset = read64At(header + 8);
