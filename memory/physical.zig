@@ -121,6 +121,8 @@ pub const Allocator = struct {
 
     pub fn release(self: *Allocator, address: u64, count: u64) !void {
         if (count == 0 or count > (~@as(u64, 0)) / page_size or (address & (page_size - 1)) != 0) return error.InvalidRelease;
+        if (count > std.math.maxInt(u64) - self.free_pages or count > std.math.maxInt(u64) - self.reclaimed_pages)
+            return error.CounterOverflow;
         const bytes = count * page_size;
         const end = address +% bytes;
         if (end <= address) return error.InvalidRelease;
