@@ -215,8 +215,7 @@ pub const WindowManager = struct {
     }
 
     pub fn toggleMaximized(self: *WindowManager, index: usize, screen_width: usize, screen_height: usize) bool {
-        if (index >= self.count or !self.windows[index].visible or screen_width < min_window_width or
-            screen_height -| 20 < min_window_height) return false;
+        if (index >= self.count or !self.windows[index].visible) return false;
         const window = &self.windows[index];
         if (window.maximized) {
             const usable_height = screen_height -| 20;
@@ -226,6 +225,7 @@ pub const WindowManager = struct {
             window.y = @min(window.restore_y, usable_height -| window.height);
             window.maximized = false;
         } else {
+            if (screen_width < min_window_width or screen_height -| 20 < min_window_height) return false;
             window.restore_x = window.x;
             window.restore_y = window.y;
             window.restore_width = window.width;
