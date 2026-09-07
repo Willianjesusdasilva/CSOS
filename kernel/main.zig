@@ -2188,7 +2188,7 @@ pub fn start(info: BootInfo) noreturn {
                         serial.write("UI files preview closed\n");
                     } else if (files_preview_open) {
                         const changed = switch (event.a) {
-                            0x4e => files_preview_pager.next(),
+                            0x4e, 0x2c => files_preview_pager.next(),
                             0x4b => files_preview_pager.previous(),
                             0x4a => files_preview_pager.home(),
                             0x4d => files_preview_pager.end(),
