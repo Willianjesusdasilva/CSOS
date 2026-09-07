@@ -1,8 +1,6 @@
 const e1000 = @import("e1000");
 
 const broadcast_ip = [4]u8{ 255, 255, 255, 255 };
-const transaction_id: u32 = 0x43534f53;
-
 pub const Stack = struct {
     device: *e1000.Controller,
     gateway_mac: [6]u8 = .{0} ** 6,
@@ -13,6 +11,7 @@ pub const Stack = struct {
     identification: u16 = 1,
     tcp_nonce: u16 = 0,
     dns_transaction: u16 = 0x4353,
+    dhcp_transaction: u32 = 0x43534f53,
 
     pub fn init(device: *e1000.Controller) Stack { return .{ .device = device }; }
 
@@ -68,6 +67,7 @@ pub const Stack = struct {
     }
 
     pub fn configureDhcp(self: *Stack) !void {
+        self.dhcp_transaction +%= 1;
         try self.sendDhcp(1, null, null);
         const offer = try self.receiveDhcp(2);
         try self.sendDhcp(3, offer.address, offer.server);
@@ -319,7 +319,7 @@ pub const Stack = struct {
         put16(udp[0..], 68); put16(udp[2..], 67); put16(udp[4..], 308);
         const bootp = frame[42..342];
         bootp[0] = 1; bootp[1] = 1; bootp[2] = 6;
-        put32(bootp[4..], transaction_id); put16(bootp[10..], 0x8000);
+        put32(bootp[4..], self.dhcp_transaction); put16(bootp[10..], 0x8000);
         @memcpy(bootp[28..34], &self.device.mac);
         bootp[236] = 99; bootp[237] = 130; bootp[238] = 83; bootp[239] = 99;
         var option: usize = 240;
@@ -342,7 +342,7 @@ pub const Stack = struct {
             const udp = 14 + ip_header;
             if (get16(frame[udp..]) != 67 or get16(frame[udp + 2 ..]) != 68) continue;
             const bootp = frame[udp + 8 ..];
-            if (bootp[0] != 2 or get32(bootp[4..]) != transaction_id or !equal(bootp[28..34], &self.device.mac)) continue;
+            if (bootp[0] != 2 or get32(bootp[4..]) != self.dhcp_transaction or !equal(bootp[28..34], &self.device.mac)) continue;
             if (bootp[236] != 99 or bootp[237] != 130 or bootp[238] != 83 or bootp[239] != 99) continue;
             var lease = Lease{ .address = bootp[16..20].* };
             var message_type: u8 = 0;
