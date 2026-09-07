@@ -83,9 +83,15 @@ pub const Controller = struct {
 
     pub fn initIo(self: *Controller, pages: *physical.Allocator) !void {
         self.io_submission = pages.allocate(1) orelse return error.OutOfMemory;
-        errdefer pages.release(self.io_submission, 1) catch {};
+        errdefer {
+            pages.release(self.io_submission, 1) catch {};
+            self.io_submission = 0;
+        }
         self.io_completion = pages.allocate(1) orelse return error.OutOfMemory;
-        errdefer pages.release(self.io_completion, 1) catch {};
+        errdefer {
+            pages.release(self.io_completion, 1) catch {};
+            self.io_completion = 0;
+        }
         zeroPage(self.io_submission);
         zeroPage(self.io_completion);
 
