@@ -3,6 +3,7 @@ const std = @import("std");
 pub const Region = struct { base: u64, size: u64 };
 
 pub fn append(regions: []Region, count: *usize, base: u64, size: u64) !void {
+    if (count.* > regions.len) return error.TooManyUserRegions;
     if (size == 0 or base > std.math.maxInt(u64) - (size - 1)) return error.InvalidRegion;
     if (count.* != 0) {
         const previous = &regions[count.* - 1];
@@ -52,4 +53,10 @@ test "mapped user regions compact only adjacent insertion-order ranges" {
     try std.testing.expectError(error.InvalidRegion, append(&regions, &count, std.math.maxInt(u64), 2));
     try append(&regions, &count, 0x9000, 0x1000);
     try std.testing.expectError(error.TooManyUserRegions, append(&regions, &count, 0xb000, 0x1000));
+}
+
+test "mapped user regions reject corrupt count" {
+    var regions: [1]Region = undefined;
+    var count: usize = 2;
+    try std.testing.expectError(error.TooManyUserRegions, append(&regions, &count, 0x1000, 0x1000));
 }
