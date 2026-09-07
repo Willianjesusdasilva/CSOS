@@ -338,6 +338,16 @@ pub fn build(b: *std.Build) void {
     const vfs_module = b.createModule(.{ .root_source_file = b.path("kernel/vfs.zig") });
     vfs_module.addAnonymousImport("busybox_elf", .{ .root_source_file = b.path("userspace/initramfs/bin/busybox") });
     vfs_module.addImport("fat16", fat16_module);
+    const vfs_test_module = b.createModule(.{
+        .root_source_file = b.path("kernel/vfs.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+    });
+    vfs_test_module.addAnonymousImport("busybox_elf", .{ .root_source_file = b.path("userspace/initramfs/bin/busybox") });
+    vfs_test_module.addImport("fat16", fat16_module);
+    const vfs_tests = b.addTest(.{ .root_module = vfs_test_module });
+    const run_vfs_tests = b.addRunArtifact(vfs_tests);
+    test_step.dependOn(&run_vfs_tests.step);
     syscalls_module.addImport("vfs", vfs_module);
     syscalls_module.addImport("net", net_module);
     syscalls_module.addImport("physical", physical_module);

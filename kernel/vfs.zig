@@ -45,6 +45,7 @@ pub const DrmPciIdentity = struct {
 
 var descriptors: [max_fds]Descriptor = .{Descriptor{}} ** max_fds;
 var next_generation: u32 = 1;
+var generations_exhausted = false;
 var disk: ?*fat16.Volume = null;
 var drm_pci_configured = false;
 var drm_pci_uevent: [40]u8 = undefined;
@@ -158,16 +159,34 @@ pub fn mount(volume: *fat16.Volume) void { disk = volume; }
 pub fn reset() void {
     descriptors = .{Descriptor{}} ** max_fds;
     next_generation = 1;
+    generations_exhausted = false;
     descriptors[0].kind = .console;
     descriptors[1].kind = .console;
     descriptors[2].kind = .console;
 }
 
-fn newGeneration() u32 {
+fn newGeneration() !u32 {
+    if (generations_exhausted) return error.GenerationExhausted;
     const generation = next_generation;
-    next_generation +%= 1;
-    if (next_generation == 0) next_generation = 1;
+    if (next_generation == std.math.maxInt(u32)) {
+        generations_exhausted = true;
+    } else {
+        next_generation += 1;
+    }
     return generation;
+}
+
+test "VFS generation exhaustion fails closed until reset" {
+    const saved_next = next_generation;
+    const saved_exhausted = generations_exhausted;
+    defer {
+        next_generation = saved_next;
+        generations_exhausted = saved_exhausted;
+    }
+    next_generation = std.math.maxInt(u32);
+    generations_exhausted = false;
+    try std.testing.expectEqual(std.math.maxInt(u32), try newGeneration());
+    try std.testing.expectError(error.GenerationExhausted, newGeneration());
 }
 
 pub fn descriptorGeneration(fd: usize) !u32 {
@@ -194,7 +213,7 @@ pub fn openAt(directory_fd: i64, path: []const u8, flags: u64) !usize {
             try volume.writeRootFile(&fat_name, "");
             size = 0;
         }
-        descriptors[fd] = .{ .generation = newGeneration(), .kind = .file, .node = .disk, .size = size, .fat_name = fat_name };
+        descriptors[fd] = .{ .generation = try newGeneration(), .kind = .file, .node = .disk, .size = size, .fat_name = fat_name };
         descriptors[fd].close_on_exec = (flags & 0x80000) != 0;
         descriptors[fd].append = (flags & 0x400) != 0;
         descriptors[fd].writable = (flags & 0x3) != 0;
@@ -202,7 +221,7 @@ pub fn openAt(directory_fd: i64, path: []const u8, flags: u64) !usize {
     };
     const node = try resolve(directory_fd, path);
     const info = nodeInfo(node);
-    descriptors[fd] = .{ .generation = newGeneration(), .kind = if (info.directory) .directory else if (node == .framebuffer or node == .drm or node == .render) .device else .file, .node = node, .size = @intCast(info.size) };
+    descriptors[fd] = .{ .generation = try newGeneration(), .kind = if (info.directory) .directory else if (node == .framebuffer or node == .drm or node == .render) .device else .file, .node = node, .size = @intCast(info.size) };
     descriptors[fd].close_on_exec = (flags & 0x80000) != 0;
     descriptors[fd].append = false;
     descriptors[fd].writable = (flags & 0x3) != 0;
@@ -213,7 +232,7 @@ pub fn openEpoll() !usize {
     var fd: usize = 3;
     while (fd < descriptors.len and descriptors[fd].kind != .unused) : (fd += 1) {}
     if (fd == descriptors.len) return error.TooManyFiles;
-    descriptors[fd] = .{ .generation = newGeneration(), .kind = .epoll, .node = .root };
+    descriptors[fd] = .{ .generation = try newGeneration(), .kind = .epoll, .node = .root };
     return fd;
 }
 
@@ -228,7 +247,7 @@ pub fn duplicate(old_fd: usize, new_fd: usize) !usize {
     if (old_fd >= descriptors.len or new_fd >= descriptors.len or descriptors[old_fd].kind == .unused) return error.BadFd;
     if (old_fd != new_fd) {
         descriptors[new_fd] = descriptors[old_fd];
-        descriptors[new_fd].generation = newGeneration();
+        descriptors[new_fd].generation = try newGeneration();
         descriptors[new_fd].close_on_exec = false;
     }
     return new_fd;
@@ -338,7 +357,7 @@ fn advanceOffset(offset: *usize, count: usize) !void {
 }
 
 test "file offsets reject arithmetic overflow" {
-    var offset = std.math.maxInt(usize) - 1;
+    var offset: usize = std.math.maxInt(usize) - 1;
     try advanceOffset(&offset, 1);
     try std.testing.expectError(error.FileTooLarge, advanceOffset(&offset, 1));
 }
