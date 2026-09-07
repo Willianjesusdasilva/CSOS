@@ -1,3 +1,4 @@
+const std = @import("std");
 const page_size = 4096;
 const conventional_memory = 7;
 
@@ -27,6 +28,7 @@ pub const Allocator = struct {
 
     pub fn init(map: [*]align(8) const u8, descriptor_count: usize, descriptor_size: usize) Allocator {
         var self = Allocator{};
+        if (descriptor_size < @sizeOf(Descriptor)) return self;
         var index: usize = 0;
         while (index < descriptor_count and self.range_count < self.ranges.len) : (index += 1) {
             const descriptor: *align(1) const Descriptor = @ptrCast(map + index * descriptor_size);
@@ -35,7 +37,8 @@ pub const Allocator = struct {
             if (descriptor.kind != conventional_memory or descriptor.page_count == 0) continue;
 
             var start = descriptor.physical_start;
-            const end = start + descriptor.page_count * page_size;
+            const bytes = std.math.mul(u64, descriptor.page_count, page_size) catch continue;
+            const end = std.math.add(u64, start, bytes) catch continue;
             if (end <= 0x100000) continue;
             if (start < 0x100000) start = 0x100000;
             self.ranges[self.range_count] = .{ .next = start, .end = end };
