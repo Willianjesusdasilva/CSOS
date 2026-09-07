@@ -286,6 +286,15 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_e1000_tests.step);
     const net_module = b.createModule(.{ .root_source_file = b.path("net/stack.zig") });
     net_module.addImport("e1000", e1000_module);
+    const net_test_module = b.createModule(.{
+        .root_source_file = b.path("net/stack.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+    });
+    net_test_module.addImport("e1000", e1000_test_module);
+    const net_tests = b.addTest(.{ .root_module = net_test_module });
+    const run_net_tests = b.addRunArtifact(net_tests);
+    test_step.dependOn(&run_net_tests.step);
     const smp_module = b.createModule(.{ .root_source_file = b.path("arch/x86_64/smp.zig") });
     smp_module.addImport("apic", apic_module);
     smp_module.addImport("idt", idt_module);

@@ -516,11 +516,11 @@ test "DNS name skipping rejects malformed labels and accepts compression" {
 test "DNS response validation matches transaction and answer presence" {
     var response = [_]u8{0} ** 12;
     put16(&response, 0x4353);
-    put16(response[2..].ptr, 0x8000);
-    put16(response[6..].ptr, 1);
+    put16(response[2..4], 0x8000);
+    put16(response[6..8], 1);
     try @import("std").testing.expect(validDnsResponse(&response, 0x4353));
     try @import("std").testing.expect(!validDnsResponse(&response, 0x4354));
-    response[6] = 0;
+    response[7] = 0;
     try @import("std").testing.expect(!validDnsResponse(&response, 0x4353));
     try @import("std").testing.expect(!validDnsResponse(response[0..11], 0x4353));
 }
