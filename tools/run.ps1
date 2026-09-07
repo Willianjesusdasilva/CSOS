@@ -14,7 +14,8 @@ param(
     [ValidateRange(0, 300)][int]$SmokeTestSeconds = 0,
     [string]$ExpectSerial = 'CSOS M14 userspace DRM core ready',
     [switch]$SmokeDesktopFiles,
-    [switch]$SmokeDesktopMouse
+    [switch]$SmokeDesktopMouse,
+    [switch]$SmokeTerminalRun
 )
 
 $ErrorActionPreference = 'Stop'
@@ -78,7 +79,7 @@ if ($SmokeTestSeconds -gt 0) {
     $errorLog = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\zig-out\smoke-$runId.stderr.log"))
     $monitorPort = $null
     $monitorTarget = 'none'
-    if ($SmokeDesktopFiles -or $SmokeDesktopMouse) {
+    if ($SmokeDesktopFiles -or $SmokeDesktopMouse -or $SmokeTerminalRun) {
         $reservation = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
         $reservation.Start()
         try { $monitorPort = ([Net.IPEndPoint]$reservation.LocalEndpoint).Port } finally { $reservation.Stop() }
@@ -92,6 +93,7 @@ if ($SmokeTestSeconds -gt 0) {
     $testResult = 124
     $uiInjected = $false
     $mouseInjected = $false
+    $terminalInjected = $false
     try {
         $testProcess = Start-Process -FilePath $qemu.FullName -ArgumentList $quotedArguments -PassThru -WindowStyle Hidden -RedirectStandardError $errorLog
         $timer = [Diagnostics.Stopwatch]::StartNew()
@@ -137,6 +139,22 @@ if ($SmokeTestSeconds -gt 0) {
                     Write-Output 'Injected desktop mouse smoke sequence: move -> press -> release'
                 } finally { $monitor.Dispose() }
             }
+            if ($SmokeTerminalRun -and -not $terminalInjected -and $serialText.Contains('CSOS graphical session ready')) {
+                $monitor = [Net.Sockets.TcpClient]::new()
+                try {
+                    $monitor.Connect('127.0.0.1', $monitorPort)
+                    $writer = [IO.StreamWriter]::new($monitor.GetStream())
+                    try {
+                        $writer.AutoFlush = $true
+                        foreach ($key in @('meta_l', 'ret', 'r', 'u', 'n', 'space', 'e', 'c', 'h', 'o', 'space', 's', 'm', 'o', 'k', 'e', 'ret')) {
+                            $writer.WriteLine("sendkey $key")
+                            Start-Sleep -Milliseconds 350
+                        }
+                    } finally { $writer.Dispose() }
+                    $terminalInjected = $true
+                    Write-Output 'Injected terminal smoke sequence: run echo smoke'
+                } finally { $monitor.Dispose() }
+            }
             $observed = $serialText.Contains($ExpectSerial)
             if ($SmokeDesktopFiles) {
                 $observed = $observed -and
@@ -151,6 +169,9 @@ if ($SmokeTestSeconds -gt 0) {
                     $serialText.Contains('UI mouse wheel:') -and
                     $serialText.Contains('UI mouse buttons: 1') -and
                     $serialText.Contains('UI mouse buttons: 0')
+            }
+            if ($SmokeTerminalRun) {
+                $observed = $observed -and $serialText.Contains('UI terminal run: echo smoke')
             }
             if ($observed) { $testResult = 0; break }
             if ($testProcess.HasExited) { $testResult = 1; break }

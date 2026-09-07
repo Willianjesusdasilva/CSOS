@@ -690,6 +690,8 @@ raiz.
 terminal.
 O comando `run ...` inicia applets BusyBox pelo loader de userspace real, por
 exemplo `run echo pronto` ou `run ls /`.
+O harness QEMU também oferece `-SmokeTerminalRun` para injetar esse fluxo pelo
+teclado e verificar o marcador serial do lançamento.
 `echo texto > arquivo` usa `openAt`/`write` para criar ou truncar um arquivo FAT
 real, tornando o terminal capaz de persistir dados durante a sessão.
 O formato `echo texto >> arquivo` preserva o conteúdo existente e acrescenta uma

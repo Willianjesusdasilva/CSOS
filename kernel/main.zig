@@ -2696,6 +2696,9 @@ fn moveTerminalFile(source: []const u8, destination: []const u8) bool {
 }
 
 fn runTerminalProgram(command: []const u8) bool {
+    serial.write("UI terminal run: ");
+    serial.write(command);
+    serial.write("\n");
     var arguments: [8][]const u8 = undefined;
     var count: usize = 1;
     arguments[0] = "/bin/busybox";
