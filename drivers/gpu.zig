@@ -2676,7 +2676,7 @@ fn readHex(bytes: []const u8) !usize {
     return value;
 }
 fn readHexValue(bytes: []const u8) !u16 {
-    return @intCast(try readHex(bytes));
+    return std.math.cast(u16, try readHex(bytes)) orelse error.InvalidFirmwareArchive;
 }
 fn findByte(bytes: []const u8, wanted: u8) ?usize {
     for (bytes, 0..) |byte, index| if (byte == wanted) return index;
