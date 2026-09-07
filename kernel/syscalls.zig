@@ -376,6 +376,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         95 => umask(arg1),
         97 => getRlimit(arg1, arg2),
         98 => getRusage(arg1, arg2),
+        99 => sysinfo(arg1),
         100 => times(arg1),
         102, 104 => 0,
         105, 106 => if (arg1 == 0) 0 else errno(1),
@@ -3165,6 +3166,27 @@ fn getRusage(who: u64, output: u64) u64 {
     if (who > 1 or !validUserSlice(output, 144)) return errno(22);
     const bytes: [*]u8 = @ptrFromInt(output);
     @memset(bytes[0..144], 0);
+    return 0;
+}
+
+fn sysinfo(output: u64) u64 {
+    if (!validUserSlice(output, 112)) return errno(14);
+    const bytes: [*]u8 = @ptrFromInt(output);
+    @memset(bytes[0..112], 0);
+    put64(bytes, monotonic_time_ns / 1_000_000_000); // uptime
+    put64(bytes + 8, 1); // one-second load averages, fixed-point 0.0
+    put64(bytes + 16, 1);
+    put64(bytes + 24, 1);
+    put64(bytes + 32, 256 * 1024 * 1024); // totalram
+    put64(bytes + 40, 192 * 1024 * 1024); // freeram
+    put64(bytes + 48, 0); // sharedram
+    put64(bytes + 56, 64 * 1024 * 1024); // bufferram
+    put64(bytes + 64, 0); // totalswap
+    put64(bytes + 72, 0); // freeswap
+    put16(bytes + 80, 1); // procs
+    put64(bytes + 88, 128 * 1024 * 1024); // totalhigh
+    put64(bytes + 96, 96 * 1024 * 1024); // freehigh
+    put32(bytes + 104, 4096); // mem_unit
     return 0;
 }
 
