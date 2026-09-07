@@ -3031,7 +3031,9 @@ fn appendPspComponent(result: *AmdPspFirmware, bytes: []const u8, kind: u32, com
 }
 
 fn appendLegacyPspComponent(result: *AmdPspFirmware, bytes: []const u8, descriptor: usize, kind: u32, payload_base: usize) !void {
-    try appendPspComponent(result, bytes, kind, @intCast(readLittle32(bytes, descriptor)), payload_base + readLittle32(bytes, descriptor + 4), readLittle32(bytes, descriptor + 8));
+    const component_offset = std.math.add(usize, payload_base, readLittle32(bytes, descriptor + 4)) catch
+        return error.InvalidAmdPspFirmwareComponent;
+    try appendPspComponent(result, bytes, kind, @intCast(readLittle32(bytes, descriptor)), component_offset, readLittle32(bytes, descriptor + 8));
 }
 
 pub fn parseAmdPspFirmware(bytes: []const u8) !AmdPspFirmware {
