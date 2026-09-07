@@ -170,6 +170,7 @@ pub const WindowManager = struct {
         self.launcher_open = false;
         self.launcher_selection = 0;
         self.taskbar_hover = null;
+        self.switcher_hover = null;
         if (index + 1 < self.count) {
             const selected = self.windows[index];
             var i = index;
