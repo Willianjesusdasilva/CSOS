@@ -1796,7 +1796,9 @@ fn amdgpuBoListCoversGpuVa(list: *const AmdGpuBoList, address: u64, size: u32) b
         const mapping = covered orelse return false;
         if ((mapping.flags & 0x2) == 0) return false;
         if (!amdgpuBoIsResident(list, mapping.handle)) return false;
-        cursor = @min(end, mapping.address + 4096);
+        const next_page = std.math.add(u64, mapping.address, 4096) catch return false;
+        if (next_page <= cursor) return false;
+        cursor = @min(end, next_page);
     }
     return true;
 }
