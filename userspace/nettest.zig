@@ -41,6 +41,7 @@ pub export fn _start() callconv(.naked) noreturn {
         \\syscall
         \\testq %%rax, %%rax
         \\jle 1f
+        \\movq %%rax, %%r13
         \\cmpl $0x50545448, (%%rsi)
         \\jne 1f
         \\cmpb $47, 4(%%rsi)
@@ -51,6 +52,11 @@ pub export fn _start() callconv(.naked) noreturn {
         \\syscall
         \\movq $3, %%rax
         \\movq %%r12, %%rdi
+        \\syscall
+        \\movq $1, %%rax
+        \\movq $1, %%rdi
+        \\leaq response(%%rip), %%rsi
+        \\movq %%r13, %%rdx
         \\syscall
         \\movq $1, %%rax
         \\movq $1, %%rdi

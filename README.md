@@ -692,7 +692,8 @@ O comando `run ...` inicia applets BusyBox pelo loader de userspace real, por
 exemplo `run echo pronto` ou `run ls /`.
 O teste userspace de rede também publica `HTTP GET userspace ready` depois de
 enviar um GET HTTP/1.0 e receber dados pela conexão TCP emulada; a resposta é
-validada pelo prefixo `HTTP/` antes do marcador ser emitido.
+validada pelo prefixo `HTTP/` antes do marcador ser emitido, e os bytes da
+resposta são encaminhados ao stdout userspace para consumo por aplicações.
 Durante a execução foreground, stdout e stderr dos applets são duplicados para
 o buffer do terminal SDL e continuam disponíveis no console serial, permitindo
 usar `run` como um terminal de aplicações real.
