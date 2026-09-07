@@ -418,6 +418,8 @@ fn sendfile(output_fd: u64, input_fd: u64, offset_address: u64, count: u64) u64 
         if (written != read_count) break;
     }
     if (offset_address != 0) {
+        if (explicit_offset.? > std.math.maxInt(u64) - transferred)
+            return if (transferred == 0) errno(75) else transferred;
         const pointer: *align(1) u64 = @ptrFromInt(offset_address);
         pointer.* = explicit_offset.? + transferred;
     }
