@@ -64,6 +64,12 @@ fn saturatingCount(value: u64, increment: u64) u64 {
 fn pageCountForBytes(size: u64) !u64 {
     return (try std.math.add(u64, size, 4095)) / 4096;
 }
+
+test "DRM page count rounds and rejects overflow" {
+    try std.testing.expectEqual(@as(u64, 1), try pageCountForBytes(1));
+    try std.testing.expectEqual(@as(u64, 2), try pageCountForBytes(4097));
+    try std.testing.expectError(error.Overflow, pageCountForBytes(std.math.maxInt(u64)));
+}
 pub var drm_last_request: u64 = 0;
 pub var drm_last_result: u64 = 0;
 var network_stack: ?*net.Stack = null;
