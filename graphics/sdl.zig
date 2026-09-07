@@ -415,6 +415,12 @@ pub const TextInput = struct {
         @memset(&self.bytes, 0);
     }
 
+    pub fn eraseToEnd(self: *TextInput) void {
+        self.cursor = @min(self.cursor, self.len);
+        @memset(self.bytes[self.cursor..self.len], 0);
+        self.len = self.cursor;
+    }
+
     pub fn moveLeft(self: *TextInput) void {
         self.cursor = @min(self.cursor, self.len);
         self.cursor -|= 1;
@@ -893,6 +899,11 @@ test "SDL software event queue and surface contract" {
     input.replace(&long_text);
     input.replace("z");
     try @import("std").testing.expectEqual(@as(u8, 0), input.bytes[63]);
+    input.replace("abcdef");
+    input.cursor = 2;
+    input.eraseToEnd();
+    try @import("std").testing.expectEqualStrings("ab", input.slice());
+    try @import("std").testing.expectEqual(@as(u8, 0), input.bytes[2]);
     var terminal = Terminal{};
     for ("discard") |byte| try @import("std").testing.expect(terminal.input.insert(byte));
     terminal.cancel();
