@@ -558,10 +558,16 @@ brk
 exit
 clock_gettime
 futex
-epoll
+poll / ppoll
 sockets
 ioctl
 ```
+
+O contrato atual também cobre o lifecycle Linux usado pelos runtimes:
+afinidade e política do scheduler, limites de recursos, grupos/sessões,
+credenciais, robust-list, sinais básicos, `wait4`/`waitid`, `prctl` para nome
+de processo e operações vetorizadas de arquivo (`readv`/`writev`). `epoll`
+continua pendente e não deve ser tratado como disponível.
 
 Regra:
 
