@@ -245,6 +245,10 @@ pub const Window = struct {
         var cursor_x = x;
         var cursor_y = y;
         for (text) |character| {
+            if (character == '\r') {
+                cursor_x = x;
+                continue;
+            }
             if (character == '\n') {
                 cursor_x = x;
                 cursor_y +|= 12;
@@ -647,7 +651,7 @@ test "SDL software event queue and surface contract" {
     try @import("std").testing.expect(!clipped.consumeDirty());
     var multiline_storage = [_]u32{0} ** 256;
     var multiline = try createWindow(&multiline_storage, 16, 16);
-    multiline.drawText(0, 0, "A\nB", 0xffffffff);
+    multiline.drawText(0, 0, "A\r\nB", 0xffffffff);
     try @import("std").testing.expect(multiline.pixels[2] != 0);
     var lower_pixels: usize = 0;
     for (multiline.pixels[12 * 16 ..]) |pixel| {
