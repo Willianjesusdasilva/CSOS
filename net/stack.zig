@@ -327,7 +327,7 @@ pub const Stack = struct {
         var attempts: u8 = 0;
         while (attempts < 32) : (attempts += 1) {
             const length = try self.device.receive(&frame);
-            if (length < 42 + 240 or get16(frame[12..]) != 0x0800 or frame[23] != 17) continue;
+            if (length < 42 + 240 or get16(frame[12..]) != 0x0800 or frame[23] != 17 or frame[14] >> 4 != 4) continue;
             const ip_header = @as(usize, frame[14] & 0x0f) * 4;
             if (ip_header < 20 or length < 14 + ip_header + 8 + 240) continue;
             const udp = 14 + ip_header;
@@ -382,7 +382,7 @@ pub const Stack = struct {
         var attempts: u8 = 0;
         while (attempts < 32) : (attempts += 1) {
             const length = try self.device.receive(&frame);
-            if (length < 42 or get16(frame[12..]) != 0x0800 or frame[23] != 17) continue;
+            if (length < 42 or get16(frame[12..]) != 0x0800 or frame[23] != 17 or frame[14] >> 4 != 4) continue;
             const header_length = @as(usize, frame[14] & 0x0f) * 4;
             const total_length = get16(frame[16..]);
             if (header_length < 20 or total_length < header_length + 8 or length < 14 + total_length) continue;
