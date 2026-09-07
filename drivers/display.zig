@@ -685,9 +685,9 @@ pub const Context = struct {
         self.dirty_top = 0;
         self.dirty_right = 0;
         self.dirty_bottom = 0;
-        self.frames_presented += 1;
-        self.pixels_examined += examined;
-        self.pixels_presented += written;
+        self.frames_presented +%= 1;
+        self.pixels_examined +%= examined;
+        self.pixels_presented +%= written;
         return examined;
     }
 
