@@ -89,7 +89,7 @@ pub const Stack = struct {
     }
 
     pub fn resolveDns(self: *Stack, name: []const u8) ![4]u8 {
-        if (name.len == 0 or name.len > 253) return error.InvalidDnsName;
+        _ = try dnsWireNameLength(name);
         const dns_mac = try self.resolveAddress(self.dns_ip);
         var query: [512]u8 = .{0} ** 512;
         const dns_transaction = self.dns_transaction;
@@ -513,6 +513,24 @@ fn addWords(initial: u32, bytes: []const u8) u32 {
     return sum;
 }
 
+fn dnsWireNameLength(name: []const u8) !usize {
+    if (name.len == 0 or name.len > 253) return error.InvalidDnsName;
+    var encoded: usize = 1; // terminating zero label
+    var label_start: usize = 0;
+    while (label_start < name.len) {
+        var label_end = label_start;
+        while (label_end < name.len and name[label_end] != '.') : (label_end += 1) {}
+        const length = label_end - label_start;
+        if (length == 0 or length > 63) return error.InvalidDnsName;
+        encoded = @import("std").math.add(usize, encoded, 1 + length) catch return error.InvalidDnsName;
+        if (encoded > 255) return error.InvalidDnsName;
+        if (label_end == name.len) break;
+        label_start = label_end + 1;
+        if (label_start == name.len) break; // permit a trailing root dot
+    }
+    return encoded;
+}
+
 fn skipDnsName(message: []const u8, start: usize) !usize {
     if (start >= message.len) return error.InvalidDnsReply;
     var offset = start;
@@ -559,6 +577,15 @@ test "DNS name skipping rejects malformed labels and accepts compression" {
     var malformed = [_]u8{0} ** 65;
     malformed[0] = 64;
     try testing.expectError(error.InvalidDnsReply, skipDnsName(&malformed, 0));
+}
+
+test "DNS wire names enforce encoded length and label limits" {
+    const testing = @import("std").testing;
+    try testing.expectEqual(@as(usize, 15), try dnsWireNameLength("example.local"));
+    try testing.expectEqual(@as(usize, 15), try dnsWireNameLength("example.local."));
+    try testing.expectError(error.InvalidDnsName, dnsWireNameLength("a..b"));
+    var long_name: [253]u8 = [_]u8{'a'} ** 253;
+    try testing.expectError(error.InvalidDnsName, dnsWireNameLength(&long_name));
 }
 
 test "DNS response validation matches transaction and answer presence" {
