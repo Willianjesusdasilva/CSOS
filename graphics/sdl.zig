@@ -246,6 +246,7 @@ pub const Window = struct {
         var cursor_x = x;
         var cursor_y = y;
         for (text) |character| {
+            if (cursor_y >= self.height) break;
             if (character == '\r') {
                 cursor_x = x;
                 continue;
