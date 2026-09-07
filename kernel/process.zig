@@ -732,6 +732,7 @@ fn loadSegment(
 ) !void {
     var page_virtual = virtual & ~(page_size - 1);
     const segment_end = std.math.add(u64, virtual, memory_size) catch return error.InvalidElf;
+    const file_end = std.math.add(u64, virtual, file_size) catch return error.InvalidElf;
     while (page_virtual < segment_end) : (page_virtual += @min(@as(u64, page_size), segment_end - page_virtual)) {
         var physical_address: ?u64 = null;
         for (mappings[0..mapping_count.*]) |mapping| {
@@ -774,12 +775,15 @@ fn loadSegment(
 
         const page_end = std.math.add(u64, page_virtual, page_size) catch return error.InvalidElf;
         const copy_start = @max(page_virtual, virtual);
-        const copy_end = @min(page_end, virtual + file_size);
+        const copy_end = @min(page_end, file_end);
         if (copy_start < copy_end) {
-            const destination: [*]u8 = @ptrFromInt(physical_address.? + copy_start - page_virtual);
-            const source: usize = @intCast(file_offset + copy_start - virtual);
-            const length: usize = @intCast(copy_end - copy_start);
-            @memcpy(destination[0..length], image[source .. source + length]);
+            const destination_address = std.math.add(u64, physical_address.?, copy_start - page_virtual) catch return error.InvalidElf;
+            const source_offset = std.math.add(u64, file_offset, copy_start - virtual) catch return error.InvalidElf;
+            const source: usize = std.math.cast(usize, source_offset) orelse return error.InvalidElf;
+            const length: usize = std.math.cast(usize, copy_end - copy_start) orelse return error.InvalidElf;
+            const source_end = std.math.add(usize, source, length) catch return error.InvalidElf;
+            const destination: [*]u8 = @ptrFromInt(destination_address);
+            @memcpy(destination[0..length], image[source..source_end]);
         }
     }
 }

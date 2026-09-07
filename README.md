@@ -835,6 +835,11 @@ injeta movimento relativo em múltiplos passos, um evento de roda e um ciclo
 esquerdo pressionar/soltar, exigindo os marcadores de movimento, roda e ambos
 os estados no serial. O smoke combinado
 de `test-system.ps1` cobre teclado e mouse no mesmo boot e encerra o QEMU.
+
+O loader ELF valida o fim do trecho de arquivo e os endereços de destino e
+origem usados na cópia de cada página PT_LOAD. Isso mantém carga e retomada de
+páginas fora dos limites como falhas explícitas, sem depender de hardware
+físico.
 Os passos são espaçados para que o dispositivo USB não coalesça toda a trajetória
 em um único relatório; cada movimento aceito registra posição e delta no serial.
 

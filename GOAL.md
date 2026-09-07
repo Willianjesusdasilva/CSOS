@@ -318,6 +318,11 @@ O `tools/test-system.ps1` também passou o smoke integrado de launcher, FILES,
 prévia/paginação, teclado e mouse, encerrando o QEMU automaticamente após os
 marcadores esperados.
 
+O carregador ELF agora valida também o fim do trecho de arquivo e todas as
+adições usadas para copiar páginas PT_LOAD, incluindo conversões para índices
+do buffer. Um ELF malformado não pode mais transformar overflow em escrita fora
+da imagem durante carga ou retomada de página.
+
 Inventário do host Windows no mesmo snapshot detectou uma AMD Radeon(TM)
 Graphics (`1002:164e`) e uma NVIDIA GeForce RTX 4060 Ti (`10de:2803`), ambas
 com status `OK`. Essa detecção apenas confirma que existe hardware disponível
