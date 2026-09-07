@@ -435,7 +435,9 @@ pub const Stack = struct {
             if (checksum(frame[14 .. 14 + header_length]) != 0 or !equal(frame[26..30], &source) or !equal(frame[30..34], &self.local_ip)) continue;
             const udp_offset = 14 + header_length;
             const udp_length = get16(frame[udp_offset + 4 ..]);
-            if (udp_length < 8 or udp_length > total_length - header_length or get16(frame[udp_offset..]) != source_port or get16(frame[udp_offset + 2 ..]) != destination_port) continue;
+            if (udp_length < 8 or udp_length > total_length - header_length or
+                udp_offset > length or udp_length > length - udp_offset or
+                get16(frame[udp_offset..]) != source_port or get16(frame[udp_offset + 2 ..]) != destination_port) continue;
             const udp = frame[udp_offset .. udp_offset + udp_length];
             const received_checksum = get16(udp[6..]);
             if (received_checksum != 0 and udpChecksum(source, self.local_ip, udp) != 0) continue;
