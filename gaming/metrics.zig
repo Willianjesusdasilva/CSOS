@@ -35,3 +35,23 @@ pub const Samples = struct {
 fn percentileIndex(count: usize, percentile: usize) usize {
     return (count * percentile + 99) / 100 - 1;
 }
+
+test "metrics summary orders samples and computes percentiles" {
+    var samples = Samples{};
+    try samples.add(50);
+    try samples.add(10);
+    try samples.add(30);
+    const summary = try samples.summarize();
+    try @import("std").testing.expectEqual(@as(u64, 10), summary.minimum);
+    try @import("std").testing.expectEqual(@as(u64, 10), summary.p50);
+    try @import("std").testing.expectEqual(@as(u64, 50), summary.p95);
+    try @import("std").testing.expectEqual(@as(u64, 50), summary.p99);
+    try @import("std").testing.expectEqual(@as(u64, 50), summary.maximum);
+}
+
+test "metrics rejects empty and overfull sample sets" {
+    var samples = Samples{};
+    try @import("std").testing.expectError(error.Empty, samples.summarize());
+    for (0..samples.values.len) |index| try samples.add(@intCast(index));
+    try @import("std").testing.expectError(error.Full, samples.add(99));
+}
