@@ -254,6 +254,15 @@ pub const Window = struct {
                 cursor_y +|= 12;
                 continue;
             }
+            if (character == '\t') {
+                const column = (cursor_x -| x) / 8;
+                cursor_x = x +| ((column + 4) & ~@as(usize, 3)) * 8;
+                if (cursor_x >= self.width) {
+                    cursor_x = x;
+                    cursor_y +|= 12;
+                }
+                continue;
+            }
             const glyph_x = cursor_x;
             const glyph = glyph3x5(character);
             for (glyph, 0..) |row_bits, row| {
@@ -671,6 +680,11 @@ test "SDL software event queue and surface contract" {
         if (pixel != 0) wrapped_lower += 1;
     }
     try @import("std").testing.expect(wrapped_lower != 0);
+    var tab_storage = [_]u32{0} ** 640;
+    var tabbed = try createWindow(&tab_storage, 40, 16);
+    tabbed.drawText(0, 0, "A\tB", 0xffffffff);
+    try @import("std").testing.expect(tabbed.pixels[2] != 0);
+    try @import("std").testing.expect(tabbed.pixels[32 + 2] != 0);
     var events = EventQueue{};
     try @import("std").testing.expectEqual(@as(usize, 0), events.len());
     try @import("std").testing.expectEqual(EventQueue.capacity, events.remaining());
