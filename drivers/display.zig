@@ -362,7 +362,7 @@ pub const WindowManager = struct {
         if (x < 64) return null;
         const task_x = x - 64;
         const slot = task_x / 112;
-        if (slot >= self.count or task_x % 112 >= 104) return null;
+        if (slot >= self.count or !self.windows[slot].visible or task_x % 112 >= 104) return null;
         return slot;
     }
 
@@ -598,6 +598,7 @@ test "window manager focus alt-tab hit-test and close" {
     try std.testing.expect(!manager.move(0, 0, 0, 100, 100));
     try std.testing.expect(!manager.resize(0, 80, 60, 100, 100));
     try std.testing.expect(!manager.restore(0));
+    try std.testing.expect(manager.taskbarHitTest(80, 119, 128) == null);
     try std.testing.expect(manager.altTab() == null);
     try std.testing.expect(manager.altTabReverse() == null);
     try std.testing.expect(manager.focused == null);
