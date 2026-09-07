@@ -2103,6 +2103,7 @@ pub fn start(info: BootInfo) noreturn {
                 const gui_pressed = (event.b & 0x88) != 0;
                 const launcher_shortcut_pressed = event.c != 0 and (gui_pressed or ((event.b & 0x11) != 0 and event.a == 0x2c));
                 const terminal_shortcut_pressed = event.c != 0 and event.a == 0x17 and ctrl_held and alt_held;
+                const monitor_shortcut_pressed = event.c != 0 and event.a == 0x10 and ctrl_held and alt_held;
                 if (terminal_shortcut_pressed) {
                     const was_open = window_manager.findById(1) != null;
                     if (!demo_app.running) {
@@ -2112,6 +2113,10 @@ pub fn start(info: BootInfo) noreturn {
                     _ = launchDesktopWindow(window_manager, 1, &demo_app.window, &monitor_window, &system_window, &files_window) catch panic("desktop terminal shortcut launch failed");
                     if (!was_open) resetSdlDemoApplication(&demo_app);
                     serial.write("UI terminal shortcut\n");
+                }
+                if (monitor_shortcut_pressed) {
+                    _ = launchDesktopWindow(window_manager, 2, &demo_app.window, &monitor_window, &system_window, &files_window) catch panic("desktop monitor shortcut launch failed");
+                    serial.write("UI monitor shortcut\n");
                 }
                 if (launcher_shortcut_pressed and !launcher_key_down) {
                     window_manager.toggleLauncher();
@@ -2157,7 +2162,7 @@ pub fn start(info: BootInfo) noreturn {
                         }
                     }
                 }
-                if (!terminal_shortcut_pressed and !launcher_consumed and !tab_switch_pressed and event.c != 0 and focusedWindowIs(window_manager, 4) and event.a != 0) {
+                if (!terminal_shortcut_pressed and !monitor_shortcut_pressed and !launcher_consumed and !tab_switch_pressed and event.c != 0 and focusedWindowIs(window_manager, 4) and event.a != 0) {
                     if (event.a == 0x3e or (event.a == 0x15 and (event.b & 0x11) != 0)) {
                         root_file_count = refreshFiles(&volume, &root_files, &files_selection, &files_window) catch panic("UI files F5 refresh failed");
                         files_preview_open = false;
@@ -2209,7 +2214,7 @@ pub fn start(info: BootInfo) noreturn {
                         serial.write("\n");
                     }
                 }
-                if (!terminal_shortcut_pressed and !launcher_consumed and !tab_switch_pressed and focusedWindowIs(window_manager, 1)) {
+                if (!terminal_shortcut_pressed and !monitor_shortcut_pressed and !launcher_consumed and !tab_switch_pressed and focusedWindowIs(window_manager, 1)) {
                     _ = sdl_events.pushKeyboard(event.a, event.a != 0, event.b);
                     if (event.c != 0 and event.a != 0) {
                         if (event.a == 0x0f and (event.b & 0x01) != 0) {
