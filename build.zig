@@ -455,6 +455,7 @@ pub fn build(b: *std.Build) void {
     kernel_module.addImport("gpu", gpu_module);
     kernel_module.addImport("display", display_module);
     kernel_module.addImport("sdl", sdl_module);
+    kernel_module.addImport("html", html_module);
     kernel_module.addImport("hardware_profile", hardware_profile_module);
     kernel_module.addImport("metrics", metrics_module);
     kernel_module.addImport("installer_state", installer_state_module);

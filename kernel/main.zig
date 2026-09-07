@@ -12,6 +12,7 @@ const xhci = @import("xhci");
 const gpu = @import("gpu");
 const display = @import("display");
 const sdl = @import("sdl");
+const html = @import("html");
 const hardware_profile = @import("hardware_profile");
 const metrics = @import("metrics");
 const installer_state = @import("installer_state");
@@ -2773,15 +2774,14 @@ fn launchDesktopWindow(manager: *display.WindowManager, application_id: u32, app
 
 fn drawSystemSurface(window: *sdl.Window, storage_blocks: u64, input_devices: usize, audio_endpoints: usize) void {
     window.clear(0x14201cff);
-    window.drawText(4, 4, "CSOS SYSTEM", 0x70d0a0ff);
-    window.drawText(4, 22, "STATUS", 0xa0b8d0ff);
-    window.drawText(92, 22, "READY", 0x70d0a0ff);
-    window.drawText(4, 40, "DISK BLOCKS", 0xa0b8d0ff);
-    drawSurfaceNumber(window, 108, 40, storage_blocks, 0xe0e8f0ff);
-    window.drawText(4, 58, "USB INPUT", 0xa0b8d0ff);
-    drawSurfaceNumber(window, 108, 58, @intCast(input_devices), 0xe0e8f0ff);
-    window.drawText(4, 76, "AUDIO", 0xa0b8d0ff);
-    drawSurfaceNumber(window, 108, 76, @intCast(audio_endpoints), 0xe0e8f0ff);
+    const document = html.Document.parse("<h1>CSOS SYSTEM</h1><button>READY</button>");
+    window.drawHtml(&document, 4, 2);
+    window.drawText(4, 32, "DISK BLOCKS", 0xa0b8d0ff);
+    drawSurfaceNumber(window, 108, 32, storage_blocks, 0xe0e8f0ff);
+    window.drawText(4, 50, "USB INPUT", 0xa0b8d0ff);
+    drawSurfaceNumber(window, 108, 50, @intCast(input_devices), 0xe0e8f0ff);
+    window.drawText(4, 68, "AUDIO", 0xa0b8d0ff);
+    drawSurfaceNumber(window, 108, 68, @intCast(audio_endpoints), 0xe0e8f0ff);
 }
 
 fn refreshSystemSurface(window: *sdl.Window, storage_blocks: u64, input_devices: usize, audio_endpoints: usize) void {
