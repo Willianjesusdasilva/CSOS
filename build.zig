@@ -333,6 +333,18 @@ pub fn build(b: *std.Build) void {
     scheduler_module.addImport("idt", idt_module);
     scheduler_module.addImport("apic", apic_module);
     scheduler_module.addImport("metrics", metrics_module);
+    const scheduler_test_module = b.createModule(.{
+        .root_source_file = b.path("kernel/scheduler.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+    });
+    scheduler_test_module.addImport("physical", physical_module);
+    scheduler_test_module.addImport("idt", idt_module);
+    scheduler_test_module.addImport("apic", apic_module);
+    scheduler_test_module.addImport("metrics", metrics_module);
+    const scheduler_tests = b.addTest(.{ .root_module = scheduler_test_module });
+    const run_scheduler_tests = b.addRunArtifact(scheduler_tests);
+    test_step.dependOn(&run_scheduler_tests.step);
     const syscalls_module = b.createModule(.{ .root_source_file = b.path("kernel/syscalls.zig") });
     syscalls_module.addImport("serial", serial_module);
     const vfs_module = b.createModule(.{ .root_source_file = b.path("kernel/vfs.zig") });

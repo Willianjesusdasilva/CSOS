@@ -400,6 +400,14 @@ fn lifecyclePriority(value: Lifecycle) u8 {
     };
 }
 
+test "scheduler lifecycle priority keeps runnable states ahead" {
+    try std.testing.expect(lifecyclePriority(.running) > lifecyclePriority(.resuming));
+    try std.testing.expect(lifecyclePriority(.resuming) > lifecyclePriority(.background));
+    try std.testing.expect(lifecyclePriority(.background) > lifecyclePriority(.frozen));
+    try std.testing.expect(lifecyclePriority(.frozen) > lifecyclePriority(.standby));
+    try std.testing.expect(lifecyclePriority(.standby) > lifecyclePriority(.finished));
+}
+
 fn saveFxState(state: *[512]u8) void {
     asm volatile ("fxsave64 (%[state])"
         :
