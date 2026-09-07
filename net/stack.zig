@@ -84,6 +84,7 @@ pub const Stack = struct {
     }
 
     pub fn resolveDns(self: *Stack, name: []const u8) ![4]u8 {
+        if (name.len == 0 or name.len > 253) return error.InvalidDnsName;
         const dns_mac = try self.resolveAddress(self.dns_ip);
         var query: [512]u8 = .{0} ** 512;
         put16(query[0..], 0x4353); put16(query[2..], 0x0100); put16(query[4..], 1);
