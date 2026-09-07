@@ -2142,10 +2142,13 @@ fn amdgpuInfo(address: u64) u64 {
         const pages = drm_pages orelse return errno(19);
         var gtt_usage: u64 = 0;
         for (drm_objects) |object| if (object.allocated) {
-            if (!object.vram_backed) gtt_usage += object.pages * 4096;
+            if (!object.vram_backed) {
+                const object_bytes = bytesForPages(object.pages) catch return errno(12);
+                gtt_usage = std.math.add(u64, gtt_usage, object_bytes) catch return errno(12);
+            }
         };
-        const gtt_free = pages.free_pages * 4096;
-        const gtt_total = gtt_free + gtt_usage;
+        const gtt_free = bytesForPages(pages.free_pages) catch return errno(12);
+        const gtt_total = std.math.add(u64, gtt_free, gtt_usage) catch return errno(12);
         const vram_reserved = if (amdgpu_vram_endpoint) |endpoint| endpoint.reserved_bytes(endpoint.context) else memory.reserved_vram_bytes;
         const vram_free = if (amdgpu_vram_endpoint != null and vram_reserved <= memory.visible_vram_bytes) memory.visible_vram_bytes - vram_reserved else 0;
         const vram_max = if (amdgpu_vram_endpoint) |endpoint| @min(endpoint.largest_free_bytes(endpoint.context), drm_object_stride) else 0;
