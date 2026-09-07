@@ -19,6 +19,8 @@ pub const Range = struct {
 pub const Allocator = struct {
     ranges: [128]Range = undefined,
     range_count: usize = 0,
+    managed: [128]Range = undefined,
+    managed_count: usize = 0,
     free_pages: u64 = 0,
     total_pages: u64 = 0,
     installed_pages: u64 = 0,
@@ -52,7 +54,9 @@ pub const Allocator = struct {
             if (end <= 0x100000) continue;
             if (start < 0x100000) start = 0x100000;
             self.ranges[self.range_count] = .{ .next = start, .end = end };
+            self.managed[self.managed_count] = .{ .next = start, .end = end };
             self.range_count += 1;
+            self.managed_count += 1;
             const pages = (end - start) / page_size;
             const free_pages = std.math.add(u64, self.free_pages, pages) catch continue;
             const total_pages = std.math.add(u64, self.total_pages, pages) catch continue;
@@ -120,6 +124,16 @@ pub const Allocator = struct {
         const bytes = count * page_size;
         const end = address +% bytes;
         if (end <= address) return error.InvalidRelease;
+        if (self.managed_count != 0) {
+            var owned = false;
+            for (self.managed[0..self.managed_count]) |range| {
+                if (address >= range.next and end <= range.end) {
+                    owned = true;
+                    break;
+                }
+            }
+            if (!owned) return error.InvalidRelease;
+        }
         for (self.ranges[0..self.range_count]) |*range| {
             if (range.next != end) continue;
             range.next = address;
