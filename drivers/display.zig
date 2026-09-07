@@ -351,7 +351,7 @@ pub const WindowManager = struct {
             if (!w.visible or w.minimized) continue;
             context.fillRect(w.x, w.y, w.width, w.height, w.body_color);
             context.fillRect(w.x, w.y, w.width, @min(@as(usize, 20), w.height), if (self.focused == i) 0x5090d0 else w.title_color);
-            context.drawWindowTitle(w.x + 6, w.y + 5, w.title);
+            context.drawWindowTitleLimited(w.x + 6, w.y + 5, w.title, w.width -| 34);
             if (w.height >= 64) {
                 const content_width = w.width -| 24;
                 context.fillRect(w.x + 12, w.y + 32, content_width, 6, 0x304050);
@@ -401,7 +401,7 @@ pub const WindowManager = struct {
         while (i < self.count) : (i += 1) {
             const w = self.windows[i];
             context.fillRect(64 + i * 112 + 4, taskbar_y + 3, 104, 14, if (self.focused == i and !w.minimized) 0x5070a0 else 0x303848);
-            context.drawWindowTitle(64 + i * 112 + 12, taskbar_y + 5, w.title);
+            context.drawWindowTitleLimited(64 + i * 112 + 12, taskbar_y + 5, w.title, 88);
         }
         if (self.launcher_open and context.framebuffer.height >= launcher_menu_height + 4) {
             const menu_top = @as(usize, context.framebuffer.height) - launcher_menu_height;
@@ -422,7 +422,7 @@ pub const WindowManager = struct {
             for (self.windows[first_slot .. first_slot + visible_slots], 0..) |window, slot| {
                 const window_index = first_slot + slot;
                 context.fillRect(overlay_x + 8 + slot * 112, overlay_y + 8, 104, 32, if (self.focused == window_index) 0x5070a0 else 0x303848);
-                context.drawWindowTitle(overlay_x + 16 + slot * 112, overlay_y + 19, window.title);
+                context.drawWindowTitleLimited(overlay_x + 16 + slot * 112, overlay_y + 19, window.title, 88);
             }
         }
     }
@@ -780,6 +780,11 @@ pub const Context = struct {
                         self.fillRect(x + index * 8 + bit * 2, y + row * 2, 2, 2, 0xffffff);
             }
         }
+    }
+
+    pub fn drawWindowTitleLimited(self: *Context, x: usize, y: usize, title: []const u8, width: usize) void {
+        const characters = @min(title.len, width / 8);
+        self.drawWindowTitle(x, y, title[0..characters]);
     }
 
     fn drawLogo(self: *Context, x: usize, y: usize) void {
