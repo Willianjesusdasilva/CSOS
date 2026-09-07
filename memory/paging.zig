@@ -59,7 +59,8 @@ pub const Mapper = struct {
 
     fn identityMapRange(self: *Mapper, start: u64, size: u64) !void {
         if (size == 0) return;
-        if (start > std.math.maxInt(u64) - size or size > std.math.maxInt(u64) - huge_page_size + 1)
+        if (start > address_mask + page_size or size > (address_mask + page_size) - start or
+            start > std.math.maxInt(u64) - size or size > std.math.maxInt(u64) - huge_page_size + 1)
             return error.InvalidPhysicalRange;
         var address = start & ~(huge_page_size - 1);
         const end = (start + size + huge_page_size - 1) & ~(huge_page_size - 1);
