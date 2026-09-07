@@ -114,8 +114,28 @@ pub fn matchesSignature(text: []const u8, expected: u64) bool {
 }
 
 pub fn matchesPersistedProfile(text: []const u8, expected: u64) bool {
-    if (!hasSystemVersion(text)) return false;
-    return matchesSignature(text, expected);
+    const section = systemSection(text) orelse return false;
+    return hasSystemVersion(section) and matchesSignature(section, expected);
+}
+
+fn systemSection(text: []const u8) ?[]const u8 {
+    const header = "[system]";
+    var offset: usize = 0;
+    while (offset + header.len <= text.len) : (offset += 1) {
+        if (offset != 0 and text[offset - 1] != '\n') continue;
+        if (!equalIgnoreCase(text[offset .. offset + header.len], header)) continue;
+        if (offset + header.len < text.len and text[offset + header.len] != '\n' and text[offset + header.len] != '\r') continue;
+        const start = offset;
+        var end = offset + header.len;
+        while (end < text.len and text[end] != '\n') : (end += 1) {}
+        if (end < text.len) end += 1;
+        while (end < text.len) {
+            if ((end == 0 or text[end - 1] == '\n') and text[end] == '[') break;
+            end += 1;
+        }
+        return text[start..end];
+    }
+    return null;
 }
 
 fn hasSystemVersion(text: []const u8) bool {
@@ -202,6 +222,7 @@ test "hardware profile persistence requires current system version" {
     try @import("std").testing.expect(!matchesPersistedProfile("[system]\nversion=6\nsignature=abcdef\n", 0xabcdef));
     try @import("std").testing.expect(!matchesPersistedProfile("version=7\nsignature=abcdef\n", 0xabcdef));
     try @import("std").testing.expect(!matchesPersistedProfile("[other]\nversion=7\n[system]\nsignature=abcdef\n", 0xabcdef));
+    try @import("std").testing.expect(!matchesPersistedProfile("[system]\nversion=7\n[other]\nsignature=abcdef\n", 0xabcdef));
 }
 
 test "hardware profile rejects zero CPU topology" {
