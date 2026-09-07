@@ -35,7 +35,7 @@ pub fn applyPointerDelta(position: usize, delta: i8, extent: usize) usize {
 }
 
 pub fn pointerWheelColor(wheel: i8) u32 {
-    return if (wheel < 0) 0x4080e0 else 0x80a0e0;
+    return if (wheel < 0) 0x4080e0 else if (wheel > 0) 0x80a0e0 else 0x506070;
 }
 
 pub const Window = struct {
@@ -528,6 +528,7 @@ test "pointer delta saturates at both display edges" {
     try std.testing.expectEqual(@as(usize, 0), applyPointerDelta(10, 5, 0));
     try std.testing.expectEqual(@as(u32, 0x4080e0), pointerWheelColor(-1));
     try std.testing.expectEqual(@as(u32, 0x80a0e0), pointerWheelColor(1));
+    try std.testing.expectEqual(@as(u32, 0x506070), pointerWheelColor(0));
 }
 
 pub const Context = struct {
