@@ -2934,16 +2934,16 @@ pub fn parseAmdMesFirmware(image: []const u8) !AmdMesFirmware {
     const data_offset: usize = readLittle32(image, 52);
     const mes_ucode_version = readLittle32(image, 32);
     const mes_data_version = readLittle32(image, 44);
-    if (ucode_bytes == 0 or data_bytes == 0 or ucode_offset > image.len or ucode_bytes > image.len - ucode_offset or
-        data_offset > image.len or data_bytes > image.len - data_offset or mes_ucode_version == 0 or mes_data_version == 0)
-        return error.InvalidAmdMesFirmwarePayload;
+    if (mes_ucode_version == 0 or mes_data_version == 0) return error.InvalidAmdMesFirmwarePayload;
+    const ucode = amdFirmwareSlice(image, ucode_offset, ucode_bytes) catch return error.InvalidAmdMesFirmwarePayload;
+    const data = amdFirmwareSlice(image, data_offset, data_bytes) catch return error.InvalidAmdMesFirmwarePayload;
     return .{
         .ip_version_major = common.ip_version_major,
         .ip_version_minor = common.ip_version_minor,
         .ucode_version = @intCast(mes_ucode_version),
         .data_version = @intCast(mes_data_version),
-        .ucode = image[ucode_offset .. ucode_offset + ucode_bytes],
-        .data = image[data_offset .. data_offset + data_bytes],
+        .ucode = ucode,
+        .data = data,
         .ucode_start = readLittle64(image, 56),
         .data_start = readLittle64(image, 64),
     };
