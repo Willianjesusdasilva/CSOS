@@ -875,6 +875,8 @@ Staging e carregamento de firmware GPU agora verificam a soma de arredondamento
 de 4095 bytes antes de calcular páginas DMA.
 O handoff PSP usa aritmética checked para a reserva e registra seus campos antes
 de validar o intervalo alinhado, evitando vazamento em falhas intermediárias.
+`amdGpuVmTableBytes` também valida explicitamente a multiplicação e o
+arredondamento do tamanho da tabela.
 
 Mapeamentos anônimos fazem rollback transacional quando uma página falha: os
 mapeamentos parciais são removidos e a memória física é devolvida ao allocator.

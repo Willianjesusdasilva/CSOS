@@ -3706,7 +3706,9 @@ comptime {
 
 pub fn amdGpuVmTableBytes(entries: u16) !u32 {
     if (entries == 0 or entries > 512) return error.InvalidAmdGpuVmTableEntries;
-    return @intCast((@as(u32, entries) * 8 + 4095) & ~@as(u32, 4095));
+    const bytes = std.math.mul(u32, @as(u32, entries), 8) catch return error.InvalidAmdGpuVmTableEntries;
+    const rounded = std.math.add(u32, bytes, 4095) catch return error.InvalidAmdGpuVmTableEntries;
+    return rounded & ~@as(u32, 4095);
 }
 
 const amd_gpu_pte_valid: u64 = 1 << 0;

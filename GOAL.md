@@ -355,6 +355,8 @@ Os cálculos de páginas do staging e carregamento de firmware GPU arredondam
 tamanhos com soma checked antes de alocar memória DMA.
 O handoff PSP também valida arredondamento, multiplicações, limites da reserva
 alinhada e registra a alocação antes de qualquer falha, garantindo rollback.
+O cálculo do tamanho das tabelas VM AMD usa multiplicação e arredondamento
+checked, preservando o contrato mesmo com futura expansão do limite.
 
 Mapeamentos anônimos também possuem rollback transacional: uma falha no meio da
 criação remove as páginas já instaladas e devolve a alocação e o ownership.
