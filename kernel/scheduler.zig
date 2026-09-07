@@ -196,7 +196,7 @@ pub fn applyMode(group: u16) usize {
         .game => freezeGroup(group),
         .match => blk: {
             const frozen = freezeGroup(group);
-            break :blk frozen + standbyGroup(group);
+            break :blk frozen +| standbyGroup(group);
         },
     };
 }
