@@ -45,7 +45,7 @@ pub const Device = struct {
     }
 
     pub fn suspendDevice(self: *Device) void {
-        if (self.suspended) return;
+        if (self.state == .absent or self.suspended) return;
         self.suspended_streaming = self.state == .streaming;
         self.suspended = true;
         if (self.state == .streaming) self.state = .configured;
@@ -731,5 +731,12 @@ test "device resume preserves non-streaming state" {
 
 test "device resume requires suspension" {
     var device = Device{ .state = .configured };
+    try @import("std").testing.expectError(error.DeviceNotSuspended, device.resumeDevice());
+}
+
+test "absent device cannot enter suspended state" {
+    var device = Device{};
+    device.suspendDevice();
+    try @import("std").testing.expect(!device.suspended);
     try @import("std").testing.expectError(error.DeviceNotSuspended, device.resumeDevice());
 }
