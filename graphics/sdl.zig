@@ -389,13 +389,20 @@ pub const Window = struct {
     }
 
     pub fn drawHtml(self: *Window, document: *const html.Document, x: usize, y: usize) void {
+        self.drawHtmlFocused(document, x, y, null);
+    }
+
+    pub fn drawHtmlFocused(self: *Window, document: *const html.Document, x: usize, y: usize, focused: ?usize) void {
         var cursor_y = y;
-        for (document.elements[0..document.count]) |element| {
+        for (document.elements[0..document.count], 0..) |element, index| {
             const color: u32 = switch (element.kind) {
                 .heading => 0x70d0ffff,
                 .paragraph => 0xa0b8d0ff,
                 .button => 0xffd070ff,
             };
+            if (focused != null and focused.? == index and element.kind == .button) {
+                self.fillRect(x -| 2, cursor_y -| 2, element.text.len * 8 + 4, 14, 0x304860ff);
+            }
             self.drawText(x, cursor_y, element.text, color);
             cursor_y +|= if (element.kind == .heading) 16 else 12;
         }
@@ -1730,4 +1737,7 @@ test "SDL window renders parsed HTML elements" {
     var changed = false;
     for (pixels) |pixel| if (pixel != 0) { changed = true; break; };
     try @import("std").testing.expect(changed);
+    window.clear(0);
+    window.drawHtmlFocused(&document, 0, 0, 2);
+    try @import("std").testing.expect(pixels[27 * 64 + 1] == 0x304860ff);
 }
