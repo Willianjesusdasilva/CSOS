@@ -131,6 +131,11 @@ pub const Stream = struct {
         self.device.state = .streaming;
     }
 
+    pub fn pause(self: *Stream) !void {
+        if (self.device.state != .streaming) return error.InvalidState;
+        self.device.state = .configured;
+    }
+
     pub fn complete(self: *Stream) !void {
         if (!self.device.ready()) return error.InvalidState;
         if (self.queued == 0) {
@@ -281,6 +286,7 @@ pub const DeviceManager = struct {
 
     pub fn pause(self: *DeviceManager) !void {
         if (self.device.state != .streaming) return error.DeviceNotStreaming;
+        self.stream.?.pause() catch return error.StreamPauseFailed;
         self.device.state = .configured;
     }
 
@@ -686,4 +692,17 @@ pub fn periodRate(interval: u8, high_speed: bool) u32 {
     if (interval == 0) return 1000;
     if (high_speed) return 8000 >> @min(interval - 1, 7);
     return 1000 >> @min(interval - 1, 3);
+}
+
+test "device manager pauses and resumes stream" {
+    var manager = DeviceManager{};
+    try manager.attach(.{ .channels = 2, .bits_per_sample = 16, .sample_rate = 48000 }, 1000, 4096);
+    try manager.configure();
+    try manager.start();
+    try manager.pause();
+    try @import("std").testing.expectEqual(State.configured, manager.device.state);
+    try @import("std").testing.expectEqual(State.configured, manager.stream.?.device.state);
+    try manager.resume();
+    try @import("std").testing.expectEqual(State.streaming, manager.device.state);
+    try @import("std").testing.expectEqual(State.streaming, manager.stream.?.device.state);
 }
