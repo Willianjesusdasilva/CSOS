@@ -102,6 +102,8 @@ pub const WindowManager = struct {
         var i = index;
         while (i + 1 < self.count) : (i += 1) self.windows[i] = self.windows[i + 1];
         self.count -= 1;
+        // Do not retain a stale surface pointer in the reusable tail slot.
+        self.windows[self.count] = undefined;
         if (self.count == 0) {
             self.launcher_open = false;
             self.switcher_open = false;
