@@ -491,7 +491,9 @@ fn getTimeOfDay(address: u64, timezone: u64) u64 {
 }
 
 fn clockGetTime(clock: u64, address: u64) u64 {
-    if (clock > 1 or !validUserSlice(address, 16)) return errno(22);
+    // CLOCK_REALTIME, MONOTONIC, MONOTONIC_RAW and BOOTTIME are all backed
+    // by the firmware-independent monotonic source in this early kernel.
+    if (!supportedClock(clock) or !validUserSlice(address, 16)) return errno(22);
     // The firmware timer is not wired into this early userspace ABI yet; keep
     // a monotonic software clock so libc does not observe time going backward.
     monotonic_time_ns +%= 1_000_000;
@@ -514,13 +516,17 @@ fn clockNanosleep(clock: u64, flags: u64, request: u64, remaining: u64) u64 {
 }
 
 fn clockGetRes(clock: u64, output: u64) u64 {
-    if (clock > 1) return errno(22);
+    if (!supportedClock(clock)) return errno(22);
     if (output == 0) return 0;
     if (!validUserSlice(output, 16)) return errno(14);
     const bytes: [*]u8 = @ptrFromInt(output);
     @memset(bytes[0..16], 0);
     bytes[8] = 1; // one nanosecond software resolution
     return 0;
+}
+
+fn supportedClock(clock: u64) bool {
+    return clock == 0 or clock == 1 or clock == 4 or clock == 7;
 }
 
 fn read(fd: u64, address: u64, length: u64) u64 {
