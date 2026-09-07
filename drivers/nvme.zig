@@ -285,6 +285,7 @@ fn parseNamespaceGeometry(data: [*]const u8) !NamespaceGeometry {
 
 fn validateIoRange(namespace_id: u32, block_count: u64, lba: u64) !void {
     if (namespace_id == 0 or block_count == 0) return error.NoNamespace;
+    if (namespace_id > 0x00ff_ffff) return error.InvalidNamespaceId;
     if (lba >= block_count) return error.LbaOutOfRange;
 }
 
@@ -337,6 +338,7 @@ test "namespace geometry rejects unusable capacity and metadata" {
 test "NVMe I/O range accepts only blocks inside an identified namespace" {
     try std.testing.expectError(error.NoNamespace, validateIoRange(0, 8, 0));
     try std.testing.expectError(error.NoNamespace, validateIoRange(1, 0, 0));
+    try std.testing.expectError(error.InvalidNamespaceId, validateIoRange(0x0100_0000, 8, 0));
     try validateIoRange(1, 8, 0);
     try validateIoRange(1, 8, 7);
     try std.testing.expectError(error.LbaOutOfRange, validateIoRange(1, 8, 8));
