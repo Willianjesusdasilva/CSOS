@@ -256,7 +256,7 @@ pub fn read(fd: usize, output: []u8) !usize {
     if (descriptors[fd].node == .disk) {
         const volume = disk orelse return error.NotFound;
         const count = try volume.readRootFileAt(&descriptors[fd].fat_name, output, descriptors[fd].offset);
-        descriptors[fd].offset = std.math.add(usize, descriptors[fd].offset, count) catch return error.FileTooLarge;
+        try advanceOffset(&descriptors[fd].offset, count);
         return count;
     }
     const data = nodeData(descriptors[fd].node);
@@ -305,6 +305,16 @@ pub fn seek(fd: usize, offset: i64, whence: u64) !usize {
     if (result[1] != 0 or result[0] < 0) return error.Invalid;
     descriptors[fd].offset = @intCast(result[0]);
     return descriptors[fd].offset;
+}
+
+fn advanceOffset(offset: *usize, count: usize) !void {
+    offset.* = std.math.add(usize, offset.*, count) catch return error.FileTooLarge;
+}
+
+test "file offsets reject arithmetic overflow" {
+    var offset = std.math.maxInt(usize) - 1;
+    try advanceOffset(&offset, 1);
+    try std.testing.expectError(error.FileTooLarge, advanceOffset(&offset, 1));
 }
 
 pub fn infoAt(directory_fd: i64, path: []const u8) !Info {
