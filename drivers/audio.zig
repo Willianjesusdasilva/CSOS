@@ -817,16 +817,18 @@ pub const Port = struct {
     suspended: bool = false,
     generation: u32 = 0,
 
-    pub fn attach(self: *Port) void {
+    pub fn attach(self: *Port) !void {
+        if (self.generation == std.math.maxInt(u32)) return error.GenerationExhausted;
         self.connected = true;
         self.suspended = false;
-        self.generation +%= 1;
+        self.generation += 1;
     }
 
-    pub fn detach(self: *Port) void {
+    pub fn detach(self: *Port) !void {
+        if (self.generation == std.math.maxInt(u32)) return error.GenerationExhausted;
         self.connected = false;
         self.suspended = false;
-        self.generation +%= 1;
+        self.generation += 1;
     }
 
     pub fn suspendPort(self: *Port) !void {
@@ -840,19 +842,26 @@ pub const Port = struct {
     }
 };
 
+test "audio port generation exhaustion fails closed" {
+    var port = Port{ .generation = std.math.maxInt(u32) };
+    try std.testing.expectError(error.GenerationExhausted, port.attach());
+    try std.testing.expectError(error.GenerationExhausted, port.detach());
+    try std.testing.expect(!port.connected);
+}
+
 pub const Registry = struct {
     ports: [16]Port = .{Port{}} ** 16,
     count: u8 = 0,
 
     pub fn attach(self: *Registry, index: u8) !void {
         if (index >= self.ports.len) return error.InvalidPort;
-        self.ports[index].attach();
+        try self.ports[index].attach();
         if (index >= self.count) self.count = index + 1;
     }
 
     pub fn detach(self: *Registry, index: u8) !void {
         if (index >= self.count) return error.InvalidPort;
-        self.ports[index].detach();
+        try self.ports[index].detach();
     }
 
     pub fn connected(self: *const Registry, index: u8) bool {
