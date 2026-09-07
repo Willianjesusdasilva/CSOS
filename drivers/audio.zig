@@ -36,7 +36,9 @@ pub const Device = struct {
     pub fn periodBytes(self: *const Device, periods_per_second: u32) ?usize {
         const frame_bytes = self.frameBytes() orelse return null;
         if (periods_per_second == 0 or self.format.sample_rate == 0) return null;
-        return (@as(usize, self.format.sample_rate) * frame_bytes + periods_per_second - 1) / periods_per_second;
+        const total = std.math.mul(usize, @as(usize, self.format.sample_rate), frame_bytes) catch return null;
+        const rounded = std.math.add(usize, total, periods_per_second - 1) catch return null;
+        return rounded / periods_per_second;
     }
 
     pub fn validate(self: *const Device, periods_per_second: u32, packet_size: u16) !void {
