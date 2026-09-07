@@ -758,6 +758,7 @@ pub fn mapAmdMesFirmwareIntoGart(staging: AmdPspGttStaging, firmware: AmdMesFirm
     inline for (areas) |area| {
         if (area.address == 0 or area.pages == 0 or area.bytes == 0 or (area.address & 4095) != 0 or
             area.pages > std.math.maxInt(u64) / 4096 or area.bytes > area.pages * 4096 or
+            area.address > std.math.maxInt(u64) - (area.pages - 1) * 4096 or
             area.pages > std.math.maxInt(u64) - total_pages)
             return error.InvalidAmdMesFirmwareStaging;
         total_pages += area.pages;
