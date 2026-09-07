@@ -2540,6 +2540,10 @@ pub fn start(info: BootInfo) noreturn {
                                     serial.writeDecimal(files_selection.selected);
                                     serial.write("\n");
                                 }
+                            } else if (window.id == 3 and window_manager.contentRectHitTest(hit, cursor_x, cursor_y, 4, 30, 44, 14)) {
+                                system_html_active = false;
+                                drawSystemSurface(&system_window, storage.block_count, @as(usize, hid.keyboards) + hid.mice, audio_info.playback_endpoints);
+                                serial.write("UI HTML button: RESET\n");
                             } else if (window.id == 3 and window_manager.contentRectHitTest(hit, cursor_x, cursor_y, 4, 18, 48, 14)) {
                                 system_html_active = !system_html_active;
                                 drawSystemSurface(&system_window, storage.block_count, @as(usize, hid.keyboards) + hid.mice, audio_info.playback_endpoints);
@@ -2786,14 +2790,14 @@ fn launchDesktopWindow(manager: *display.WindowManager, application_id: u32, app
 
 fn drawSystemSurface(window: *sdl.Window, storage_blocks: u64, input_devices: usize, audio_endpoints: usize) void {
     window.clear(0x14201cff);
-    const document = if (system_html_active) html.Document.parse("<h1>CSOS SYSTEM</h1><button>ACTIVE</button>") else html.Document.parse("<h1>CSOS SYSTEM</h1><button>READY</button>");
+    const document = if (system_html_active) html.Document.parse("<h1>CSOS SYSTEM</h1><button>ACTIVE</button><button>RESET</button>") else html.Document.parse("<h1>CSOS SYSTEM</h1><button>READY</button><button>RESET</button>");
     window.drawHtml(&document, 4, 2);
-    window.drawText(4, 32, "DISK BLOCKS", 0xa0b8d0ff);
-    drawSurfaceNumber(window, 108, 32, storage_blocks, 0xe0e8f0ff);
-    window.drawText(4, 50, "USB INPUT", 0xa0b8d0ff);
-    drawSurfaceNumber(window, 108, 50, @intCast(input_devices), 0xe0e8f0ff);
-    window.drawText(4, 68, "AUDIO", 0xa0b8d0ff);
-    drawSurfaceNumber(window, 108, 68, @intCast(audio_endpoints), 0xe0e8f0ff);
+    window.drawText(4, 48, "DISK BLOCKS", 0xa0b8d0ff);
+    drawSurfaceNumber(window, 108, 48, storage_blocks, 0xe0e8f0ff);
+    window.drawText(4, 66, "USB INPUT", 0xa0b8d0ff);
+    drawSurfaceNumber(window, 108, 66, @intCast(input_devices), 0xe0e8f0ff);
+    window.drawText(4, 84, "AUDIO", 0xa0b8d0ff);
+    drawSurfaceNumber(window, 108, 84, @intCast(audio_endpoints), 0xe0e8f0ff);
 }
 
 fn refreshSystemSurface(window: *sdl.Window, storage_blocks: u64, input_devices: usize, audio_endpoints: usize) void {
