@@ -3089,7 +3089,7 @@ fn epollCreate(flags: u64) u64 {
 }
 
 fn epollCtl(epfd: u64, operation: u64, target: u64, event: u64) u64 {
-    if (!vfs.isEpoll(@intCast(epfd)) or !vfs.isOpen(@intCast(target)) or target == epfd) return errno(9);
+    if (!vfs.isEpoll(@intCast(epfd)) or (!vfs.isOpen(@intCast(target)) and socketIndex(target) == null) or target == epfd) return errno(9);
     if (event == 0 and operation != 2) return errno(14);
     if (operation != 2 and !validUserSlice(event, 16)) return errno(14);
     const watches = &epoll_watches[@intCast(epfd)];
@@ -3105,14 +3105,14 @@ fn epollCtl(epfd: u64, operation: u64, target: u64, event: u64) u64 {
             const input: [*]const u8 = @ptrFromInt(event);
             watches[index].events = read32(input);
             watches[index].data = read64(input + 8);
-            watches[index].generation = vfs.descriptorGeneration(@intCast(target)) catch return errno(9);
+            watches[index].generation = vfs.descriptorGeneration(@intCast(target)) catch 0;
             watches[index].active = true;
             return 0;
         }
         if (slot != null) return errno(17);
         const input: [*]const u8 = @ptrFromInt(event);
         for (watches) |*watch| if (!watch.active) {
-            watch.* = .{ .fd = @intCast(target), .generation = vfs.descriptorGeneration(@intCast(target)) catch return errno(9), .events = read32(input), .data = read64(input + 8), .active = true };
+            watch.* = .{ .fd = @intCast(target), .generation = vfs.descriptorGeneration(@intCast(target)) catch 0, .events = read32(input), .data = read64(input + 8), .active = true };
             return 0;
         };
         return errno(28);
@@ -3127,11 +3127,16 @@ fn epollWait(epfd: u64, output: u64, capacity: u64, timeout: i64) u64 {
     const bytes: [*]u8 = @ptrFromInt(output);
     var ready: u64 = 0;
     for (&epoll_watches[@intCast(epfd)]) |*watch| {
-        if (!watch.active or ready == capacity or !vfs.isOpen(watch.fd)) continue;
-        const generation = vfs.descriptorGeneration(watch.fd) catch continue;
-        if (generation != watch.generation) {
-            watch.active = false;
-            continue;
+        if (!watch.active or ready == capacity) continue;
+        if (socketIndex(watch.fd)) |socket_index| {
+            if (sockets[socket_index].connection == null) continue;
+        } else {
+            if (!vfs.isOpen(watch.fd)) continue;
+            const generation = vfs.descriptorGeneration(watch.fd) catch continue;
+            if (generation != watch.generation) {
+                watch.active = false;
+                continue;
+            }
         }
         const item = bytes + ready * 16;
         put32(item, watch.events);
