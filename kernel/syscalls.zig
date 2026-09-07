@@ -3275,6 +3275,7 @@ fn getRusage(who: u64, output: u64) u64 {
     const micros = if (who == children) 0 else (monotonic_time_ns % 1_000_000_000) / 1_000;
     put64(bytes, seconds);
     put64(bytes + 8, micros);
+    if (who != children) put64(bytes + 40, 192 * 1024); // ru_maxrss in KiB
     return 0;
 }
 
