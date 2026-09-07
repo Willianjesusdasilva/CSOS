@@ -43,6 +43,10 @@ pub const Allocator = struct {
             }
 
             var start = descriptor.physical_start;
+            if ((start & (page_size - 1)) != 0) {
+                self.installed_pages = installed_pages;
+                continue;
+            }
             const bytes = std.math.mul(u64, descriptor.page_count, page_size) catch continue;
             const end = std.math.add(u64, start, bytes) catch continue;
             if (end <= 0x100000) continue;
