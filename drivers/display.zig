@@ -984,6 +984,14 @@ test "window manager clamps geometry to usable screen" {
     try std.testing.expectEqual(@as(usize, 0), manager.windows[index].y);
 }
 
+test "window manager hit tests reject extreme pointer coordinates" {
+    var manager = WindowManager{};
+    _ = try manager.create(.{ .id = 1, .x = 8, .y = 8, .width = 80, .height = 48 });
+    try std.testing.expect(manager.hitTest(std.math.maxInt(usize), std.math.maxInt(usize)) == null);
+    try std.testing.expect(!manager.closeHitTest(0, std.math.maxInt(usize), std.math.maxInt(usize)));
+    try std.testing.expect(!manager.resizeHitTest(0, std.math.maxInt(usize), std.math.maxInt(usize)));
+}
+
 test "pointer delta saturates at both display edges" {
     try std.testing.expectEqual(@as(usize, 0), applyPointerDelta(4, -5, 100));
     try std.testing.expectEqual(@as(usize, 0), applyPointerDelta(50, -128, 100));
