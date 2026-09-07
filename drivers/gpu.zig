@@ -547,11 +547,11 @@ pub const AmdGfxFirmwareManifest = struct {
         if (parsed.ucode_version == 0) return error.InvalidAmdGfxFirmwareVersion;
         if (kind == .mes_scheduler or kind == .mes_kiq) try validateAmdMesFirmware(image);
         var summary = &self.roles[@intFromEnum(kind)];
-        summary.entries += 1;
-        summary.image_bytes += image.len;
-        summary.payload_bytes += parsed.payload.len;
+        summary.entries = std.math.add(usize, summary.entries, 1) catch return error.FirmwareSelectionTooLarge;
+        summary.image_bytes = std.math.add(usize, summary.image_bytes, image.len) catch return error.FirmwareSelectionTooLarge;
+        summary.payload_bytes = std.math.add(usize, summary.payload_bytes, parsed.payload.len) catch return error.FirmwareSelectionTooLarge;
         summary.newest_ucode_version = @max(summary.newest_ucode_version, parsed.ucode_version);
-        self.entries += 1;
+        self.entries = std.math.add(usize, self.entries, 1) catch return error.FirmwareSelectionTooLarge;
     }
 
     pub fn validate(self: *const AmdGfxFirmwareManifest) !void {
