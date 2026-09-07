@@ -351,4 +351,11 @@ test "NVMe I/O buffers cannot wrap a DMA page" {
     try std.testing.expectError(error.InvalidIoBuffer, validateIoBuffer(std.math.maxInt(u64) - 4095 + 1));
 }
 
+test "NVMe doorbell offsets stay aligned by stride" {
+    try std.testing.expectEqual(@as(u64, 0x1000), doorbellOffset(0, 0));
+    try std.testing.expectEqual(@as(u64, 0x1004), doorbellOffset(0, 1));
+    try std.testing.expectEqual(@as(u64, 0x1020), doorbellOffset(3, 1));
+    try std.testing.expectEqual(@as(u64, 0x1040), doorbellOffset(3, 2));
+}
+
 const std = @import("std");
