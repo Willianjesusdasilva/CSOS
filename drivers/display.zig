@@ -46,6 +46,14 @@ pub fn applyPointerDelta(position: usize, delta: i8, extent: usize) usize {
     return @min(extent - 1, bounded +| @as(usize, @intCast(delta)));
 }
 
+test "pointer delta clamps invalid positions and both edges" {
+    try std.testing.expectEqual(@as(usize, 0), applyPointerDelta(7, 12, 0));
+    try std.testing.expectEqual(@as(usize, 0), applyPointerDelta(999, -12, 1));
+    try std.testing.expectEqual(@as(usize, 9), applyPointerDelta(999, 0, 10));
+    try std.testing.expectEqual(@as(usize, 0), applyPointerDelta(0, -128, 10));
+    try std.testing.expectEqual(@as(usize, 9), applyPointerDelta(9, 127, 10));
+}
+
 pub fn pointerWheelColor(wheel: i8) u32 {
     return if (wheel < 0) 0x4080e0 else if (wheel > 0) 0x80a0e0 else 0x506070;
 }
