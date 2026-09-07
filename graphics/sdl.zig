@@ -150,7 +150,7 @@ pub const ListSelection = struct {
 
     pub fn selectVisibleRow(self: *ListSelection, row: usize) bool {
         if (row >= self.visible_rows) return false;
-        const index = self.first_visible + row;
+        const index = self.first_visible +| row;
         if (index >= self.count) return false;
         const changed = self.selected != index;
         self.selected = index;
