@@ -180,9 +180,11 @@ pub const Controller = struct {
                         devices.interface_number = bytes[offset + 2];
                         devices.alternate = bytes[offset + 3];
                         devices.device_index = @intCast(device_index);
-                        const payload = pages.allocate(1) orelse return error.OutOfMemory;
-                        zeroPage(payload);
-                        devices.rate_payload = payload;
+                        if (devices.rate_payload == null) {
+                            const payload = pages.allocate(1) orelse return error.OutOfMemory;
+                            zeroPage(payload);
+                            devices.rate_payload = payload;
+                        }
                     }
                 } else if (audio_interface and bytes[offset + 1] == 36 and bytes[offset] >= 8 and bytes[offset + 2] == 2) {
                     if (offset + 7 < device.descriptor_length) {
