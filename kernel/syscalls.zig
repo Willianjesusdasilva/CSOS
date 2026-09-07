@@ -2900,6 +2900,7 @@ fn epollCreate(flags: u64) u64 {
     if ((flags & ~@as(u64, 0x80000)) != 0) return errno(22);
     const fd = vfs.openEpoll() catch |err| return vfsError(err);
     epoll_watches[fd] = .{EpollWatch{}} ** max_epoll_watch;
+    if ((flags & 0x80000) != 0) _ = vfs.setDescriptorFlags(fd, 1) catch return errno(9);
     return fd;
 }
 
