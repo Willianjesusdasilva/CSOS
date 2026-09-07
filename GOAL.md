@@ -158,7 +158,8 @@ uma aplicação gráfica sem GPU física.
 Backspace, navegação por setas e renderização bitmap completa de letras e
 números. O evento SDL de texto é separado do scancode de teclado.
 O buffer alimenta um terminal gráfico não bloqueante com comandos internos
-`help`, `status` e `clear`, prompt, cursor e saída persistente. Ele não substitui
+`help`, `status`, `version`, `echo`, `history` e `clear`, prompt, cursor e saída
+persistente. Ele não substitui
 a futura integração concorrente do BusyBox, mas restaura uma superfície de
 comando utilizável sem suspender o loop do desktop.
 O terminal mantém quatro comandos de histórico, recuperáveis por setas, oferece
