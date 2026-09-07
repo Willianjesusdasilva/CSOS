@@ -2096,6 +2096,9 @@ pub fn start(info: BootInfo) noreturn {
                 var file_browser_consumed = false;
                 const alt_held = (event.b & 0x44) != 0;
                 const alt_tab_pressed = event.c != 0 and alt_held and event.a == 0x2b;
+                const ctrl_held = (event.b & 0x11) != 0;
+                const ctrl_tab_pressed = event.c != 0 and ctrl_held and event.a == 0x2b;
+                const tab_switch_pressed = alt_tab_pressed or ctrl_tab_pressed;
                 const gui_pressed = (event.b & 0x88) != 0;
                 const launcher_shortcut_pressed = event.c != 0 and (gui_pressed or ((event.b & 0x11) != 0 and event.a == 0x2c));
                 if (launcher_shortcut_pressed and !launcher_key_down) {
@@ -2131,7 +2134,7 @@ pub fn start(info: BootInfo) noreturn {
                         else => {},
                     }
                 }
-                if (!launcher_consumed and !alt_tab_pressed and focusedWindowIs(window_manager, 4) and event.a != 0) {
+                if (!launcher_consumed and !tab_switch_pressed and focusedWindowIs(window_manager, 4) and event.a != 0) {
                     if (event.a == 0x3e) {
                         root_file_count = refreshFiles(&volume, &root_files, &files_selection, &files_window) catch panic("UI files F5 refresh failed");
                         files_preview_open = false;
@@ -2176,7 +2179,7 @@ pub fn start(info: BootInfo) noreturn {
                         serial.write("\n");
                     }
                 }
-                if (!launcher_consumed and !alt_tab_pressed and focusedWindowIs(window_manager, 1)) {
+                if (!launcher_consumed and !tab_switch_pressed and focusedWindowIs(window_manager, 1)) {
                     _ = sdl_events.pushKeyboard(event.a, event.a != 0, event.b);
                     if (event.a != 0) {
                         if (event.a == 0x0f and (event.b & 0x01) != 0) {
@@ -2228,7 +2231,7 @@ pub fn start(info: BootInfo) noreturn {
                         if (window_manager.findById(1)) |application_window| window_manager.close(application_window);
                     }
                 }
-                if (alt_tab_pressed and !alt_tab_down) {
+                if (tab_switch_pressed and !alt_tab_down) {
                     window_manager.launcher_open = false;
                     window_manager.switcher_open = true;
                     switcher_consumed = true;
@@ -2244,8 +2247,8 @@ pub fn start(info: BootInfo) noreturn {
                     window_manager.switcher_open = false;
                     switcher_consumed = true;
                 }
-                if (!alt_held) window_manager.switcher_open = false;
-                alt_tab_down = alt_tab_pressed;
+                if (!alt_held and !ctrl_held) window_manager.switcher_open = false;
+                alt_tab_down = tab_switch_pressed;
                 const close_shortcut = !launcher_consumed and !switcher_consumed and !file_browser_consumed and (event.a == 0x29 or ((event.b & 0x01) != 0 and event.a == 0x1a));
                 if (close_shortcut and window_manager.focused != null) {
                     const closing = window_manager.focused.?;
