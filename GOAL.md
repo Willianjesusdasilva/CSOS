@@ -147,6 +147,7 @@ atalho global deixa de vazar para a fila SDL da aplicação focada.
 As janelas agora possuem títulos próprios e podem ser maximizadas/restauradas
 pelo botão da barra de título ou por `Ctrl+Seta para cima`, preservando a
 geometria anterior e respeitando a área reservada à barra de tarefas.
+`Alt+F10` oferece o mesmo toggle pelo atalho padrão de desktop.
 O botão de minimizar atualiza o foco para a janela visível superior; quando não
 há outra janela disponível, o desktop fica corretamente sem foco até a
 restauração pela barra de tarefas.

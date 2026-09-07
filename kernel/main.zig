@@ -2291,7 +2291,8 @@ pub fn start(info: BootInfo) noreturn {
                     serial.writeDecimal(window_id);
                     serial.write("\n");
                 }
-                if (event.c != 0 and !launcher_consumed and (event.b & 0x01) != 0 and event.a == 0x52 and window_manager.focused != null) {
+                if (event.c != 0 and !launcher_consumed and window_manager.focused != null and
+                    (((event.b & 0x01) != 0 and event.a == 0x52) or (alt_held and event.a == 0x43))) {
                     const toggled = window_manager.focused.?;
                     _ = window_manager.toggleMaximized(toggled, screen.framebuffer.width, screen.framebuffer.height);
                     serial.write(if (window_manager.windows[toggled].maximized) "UI maximize window: " else "UI restore window size: ");
