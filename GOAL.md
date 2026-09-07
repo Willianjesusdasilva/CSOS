@@ -114,6 +114,7 @@ podem ser arrastadas pela barra de título, fechadas pelo botão visual ou com
 texto completo e runtime HTML/CSS/Jinja continuam pendentes.
 `Ctrl+W` também fecha a janela focada como atalho equivalente para uso por
 teclado.
+`Alt+F4` fornece o atalho padrão de fechamento da janela focada.
 O launcher separa seleção de teclado do hover do mouse: apontar para um item
 apenas realça sua célula, enquanto setas/roda preservam a seleção ativa; ao sair
 do menu o hover é limpo sem perder a seleção.

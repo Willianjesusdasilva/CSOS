@@ -2268,7 +2268,8 @@ pub fn start(info: BootInfo) noreturn {
                 }
                 if (!alt_held and !ctrl_held) window_manager.dismissSwitcher();
                 alt_tab_down = tab_switch_pressed;
-                const close_shortcut = event.c != 0 and !launcher_consumed and !switcher_consumed and !file_browser_consumed and (event.a == 0x29 or ((event.b & 0x01) != 0 and event.a == 0x1a));
+                const close_shortcut = event.c != 0 and !launcher_consumed and !switcher_consumed and !file_browser_consumed and
+                    (event.a == 0x29 or (alt_held and event.a == 0x3d) or ((event.b & 0x01) != 0 and event.a == 0x1a));
                 if (close_shortcut and window_manager.focused != null) {
                     const closing = window_manager.focused.?;
                     const closed_id = window_manager.windows[closing].id;
@@ -2276,7 +2277,7 @@ pub fn start(info: BootInfo) noreturn {
                     if (closed_id == 1) demo_app.running = false;
                     if (closed_id == 4) files_preview_open = false;
                     if (closed_id == 4) files_preview_back_hover = false;
-                    serial.write(if (event.a == 0x29) "UI close window (Esc): " else "UI close window (Ctrl+W): ");
+                    serial.write(if (event.a == 0x29) "UI close window (Esc): " else if (alt_held) "UI close window (Alt+F4): " else "UI close window (Ctrl+W): ");
                     serial.writeDecimal(closed_id);
                     serial.write("\n");
                 }
