@@ -787,6 +787,11 @@ fn saturatingCount(value: u64, increment: u64) u64 {
     return std.math.add(u64, value, increment) catch std.math.maxInt(u64);
 }
 
+test "display telemetry counters saturate" {
+    try std.testing.expectEqual(std.math.maxInt(u64), saturatingCount(std.math.maxInt(u64), 1));
+    try std.testing.expectEqual(@as(u64, 7), saturatingCount(5, 2));
+}
+
     pub fn blitSurface(self: *Context, surface: *sdl.Window, x: usize, y: usize) void {
         self.blitSurfaceClipped(surface, x, y, surface.width, surface.height);
     }
