@@ -770,6 +770,8 @@ e inclui uma terceira aplicação SDL, `SYSTEM`. Ela mostra estado READY,
 capacidade em blocos do NVMe, quantidade de dispositivos USB de input e
 endpoints de áudio, podendo ser aberta/restaurada tanto por mouse quanto por
 teclado e fechada pelo mesmo lifecycle das outras janelas.
+Sua superfície é redesenhada durante o loop gráfico para refletir o estado
+atual observado, não apenas os valores do boot.
 Atalhos `Ctrl+Alt+T/M/S/F` abrem diretamente TERMINAL, MONITOR, SYSTEM e FILES;
 no FILES, o último atalho também atualiza a enumeração.
 
