@@ -349,16 +349,19 @@ pub const Stack = struct {
             const length = try self.device.receive(&frame);
             if (length < 42 + 240 or get16(frame[12..]) != 0x0800 or frame[23] != 17 or frame[14] >> 4 != 4) continue;
             const ip_header = @as(usize, frame[14] & 0x0f) * 4;
-            if (ip_header < 20 or (get16(frame[20..]) & 0x3fff) != 0 or length < 14 + ip_header + 8 + 240) continue;
+            const total_length = get16(frame[16..]);
+            if (ip_header < 20 or total_length < ip_header + 8 + 240 or
+                (get16(frame[20..]) & 0x3fff) != 0 or length < 14 + total_length or
+                checksum(frame[14 .. 14 + ip_header]) != 0) continue;
             const udp = 14 + ip_header;
             if (get16(frame[udp..]) != 67 or get16(frame[udp + 2 ..]) != 68) continue;
+            const udp_length = get16(frame[udp + 4 ..]);
+            if (udp_length < 248 or udp_length > total_length - ip_header or udp + udp_length > length) continue;
             const bootp = frame[udp + 8 ..];
             if (bootp[0] != 2 or get32(bootp[4..]) != self.dhcp_transaction or !equal(bootp[28..34], &self.device.mac)) continue;
             if (bootp[236] != 99 or bootp[237] != 130 or bootp[238] != 83 or bootp[239] != 99) continue;
             var lease = Lease{ .address = bootp[16..20].* };
             var message_type: u8 = 0;
-            const udp_length = get16(frame[udp + 4 ..]);
-            if (udp_length < 248 or udp + udp_length > length) continue;
             var option: usize = 240;
             while (option < udp_length - 8) {
                 const kind = bootp[option];
