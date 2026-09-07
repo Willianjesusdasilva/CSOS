@@ -56,7 +56,10 @@ pub const Volume = struct {
                 if (size == 0) return 0;
                 try validateDataCluster(cluster, self.cluster_count);
                 var copied: usize = 0;
+                var traversed: u32 = 0;
                 while (copied < size) {
+                    if (traversed >= self.cluster_count) return error.BrokenChain;
+                    traversed += 1;
                     var cluster_sector: u32 = 0;
                     while (cluster_sector < self.sectors_per_cluster and copied < size) : (cluster_sector += 1) {
                         try self.storage.readBlock(self.clusterLba(cluster) + cluster_sector, self.buffer);
@@ -129,7 +132,10 @@ pub const Volume = struct {
         const cluster_bytes = @as(usize, self.sectors_per_cluster) * 512;
         var cluster = first_cluster;
         var skip = file_offset / cluster_bytes;
+        var traversed: u32 = 0;
         while (skip != 0) : (skip -= 1) {
+            if (traversed >= self.cluster_count) return error.BrokenChain;
+            traversed += 1;
             cluster = try self.fatEntry(cluster);
             if (cluster >= 0xfff8) return error.BrokenChain;
             try validateDataCluster(cluster, self.cluster_count);
@@ -138,6 +144,8 @@ pub const Volume = struct {
         var copied: usize = 0;
         const wanted = @min(output.len, size - file_offset);
         while (copied < wanted) {
+            if (traversed >= self.cluster_count) return error.BrokenChain;
+            traversed += 1;
             var cluster_sector: u32 = @intCast(within_cluster / 512);
             var sector_offset = within_cluster % 512;
             while (cluster_sector < self.sectors_per_cluster and copied < wanted) : (cluster_sector += 1) {
