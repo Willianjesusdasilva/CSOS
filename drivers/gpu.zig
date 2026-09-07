@@ -3036,6 +3036,14 @@ fn appendLegacyPspComponent(result: *AmdPspFirmware, bytes: []const u8, descript
     try appendPspComponent(result, bytes, kind, @intCast(readLittle32(bytes, descriptor)), component_offset, readLittle32(bytes, descriptor + 8));
 }
 
+test "PSP legacy component offset rejects usize overflow" {
+    var bytes = [_]u8{0} ** 16;
+    bytes[4] = 1;
+    bytes[8] = 1;
+    var result = AmdPspFirmware{};
+    try std.testing.expectError(error.InvalidAmdPspFirmwareComponent, appendLegacyPspComponent(&result, &bytes, 0, 1, std.math.maxInt(usize)));
+}
+
 pub fn parseAmdPspFirmware(bytes: []const u8) !AmdPspFirmware {
     const common = try parseAmdgpuFirmware(bytes);
     const common_offset = readLittle32(bytes, 24);
