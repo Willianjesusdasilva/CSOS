@@ -720,6 +720,8 @@ boot interativo agora entrega o input diretamente à sessão gráfica, sem ficar
 bloqueado pelo shell BusyBox, e publica `CSOS graphical session ready`. O shell
 será reintegrado como uma aplicação de terminal não bloqueante; isso ainda não
 é prova de Vulkan em hardware AMD/NVIDIA.
+No launcher, hover do mouse e seleção de teclado são estados separados, evitando
+que apontar para um item esconda a seleção feita por setas ou roda.
 
 O NVMe não confunde mais o campo `NN` do Identify Controller com quantidade de
 discos anexados. O driver consulta a lista de namespaces ativos, rejeita NSIDs

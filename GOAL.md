@@ -114,6 +114,9 @@ podem ser arrastadas pela barra de título, fechadas pelo botão visual ou com
 texto completo e runtime HTML/CSS/Jinja continuam pendentes.
 `Ctrl+W` também fecha a janela focada como atalho equivalente para uso por
 teclado.
+O launcher separa seleção de teclado do hover do mouse: apontar para um item
+apenas realça sua célula, enquanto setas/roda preservam a seleção ativa; ao sair
+do menu o hover é limpo sem perder a seleção.
 No ciclo de standby, páginas somente-leitura da imagem principal podem ser
 descartadas e restauradas; intérprete e bibliotecas compartilhadas permanecem
 residentes até haver metadado de backing individual para recuperação segura.
