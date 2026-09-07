@@ -2695,7 +2695,7 @@ fn moveTerminalFile(source: []const u8, destination: []const u8) bool {
     return true;
 }
 
-fn runTerminalProgram(command: []const u8) bool {
+fn runTerminalProgram(command: []const u8) ?u8 {
     serial.write("UI terminal run: ");
     serial.write(command);
     serial.write("\n");
@@ -2717,8 +2717,8 @@ fn runTerminalProgram(command: []const u8) bool {
     }
     syscalls.console_write_hook = &appendTerminalProgramOutput;
     defer syscalls.console_write_hook = null;
-    process.runBusyBox(desktop_kernel_root, &pages, arguments[0..count]) catch return false;
-    return true;
+    process.runBusyBox(desktop_kernel_root, &pages, arguments[0..count]) catch return null;
+    return syscalls.exitStatus() orelse 0;
 }
 
 fn appendTerminalProgramOutput(bytes: []const u8) void {

@@ -584,7 +584,7 @@ pub const Terminal = struct {
     pub const FileRemover = *const fn (path: []const u8) bool;
     pub const FileCopier = *const fn (source: []const u8, destination: []const u8) bool;
     pub const FileMover = *const fn (source: []const u8, destination: []const u8) bool;
-    pub const ProgramRunner = *const fn (command: []const u8) bool;
+    pub const ProgramRunner = *const fn (command: []const u8) ?u8;
     input: TextInput = .{},
     output: [256]u8 = undefined,
     file_reader: ?FileReader = null,
@@ -689,7 +689,11 @@ pub const Terminal = struct {
             else if (command.len >= 4 and bytesEqualIgnoreCase(command[0..4], "run ")) {
                 const program = trimCommand(command[4..]);
                 if (program.len == 0) self.append("run: MISSING PROGRAM\n") else if (self.program_runner) |runner| {
-                    if (runner(program)) self.append("PROGRAM EXITED 0\n") else self.append("run: PROGRAM FAILED\n");
+                    if (runner(program)) |status| {
+                        var status_text: [24]u8 = undefined;
+                        const rendered = @import("std").fmt.bufPrint(&status_text, "PROGRAM EXITED {d}\n", .{status}) catch "PROGRAM EXITED\n";
+                        self.append(rendered);
+                    } else self.append("run: PROGRAM FAILED\n");
                 } else self.append("run: USERSPACE UNAVAILABLE\n");
             }
             else if (bytesEqualIgnoreCase(command, "echo"))
@@ -1045,8 +1049,8 @@ fn testFileMover(source: []const u8, destination: []const u8) bool {
     return bytesEqual(source, "notes.txt") and bytesEqual(destination, "renamed.txt");
 }
 
-fn testProgramRunner(command: []const u8) bool {
-    return bytesEqual(command, "echo ready");
+fn testProgramRunner(command: []const u8) ?u8 {
+    return if (bytesEqual(command, "echo ready")) 0 else null;
 }
 
 test "SDL software event queue and surface contract" {

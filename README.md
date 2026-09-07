@@ -693,6 +693,9 @@ exemplo `run echo pronto` ou `run ls /`.
 Durante a execução foreground, stdout e stderr dos applets são duplicados para
 o buffer do terminal SDL e continuam disponíveis no console serial, permitindo
 usar `run` como um terminal de aplicações real.
+O status de saída também é propagado: o prompt exibe `PROGRAM EXITED N` para
+o código retornado pelo processo, ou `PROGRAM FAILED` quando o carregamento
+falha.
 O harness QEMU também oferece `-SmokeTerminalRun` para injetar esse fluxo pelo
 teclado e verificar o marcador serial do lançamento.
 `echo texto > arquivo` usa `openAt`/`write` para criar ou truncar um arquivo FAT
