@@ -492,7 +492,11 @@ pub const Controller = struct {
                 &devices.mouse
             else
                 continue;
-            const size: u16 = endpoint.packet_size - @min(endpoint.packet_size, @as(u16, @truncate(event.residual)));
+            // Residual is a full-width completion field. Truncating it to u16
+            // before clamping can turn a large residual into a small one and
+            // make us parse bytes that were not transferred.
+            const residual = @min(event.residual, @as(u32, endpoint.packet_size));
+            const size: u16 = endpoint.packet_size - @as(u16, @intCast(residual));
             const report: [*]const u8 = @ptrFromInt(endpoint.report);
             const saved_size = @min(@as(usize, size), endpoint.last_report.len);
             var changed = endpoint.last_size != saved_size;
