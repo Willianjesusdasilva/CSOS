@@ -344,6 +344,13 @@ pub const Application = struct {
         return processed;
     }
 
+    pub fn reset(self: *Application) void {
+        self.running = true;
+        self.last_event = null;
+        self.processed_events = 0;
+        self.window.invalidate();
+    }
+
     pub fn render(self: *Application, draw: *const fn (*Window) void) bool {
         if (!self.running) return false;
         draw(&self.window);
@@ -869,7 +876,11 @@ test "SDL software event queue and surface contract" {
     try @import("std").testing.expectEqual(@as(?Event, .{ .quit = {} }), app.last_event);
     try @import("std").testing.expectEqual(@as(?Event, .{ .quit = {} }), app.takeLastEvent());
     try @import("std").testing.expect(app.takeLastEvent() == null);
-    try @import("std").testing.expect(!app.render(&testApplicationDraw));
+    app.reset();
+    try @import("std").testing.expect(app.running);
+    try @import("std").testing.expect(app.last_event == null);
+    try @import("std").testing.expect(app.window.dirtyRect() != null);
+    try @import("std").testing.expect(app.render(&testApplicationDraw));
     app.running = true;
     try @import("std").testing.expect(app.render(&testApplicationDraw));
     try @import("std").testing.expect(app.frame(&app_events, &testApplicationEvent, &testApplicationDraw));
