@@ -542,7 +542,7 @@ pub const Controller = struct {
                 if (endpoint.slot == devices.keyboard.slot) {
                     const pressed = keyboardReportPressed(report[0..size]);
                     const usage = keyboardReportUsage(report[0..size]);
-                    const event_usage = if (pressed) usage else devices.keyboard_usage;
+                    const event_usage = keyboardEventUsage(devices.keyboard_usage, report[0..size]);
                     devices.push(.{ .kind = .keyboard, .a = event_usage, .b = if (size > 0) report[0] else 0, .c = @intFromBool(pressed) });
                     if (pressed and usage != 0) devices.keyboard_usage = usage else if (!pressed) devices.keyboard_usage = 0;
                 } else {
@@ -742,6 +742,10 @@ fn keyboardReportUsage(report: []const u8) u8 {
     }
     return 0;
 }
+
+fn keyboardEventUsage(previous: u8, report: []const u8) u8 {
+    return if (keyboardReportPressed(report)) keyboardReportUsage(report) else previous;
+}
 pub const HidDevices = struct {
     keyboards: u8 = 0,
     mice: u8 = 0,
@@ -860,6 +864,12 @@ test "HID modifier-only reports count as pressed" {
 test "HID keyboard usage skips empty rollover slots" {
     try @import("std").testing.expectEqual(@as(u8, 5), keyboardReportUsage(&[_]u8{ 0, 0, 0, 5, 0, 0, 0, 0 }));
     try @import("std").testing.expectEqual(@as(u8, 0), keyboardReportUsage(&[_]u8{ 0, 0 }));
+}
+
+test "HID release keeps the usage from the preceding press" {
+    try @import("std").testing.expectEqual(@as(u8, 4), keyboardEventUsage(0, &[_]u8{ 0, 0, 4, 0, 0, 0, 0, 0 }));
+    try @import("std").testing.expectEqual(@as(u8, 4), keyboardEventUsage(4, &[_]u8{ 0, 0, 0, 0, 0, 0, 0, 0 }));
+    try @import("std").testing.expectEqual(@as(u8, 0), keyboardEventUsage(4, &[_]u8{ 1, 0, 0, 0, 0, 0, 0, 0 }));
 }
 
 test "HID short keyboard reports are safely treated as released" {
