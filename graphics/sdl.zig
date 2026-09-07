@@ -649,6 +649,7 @@ pub fn glyph3x5(character: u8) [5]u8 {
         '+' => .{ 2, 2, 7, 2, 2 },
         '%' => .{ 5, 1, 2, 4, 5 },
         '|' => .{ 2, 2, 2, 2, 2 },
+        '~' => .{ 0, 5, 2, 5, 0 },
         '<' => .{ 1, 2, 4, 2, 1 },
         '>' => .{ 4, 2, 1, 2, 4 },
         else => .{ 7, 1, 2, 0, 2 },
@@ -672,6 +673,7 @@ test "SDL software event queue and surface contract" {
     try @import("std").testing.expectEqual([5]u8{ 2, 2, 7, 2, 2 }, glyph3x5('+'));
     try @import("std").testing.expectEqual([5]u8{ 5, 1, 2, 4, 5 }, glyph3x5('%'));
     try @import("std").testing.expectEqual([5]u8{ 1, 2, 4, 2, 1 }, glyph3x5('<'));
+    try @import("std").testing.expectEqual([5]u8{ 0, 5, 2, 5, 0 }, glyph3x5('~'));
     try @import("std").testing.expectEqual([5]u8{ 0, 2, 0, 2, 4 }, glyph3x5(';'));
     try @import("std").testing.expect(glyph3x5('(')[0] != glyph3x5(')')[0]);
     try @import("std").testing.expectEqual(@as(u32, 0x112233), blendRgbaOverRgb(0x112233ff, 0xaabbcc));
