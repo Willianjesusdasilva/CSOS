@@ -367,14 +367,25 @@ pub const Stack = struct {
             if (bootp[236] != 99 or bootp[237] != 130 or bootp[238] != 83 or bootp[239] != 99) continue;
             var lease = Lease{ .address = bootp[16..20].* };
             var message_type: u8 = 0;
+            var saw_end = false;
+            var malformed = false;
             var option: usize = 240;
             while (option < udp_length - 8) {
                 const kind = bootp[option];
-                if (kind == 255) break;
+                if (kind == 255) {
+                    saw_end = true;
+                    break;
+                }
                 if (kind == 0) { option += 1; continue; }
-                if (option + 2 > udp_length - 8) break;
+                if (option + 2 > udp_length - 8) {
+                    malformed = true;
+                    break;
+                }
                 const option_length = bootp[option + 1];
-                if (option + 2 + option_length > udp_length - 8) break;
+                if (option + 2 + option_length > udp_length - 8) {
+                    malformed = true;
+                    break;
+                }
                 const value = bootp[option + 2 .. option + 2 + option_length];
                 if (kind == 53 and option_length == 1) message_type = value[0];
                 if (kind == 54 and option_length == 4) @memcpy(&lease.server, value);
@@ -383,7 +394,7 @@ pub const Stack = struct {
                 if (kind == 6 and option_length >= 4) @memcpy(&lease.dns, value[0..4]);
                 option += 2 + option_length;
             }
-            if (message_type == expected_type) return lease;
+            if (!malformed and saw_end and message_type == expected_type) return lease;
         }
         return error.DhcpReplyMissing;
     }
