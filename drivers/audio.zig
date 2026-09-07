@@ -309,6 +309,13 @@ test "audio metrics saturate instead of wrapping" {
     try std.testing.expectEqual(std.math.maxInt(u64), metrics.underruns);
 }
 
+test "audio manager queue depth does not underflow" {
+    var manager = DeviceManager{ .device = .{ .state = .streaming } };
+    manager.metrics.completed = std.math.maxInt(u64);
+    try manager.noteSubmit();
+    try std.testing.expectEqual(@as(u64, 1), manager.metrics.submitted);
+}
+
 fn saturatingCount(value: u64, increment: u64) u64 {
     return std.math.add(u64, value, increment) catch std.math.maxInt(u64);
 }
