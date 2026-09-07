@@ -442,6 +442,18 @@ test "scheduler queue rejects the entry beyond capacity" {
     try std.testing.expectError(error.QueueFull, enqueue(7, schedulerTestEntry));
 }
 
+test "scheduler queue rejects unknown CPUs without mutation" {
+    const saved_cpu_count = cpu_count;
+    const saved_queue = cpu_queues[0];
+    defer {
+        cpu_count = saved_cpu_count;
+        cpu_queues[0] = saved_queue;
+    }
+    cpu_count = 0;
+    try std.testing.expectError(error.UnknownCpu, enqueue(0xdead, schedulerTestEntry));
+    try std.testing.expectEqual(@as(usize, 0), cpu_count);
+}
+
 test "scheduler queue capacity survives index wrap" {
     const saved_cpu_count = cpu_count;
     const saved_queue = cpu_queues[0];
