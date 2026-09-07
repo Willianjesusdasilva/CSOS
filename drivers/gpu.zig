@@ -754,7 +754,9 @@ pub fn mapAmdMesFirmwareIntoGart(staging: AmdPspGttStaging, firmware: AmdMesFirm
     const areas = .{ firmware.scheduler.ucode, firmware.scheduler.data, firmware.kiq.ucode, firmware.kiq.data };
     var total_pages: u64 = 0;
     inline for (areas) |area| {
-        if (area.address == 0 or area.pages == 0 or area.bytes == 0 or (area.address & 4095) != 0 or area.bytes > area.pages * 4096)
+        if (area.address == 0 or area.pages == 0 or area.bytes == 0 or (area.address & 4095) != 0 or
+            area.pages > std.math.maxInt(u64) / 4096 or area.bytes > area.pages * 4096 or
+            area.pages > std.math.maxInt(u64) - total_pages)
             return error.InvalidAmdMesFirmwareStaging;
         total_pages += area.pages;
     }
@@ -764,6 +766,8 @@ pub fn mapAmdMesFirmwareIntoGart(staging: AmdPspGttStaging, firmware: AmdMesFirm
     var next: u64 = 11;
     var gpu_addresses: [4]u64 = undefined;
     inline for (areas, 0..) |area, area_index| {
+        if (next > std.math.maxInt(u64) / 4096 or window_start > std.math.maxInt(u64) - next * 4096)
+            return error.InvalidAmdMesFirmwareGart;
         gpu_addresses[area_index] = window_start + next * 4096;
         var page: u64 = 0;
         while (page < area.pages) : (page += 1) table[next + page] = amdGttPte(area.address + page * 4096);
