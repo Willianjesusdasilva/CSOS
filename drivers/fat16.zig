@@ -368,6 +368,7 @@ fn validateDataCluster(cluster: u16, cluster_count: u32) !void {
 }
 
 fn clustersForLength(length: usize, cluster_bytes: usize, cluster_count: u32) !usize {
+    if (cluster_bytes == 0) return error.InvalidClusterSize;
     if (length > std.math.maxInt(u32)) return error.FileTooLarge;
     if (length == 0) return 0;
     const needed = (length - 1) / cluster_bytes + 1;
@@ -418,6 +419,7 @@ test "FAT16 data cluster validation excludes reserved and out-of-volume entries"
 }
 
 test "FAT16 file sizing is volume-bound instead of stack-bound" {
+    try std.testing.expectError(error.InvalidClusterSize, clustersForLength(1, 0, 8000));
     try std.testing.expectEqual(@as(usize, 0), try clustersForLength(0, 512, 8000));
     try std.testing.expectEqual(@as(usize, 33), try clustersForLength(33 * 512, 512, 8000));
     try std.testing.expectError(error.DiskFull, clustersForLength(8001 * 512, 512, 8000));
