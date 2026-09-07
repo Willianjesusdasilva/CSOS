@@ -992,6 +992,7 @@ fn drmCreateDumb(address: u64) u64 {
     const flags = read32(output + 12);
     if (height == 0 or width == 0 or height > framebuffer.height or width > framebuffer.width or bpp != 32 or flags != 0) return errno(22);
     const pitch = std.math.mul(u64, width, 4) catch return errno(12);
+    if (pitch > std.math.maxInt(u32)) return errno(12);
     const size = std.math.mul(u64, pitch, height) catch return errno(12);
     if (size > framebuffer.size) return errno(12);
     const page_count = pageCountForBytes(size) catch return errno(12);
