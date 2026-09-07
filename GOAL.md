@@ -163,7 +163,7 @@ persistente. Ele não substitui
 a futura integração concorrente do BusyBox, mas restaura uma superfície de
 comando utilizável sem suspender o loop do desktop.
 O terminal mantém quatro comandos de histórico, recuperáveis por setas, oferece
-Home/End/Delete, `Ctrl+A/E/U/K/C`, `Ctrl+Backspace` e `Ctrl+Seta` para navegação
+Home/End/Delete, `Ctrl+A/E/U/K/C/D`, `Ctrl+Backspace` e `Ctrl+Seta` para navegação
 por palavras, e renderiza automaticamente
 as seis linhas mais recentes.
 O compositor associa a superfície SDL à janela proprietária e aplica clipping
