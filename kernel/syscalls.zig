@@ -2905,6 +2905,7 @@ fn epollCreate(flags: u64) u64 {
 fn epollCtl(epfd: u64, operation: u64, target: u64, event: u64) u64 {
     if (!vfs.isEpoll(@intCast(epfd)) or !vfs.isOpen(@intCast(target)) or target == epfd) return errno(9);
     if (event == 0 and operation != 2) return errno(14);
+    if (operation != 2 and !validUserSlice(event, 16)) return errno(14);
     const watches = &epoll_watches[@intCast(epfd)];
     if (operation == 1 or operation == 2 or operation == 3) {
         var slot: ?usize = null;
@@ -2933,7 +2934,8 @@ fn epollCtl(epfd: u64, operation: u64, target: u64, event: u64) u64 {
 }
 
 fn epollWait(epfd: u64, output: u64, capacity: u64, timeout: i64) u64 {
-    if (!vfs.isEpoll(@intCast(epfd)) or capacity == 0 or capacity > max_epoll_watch or !validUserSlice(output, capacity * 16)) return errno(22);
+    const bytes_len = std.math.mul(u64, capacity, 16) catch return errno(22);
+    if (!vfs.isEpoll(@intCast(epfd)) or capacity == 0 or capacity > max_epoll_watch or !validUserSlice(output, bytes_len)) return errno(22);
     const bytes: [*]u8 = @ptrFromInt(output);
     var ready: u64 = 0;
     for (epoll_watches[@intCast(epfd)]) |watch| {
