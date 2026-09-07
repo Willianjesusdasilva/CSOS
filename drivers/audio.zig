@@ -475,6 +475,7 @@ pub const DeviceManager = struct {
 
     pub fn resumeStream(self: *DeviceManager) !void {
         if (self.stream == null or self.device.state != .configured) return error.DeviceNotConfigured;
+        if (self.device.suspended) return error.DeviceSuspended;
         // Re-arm the transport as well as the manager state. Merely marking the
         // manager streaming leaves the paused stream configured with no queued
         // periods, causing the first completion to underrun immediately.
@@ -978,6 +979,15 @@ test "device manager pauses and resumes stream" {
     try @import("std").testing.expectError(error.DeviceNotConfigured, manager.resumeStream());
     try @import("std").testing.expectEqual(State.streaming, manager.device.state);
     try @import("std").testing.expectEqual(State.streaming, manager.stream.?.device.state);
+}
+
+test "device manager does not resume a suspended device" {
+    var manager = DeviceManager{};
+    try manager.attach(.{ .channels = 2, .bits_per_sample = 16, .sample_rate = 48000 }, 1000, 4096);
+    try manager.configure();
+    manager.device.suspended = true;
+    try @import("std").testing.expectError(error.DeviceSuspended, manager.resumeStream());
+    try @import("std").testing.expectEqual(State.configured, manager.device.state);
 }
 
 test "device manager stop preserves absent state" {
