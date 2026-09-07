@@ -100,7 +100,7 @@ fn scanRoot(address: u64, entry_size: usize, signature: []const u8) ![*]const u8
     if (address == 0 or (entry_size != 4 and entry_size != 8)) return error.InvalidRootTable;
     const root: [*]const u8 = @ptrFromInt(address);
     const length = read32(root + 4);
-    if (length < 36 or !checksum(root, length)) return error.InvalidRootTable;
+    if (length < 36 or (length - 36) % entry_size != 0 or !checksum(root, length)) return error.InvalidRootTable;
 
     var offset: usize = 36;
     while (offset + entry_size <= length) : (offset += entry_size) {
