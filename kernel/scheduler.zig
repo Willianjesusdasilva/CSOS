@@ -153,7 +153,7 @@ pub fn freezeGroup(group: u16) usize {
         if (thread.group != group or thread.policy == .keep_alive or
             (thread.state != .ready and thread.state != .sleeping)) continue;
         thread.resume_state = thread.state;
-        thread.resume_lifecycle = thread.lifecycle;
+        thread.resume_lifecycle = if (thread.lifecycle == .resuming) .running else thread.lifecycle;
         thread.state = .frozen;
         thread.lifecycle = .frozen;
         changed += 1;
@@ -165,7 +165,7 @@ pub fn freezeCurrent() !void {
     const index = current orelse return error.NoCurrentThread;
     if (threads[index].policy == .keep_alive) return error.KeepAlive;
     threads[index].resume_state = .ready;
-    threads[index].resume_lifecycle = threads[index].lifecycle;
+    threads[index].resume_lifecycle = if (threads[index].lifecycle == .resuming) .running else threads[index].lifecycle;
     threads[index].state = .frozen;
     threads[index].lifecycle = .frozen;
     yieldNow();
