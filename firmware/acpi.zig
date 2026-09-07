@@ -237,6 +237,16 @@ fn readAml(bytes: [*]const u8, length: usize, cursor: *usize, count: usize) !u64
     return value;
 }
 
+test "AML helpers reject truncated packages and decode bounded integers" {
+    const testing = @import("std").testing;
+    try testing.expectError(error.InvalidPackageLength, packageLengthBytes(&[_]u8{0x40}, 1));
+    var bytes = [_]u8{ 0x34, 0x12 };
+    var cursor: usize = 0;
+    try testing.expectEqual(@as(u64, 0x1234), try readAml(&bytes, bytes.len, &cursor, 2));
+    try testing.expectEqual(bytes.len, cursor);
+    try testing.expectError(error.InvalidSleepPackage, readAml(&bytes, bytes.len, &cursor, 1));
+}
+
 fn writeGas(register: Gas, value: u64) !void {
     const width = try validateGas(register);
     const bytes = @as(u64, width / 8);
