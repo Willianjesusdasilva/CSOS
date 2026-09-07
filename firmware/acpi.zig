@@ -232,6 +232,8 @@ fn readAml(bytes: [*]const u8, length: usize, cursor: *usize, count: usize) !u64
 fn writeGas(register: Gas, value: u64) !void {
     if (register.offset != 0 or register.address == 0) return error.UnsupportedRegister;
     const width: u8 = if (register.width != 0) register.width else switch (register.access) { 1 => 8, 2 => 16, 3 => 32, else => 0 };
+    const bytes = @as(u64, width / 8);
+    if (bytes == 0 or register.address > std.math.maxInt(u64) - (bytes - 1)) return error.UnsupportedRegister;
     switch (register.space) {
         0 => switch (width) {
             8 => { const target: *volatile u8 = @ptrFromInt(register.address); target.* = @truncate(value); },
@@ -240,9 +242,9 @@ fn writeGas(register: Gas, value: u64) !void {
             else => return error.UnsupportedRegister,
         },
         1 => switch (width) {
-            8 => asm volatile ("outb %[value], %[port]" :: [value] "{al}" (@as(u8, @truncate(value))), [port] "{dx}" (@as(u16, @truncate(register.address)))),
-            16 => asm volatile ("outw %[value], %[port]" :: [value] "{ax}" (@as(u16, @truncate(value))), [port] "{dx}" (@as(u16, @truncate(register.address)))),
-            32 => asm volatile ("outl %[value], %[port]" :: [value] "{eax}" (@as(u32, @truncate(value))), [port] "{dx}" (@as(u16, @truncate(register.address)))),
+            8 => if (register.address > 0xffff) return error.UnsupportedRegister else asm volatile ("outb %[value], %[port]" :: [value] "{al}" (@as(u8, @truncate(value))), [port] "{dx}" (@as(u16, @truncate(register.address)))),
+            16 => if (register.address > 0xffff - 1) return error.UnsupportedRegister else asm volatile ("outw %[value], %[port]" :: [value] "{ax}" (@as(u16, @truncate(value))), [port] "{dx}" (@as(u16, @truncate(register.address)))),
+            32 => if (register.address > 0xffff - 3) return error.UnsupportedRegister else asm volatile ("outl %[value], %[port]" :: [value] "{eax}" (@as(u32, @truncate(value))), [port] "{dx}" (@as(u16, @truncate(register.address)))),
             else => return error.UnsupportedRegister,
         },
         else => return error.UnsupportedAddressSpace,
