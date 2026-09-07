@@ -2565,7 +2565,9 @@ fn readv(fd: u64, address: u64, count: u64) u64 {
 
 fn poll(address: u64, count: u64, timeout: i64) u64 {
     const bytes = std.math.mul(u64, count, 8) catch return errno(22);
-    if (count > 64 or !validUserSlice(address, bytes)) return errno(14);
+    if (count > 64) return errno(22);
+    // Linux permits poll(NULL, 0, timeout), which is useful as a sleep.
+    if (count != 0 and !validUserSlice(address, bytes)) return errno(14);
     var ready: u64 = 0;
     var index: u64 = 0;
     while (index < count) : (index += 1) {
@@ -2573,7 +2575,10 @@ fn poll(address: u64, count: u64, timeout: i64) u64 {
         const fd = read32(item);
         const events = read16(item + 4);
         var revents: u16 = 0;
-        if (fd == 0) {
+        // A negative pollfd is ignored, rather than reported as POLLNVAL.
+        if (@as(i32, @bitCast(fd)) < 0) {
+            revents = 0;
+        } else if (fd == 0) {
             if (stdin_hook != null and (events & 1) != 0) revents |= 1;
         } else if (!vfs.isOpen(fd)) {
             revents = 0x20; // POLLNVAL
