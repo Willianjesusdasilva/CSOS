@@ -544,22 +544,23 @@ pub const Terminal = struct {
     }
 
     pub fn outputSlice(self: *const Terminal) []const u8 {
-        return self.output[0..self.output_len];
+        return self.output[0..@min(self.output_len, self.output.len)];
     }
 
     pub fn outputTailLines(self: *const Terminal, max_lines: usize) []const u8 {
-        if (max_lines == 0) return self.output[self.output_len..self.output_len];
+        const output_len = @min(self.output_len, self.output.len);
+        if (max_lines == 0) return self.output[output_len..output_len];
         var boundaries: usize = 0;
-        var index = self.output_len;
+        var index = output_len;
         if (index > 0 and self.output[index - 1] == '\n') index -= 1;
         while (index > 0) {
             index -= 1;
             if (self.output[index] == '\n') {
                 boundaries += 1;
-                if (boundaries == max_lines) return self.output[index + 1 .. self.output_len];
+                if (boundaries == max_lines) return self.output[index + 1 .. output_len];
             }
         }
-        return self.output[0..self.output_len];
+        return self.output[0..output_len];
     }
 
     pub fn historyPrevious(self: *Terminal) bool {
@@ -1075,6 +1076,9 @@ test "SDL software event queue and surface contract" {
     for ("clear") |byte| try @import("std").testing.expect(terminal.input.insert(byte));
     try @import("std").testing.expect(terminal.submit());
     try @import("std").testing.expectEqual(@as(usize, 0), terminal.output_len);
+    try @import("std").testing.expectEqualStrings("", terminal.outputTailLines(0));
+    terminal.output_len = std.math.maxInt(usize);
+    try @import("std").testing.expect(terminal.outputSlice().len <= terminal.output.len);
     try @import("std").testing.expectEqualStrings("", terminal.outputTailLines(0));
     var app = Application{ .window = drawable };
     var app_events = EventQueue{};
