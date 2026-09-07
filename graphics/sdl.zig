@@ -326,6 +326,7 @@ pub const Application = struct {
             self.processed_events +|= 1;
             if (event == .quit) self.running = false;
             on_event(self, event);
+            if (!self.running) break;
         }
     }
 
@@ -835,10 +836,12 @@ test "SDL software event queue and surface contract" {
     var app = Application{ .window = drawable };
     var app_events = EventQueue{};
     try @import("std").testing.expect(app_events.push(.{ .quit = {} }));
+    try @import("std").testing.expect(app_events.pushText('x'));
     app.pump(&app_events, &testApplicationEvent);
     try @import("std").testing.expect(!app.running);
     try @import("std").testing.expectEqual(@as(u64, 1), app.processed_events);
     try @import("std").testing.expectEqual(@as(u64, 1), app.takeProcessedEvents());
+    try @import("std").testing.expectEqual(@as(usize, 1), app_events.len());
     try @import("std").testing.expectEqual(@as(u64, 0), app.processed_events);
     try @import("std").testing.expectEqual(@as(?Event, .{ .quit = {} }), app.last_event);
     try @import("std").testing.expectEqual(@as(?Event, .{ .quit = {} }), app.takeLastEvent());
