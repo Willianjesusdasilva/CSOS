@@ -115,18 +115,18 @@ pub const Stack = struct {
         var question: u16 = 0;
         while (question < get16(response[4..])) : (question += 1) {
             offset = try skipDnsName(response[0..size], offset);
-            if (offset + 4 > size) return error.InvalidDnsReply;
+            if (offset > size or size - offset < 4) return error.InvalidDnsReply;
             offset += 4;
         }
         var answer: u16 = 0;
         while (answer < get16(response[6..])) : (answer += 1) {
             offset = try skipDnsName(response[0..size], offset);
-            if (offset + 10 > size) return error.InvalidDnsReply;
+            if (offset > size or size - offset < 10) return error.InvalidDnsReply;
             const record_type = get16(response[offset..]);
             const class = get16(response[offset + 2 ..]);
             const data_length = get16(response[offset + 8 ..]);
             offset += 10;
-            if (offset + data_length > size) return error.InvalidDnsReply;
+            if (offset > size or data_length > size - offset) return error.InvalidDnsReply;
             if (record_type == 1 and class == 1 and data_length == 4)
                 return .{ response[offset], response[offset + 1], response[offset + 2], response[offset + 3] };
             offset += data_length;
