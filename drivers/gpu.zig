@@ -8390,6 +8390,10 @@ pub fn loadFirmware(volume: *fat16.Volume, pages: *physical.Allocator) !?Firmwar
     if (size == 0 or size > maximum_firmware_bytes) return error.InvalidFirmwareSize;
     const page_count: u64 = @intCast((size + 4095) / 4096);
     const address = pages.allocate(page_count) orelse return error.OutOfMemory;
+    if (address >= (@as(u64, 1) << 44) or page_count > (((@as(u64, 1) << 44) - address) / 4096)) {
+        pages.release(address, page_count) catch {};
+        return error.FirmwareOutsideDmaMask;
+    }
     const target: [*]u8 = @ptrFromInt(address);
     @memset(target[0 .. page_count * 4096], 0);
     const loaded = volume.readRootFile(&firmware_name, target[0..size]) catch |err| {
