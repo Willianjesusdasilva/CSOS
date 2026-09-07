@@ -2972,6 +2972,9 @@ fn socketIndex(fd: u64) ?usize {
 
 fn archPrctl(code: u64, address: u64) u64 {
     if (code != 0x1002) return errno(22);
+    // ARCH_SET_FS accepts a canonical userspace base only; never let a
+    // userspace syscall install a kernel/non-canonical address in the MSR.
+    if (address >= 0x0000800000000000) return errno(22);
     writeMsr(0xc0000100, address);
     return 0;
 }
