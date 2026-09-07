@@ -22,6 +22,7 @@ pub const Volume = struct {
     pub fn mount(storage: *nvme.Controller, pages: *physical.Allocator) !Volume {
         if (storage.block_size != 512) return error.UnsupportedSectorSize;
         const buffer = pages.allocate(1) orelse return error.OutOfMemory;
+        errdefer pages.release(buffer, 1) catch {};
         try storage.readBlock(0, buffer);
         const boot: [*]const u8 = @ptrFromInt(buffer);
         const layout = try parseBootSector(boot, storage.block_count);
