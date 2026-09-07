@@ -2777,7 +2777,8 @@ fn timerLifecycleThread() void {
 }
 
 fn perCpuTask() void {
-    _ = @atomicRmw(u32, &per_cpu_runs, .Add, 1, .release);
+    if (@atomicLoad(u32, &per_cpu_runs, .monotonic) != std.math.maxInt(u32))
+        _ = @atomicRmw(u32, &per_cpu_runs, .Add, 1, .release);
 }
 
 pub fn panic(message: []const u8) noreturn {
