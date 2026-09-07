@@ -242,8 +242,15 @@ pub const Window = struct {
     }
 
     pub fn drawText(self: *Window, x: usize, y: usize, text: []const u8, color: u32) void {
-        for (text, 0..) |character, index| {
-            const glyph_x = x +| index * 8;
+        var cursor_x = x;
+        var cursor_y = y;
+        for (text) |character| {
+            if (character == '\n') {
+                cursor_x = x;
+                cursor_y +|= 12;
+                continue;
+            }
+            const glyph_x = cursor_x;
             const glyph = glyph3x5(character);
             for (glyph, 0..) |row_bits, row| {
                 const glyph_y = y +| row * 2;
@@ -252,6 +259,7 @@ pub const Window = struct {
                         self.fillRect(glyph_x +| column * 2, glyph_y, 2, 2, color);
                 }
             }
+            cursor_x +|= 8;
         }
     }
 
@@ -626,6 +634,11 @@ test "SDL software event queue and surface contract" {
     var clipped = try createWindow(&clipped_storage, 4, 4);
     clipped.drawText(std.math.maxInt(usize), std.math.maxInt(usize), "A", 0xffffffff);
     try @import("std").testing.expect(!clipped.consumeDirty());
+    var multiline_storage = [_]u32{0} ** 256;
+    var multiline = try createWindow(&multiline_storage, 16, 16);
+    multiline.drawText(0, 0, "A\nB", 0xffffffff);
+    try @import("std").testing.expect(multiline.pixels[0] != 0);
+    try @import("std").testing.expect(multiline.pixels[12 * 16] != 0);
     var events = EventQueue{};
     try @import("std").testing.expectEqual(@as(usize, 0), events.len());
     try @import("std").testing.expectEqual(EventQueue.capacity, events.remaining());
