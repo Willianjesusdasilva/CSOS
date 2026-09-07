@@ -340,6 +340,8 @@ O avanço do índice de chain e do maior símbolo usa soma checked, evitando loo
 infinito em tabelas que atingem `u32` máximo.
 O carregamento de uma dependência fecha o descritor mesmo quando a leitura
 termina prematuramente, evitando vazamento de handles no loader.
+As rotas VFS para propriedades DRM com sufixo agora comparam comprimentos por
+subtração, sem somar tamanhos controlados pelo caminho antes do slicing.
 
 Mapeamentos anônimos também possuem rollback transacional: uma falha no meio da
 criação remove as páginas já instaladas e devolve a alocação e o ownership.

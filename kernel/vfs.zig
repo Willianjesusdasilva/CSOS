@@ -549,8 +549,12 @@ fn requireDrmPci(node: Node) error{NotFound}!Node { return if (drm_pci_configure
 fn endsWithDrmDevice(path: []const u8, suffix: []const u8) bool {
     const primary = "/sys/dev/char/226:0/device";
     const render = "/sys/dev/char/226:128/device";
-    return (path.len == primary.len + suffix.len and equal(path[0..primary.len], primary) and equal(path[primary.len..], suffix)) or
-        (path.len == render.len + suffix.len and equal(path[0..render.len], render) and equal(path[render.len..], suffix));
+    return pathHasSuffix(path, primary, suffix) or pathHasSuffix(path, render, suffix);
+}
+
+fn pathHasSuffix(path: []const u8, prefix: []const u8, suffix: []const u8) bool {
+    if (path.len < prefix.len or path.len - prefix.len != suffix.len) return false;
+    return equal(path[0..prefix.len], prefix) and equal(path[prefix.len..], suffix);
 }
 
 fn entryType(parent: Node, name: []const u8) u8 {
