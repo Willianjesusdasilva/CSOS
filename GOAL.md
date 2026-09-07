@@ -365,6 +365,8 @@ O xHCI valida DCBAA, command ring, event ring e ERST antes de escrever seus
 ponteiros nos registradores do controlador.
 Rings, relatórios HID e contexts alocados por dispositivo e pelo áudio também
 passam pela validação DMA antes de configurar endpoints.
+Contexts de slot, input, transfer ring e descriptor alocados durante a
+enumeração também são validados antes de `Address Device`.
 
 Mapeamentos anônimos também possuem rollback transacional: uma falha no meio da
 criação remove as páginas já instaladas e devolve a alocação e o ownership.

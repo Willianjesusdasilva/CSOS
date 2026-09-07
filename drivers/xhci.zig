@@ -491,6 +491,8 @@ pub const Controller = struct {
             input_context = pages.allocate(1) orelse return error.OutOfMemory;
             transfer_ring = pages.allocate(1) orelse return error.OutOfMemory;
             descriptor = pages.allocate(1) orelse return error.OutOfMemory;
+            if (!validDmaPage(device_context) or !validDmaPage(input_context) or
+                !validDmaPage(transfer_ring) or !validDmaPage(descriptor)) return error.InvalidDmaAddress;
             zeroPage(device_context);
             zeroPage(input_context);
             zeroPage(transfer_ring);
