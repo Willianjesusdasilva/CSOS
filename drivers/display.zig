@@ -399,6 +399,12 @@ pub const WindowManager = struct {
         return @as(u32, self.launcher_selection % launcher_item_count) + 1;
     }
 
+    pub fn launcherSelectApplication(self: *WindowManager, application_id: u32) bool {
+        if (!self.launcher_open or application_id == 0 or application_id > launcher_item_count) return false;
+        self.launcher_selection = @intCast(application_id - 1);
+        return true;
+    }
+
     pub fn compose(self: *const WindowManager, context: *Context) void {
         var i: usize = 0;
         while (i < self.count) : (i += 1) {
@@ -646,6 +652,16 @@ test "window manager dismisses launcher when focusing a window" {
     try std.testing.expect(manager.focus(0));
     try std.testing.expect(!manager.launcher_open);
     try std.testing.expectEqual(@as(u8, 0), manager.launcher_selection);
+}
+
+test "launcher hover selects the matching application" {
+    var manager = WindowManager{};
+    manager.launcher_open = true;
+    try std.testing.expect(manager.launcherSelectApplication(3));
+    try std.testing.expectEqual(@as(u8, 2), manager.launcher_selection);
+    try std.testing.expect(!manager.launcherSelectApplication(99));
+    manager.launcher_open = false;
+    try std.testing.expect(!manager.launcherSelectApplication(1));
 }
 
 test "window manager rejects hit tests outside the screen" {

@@ -2316,6 +2316,11 @@ pub fn start(info: BootInfo) noreturn {
                 serial.writeDecimal(@as(u8, @bitCast(dy)));
                 serial.write("\n");
             }
+            if (window_manager.launcher_open and (dx != 0 or dy != 0)) {
+                if (window_manager.launcherItemHitTest(cursor_x, cursor_y, screen.framebuffer.height)) |application_id| {
+                    _ = window_manager.launcherSelectApplication(application_id);
+                }
+            }
             if (focusedWindowIs(window_manager, 4)) {
                 if (!files_preview_open and files_selection.wheel(wheel)) {
                     drawFilesSurface(&files_window, root_files[0..root_file_count], &files_selection);
