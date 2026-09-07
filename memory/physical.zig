@@ -238,3 +238,10 @@ test "physical allocator rejects counter overflow before release" {
     allocator.reclaimed_pages = std.math.maxInt(u64);
     try @import("std").testing.expectError(error.CounterOverflow, allocator.release(0x100000, 1));
 }
+
+test "physical allocator ignores truncated UEFI descriptors" {
+    var bytes: [8]u8 align(8) = undefined;
+    const allocator = Allocator.init(&bytes, 1, bytes.len);
+    try @import("std").testing.expectEqual(@as(usize, 0), allocator.range_count);
+    try @import("std").testing.expectEqual(@as(u64, 0), allocator.free_pages);
+}
