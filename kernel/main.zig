@@ -2780,10 +2780,12 @@ fn runTerminalProgram(command: []const u8) ?u8 {
     } else if (count == 2 and std.mem.eql(u8, arguments[1], "drm")) {
         process.runDrmTest(desktop_kernel_root, &pages) catch return null;
     } else if (count == 2 and std.mem.eql(u8, arguments[1], "libdrm")) {
+        if (!build_options.libdrm_probe) return null;
         process.runLibdrmProbe(desktop_kernel_root, &pages) catch return null;
     } else if (count == 2 and std.mem.eql(u8, arguments[1], "radv")) {
         process.runRadvLoaderProbe(desktop_kernel_root, &pages) catch return null;
     } else if (count == 2 and std.mem.eql(u8, arguments[1], "gpu")) {
+        if (!build_options.libdrm_probe) return null;
         process.runLibdrmProbe(desktop_kernel_root, &pages) catch return null;
         process.runRadvLoaderProbe(desktop_kernel_root, &pages) catch return null;
     } else {
