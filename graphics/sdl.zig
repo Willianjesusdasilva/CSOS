@@ -502,9 +502,10 @@ pub const AudioDevice = struct {
         return .{ .spec = spec };
     }
 
-    pub fn queue(self: *AudioDevice, frames: u64) void {
+    pub fn queue(self: *AudioDevice, frames: u64) u64 {
         const result = @addWithOverflow(self.queued_frames, frames);
         self.queued_frames = if (result[1] != 0) ~@as(u64, 0) else result[0];
+        return self.queued_frames;
     }
 
     pub fn consume(self: *AudioDevice, frames: u64) u64 {
@@ -721,7 +722,7 @@ test "SDL software event queue and surface contract" {
     try @import("std").testing.expect(app.render(&testApplicationDraw));
     try @import("std").testing.expect(app.frame(&app_events, &testApplicationEvent, &testApplicationDraw));
     var audio = try AudioDevice.init(.{ .sample_rate = 48000, .channels = 2 });
-    audio.queue(256);
+    try @import("std").testing.expectEqual(@as(u64, 256), audio.queue(256));
     try @import("std").testing.expectEqual(@as(u64, 256), audio.queuedFrames());
     try @import("std").testing.expectEqual(@as(u64, 256), audio.availableFrames());
     try @import("std").testing.expectEqual(@as(u64, 128), audio.consume(128));
@@ -736,7 +737,7 @@ test "SDL software event queue and surface contract" {
     audio.pause(false);
     try @import("std").testing.expect(!audio.isPaused());
     audio.queued_frames = ~@as(u64, 0) - 1;
-    audio.queue(4);
+    _ = audio.queue(4);
     try @import("std").testing.expectEqual(~@as(u64, 0), audio.queued_frames);
     try @import("std").testing.expectError(error.InvalidAudioSpec, AudioDevice.init(.{ .sample_rate = 0, .channels = 2 }));
     try @import("std").testing.expectError(error.InvalidAudioSpec, AudioDevice.init(.{ .sample_rate = 48000, .channels = 0 }));
