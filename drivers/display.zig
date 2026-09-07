@@ -94,7 +94,7 @@ pub const WindowManager = struct {
     switcher_open: bool = false,
 
     pub fn reset(self: *WindowManager) void {
-        for (self.windows[0..self.count]) |*window| window.* = undefined;
+        for (&self.windows) |*window| window.* = undefined;
         self.count = 0;
         self.focused = null;
         self.launcher_open = false;
