@@ -1293,9 +1293,18 @@ fn restoreFilePage(page_virtual: u64, physical_address: u64) bool {
     const program_offset = read64(32);
     const program_entry_size = read16(54);
     const program_count = read16(56);
+    const entry_size = @as(u64, program_entry_size);
+    if (entry_size < 56) return false;
+    const table_bytes = std.math.mul(u64, entry_size, @as(u64, program_count)) catch return false;
+    if (program_offset > std.math.maxInt(u64) - table_bytes) return false;
+    const table_end = program_offset + table_bytes;
+    if (table_end > image.len) return false;
     var header_index: usize = 0;
     while (header_index < program_count) : (header_index += 1) {
-        const header: usize = @intCast(program_offset + @as(u64, program_entry_size) * header_index);
+        if (@as(u64, header_index) > (std.math.maxInt(u64) - program_offset) / entry_size) return false;
+        const header_u64 = program_offset + entry_size * @as(u64, header_index);
+        const header: usize = std.math.cast(usize, header_u64) orelse return false;
+        if (header > image.len or 56 > image.len - header) return false;
         if (read32At(header) != 1) continue;
         const file_offset = read64At(header + 8);
         const virtual = std.math.add(u64, read64At(header + 16), active_load_bias) catch return false;
