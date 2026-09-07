@@ -125,6 +125,29 @@ pub const EventQueue = struct {
                 return true;
             }
         }
+        if (self.isFull()) {
+            // Button transitions are control input, not motion noise.  Keep
+            // them observable even when a burst has filled the queue: replace
+            // the oldest coalescible motion/text slot instead of dropping a
+            // click or release behind stale pointer movement.
+            var previous_buttons: ?u8 = null;
+            var index = self.read;
+            while (index != self.write) : (index +%= 1) {
+                const slot = index % self.items.len;
+                if (self.items[slot] == .mouse) previous_buttons = self.items[slot].mouse.buttons;
+            }
+            if (previous_buttons == null or previous_buttons.? != buttons) {
+                index = self.read;
+                while (index != self.write) : (index +%= 1) {
+                    const slot = index % self.items.len;
+                    if (self.items[slot] == .mouse or self.items[slot] == .text) {
+                        self.items[slot] = .{ .mouse = .{ .x = x, .y = y, .wheel = wheel, .buttons = buttons } };
+                        self.dropped = saturatingCount(self.dropped, 1);
+                        return true;
+                    }
+                }
+            }
+        }
         return self.pushMouse(x, y, wheel, buttons);
     }
 
@@ -912,6 +935,13 @@ test "SDL software event queue and surface contract" {
         }
     }
     try @import("std").testing.expect(full.poll() == null);
+    var transition_full = EventQueue{};
+    index = 0;
+    while (index < transition_full.items.len) : (index += 1)
+        try @import("std").testing.expect(transition_full.push(.{ .mouse = .{ .x = @intCast(index), .y = 0, .wheel = 0, .buttons = 1 } }));
+    try @import("std").testing.expect(transition_full.pushMouseCoalesced(9, 2, 0, 0));
+    try @import("std").testing.expectEqual(@as(u64, 1), transition_full.droppedCount());
+    try @import("std").testing.expectEqual(Event{ .mouse = .{ .x = 9, .y = 2, .wheel = 0, .buttons = 0 } }, transition_full.poll().?);
     index = 0;
     while (index < full.items.len) : (index += 1)
         try @import("std").testing.expect(full.push(.{ .mouse = .{ .x = 0, .y = 0, .wheel = 0, .buttons = 0 } }));
