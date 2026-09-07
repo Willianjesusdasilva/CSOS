@@ -580,11 +580,13 @@ pub const Terminal = struct {
     pub const FileReader = *const fn (path: []const u8, output: []u8) ?[]const u8;
     pub const DirectoryReader = *const fn (output: []u8) ?[]const u8;
     pub const StatReader = *const fn (path: []const u8, output: []u8) ?[]const u8;
+    pub const FileWriter = *const fn (path: []const u8, contents: []const u8) bool;
     input: TextInput = .{},
     output: [256]u8 = undefined,
     file_reader: ?FileReader = null,
     directory_reader: ?DirectoryReader = null,
     stat_reader: ?StatReader = null,
+    file_writer: ?FileWriter = null,
     file_scratch: [128]u8 = undefined,
     output_len: usize = 0,
     history: [4][64]u8 = undefined,
@@ -607,7 +609,7 @@ pub const Terminal = struct {
             self.append(command);
             self.append("\n");
             if (bytesEqualIgnoreCase(command, "help"))
-                self.append("HELP CLEAR RESET STATUS VERSION WHOAMI PWD LS CAT STAT ECHO HISTORY [TEXT]\n")
+                self.append("HELP CLEAR RESET STATUS VERSION WHOAMI PWD LS CAT STAT ECHO HISTORY [TEXT] ECHO > FILE\n")
             else if (bytesEqualIgnoreCase(command, "status"))
                 self.append("CSOS READY\n")
             else if (bytesEqualIgnoreCase(command, "version"))
@@ -651,8 +653,17 @@ pub const Terminal = struct {
                 }
             }
             else if (command.len > 5 and bytesEqualIgnoreCase(command[0..5], "echo ")) {
-                self.append(command[5..]);
-                self.append("\n");
+                const body = command[5..];
+                if (findRedirect(body)) |redirect| {
+                    const text = trimCommand(body[0..redirect]);
+                    const path = trimCommand(body[redirect + 1 ..]);
+                    if (path.len == 0) self.append("echo: MISSING FILE\n") else if (self.file_writer) |writer| {
+                        if (writer(path, text)) self.append("OK\n") else self.append("echo: WRITE ERROR\n");
+                    } else self.append("echo: VFS UNAVAILABLE\n");
+                } else {
+                    self.append(body);
+                    self.append("\n");
+                }
             }
             else
                 self.append("UNKNOWN COMMAND\n");
@@ -744,6 +755,11 @@ fn trimCommand(bytes: []const u8) []const u8 {
     var last = bytes.len;
     while (last > first and (bytes[last - 1] == ' ' or bytes[last - 1] == '\t')) : (last -= 1) {}
     return bytes[first..last];
+}
+
+fn findRedirect(bytes: []const u8) ?usize {
+    for (bytes, 0..) |byte, index| if (byte == '>') return index;
+    return null;
 }
 
 fn isWordSeparator(byte: u8) bool {
@@ -953,6 +969,10 @@ fn testStatReader(_: []const u8, output: []u8) ?[]const u8 {
     if (output.len < 14) return null;
     @memcpy(output[0..14], "file 42 bytes\n");
     return output[0..14];
+}
+
+fn testFileWriter(path: []const u8, contents: []const u8) bool {
+    return bytesEqual(path, "notes.txt") and bytesEqual(contents, "hello");
 }
 
 test "SDL software event queue and surface contract" {
@@ -1237,7 +1257,12 @@ test "SDL software event queue and surface contract" {
     terminal.clearOutput();
     terminal.input.replace("help");
     try @import("std").testing.expect(terminal.submit());
-    try @import("std").testing.expectEqualStrings("> help\nHELP CLEAR RESET STATUS VERSION WHOAMI PWD LS CAT STAT ECHO HISTORY [TEXT]\n", terminal.outputSlice());
+    try @import("std").testing.expectEqualStrings("> help\nHELP CLEAR RESET STATUS VERSION WHOAMI PWD LS CAT STAT ECHO HISTORY [TEXT] ECHO > FILE\n", terminal.outputSlice());
+    terminal.clearOutput();
+    terminal.file_writer = &testFileWriter;
+    terminal.input.replace("echo hello > notes.txt");
+    try @import("std").testing.expect(terminal.submit());
+    try @import("std").testing.expectEqualStrings("> echo hello > notes.txt\nOK\n", terminal.outputSlice());
     terminal.clearOutput();
     terminal.input.replace("cat /hello.txt");
     try @import("std").testing.expect(terminal.submit());

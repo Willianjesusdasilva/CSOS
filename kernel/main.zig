@@ -2600,6 +2600,7 @@ fn resetSdlDemoApplication(app: *sdl.Application) void {
     sdl_terminal.file_reader = &readTerminalFile;
     sdl_terminal.directory_reader = &listTerminalDirectory;
     sdl_terminal.stat_reader = &statTerminalFile;
+    sdl_terminal.file_writer = &writeTerminalFile;
     app.running = true;
     app.window.clear(0x182838ff);
     drawSdlTerminal(app);
@@ -2642,6 +2643,13 @@ fn statTerminalFile(path: []const u8, output: []u8) ?[]const u8 {
     const info = vfs.infoAt(-100, path) catch return null;
     const kind: []const u8 = if (info.directory) "directory" else "file";
     return std.fmt.bufPrint(output, "{s} {d} bytes\n", .{ kind, info.size }) catch null;
+}
+
+fn writeTerminalFile(path: []const u8, contents: []const u8) bool {
+    const fd = vfs.openAt(-100, path, 0x241) catch return false;
+    defer vfs.close(fd) catch {};
+    _ = vfs.write(fd, contents) catch return false;
+    return true;
 }
 
 fn drawSdlTerminal(app: *sdl.Application) void {

@@ -204,6 +204,8 @@ O `ls` segue o mesmo caminho: o callback usa `vfs.getDents` para listar o
 diretório raiz real na sessão gráfica.
 `stat <arquivo>` agora consulta `vfs.infoAt` e mostra tipo e tamanho reais,
 com erro explícito quando o caminho não existe.
+`echo texto > arquivo` agora cria/trunca e grava no arquivo FAT via callback VFS,
+permitindo alterar dados pela sessão gráfica sem sair do SO.
 `Ctrl+R` também recupera a entrada anterior, como em shells convencionais.
 O compositor associa a superfície SDL à janela proprietária e aplica clipping
 à área de conteúdo; a aplicação deixa de atravessar bordas ou aparecer por cima

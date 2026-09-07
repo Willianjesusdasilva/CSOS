@@ -688,6 +688,8 @@ de responder somente com conteúdo embutido na aplicação.
 raiz.
 `stat <arquivo>` consulta `vfs.infoAt` para exibir tipo e tamanho reais no
 terminal.
+`echo texto > arquivo` usa `openAt`/`write` para criar ou truncar um arquivo FAT
+real, tornando o terminal capaz de persistir dados durante a sessão.
 Espaços e tabulações nas bordas do comando são ignorados, permitindo, por
 exemplo, executar `  status  ` sem gerar um comando desconhecido.
 Setas para cima/baixo percorrem o histórico, Home/End movem o cursor, Delete
