@@ -1,3 +1,4 @@
+const std = @import("std");
 const profile_version: u8 = 7;
 
 pub const Cpu = struct {
@@ -118,8 +119,8 @@ pub fn matchesPersistedProfile(text: []const u8, expected: u64) bool {
 }
 
 fn hasSystemVersion(text: []const u8) bool {
-    const prefix = "[system]\nversion=7\n";
-    if (profile_version != 7 or text.len < prefix.len) return false;
+    const prefix = std.fmt.comptimePrint("[system]\nversion={d}\n", .{profile_version});
+    if (text.len < prefix.len) return false;
     var offset: usize = 0;
     while (offset + prefix.len <= text.len) : (offset += 1) {
         if (offset != 0 and text[offset - 1] != '\n') continue;
