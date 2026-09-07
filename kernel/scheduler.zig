@@ -33,6 +33,7 @@ const Thread = struct {
     lifecycle: Lifecycle = .running,
     workload: Workload = .system,
     resume_state: State = .ready,
+    resume_lifecycle: Lifecycle = .running,
     sleep_ticks: u64 = 0,
     ready_tsc: u64 = 0,
     last_apic: u32 = 0xffffffff,
@@ -152,6 +153,7 @@ pub fn freezeGroup(group: u16) usize {
         if (thread.group != group or thread.policy == .keep_alive or
             (thread.state != .ready and thread.state != .sleeping)) continue;
         thread.resume_state = thread.state;
+        thread.resume_lifecycle = thread.lifecycle;
         thread.state = .frozen;
         thread.lifecycle = .frozen;
         changed += 1;
@@ -163,6 +165,7 @@ pub fn freezeCurrent() !void {
     const index = current orelse return error.NoCurrentThread;
     if (threads[index].policy == .keep_alive) return error.KeepAlive;
     threads[index].resume_state = .ready;
+    threads[index].resume_lifecycle = threads[index].lifecycle;
     threads[index].state = .frozen;
     threads[index].lifecycle = .frozen;
     yieldNow();
@@ -325,7 +328,7 @@ fn markRunning(index: usize) void {
     if (threads[index].last_apic != 0xffffffff and threads[index].last_apic != current_apic) migrations +%= 1;
     threads[index].last_apic = current_apic;
     threads[index].state = .running;
-    if (threads[index].lifecycle == .resuming) threads[index].lifecycle = .running;
+    if (threads[index].lifecycle == .resuming) threads[index].lifecycle = threads[index].resume_lifecycle;
 }
 
 fn nextReady(start: usize) ?usize {
