@@ -2773,7 +2773,11 @@ fn runTerminalProgram(command: []const u8) ?u8 {
     }
     syscalls.console_write_hook = &appendTerminalProgramOutput;
     defer syscalls.console_write_hook = null;
-    process.runBusyBox(desktop_kernel_root, &pages, arguments[0..count]) catch return null;
+    if (count == 2 and std.mem.eql(u8, arguments[1], "http")) {
+        process.runNetTest(desktop_kernel_root, &pages) catch return null;
+    } else {
+        process.runBusyBox(desktop_kernel_root, &pages, arguments[0..count]) catch return null;
+    }
     return syscalls.exitStatus() orelse 0;
 }
 
