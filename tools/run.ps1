@@ -125,7 +125,7 @@ if ($SmokeTestSeconds -gt 0) {
                     $writer = [IO.StreamWriter]::new($monitor.GetStream())
                     try {
                         $writer.AutoFlush = $true
-                        foreach ($command in @('mouse_move -120 -107', 'mouse_move -120 -107', 'mouse_move 0 -106', 'mouse_button 1', 'mouse_button 0')) {
+                        foreach ($command in @('mouse_move -120 -107', 'mouse_move -120 -107', 'mouse_move 0 -106', 'mouse_move 0 0 1', 'mouse_button 1', 'mouse_button 0')) {
                             $writer.WriteLine($command)
                             Start-Sleep -Milliseconds 500
                         }
@@ -145,6 +145,7 @@ if ($SmokeTestSeconds -gt 0) {
             if ($SmokeDesktopMouse) {
                 $observed = $observed -and
                     $serialText.Contains('UI pointer moved:') -and
+                    $serialText.Contains('UI mouse wheel:') -and
                     $serialText.Contains('UI mouse buttons: 1') -and
                     $serialText.Contains('UI mouse buttons: 0')
             }

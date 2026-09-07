@@ -2248,7 +2248,7 @@ pub fn start(info: BootInfo) noreturn {
             const wheel: i8 = @bitCast(event.d);
             if (wheel != 0) {
                 serial.write("UI mouse wheel: ");
-                serial.writeDecimal(@as(i16, wheel));
+                serial.writeDecimal(@as(u8, @bitCast(wheel)));
                 serial.write("\n");
             }
             // A HID report may carry movement and a button transition together.
@@ -2262,9 +2262,9 @@ pub fn start(info: BootInfo) noreturn {
                 serial.write(",");
                 serial.writeDecimal(cursor_y);
                 serial.write(" delta=");
-                serial.writeDecimal(@as(i16, dx));
+                serial.writeDecimal(@as(u8, @bitCast(dx)));
                 serial.write(",");
-                serial.writeDecimal(@as(i16, dy));
+                serial.writeDecimal(@as(u8, @bitCast(dy)));
                 serial.write("\n");
             }
             if (focusedWindowIs(window_manager, 4)) {
