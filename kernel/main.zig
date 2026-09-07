@@ -2683,7 +2683,7 @@ fn hidCharacter(usage: u8, modifiers: u8) ?u8 {
     }
     if (usage >= 30 and usage <= 38) return if (shifted) "!@#$%^&*("[usage - 30] else "123456789"[usage - 30];
     return switch (usage) {
-        39 => if (shifted) ')' else '9',
+        39 => if (shifted) ')' else '0',
         40 => '\n',
         42 => 0x7f,
         44 => ' ',
