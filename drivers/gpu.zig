@@ -2653,10 +2653,10 @@ const CpioIterator = struct {
         if (name_size > self.archive.len - name_start) return error.InvalidFirmwareArchive;
         const name_end = name_start + name_size;
         if (self.archive[name_end - 1] != 0) return error.InvalidFirmwareArchive;
-        const data_start = align4(name_end);
+        const data_start = align4(name_end) catch return error.InvalidFirmwareArchive;
         if (data_start > self.archive.len or file_size > self.archive.len - data_start) return error.InvalidFirmwareArchive;
         const data_end = data_start + file_size;
-        self.offset = align4(data_end);
+        self.offset = align4(data_end) catch return error.InvalidFirmwareArchive;
         const name = self.archive[name_start .. name_end - 1];
         if (equal(name, "TRAILER!!!")) {
             self.finished = true;
@@ -2708,8 +2708,9 @@ fn parseFirmwareRequirements(value: []const u8) !FirmwareRequirements {
     return result;
 }
 
-fn align4(value: usize) usize {
-    return (value + 3) & ~@as(usize, 3);
+fn align4(value: usize) !usize {
+    const rounded = std.math.add(usize, value, 3) catch return error.InvalidFirmwareArchive;
+    return rounded & ~@as(usize, 3);
 }
 fn equal(left: []const u8, right: []const u8) bool {
     if (left.len != right.len) return false;
