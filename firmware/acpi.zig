@@ -159,6 +159,7 @@ fn parseMadt(table: [*]const u8) !Madt {
         }
         offset += entry_length;
     }
+    if (result.local_apic_address == 0) return error.InvalidMadt;
     return result;
 }
 
@@ -312,6 +313,16 @@ test "ACPI root parser rejects a mismatched table signature" {
     root[2] = 'D';
     root[3] = 'T';
     try @import("std").testing.expectError(error.InvalidRootTable, scanRoot(@intFromPtr(&root), 8, "APIC"));
+}
+
+test "ACPI MADT rejects a missing local APIC address" {
+    var table = [_]u8{0} ** 44;
+    table[0] = 'A';
+    table[1] = 'P';
+    table[2] = 'I';
+    table[3] = 'C';
+    table[4] = 44;
+    try @import("std").testing.expectError(error.InvalidMadt, parseMadt(&table));
 }
 
 fn halt() noreturn {
