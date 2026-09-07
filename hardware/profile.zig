@@ -62,6 +62,8 @@ pub const Profile = struct {
             !validPercentiles(resume_p50, resume_p95, resume_p99) or
             !validPercentiles(nvme_p50, nvme_p95, nvme_p99) or
             !validPercentiles(tcp_p50, tcp_p95, tcp_p99)) return error.InvalidBaseline;
+        const start_length = self.length;
+        errdefer self.length = start_length;
         try append(self, "\n[baseline_cycles]\nfreeze_p50="); try appendDecimal(self, freeze_p50);
         try append(self, "\nfreeze_p95="); try appendDecimal(self, freeze_p95);
         try append(self, "\nfreeze_p99="); try appendDecimal(self, freeze_p99);
@@ -216,6 +218,15 @@ test "hardware profile rejects non-monotonic baselines" {
     ));
     try profile.addBaseline(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12);
     try @import("std").testing.expect(profile.length != 0);
+}
+
+test "hardware profile baseline append rolls back on overflow" {
+    var profile = Profile{};
+    profile.length = profile.bytes.len - 1;
+    try @import("std").testing.expectError(error.ProfileTooLarge, profile.addBaseline(
+        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
+    ));
+    try @import("std").testing.expectEqual(@as(usize, profile.bytes.len - 1), profile.length);
 }
 
 pub fn build(cpu: Cpu, facts: Facts) !Profile {
