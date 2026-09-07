@@ -498,7 +498,7 @@ fn toFatName(path: []const u8) ?[11]u8 {
         if (character == '.') { if (extension) return null; extension = true; continue; }
         if ((!extension and name_index == 8) or (extension and extension_index == 11)) return null;
         const upper = if (character >= 'a' and character <= 'z') character - 32 else character;
-        if (upper <= ' ' or upper == 0x7f) return null;
+        if (upper <= ' ' or upper >= 0x7f) return null;
         if (extension) { result[extension_index] = upper; extension_index += 1; }
         else { result[name_index] = upper; name_index += 1; }
     }
