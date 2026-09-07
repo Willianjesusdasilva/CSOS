@@ -2615,6 +2615,7 @@ fn resetSdlDemoApplication(app: *sdl.Application) void {
     sdl_terminal.file_writer = &writeTerminalFile;
     sdl_terminal.file_remover = &removeTerminalFile;
     sdl_terminal.file_copier = &copyTerminalFile;
+    sdl_terminal.file_mover = &moveTerminalFile;
     app.running = true;
     app.window.clear(0x182838ff);
     drawSdlTerminal(app);
@@ -2680,6 +2681,10 @@ fn copyTerminalFile(source: []const u8, destination: []const u8) bool {
     const count = vfs.read(input, &buffer) catch return false;
     _ = vfs.write(output, buffer[0..count]) catch return false;
     return true;
+}
+
+fn moveTerminalFile(source: []const u8, destination: []const u8) bool {
+    return vfs.renameAt(-100, source, destination) catch false;
 }
 
 fn drawSdlTerminal(app: *sdl.Application) void {

@@ -212,6 +212,8 @@ incrementais sem apagar o conteúdo anterior.
 cadeia de clusters através do VFS.
 `cp origem destino` copia arquivos regulares pela sessão gráfica, usando leitura
 e escrita reais do VFS.
+`mv origem destino` renomeia entradas regulares no diretório FAT sem copiar os
+dados, via operação nativa do VFS.
 No gerenciador FILES, Delete agora remove o item selecionado do FAT e atualiza a
 lista imediatamente.
 `Ctrl+R` também recupera a entrada anterior, como em shells convencionais.

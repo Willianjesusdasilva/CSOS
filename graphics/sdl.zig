@@ -583,6 +583,7 @@ pub const Terminal = struct {
     pub const FileWriter = *const fn (path: []const u8, contents: []const u8, append: bool) bool;
     pub const FileRemover = *const fn (path: []const u8) bool;
     pub const FileCopier = *const fn (source: []const u8, destination: []const u8) bool;
+    pub const FileMover = *const fn (source: []const u8, destination: []const u8) bool;
     input: TextInput = .{},
     output: [256]u8 = undefined,
     file_reader: ?FileReader = null,
@@ -591,6 +592,7 @@ pub const Terminal = struct {
     file_writer: ?FileWriter = null,
     file_remover: ?FileRemover = null,
     file_copier: ?FileCopier = null,
+    file_mover: ?FileMover = null,
     file_scratch: [128]u8 = undefined,
     output_len: usize = 0,
     history: [4][64]u8 = undefined,
@@ -613,7 +615,7 @@ pub const Terminal = struct {
             self.append(command);
             self.append("\n");
             if (bytesEqualIgnoreCase(command, "help"))
-                self.append("HELP CLEAR RESET STATUS VERSION WHOAMI PWD LS CAT STAT RM CP ECHO HISTORY [TEXT] ECHO > FILE\n")
+                self.append("HELP CLEAR RESET STATUS VERSION WHOAMI PWD LS CAT STAT RM CP MV ECHO HISTORY [TEXT] ECHO > FILE\n")
             else if (bytesEqualIgnoreCase(command, "status"))
                 self.append("CSOS READY\n")
             else if (bytesEqualIgnoreCase(command, "version"))
@@ -663,6 +665,18 @@ pub const Terminal = struct {
                         if (copier(source, destination)) self.append("OK\n") else self.append("cp: COPY ERROR\n");
                     } else self.append("cp: VFS UNAVAILABLE\n");
                 } else self.append("cp: MISSING DESTINATION\n");
+            }
+            else if (command.len >= 3 and bytesEqualIgnoreCase(command[0..3], "mv ")) {
+                const args = trimCommand(command[3..]);
+                var split: ?usize = null;
+                for (args, 0..) |byte, index| if (byte == ' ' or byte == '\t') { split = index; break; };
+                if (split) |at| {
+                    const source = trimCommand(args[0..at]);
+                    const destination = trimCommand(args[at..]);
+                    if (source.len == 0 or destination.len == 0) self.append("mv: MISSING FILE\n") else if (self.file_mover) |mover| {
+                        if (mover(source, destination)) self.append("OK\n") else self.append("mv: MOVE ERROR\n");
+                    } else self.append("mv: VFS UNAVAILABLE\n");
+                } else self.append("mv: MISSING DESTINATION\n");
             }
             else if (bytesEqualIgnoreCase(command, "echo"))
                 self.append("ECHO READY\n")
@@ -1007,6 +1021,10 @@ fn testFileCopier(source: []const u8, destination: []const u8) bool {
     return bytesEqual(source, "notes.txt") and bytesEqual(destination, "backup.txt");
 }
 
+fn testFileMover(source: []const u8, destination: []const u8) bool {
+    return bytesEqual(source, "notes.txt") and bytesEqual(destination, "renamed.txt");
+}
+
 test "SDL software event queue and surface contract" {
     try @import("std").testing.expectEqual(std.math.maxInt(i32), saturatingAdd(std.math.maxInt(i32), 1));
     try @import("std").testing.expectEqual(std.math.minInt(i32), saturatingAdd(std.math.minInt(i32), -1));
@@ -1289,7 +1307,7 @@ test "SDL software event queue and surface contract" {
     terminal.clearOutput();
     terminal.input.replace("help");
     try @import("std").testing.expect(terminal.submit());
-    try @import("std").testing.expectEqualStrings("> help\nHELP CLEAR RESET STATUS VERSION WHOAMI PWD LS CAT STAT RM CP ECHO HISTORY [TEXT] ECHO > FILE\n", terminal.outputSlice());
+    try @import("std").testing.expectEqualStrings("> help\nHELP CLEAR RESET STATUS VERSION WHOAMI PWD LS CAT STAT RM CP MV ECHO HISTORY [TEXT] ECHO > FILE\n", terminal.outputSlice());
     terminal.clearOutput();
     terminal.file_writer = &testFileWriter;
     terminal.input.replace("echo hello > notes.txt");
@@ -1309,6 +1327,11 @@ test "SDL software event queue and surface contract" {
     terminal.input.replace("cp notes.txt backup.txt");
     try @import("std").testing.expect(terminal.submit());
     try @import("std").testing.expectEqualStrings("> cp notes.txt backup.txt\nOK\n", terminal.outputSlice());
+    terminal.clearOutput();
+    terminal.file_mover = &testFileMover;
+    terminal.input.replace("mv notes.txt renamed.txt");
+    try @import("std").testing.expect(terminal.submit());
+    try @import("std").testing.expectEqualStrings("> mv notes.txt renamed.txt\nOK\n", terminal.outputSlice());
     terminal.clearOutput();
     terminal.input.replace("cat /hello.txt");
     try @import("std").testing.expect(terminal.submit());

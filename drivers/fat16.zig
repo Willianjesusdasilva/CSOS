@@ -263,6 +263,34 @@ pub const Volume = struct {
         return error.NotFound;
     }
 
+    pub fn renameRootFile(self: *Volume, old_name: *const [11]u8, new_name: *const [11]u8) !void {
+        var sector: u32 = 0;
+        while (sector < self.root_sectors) : (sector += 1) {
+            try self.storage.readBlock(self.root_start + sector, self.buffer);
+            const bytes: [*]const u8 = @ptrFromInt(self.buffer);
+            var offset: usize = 0;
+            while (offset < 512) : (offset += 32) {
+                if (bytes[offset] == 0) return error.NotFound;
+                if (entryIsRegularFile(bytes + offset) and equal11(bytes + offset, new_name)) return error.AlreadyExists;
+            }
+        }
+        sector = 0;
+        while (sector < self.root_sectors) : (sector += 1) {
+            try self.storage.readBlock(self.root_start + sector, self.buffer);
+            const bytes: [*]const u8 = @ptrFromInt(self.buffer);
+            var offset: usize = 0;
+            while (offset < 512) : (offset += 32) {
+                if (bytes[offset] == 0) return error.NotFound;
+                if (!entryIsRegularFile(bytes + offset) or !equal11(bytes + offset, old_name)) continue;
+                const entry: [*]u8 = @ptrFromInt(self.buffer + offset);
+                @memcpy(entry[0..11], new_name);
+                try self.storage.writeBlock(self.root_start + sector, self.buffer);
+                return;
+            }
+        }
+        return error.NotFound;
+    }
+
     fn clusterLba(self: *const Volume, cluster: u16) u32 {
         return self.data_start + (@as(u32, cluster) - 2) * self.sectors_per_cluster;
     }

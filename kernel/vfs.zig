@@ -372,6 +372,15 @@ pub fn unlinkAt(directory_fd: i64, path: []const u8) !void {
     return error.ReadOnly;
 }
 
+pub fn renameAt(directory_fd: i64, old_path: []const u8, new_path: []const u8) !void {
+    if (toFatName(old_path)) |old_name| if (toFatName(new_path)) |new_name| if (disk) |volume| {
+        try volume.renameRootFile(&old_name, &new_name);
+        return;
+    };
+    _ = try resolve(directory_fd, old_path);
+    return error.ReadOnly;
+}
+
 pub fn seek(fd: usize, offset: i64, whence: u64) !usize {
     if (fd >= descriptors.len or descriptors[fd].kind != .file) return error.BadFd;
     const size = std.math.cast(i64, descriptors[fd].size) orelse return error.Invalid;
