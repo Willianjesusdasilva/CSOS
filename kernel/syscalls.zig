@@ -56,6 +56,10 @@ pub var drm_ioctls: u64 = 0;
 pub var drm_mmaps: u64 = 0;
 pub var drm_allocations: u64 = 0;
 pub var drm_releases: u64 = 0;
+
+fn saturatingCount(value: u64, increment: u64) u64 {
+    return std.math.add(u64, value, increment) catch std.math.maxInt(u64);
+}
 pub var drm_last_request: u64 = 0;
 pub var drm_last_result: u64 = 0;
 var network_stack: ?*net.Stack = null;
@@ -596,7 +600,7 @@ fn sendfile(output_fd: u64, input_fd: u64, offset_address: u64, count: u64) u64 
         const pointer: *align(1) u64 = @ptrFromInt(offset_address);
         pointer.* = explicit_offset.? + transferred;
     }
-    sendfile_calls +%= 1;
+    sendfile_calls = saturatingCount(sendfile_calls, 1);
     return transferred;
 }
 
@@ -672,7 +676,7 @@ fn ioctl(fd: u64, request: u32, address: u64) u64 {
             0x4602 => framebufferFixed(address),
             else => errno(25),
         };
-        if (result == 0) framebuffer_ioctls +%= 1;
+        if (result == 0) framebuffer_ioctls = saturatingCount(framebuffer_ioctls, 1);
         return result;
     }
     if (vfs.isDrm(@intCast(fd))) {
@@ -719,7 +723,7 @@ fn ioctl(fd: u64, request: u32, address: u64) u64 {
         };
         drm_last_request = request;
         drm_last_result = result;
-        if (result == 0) drm_ioctls +%= 1;
+        if (result == 0) drm_ioctls = saturatingCount(drm_ioctls, 1);
         return result;
     }
     return errno(25);
@@ -975,7 +979,7 @@ fn drmCreateDumb(address: u64) u64 {
     put32(output + 20, @intCast(pitch));
     put64(output + 24, size);
     drm_objects[object_index] = .{ .allocated = true, .handle_open = true, .handle = handle, .size = size, .physical_address = allocation, .pages = page_count, .map_offset = @as(u64, @intCast(object_index)) * drm_object_stride };
-    drm_allocations +%= 1;
+    drm_allocations = saturatingCount(drm_allocations, 1);
     return 0;
 }
 
@@ -1005,7 +1009,7 @@ fn amdgpuGemCreate(address: u64) u64 {
             drm_objects[object_index] = .{ .allocated = true, .handle_open = true, .handle = handle, .size = size, .physical_address = vram.cpu_address, .gpu_address = vram.mc_address, .vram_backed = true, .pages = page_count, .map_offset = @as(u64, @intCast(object_index)) * drm_object_stride, .alignment = alignment, .domains = 0x4, .allocation_flags = flags };
             put32(io, handle);
             put32(io + 4, 0);
-            drm_allocations +%= 1;
+            drm_allocations = saturatingCount(drm_allocations, 1);
             return 0;
         }
         if ((domains & 0x3) == 0) return errno(12);
@@ -1022,7 +1026,7 @@ fn amdgpuGemCreate(address: u64) u64 {
     drm_objects[object_index] = .{ .allocated = true, .handle_open = true, .handle = handle, .size = size, .physical_address = allocation, .gpu_address = allocation, .pages = page_count, .map_offset = @as(u64, @intCast(object_index)) * drm_object_stride, .alignment = alignment, .domains = domains & 0x3, .allocation_flags = flags };
     put32(io, handle);
     put32(io + 4, 0);
-    drm_allocations +%= 1;
+    drm_allocations = saturatingCount(drm_allocations, 1);
     return 0;
 }
 
@@ -2306,7 +2310,7 @@ fn releaseDrmObject(object: *DrmObject) void {
         if (object.vram_backed) {
             if (amdgpu_vram_endpoint) |endpoint| endpoint.release(endpoint.context, .{ .cpu_address = object.physical_address, .mc_address = object.gpu_address, .bytes = object.pages * 4096 }) catch {};
         } else if (drm_pages) |pages| pages.release(object.physical_address, object.pages) catch {};
-        drm_releases +%= 1;
+        drm_releases = saturatingCount(drm_releases, 1);
     }
     object.* = .{};
 }
@@ -2993,7 +2997,7 @@ fn mmap(requested: u64, length: u64, protection: u64, flags: u64, fd: u64, file_
             std.math.add(u64, framebuffer.base, file_offset) catch return errno(12);
         if (!hook(address, physical_address, aligned_length, (protection & 2) != 0)) return errno(12);
         device_mmap_next = address + aligned_length;
-        if (drm_device) drm_mmaps +%= 1 else framebuffer_mmaps +%= 1;
+        if (drm_device) drm_mmaps = saturatingCount(drm_mmaps, 1) else framebuffer_mmaps = saturatingCount(framebuffer_mmaps, 1);
         return address;
     }
     if (!anonymous and (flags & 2) == 0) return errno(22);
@@ -3011,7 +3015,7 @@ fn mmap(requested: u64, length: u64, protection: u64, flags: u64, fd: u64, file_
     if (!anonymous) {
         const count = vfs.pread(@intCast(fd), target[0..@intCast(length)], @intCast(file_offset)) catch |err| return vfsError(err);
         if (count == 0) return errno(19);
-        file_mmaps +%= 1;
+        file_mmaps = saturatingCount(file_mmaps, 1);
     }
     if (!hook(address, aligned_length, (protection & 2) != 0, (protection & 4) != 0)) return errno(12);
     mmap_next = address + aligned_length;
@@ -3025,7 +3029,7 @@ fn mprotect(address: u64, length: u64, protection: u64) u64 {
     if (!mmapRegion(address, aligned_length)) return errno(12);
     const hook = mmap_protect_hook orelse return errno(12);
     if (!hook(address, aligned_length, (protection & 2) != 0, (protection & 4) != 0)) return errno(12);
-    protected_mmaps +%= 1;
+    protected_mmaps = saturatingCount(protected_mmaps, 1);
     return 0;
 }
 
@@ -3036,7 +3040,7 @@ fn munmap(address: u64, length: u64) u64 {
     if (!mmapRegion(address, aligned_length)) return errno(22);
     const hook = mmap_unmap_hook orelse return errno(22);
     if (!hook(address, aligned_length)) return errno(22);
-    unmapped_mmaps +%= 1;
+    unmapped_mmaps = saturatingCount(unmapped_mmaps, 1);
     return 0;
 }
 
