@@ -108,11 +108,11 @@ pub const EventQueue = struct {
     pub fn pushText(self: *EventQueue, byte: u8) bool {
         if (self.isFull()) {
             // Texto é entrada de controle: preserve-o durante uma rajada de
-            // movimento, substituindo somente o evento de mouse mais antigo.
+            // movimento, substituindo somente movimento sem clique ou roda.
             var index = self.read;
             while (index != self.write) : (index +%= 1) {
                 const slot = index % self.items.len;
-                if (self.items[slot] == .mouse) {
+                if (self.items[slot] == .mouse and self.items[slot].mouse.buttons == 0 and self.items[slot].mouse.wheel == 0) {
                     self.items[slot] = .{ .text = byte };
                     self.dropped = saturatingCount(self.dropped, 1);
                     return true;
@@ -1299,6 +1299,14 @@ test "SDL text input displaces oldest mouse event in a full queue" {
         if (event == .text and event.text == 'x') saw_text = true;
     }
     try @import("std").testing.expect(saw_text);
+
+    var protected = EventQueue{};
+    index = 0;
+    while (index < protected.items.len) : (index += 1)
+        try @import("std").testing.expect(protected.pushMouse(0, 0, 0, 1));
+    try @import("std").testing.expect(!protected.pushText('y'));
+    try @import("std").testing.expectEqual(@as(u64, 1), protected.droppedCount());
+    while (protected.poll()) |event| try @import("std").testing.expect(event == .mouse);
 }
 
 test "SDL event queue survives counter wraparound" {
