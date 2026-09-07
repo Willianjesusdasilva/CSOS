@@ -274,6 +274,7 @@ e permite selecionar por setas ou roda do mouse; Enter publica nome e tamanho do
 item. Home/End saltam para o primeiro/último item e PageUp/PageDown avançam uma
 página da lista pelo teclado.
 `F5` e `Ctrl+R` atualizam a enumeração do volume.
+No MONITOR focado, `Ctrl+R` zera os contadores de telemetria para uma nova medição.
 item. O QEMU encontrou 14 arquivos reais, exercitando rolagem além da primeira
 tela antes de chegar ao desktop.
 

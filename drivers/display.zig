@@ -1287,4 +1287,10 @@ test "display telemetry counters saturate" {
         if (self.framebuffer.pixel_format == 1) return native & 0x00ffffff;
         return ((native & 0xff) << 16) | (native & 0xff00) | ((native >> 16) & 0xff);
     }
+
+    pub fn resetTelemetry(self: *Context) void {
+        self.frames_presented = 0;
+        self.pixels_examined = 0;
+        self.pixels_presented = 0;
+    }
 };

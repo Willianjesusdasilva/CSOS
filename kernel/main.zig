@@ -2137,6 +2137,10 @@ pub fn start(info: BootInfo) noreturn {
                     launcher_consumed = true;
                     serial.write(if (window_manager.launcher_open) "UI launcher open (Ctrl+Alt+L)\n" else "UI launcher closed (Ctrl+Alt+L)\n");
                 }
+                if (!launcher_consumed and focusedWindowIs(window_manager, 2) and event.c != 0 and event.a == 0x15 and ctrl_held) {
+                    screen.resetTelemetry();
+                    serial.write("UI monitor telemetry reset\n");
+                }
                 if (launcher_shortcut_pressed and !launcher_key_down) {
                     window_manager.toggleLauncher();
                     launcher_consumed = true;
