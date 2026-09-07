@@ -221,7 +221,7 @@ fn amlInteger(bytes: [*]const u8, length: usize, cursor: *usize) !u64 {
 }
 
 fn readAml(bytes: [*]const u8, length: usize, cursor: *usize, count: usize) !u64 {
-    if (count > length - cursor.*) return error.InvalidSleepPackage;
+    if (cursor.* > length or count > length - cursor.*) return error.InvalidSleepPackage;
     var value: u64 = 0;
     var index: usize = 0;
     while (index < count) : (index += 1) value |= @as(u64, bytes[cursor.* + index]) << @intCast(index * 8);
