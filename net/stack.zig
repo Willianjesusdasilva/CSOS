@@ -306,11 +306,12 @@ pub const Stack = struct {
                 !equal(received[6..12], &self.gateway_mac) or !equal(received[0..6], &self.device.mac)) continue;
             const header_length = @as(usize, received[14] & 0x0f) * 4;
             const total_length = get16(received[16..]);
-            if (header_length < 20 or total_length < header_length + 8 or (get16(received[20..]) & 0x3fff) != 0 or length < 14 + total_length or received[23] != 1) continue;
+            if (header_length < 20 or total_length < header_length + 16 or (get16(received[20..]) & 0x3fff) != 0 or length < 14 + total_length or received[23] != 1) continue;
             if (checksum(received[14 .. 14 + header_length]) != 0) continue;
             if (!equal(received[26..30], &self.gateway_ip) or !equal(received[30..34], &self.local_ip)) continue;
             const reply = received[14 + header_length ..];
             if (reply[0] == 0 and reply[1] == 0 and get16(reply[4..]) == 0x4353 and get16(reply[6..]) == 1 and
+                equal(reply[8..16], "CSOSPING") and
                 checksum(reply[0 .. total_length - header_length]) == 0) return;
         }
         return error.EchoReplyMissing;
