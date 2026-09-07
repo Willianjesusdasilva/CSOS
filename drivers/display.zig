@@ -622,6 +622,7 @@ test "window manager focus alt-tab hit-test and close" {
     try std.testing.expect(manager.contentRectHitTest(1, 50, 56, 4, 4, 20, 10));
     try std.testing.expect(!manager.contentRectHitTest(1, 40, 56, 4, 4, 20, 10));
     try std.testing.expect(!manager.contentRectHitTest(1, 50, 56, 500, 4, 20, 10));
+    try std.testing.expect(!manager.contentRectHitTest(1, 50, 56, 4, 500, 20, 10));
     try std.testing.expect(manager.focus(first));
     try std.testing.expectEqual(@as(u32, 10), manager.windows[manager.focused.?].id);
     try std.testing.expectEqual(@as(?usize, 1), manager.altTab());
