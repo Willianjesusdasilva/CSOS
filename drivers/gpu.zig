@@ -2678,6 +2678,12 @@ fn readHex(bytes: []const u8) !usize {
 fn readHexValue(bytes: []const u8) !u16 {
     return std.math.cast(u16, try readHex(bytes)) orelse error.InvalidFirmwareArchive;
 }
+
+test "firmware hex value rejects widths beyond u16" {
+    try std.testing.expectEqual(@as(u16, 0xffff), try readHexValue("ffff"));
+    try std.testing.expectError(error.InvalidFirmwareArchive, readHexValue("10000"));
+}
+
 fn findByte(bytes: []const u8, wanted: u8) ?usize {
     for (bytes, 0..) |byte, index| if (byte == wanted) return index;
     return null;
