@@ -348,7 +348,7 @@ pub const Application = struct {
         self.running = true;
         self.last_event = null;
         self.processed_events = 0;
-        self.window.invalidate();
+        self.window.clear(0);
     }
 
     pub fn render(self: *Application, draw: *const fn (*Window) void) bool {
