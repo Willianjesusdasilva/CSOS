@@ -162,6 +162,9 @@ pub const ListSelection = struct {
 
     pub fn selectVisibleRow(self: *ListSelection, row: usize) bool {
         if (row >= self.visible_rows) return false;
+        if (self.count == 0) return false;
+        if (self.first_visible >= self.count)
+            self.first_visible = self.count -| @min(self.count, self.visible_rows);
         const index = self.first_visible +| row;
         if (index >= self.count) return false;
         const changed = self.selected != index;
@@ -1183,6 +1186,14 @@ test "SDL list selection recovers an out-of-range selected index" {
     selection.selected = 99;
     try @import("std").testing.expect(selection.previous());
     try @import("std").testing.expectEqual(@as(usize, 1), selection.selected);
+}
+
+test "SDL list selection repairs an out-of-range viewport" {
+    var selection = ListSelection.init(5, 2);
+    selection.first_visible = 99;
+    try @import("std").testing.expect(selection.selectVisibleRow(0));
+    try @import("std").testing.expectEqual(@as(usize, 3), selection.first_visible);
+    try @import("std").testing.expectEqual(@as(usize, 3), selection.selected);
 }
 
 test "list selection keeps the selected row inside its viewport" {
