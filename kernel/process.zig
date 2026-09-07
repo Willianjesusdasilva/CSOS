@@ -366,6 +366,7 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
     const stack_permissions = address_space.userPermissions(stack_address) orelse return error.StackNotMapped;
     if (!entry_permissions.executable or entry_permissions.writable) return error.InvalidEntryPermissions;
     if (stack_permissions.executable or !stack_permissions.writable) return error.InvalidStackPermissions;
+    if (image_end > std.math.maxInt(u64) - (page_size - 1)) return error.InvalidMapping;
     const break_base = (image_end + page_size - 1) & ~(page_size - 1);
     // Keep enough committed userspace for an interactive BusyBox shell.
     // Demand-paged arena growth will replace this fixed baseline before Mesa.
