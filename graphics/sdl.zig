@@ -482,6 +482,7 @@ pub const TextInput = struct {
         self.bytes[self.cursor] = byte;
         self.cursor += 1;
         self.len += 1;
+        if (self.len < self.bytes.len) self.bytes[self.len] = 0;
         return true;
     }
 
@@ -511,6 +512,7 @@ pub const TextInput = struct {
         self.len = @min(text.len, self.bytes.len);
         @memmove(self.bytes[0..self.len], text[0..self.len]);
         if (old_len > self.len) @memset(self.bytes[self.len..old_len], 0);
+        if (self.len < self.bytes.len) self.bytes[self.len] = 0;
         self.cursor = self.len;
     }
 
