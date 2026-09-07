@@ -1,3 +1,4 @@
+const std = @import("std");
 const pci = @import("pci");
 const physical = @import("physical");
 const apic = @import("apic");
@@ -163,7 +164,7 @@ fn validFrameLength(length: usize) bool {
 }
 
 fn validDmaBuffer(address: u64) bool {
-    return address != 0 and (address & 0xfff) == 0;
+    return address != 0 and (address & 0xfff) == 0 and address <= std.math.maxInt(u64) - 4095;
 }
 
 fn validRxStatus(status: u8, errors: u8) bool {
@@ -187,6 +188,7 @@ test "e1000 receive rejects invalid DMA buffer addresses" {
     try @import("std").testing.expect(validDmaBuffer(0x1000));
     try @import("std").testing.expect(!validDmaBuffer(0));
     try @import("std").testing.expect(!validDmaBuffer(0x1001));
+    try @import("std").testing.expect(!validDmaBuffer(std.math.maxInt(u64) - 4095 + 1));
 }
 
 test "e1000 interrupt counters saturate" {
