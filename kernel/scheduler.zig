@@ -408,6 +408,24 @@ test "scheduler lifecycle priority keeps runnable states ahead" {
     try std.testing.expect(lifecyclePriority(.standby) > lifecyclePriority(.finished));
 }
 
+fn schedulerTestEntry() void {}
+
+test "scheduler freeze and resume preserve sleeping state" {
+    const saved_count = thread_count;
+    const saved_thread = threads[0];
+    defer {
+        thread_count = saved_count;
+        threads[0] = saved_thread;
+    }
+    threads[0] = .{ .context = .{}, .entry = schedulerTestEntry, .state = .sleeping, .group = 9, .policy = .freeze, .lifecycle = .background };
+    thread_count = 1;
+    try std.testing.expectEqual(@as(usize, 1), freezeGroup(9));
+    try std.testing.expectEqual(State.frozen, threads[0].state);
+    try std.testing.expectEqual(@as(usize, 1), resumeGroup(9));
+    try std.testing.expectEqual(State.sleeping, threads[0].state);
+    try std.testing.expectEqual(Lifecycle.resuming, threads[0].lifecycle);
+}
+
 fn saveFxState(state: *[512]u8) void {
     asm volatile ("fxsave64 (%[state])"
         :
