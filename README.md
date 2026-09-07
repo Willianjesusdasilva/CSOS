@@ -715,7 +715,7 @@ O caminho de rede correlaciona IDs DNS e sequências ICMP e descarta respostas A
 com MAC de emissor inválido.
 
 Verificação atual: `zig build` recompilou o EFI em `14/14` etapas e
-`zig build test` passou `27/27` etapas e `89/89` testes. O
+`zig build test` passou `29/29` etapas e `91/91` testes. O
 boot interativo agora entrega o input diretamente à sessão gráfica, sem ficar
 bloqueado pelo shell BusyBox, e publica `CSOS graphical session ready`. O shell
 será reintegrado como uma aplicação de terminal não bloqueante; isso ainda não
