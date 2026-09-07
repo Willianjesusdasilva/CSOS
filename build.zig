@@ -272,6 +272,18 @@ pub fn build(b: *std.Build) void {
     e1000_module.addImport("physical", physical_module);
     e1000_module.addImport("apic", apic_module);
     e1000_module.addImport("metrics", metrics_module);
+    const e1000_test_module = b.createModule(.{
+        .root_source_file = b.path("drivers/e1000.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+    });
+    e1000_test_module.addImport("pci", pci_module);
+    e1000_test_module.addImport("physical", physical_module);
+    e1000_test_module.addImport("apic", apic_module);
+    e1000_test_module.addImport("metrics", metrics_module);
+    const e1000_tests = b.addTest(.{ .root_module = e1000_test_module });
+    const run_e1000_tests = b.addRunArtifact(e1000_tests);
+    test_step.dependOn(&run_e1000_tests.step);
     const net_module = b.createModule(.{ .root_source_file = b.path("net/stack.zig") });
     net_module.addImport("e1000", e1000_module);
     const smp_module = b.createModule(.{ .root_source_file = b.path("arch/x86_64/smp.zig") });
