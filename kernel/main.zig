@@ -2078,9 +2078,9 @@ pub fn start(info: BootInfo) noreturn {
                 var switcher_consumed = false;
                 var file_browser_consumed = false;
                 const alt_held = (event.b & 0x44) != 0;
-                const alt_tab_pressed = alt_held and event.a == 0x2b;
+                const alt_tab_pressed = event.c != 0 and alt_held and event.a == 0x2b;
                 const gui_pressed = (event.b & 0x88) != 0;
-                const launcher_shortcut_pressed = gui_pressed or ((event.b & 0x11) != 0 and event.a == 0x2c);
+                const launcher_shortcut_pressed = event.c != 0 and (gui_pressed or ((event.b & 0x11) != 0 and event.a == 0x2c));
                 if (launcher_shortcut_pressed and !launcher_key_down) {
                     window_manager.launcher_open = !window_manager.launcher_open;
                     if (window_manager.launcher_open) window_manager.launcher_selection = 0;

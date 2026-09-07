@@ -506,7 +506,7 @@ pub const Controller = struct {
                 @memcpy(endpoint.last_report[0..saved_size], report[0..saved_size]);
                 endpoint.last_size = @intCast(saved_size);
                 if (endpoint.slot == devices.keyboard.slot) {
-                    devices.push(.{ .kind = .keyboard, .a = if (size > 2) report[2] else 0, .b = if (size > 0) report[0] else 0 });
+                    devices.push(.{ .kind = .keyboard, .a = if (size > 2) report[2] else 0, .b = if (size > 0) report[0] else 0, .c = if (size > 2 and report[2] != 0) 1 else 0 });
                 } else {
                     devices.push(.{ .kind = .mouse, .a = if (size > 0) report[0] else 0, .b = if (size > 1) report[1] else 0, .c = if (size > 2) report[2] else 0, .d = if (size > 3) report[3] else 0 });
                 }
