@@ -38,6 +38,7 @@ var hard_limit_nofile: u64 = 32;
 var process_name: [16]u8 = .{ 'c', 's', 'o', 's', 0 } ++ .{0} ** 11;
 var process_group: u64 = 1;
 var process_session: u64 = 1;
+var process_nice: i32 = 0;
 var signal_stack: [32]u8 = .{0} ** 32;
 var random_state: u64 = 0x9e3779b97f4a7c15;
 var registered_rseq: u64 = 0;
@@ -3245,13 +3246,14 @@ fn getcpu(cpu: u64, node: u64) u64 {
 fn getPriority(which: u64, who: u64) u64 {
     if (which > 2) return errno(22);
     if (who != 0 and who != 1) return errno(3);
-    return 20; // Linux syscall returns the user-visible nice value + 20.
+    return @intCast(process_nice + 20); // Linux exposes nice + 20.
 }
 
 fn setPriority(which: u64, who: u64, priority: i64) u64 {
     if (which > 2) return errno(22);
     if (who != 0 and who != 1) return errno(3);
     if (priority < -20 or priority > 19) return errno(22);
+    process_nice = @intCast(priority);
     return 0;
 }
 
