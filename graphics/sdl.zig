@@ -1131,6 +1131,14 @@ test "SDL event queue clear compacts indices and preserves drops" {
     try @import("std").testing.expectEqual(@as(u64, 3), queue.droppedCount());
 }
 
+test "SDL drop counter saturates" {
+    var queue = EventQueue{};
+    queue.dropped = std.math.maxInt(u64);
+    queue.write = EventQueue.capacity;
+    try std.testing.expect(!queue.push(.{ .text = 'x' }));
+    try std.testing.expectEqual(std.math.maxInt(u64), queue.droppedCount());
+}
+
 test "SDL audio queue saturates on frame overflow" {
     var audio = try AudioDevice.init(.{ .sample_rate = 48_000, .channels = 2 });
     try @import("std").testing.expectEqual(std.math.maxInt(u64), audio.queue(std.math.maxInt(u64)));
