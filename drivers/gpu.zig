@@ -3077,7 +3077,9 @@ pub fn parseAmdPspFirmware(bytes: []const u8) !AmdPspFirmware {
         var index: usize = 0;
         while (index < count) : (index += 1) {
             const descriptor = descriptor_start + index * 16;
-            try appendPspComponent(&result, bytes, @intCast(readLittle32(bytes, descriptor)), @intCast(readLittle32(bytes, descriptor + 4)), common_offset + readLittle32(bytes, descriptor + 8), readLittle32(bytes, descriptor + 12));
+            const component_offset = std.math.add(usize, common_offset, readLittle32(bytes, descriptor + 8)) catch
+                return error.InvalidAmdPspFirmwareComponent;
+            try appendPspComponent(&result, bytes, @intCast(readLittle32(bytes, descriptor)), @intCast(readLittle32(bytes, descriptor + 4)), component_offset, readLittle32(bytes, descriptor + 12));
         }
     } else return error.UnsupportedAmdPspFirmwareHeader;
     return result;
