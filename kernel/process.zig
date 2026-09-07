@@ -134,7 +134,9 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
     const elf_type = read16(16);
     if (elf_type != 2 and elf_type != 3) return error.UnsupportedElfType;
     const load_bias: u64 = if (elf_type == 3) 0x0000008000000000 else 0;
-    const entry = read64(24) + load_bias;
+    const raw_entry = read64(24);
+    if (raw_entry > std.math.maxInt(u64) - load_bias) return error.InvalidElf;
+    const entry = raw_entry + load_bias;
     const program_offset = read64(32);
     const program_entry_size = read16(54);
     const program_count = read16(56);
@@ -322,7 +324,9 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
             interpreter_program_offset + interpreter_table_bytes > image.len)
             return error.InvalidInterpreter;
         interpreter_base = 0x0000007000000000;
-        execution_entry = read64(24) + interpreter_base;
+        const interpreter_entry = read64(24);
+        if (interpreter_entry > std.math.maxInt(u64) - interpreter_base) return error.InvalidInterpreter;
+        execution_entry = interpreter_entry + interpreter_base;
         header_index = 0;
         while (header_index < interpreter_program_count) : (header_index += 1) {
             const header: usize = @intCast(interpreter_program_offset + @as(u64, interpreter_program_entry_size) * header_index);
