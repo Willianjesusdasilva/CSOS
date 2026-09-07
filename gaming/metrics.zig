@@ -5,7 +5,7 @@ pub const Samples = struct {
     count: usize = 0,
 
     pub fn add(self: *Samples, value: u64) !void {
-        if (self.count == self.values.len) return error.Full;
+        if (self.count >= self.values.len) return error.Full;
         self.values[self.count] = value;
         self.count += 1;
     }
@@ -54,4 +54,6 @@ test "metrics rejects empty and overfull sample sets" {
     try @import("std").testing.expectError(error.Empty, samples.summarize());
     for (0..samples.values.len) |index| try samples.add(@intCast(index));
     try @import("std").testing.expectError(error.Full, samples.add(99));
+    samples.count = samples.values.len + 1;
+    try @import("std").testing.expectError(error.Full, samples.add(100));
 }
