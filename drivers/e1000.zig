@@ -70,8 +70,7 @@ pub const Controller = struct {
     }
 
     pub fn send(self: *Controller, frame: []const u8) !void {
-        if (frame.len < 14) return error.FrameTooSmall;
-        if (frame.len > 1514) return error.FrameTooLarge;
+        if (!validFrameLength(frame.len)) return if (frame.len < 14) error.FrameTooSmall else error.FrameTooLarge;
         const buffer: [*]u8 = @ptrFromInt(self.tx_buffer);
         @memcpy(buffer[0..frame.len], frame);
         const descriptor: [*]volatile u8 = @ptrFromInt(self.tx_ring + @as(u64, self.tx_index) * 16);
@@ -90,8 +89,10 @@ pub const Controller = struct {
         while ((descriptor[12] & 1) == 0 and spins < 1_000_000_000) : (spins += 1) asm volatile ("pause");
         if (spins == 1_000_000_000) return error.ReceiveTimeout;
         const length = get16(descriptor + 8);
-        if (length < 14) { self.recycleRx(descriptor); return error.FrameTooSmall; }
-        if (length > 1514) { self.recycleRx(descriptor); return error.FrameTooLarge; }
+        if (!validFrameLength(length)) {
+            self.recycleRx(descriptor);
+            return if (length < 14) error.FrameTooSmall else error.FrameTooLarge;
+        }
         if (length > output.len) { self.recycleRx(descriptor); return error.BufferTooSmall; }
         const source: [*]const u8 = @ptrFromInt(self.rx_buffers[self.rx_index]);
         @memcpy(output[0..length], source[0..length]);
@@ -140,6 +141,17 @@ fn read32(base: u64, offset: u64) u32 { const value: *volatile u32 = @ptrFromInt
 fn write32(base: u64, offset: u64, value: u32) void { const target: *volatile u32 = @ptrFromInt(base + offset); target.* = value; }
 fn put16(target: [*]volatile u8, value: u16) void { target[0] = @truncate(value); target[1] = @truncate(value >> 8); }
 fn put64(target: [*]volatile u8, value: u64) void { var i: usize = 0; while (i < 8) : (i += 1) target[i] = @truncate(value >> @intCast(i * 8)); }
+
+fn validFrameLength(length: usize) bool {
+    return length >= 14 and length <= 1514;
+}
+
+test "e1000 Ethernet frame length stays within hardware limits" {
+    try @import("std").testing.expect(!validFrameLength(13));
+    try @import("std").testing.expect(validFrameLength(14));
+    try @import("std").testing.expect(validFrameLength(1514));
+    try @import("std").testing.expect(!validFrameLength(1515));
+}
 fn get16(source: [*]volatile u8) u16 { return @as(u16, source[0]) | (@as(u16, source[1]) << 8); }
 
 fn timestamp() u64 {
