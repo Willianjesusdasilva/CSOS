@@ -102,6 +102,7 @@ pub const WindowManager = struct {
     focused: ?usize = null,
     launcher_open: bool = false,
     launcher_selection: u8 = 0,
+    launcher_hover: ?u8 = null,
     switcher_open: bool = false,
     taskbar_hover: ?usize = null,
     switcher_hover: ?usize = null,
@@ -413,6 +414,7 @@ pub const WindowManager = struct {
     pub fn dismissLauncher(self: *WindowManager) void {
         self.launcher_open = false;
         self.launcher_selection = 0;
+        self.launcher_hover = null;
         self.taskbar_hover = null;
     }
 
@@ -422,6 +424,7 @@ pub const WindowManager = struct {
         } else {
             self.launcher_open = true;
             self.launcher_selection = 0;
+            self.launcher_hover = null;
             self.taskbar_hover = null;
         }
     }
@@ -473,9 +476,14 @@ pub const WindowManager = struct {
     pub fn updateLauncherHover(self: *WindowManager, x: usize, y: usize, screen_height: usize) bool {
         if (!self.launcher_open) return false;
         if (self.launcherItemHitTest(x, y, screen_height)) |application_id| {
-            return self.launcherSelectApplication(application_id);
+            const selection: u8 = @intCast(application_id - 1);
+            const changed = self.launcher_hover != selection;
+            self.launcher_hover = selection;
+            return changed;
         }
-        return false;
+        const changed = self.launcher_hover != null;
+        self.launcher_hover = null;
+        return changed;
     }
 
     pub fn compose(self: *const WindowManager, context: *Context) void {
@@ -548,7 +556,8 @@ pub const WindowManager = struct {
             const menu_top = @as(usize, context.framebuffer.height) - launcher_menu_height;
             context.fillRect(4, menu_top, 176, launcher_item_count * 24 + 4, 0x182430);
             for (launcher_labels, 0..) |label, index| {
-                context.fillRect(8, menu_top + 4 + index * 24, 168, 20, if (self.launcher_selection == index) 0x5070a0 else 0x304860);
+                const highlighted = if (self.launcher_hover) |hover| hover == index else self.launcher_selection == index;
+                context.fillRect(8, menu_top + 4 + index * 24, 168, 20, if (highlighted) 0x5070a0 else 0x304860);
                 context.drawWindowTitle(16, menu_top + 9 + index * 24, label);
             }
         }
@@ -849,10 +858,12 @@ test "launcher hover updates selection" {
     manager.launcher_open = true;
     try std.testing.expect(manager.updateLauncherHover(12, 70, 180));
     try std.testing.expectEqual(@as(u8, 0), manager.launcher_selection);
+    try std.testing.expectEqual(@as(?u8, 0), manager.launcher_hover);
     try std.testing.expect(manager.updateLauncherHover(12, 94, 180));
-    try std.testing.expectEqual(@as(u8, 1), manager.launcher_selection);
-    try std.testing.expect(!manager.updateLauncherHover(300, 20, 180));
-    try std.testing.expectEqual(@as(u8, 1), manager.launcher_selection);
+    try std.testing.expectEqual(@as(u8, 0), manager.launcher_selection);
+    try std.testing.expect(manager.updateLauncherHover(300, 20, 180));
+    try std.testing.expectEqual(@as(u8, 0), manager.launcher_selection);
+    try std.testing.expect(manager.launcher_hover == null);
 }
 
 test "window manager rejects hit tests outside the screen" {
