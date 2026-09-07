@@ -363,8 +363,9 @@ pub fn write(fd: usize, input: []const u8) !usize {
 
 pub fn seek(fd: usize, offset: i64, whence: u64) !usize {
     if (fd >= descriptors.len or descriptors[fd].kind != .file) return error.BadFd;
-    const size: i64 = @intCast(descriptors[fd].size);
-    const base: i64 = switch (whence) { 0 => 0, 1 => @intCast(descriptors[fd].offset), 2 => size, else => return error.Invalid };
+    const size = std.math.cast(i64, descriptors[fd].size) orelse return error.Invalid;
+    const current = std.math.cast(i64, descriptors[fd].offset) orelse return error.Invalid;
+    const base: i64 = switch (whence) { 0 => 0, 1 => current, 2 => size, else => return error.Invalid };
     const result = @addWithOverflow(base, offset);
     if (result[1] != 0 or result[0] < 0) return error.Invalid;
     descriptors[fd].offset = @intCast(result[0]);
