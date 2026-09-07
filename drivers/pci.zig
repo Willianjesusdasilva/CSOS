@@ -167,6 +167,7 @@ comptime {
 pub fn enableMsi(device: Device, vector: u8, destination_apic: u8) !void {
     if (vector < 0x20) return error.MsiUnavailable;
     const offset = capabilityOffset(device, 0x05) orelse return error.MsiUnavailable;
+    if (offset > 0xf0) return error.MsiUnavailable;
     var control = read16(device.bus, device.slot, device.function, offset + 2);
     const data_offset: u16 = if ((control & (1 << 7)) != 0) @as(u16, offset) + 12 else @as(u16, offset) + 8;
     if (data_offset + 2 > 0x100) return error.MsiUnavailable;
