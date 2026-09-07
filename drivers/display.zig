@@ -315,7 +315,7 @@ pub const WindowManager = struct {
     }
 
     pub fn taskbarHitTest(self: *const WindowManager, x: usize, y: usize, screen_height: usize) ?usize {
-        if (screen_height < 24 or y < screen_height - 20) return null;
+        if (screen_height < 24 or y < screen_height - 20 or y >= screen_height) return null;
         if (x < 64) return null;
         const task_x = x - 64;
         const slot = task_x / 112;
@@ -324,7 +324,7 @@ pub const WindowManager = struct {
     }
 
     pub fn launcherButtonHitTest(_: *const WindowManager, x: usize, y: usize, screen_height: usize) bool {
-        return screen_height >= 24 and x >= 4 and x < 56 and y >= screen_height - 17 and y < screen_height - 3;
+        return screen_height >= 24 and y < screen_height and x >= 4 and x < 56 and y >= screen_height - 17 and y < screen_height - 3;
     }
 
     pub fn launcherItemHitTest(self: *const WindowManager, x: usize, y: usize, screen_height: usize) ?u32 {
@@ -574,6 +574,15 @@ test "window manager dismisses launcher when focusing a window" {
     try std.testing.expect(manager.focus(0));
     try std.testing.expect(!manager.launcher_open);
     try std.testing.expectEqual(@as(u8, 0), manager.launcher_selection);
+}
+
+test "window manager rejects hit tests outside the screen" {
+    var manager = WindowManager{};
+    _ = try manager.create(.{ .id = 1, .x = 0, .y = 0, .width = 80, .height = 48 });
+    try std.testing.expect(manager.taskbarHitTest(70, 89, 90) != null);
+    try std.testing.expect(manager.taskbarHitTest(70, 90, 90) == null);
+    try std.testing.expect(manager.launcherButtonHitTest(8, 75, 90));
+    try std.testing.expect(!manager.launcherButtonHitTest(8, 90, 90));
 }
 
 test "window manager dismisses switcher when closing non-last window" {
