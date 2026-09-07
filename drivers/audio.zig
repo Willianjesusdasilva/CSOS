@@ -85,6 +85,7 @@ pub const Subsystem = struct {
     pub fn configure(self: *Subsystem) !void {
         if (self.device.state != .discovered) return error.DeviceNotDiscovered;
         if (self.periods == 0) return error.InvalidPeriodCount;
+        if (!isSupportedRate(self.device.format.sample_rate)) return error.UnsupportedFormat;
         if (self.device.frameBytes() == null) return error.UnsupportedFormat;
         self.device.state = .configured;
     }
@@ -122,6 +123,12 @@ test "audio subsystem rejects an empty period ring" {
     subsystem.discover(1, 1, .{ .channels = 2, .bits_per_sample = 16, .sample_rate = 48_000 });
     subsystem.periods = 0;
     try std.testing.expectError(error.InvalidPeriodCount, subsystem.configure());
+}
+
+test "audio subsystem rejects unsupported sample rates" {
+    var subsystem = Subsystem{};
+    subsystem.discover(1, 1, .{ .channels = 2, .bits_per_sample = 16, .sample_rate = 12_345 });
+    try std.testing.expectError(error.UnsupportedFormat, subsystem.configure());
 }
 
 test "audio rediscovery resets stream metrics" {
