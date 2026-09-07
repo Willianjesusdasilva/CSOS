@@ -2519,7 +2519,7 @@ fn statx(directory_fd: u64, path_address: u64, flags: u64, mask: u64, output_add
     const bytes: [*]u8 = @ptrFromInt(output_address);
     @memset(bytes[0..256], 0);
     // struct statx: fixed-width fields through the timestamps and device IDs.
-    put32(bytes, 0x07ff); // STATX_BASIC_STATS | STATX_BTIME
+    put32(bytes, @truncate(mask & 0x07ff)); // only requested supported fields
     put32(bytes + 4, 4096);
     put32(bytes + 16, 1); // nlink
     put32(bytes + 28, info.mode);
