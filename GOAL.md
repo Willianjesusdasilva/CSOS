@@ -338,6 +338,8 @@ O parser GNU hash também verifica os tamanhos de bloom, buckets e chains antes
 de calcular qualquer índice de símbolo.
 O avanço do índice de chain e do maior símbolo usa soma checked, evitando loop
 infinito em tabelas que atingem `u32` máximo.
+O carregamento de uma dependência fecha o descritor mesmo quando a leitura
+termina prematuramente, evitando vazamento de handles no loader.
 
 Mapeamentos anônimos também possuem rollback transacional: uma falha no meio da
 criação remove as páginas já instaladas e devolve a alocação e o ownership.

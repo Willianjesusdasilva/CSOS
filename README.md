@@ -857,6 +857,8 @@ As regiões bloom/bucket/chain de `.gnu.hash` agora usam multiplicações e soma
 checked antes de serem indexadas.
 O contador de símbolos também rejeita overflow ao avançar pelas chains, em vez
 de permitir embrulho e loop infinito.
+Falhas de leitura de objetos compartilhados agora fecham o descritor antes de
+retornar, preservando recursos do processo.
 
 Mapeamentos anônimos fazem rollback transacional quando uma página falha: os
 mapeamentos parciais são removidos e a memória física é devolvida ao allocator.

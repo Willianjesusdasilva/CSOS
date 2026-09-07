@@ -217,7 +217,10 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
                     vfs.close(dependency_file) catch {};
                     return err;
                 };
-                if (count == 0) return error.TruncatedSharedObject;
+                if (count == 0) {
+                    vfs.close(dependency_file) catch {};
+                    return error.TruncatedSharedObject;
+                }
                 dependency_read += count;
             }
             try vfs.close(dependency_file);
