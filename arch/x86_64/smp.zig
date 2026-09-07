@@ -31,7 +31,11 @@ pub fn prepare(cr3: u64) !void {
 
 pub fn start(apic_id: u32, pages: *physical.Allocator) !void {
     const stack = pages.allocate(stack_pages) orelse return error.OutOfMemory;
-    patch(u64, &ap_trampoline_stack, stack + stack_pages * 4096);
+    const stack_end = std.math.add(u64, stack, stack_pages * 4096) catch {
+        pages.release(stack, stack_pages) catch {};
+        return error.InvalidStack;
+    };
+    patch(u64, &ap_trampoline_stack, stack_end);
     const expected = @atomicLoad(u32, &online_aps, .acquire) + 1;
     apic.startCpu(apic_id, trampoline_address >> 12);
 
