@@ -113,6 +113,7 @@ pub const WindowManager = struct {
         self.launcher_selection = 0;
         self.switcher_open = false;
         self.taskbar_hover = null;
+        self.taskbar_hover = null;
     }
 
     pub fn create(self: *WindowManager, window: Window) !usize {
@@ -129,6 +130,7 @@ pub const WindowManager = struct {
         self.launcher_open = false;
         self.launcher_selection = 0;
         self.switcher_open = false;
+        self.taskbar_hover = null;
         return index;
     }
 
@@ -136,6 +138,7 @@ pub const WindowManager = struct {
         if (index >= self.count) return;
         self.launcher_open = false;
         self.launcher_selection = 0;
+        self.taskbar_hover = null;
         self.switcher_open = false;
         const old_focused = self.focused;
         var i = index;
@@ -163,6 +166,7 @@ pub const WindowManager = struct {
         // overlay; leaving it open would paint the menu over the new focus.
         self.launcher_open = false;
         self.launcher_selection = 0;
+        self.taskbar_hover = null;
         if (index + 1 < self.count) {
             const selected = self.windows[index];
             var i = index;

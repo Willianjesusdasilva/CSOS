@@ -2352,6 +2352,7 @@ pub fn start(info: BootInfo) noreturn {
                     if (window_manager.launcherButtonHitTest(cursor_x, cursor_y, screen.framebuffer.height)) {
                         window_manager.launcher_open = !window_manager.launcher_open;
                         if (window_manager.launcher_open) window_manager.launcher_selection = 0;
+                        window_manager.taskbar_hover = null;
                         drag_window = null;
                         resize_window = null;
                         serial.write(if (window_manager.launcher_open) "UI launcher open\n" else "UI launcher closed\n");
