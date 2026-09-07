@@ -351,6 +351,8 @@ antes de gravar o destino, rejeitando endereços que ultrapassem `u64`.
 Os índices `versym` agora validam multiplicação, soma, conversão e dois bytes
 disponíveis antes de ler versões exigidas ou definidas.
 O salto inicial para a lista auxiliar `DT_VERNEED` também usa adição checked.
+Os cálculos de páginas do staging e carregamento de firmware GPU arredondam
+tamanhos com soma checked antes de alocar memória DMA.
 
 Mapeamentos anônimos também possuem rollback transacional: uma falha no meio da
 criação remove as páginas já instaladas e devolve a alocação e o ownership.

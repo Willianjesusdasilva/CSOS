@@ -2871,7 +2871,8 @@ fn appendOptionalAmdRlcPayload(result: *AmdRlcFirmware, image: []const u8, kind:
 fn appendAmdPspIpFirmware(staging: *AmdGfx11CpFirmwareStaging, kind: AmdPspGfxFirmwareType, payload: []const u8, pages: *physical.Allocator) !void {
     if (staging.count == staging.areas.len or payload.len == 0 or payload.len > std.math.maxInt(u32))
         return error.InvalidAmdPspIpFirmwarePlan;
-    const page_count: u64 = @intCast((payload.len + 4095) / 4096);
+    const rounded_bytes = std.math.add(usize, payload.len, 4095) catch return error.InvalidAmdPspIpFirmwarePlan;
+    const page_count: u64 = @intCast(rounded_bytes / 4096);
     const address = pages.allocate(page_count) orelse return error.OutOfMemory;
     if (address >= (@as(u64, 1) << 44) or page_count > (((@as(u64, 1) << 44) - address) / 4096)) {
         pages.release(address, page_count) catch {};
@@ -8394,7 +8395,8 @@ pub fn loadFirmware(volume: *fat16.Volume, pages: *physical.Allocator) !?Firmwar
         else => return err,
     };
     if (size == 0 or size > maximum_firmware_bytes) return error.InvalidFirmwareSize;
-    const page_count: u64 = @intCast((size + 4095) / 4096);
+    const rounded_size = std.math.add(usize, size, 4095) catch return error.InvalidFirmwareSize;
+    const page_count: u64 = @intCast(rounded_size / 4096);
     const address = pages.allocate(page_count) orelse return error.OutOfMemory;
     if (address >= (@as(u64, 1) << 44) or page_count > (((@as(u64, 1) << 44) - address) / 4096)) {
         pages.release(address, page_count) catch {};

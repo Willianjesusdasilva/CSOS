@@ -871,6 +871,8 @@ As leituras de `versym` passaram a validar o endereço completo e o tamanho
 restante do buffer antes de acessar o índice de versão.
 O primeiro offset da lista auxiliar de versões também é validado antes do
 primeiro acesso.
+Staging e carregamento de firmware GPU agora verificam a soma de arredondamento
+de 4095 bytes antes de calcular páginas DMA.
 
 Mapeamentos anônimos fazem rollback transacional quando uma página falha: os
 mapeamentos parciais são removidos e a memória física é devolvida ao allocator.
