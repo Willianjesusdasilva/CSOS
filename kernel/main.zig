@@ -2239,6 +2239,8 @@ pub fn start(info: BootInfo) noreturn {
                             _ = sdl_terminal.historyPrevious();
                         } else if (event.a == 0x51) {
                             _ = sdl_terminal.historyNext();
+                        } else if (event.a == 0x15 and (event.b & 0x11) != 0) {
+                            _ = sdl_terminal.historyPrevious();
                         } else if (hidCharacter(event.a, event.b, hid_caps_lock)) |byte| {
                             if (sdl_terminal.input.insert(byte)) _ = sdl_events.pushText(byte);
                         }

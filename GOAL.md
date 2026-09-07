@@ -188,6 +188,7 @@ O terminal mantém quatro comandos de histórico, recuperáveis por setas, ofere
 Home/End/Delete, `Ctrl+A/E/U/K/C/D`, `Ctrl+Backspace` e `Ctrl+Seta` para navegação
 por palavras, e renderiza automaticamente
 as seis linhas mais recentes.
+`Ctrl+R` também recupera a entrada anterior, como em shells convencionais.
 O compositor associa a superfície SDL à janela proprietária e aplica clipping
 à área de conteúdo; a aplicação deixa de atravessar bordas ou aparecer por cima
 de janelas que estão adiante na ordem de composição.
