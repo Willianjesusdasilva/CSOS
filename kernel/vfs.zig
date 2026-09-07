@@ -14,6 +14,7 @@ const Node = enum {
 };
 
 const Descriptor = struct {
+    generation: u32 = 0,
     close_on_exec: bool = false,
     append: bool = false,
     writable: bool = false,
@@ -43,6 +44,7 @@ pub const DrmPciIdentity = struct {
 };
 
 var descriptors: [max_fds]Descriptor = .{Descriptor{}} ** max_fds;
+var next_generation: u32 = 1;
 var disk: ?*fat16.Volume = null;
 var drm_pci_configured = false;
 var drm_pci_uevent: [40]u8 = undefined;
@@ -155,9 +157,22 @@ pub fn mount(volume: *fat16.Volume) void { disk = volume; }
 
 pub fn reset() void {
     descriptors = .{Descriptor{}} ** max_fds;
+    next_generation = 1;
     descriptors[0].kind = .console;
     descriptors[1].kind = .console;
     descriptors[2].kind = .console;
+}
+
+fn newGeneration() u32 {
+    const generation = next_generation;
+    next_generation +%= 1;
+    if (next_generation == 0) next_generation = 1;
+    return generation;
+}
+
+pub fn descriptorGeneration(fd: usize) !u32 {
+    if (!isOpen(fd)) return error.BadFd;
+    return descriptors[fd].generation;
 }
 
 pub fn openAt(directory_fd: i64, path: []const u8, flags: u64) !usize {
@@ -179,7 +194,7 @@ pub fn openAt(directory_fd: i64, path: []const u8, flags: u64) !usize {
             try volume.writeRootFile(&fat_name, "");
             size = 0;
         }
-        descriptors[fd] = .{ .kind = .file, .node = .disk, .size = size, .fat_name = fat_name };
+        descriptors[fd] = .{ .generation = newGeneration(), .kind = .file, .node = .disk, .size = size, .fat_name = fat_name };
         descriptors[fd].close_on_exec = (flags & 0x80000) != 0;
         descriptors[fd].append = (flags & 0x400) != 0;
         descriptors[fd].writable = (flags & 0x3) != 0;
@@ -187,7 +202,7 @@ pub fn openAt(directory_fd: i64, path: []const u8, flags: u64) !usize {
     };
     const node = try resolve(directory_fd, path);
     const info = nodeInfo(node);
-    descriptors[fd] = .{ .kind = if (info.directory) .directory else if (node == .framebuffer or node == .drm or node == .render) .device else .file, .node = node, .size = @intCast(info.size) };
+    descriptors[fd] = .{ .generation = newGeneration(), .kind = if (info.directory) .directory else if (node == .framebuffer or node == .drm or node == .render) .device else .file, .node = node, .size = @intCast(info.size) };
     descriptors[fd].close_on_exec = (flags & 0x80000) != 0;
     descriptors[fd].append = false;
     descriptors[fd].writable = (flags & 0x3) != 0;
@@ -198,7 +213,7 @@ pub fn openEpoll() !usize {
     var fd: usize = 3;
     while (fd < descriptors.len and descriptors[fd].kind != .unused) : (fd += 1) {}
     if (fd == descriptors.len) return error.TooManyFiles;
-    descriptors[fd] = .{ .kind = .epoll, .node = .root };
+    descriptors[fd] = .{ .generation = newGeneration(), .kind = .epoll, .node = .root };
     return fd;
 }
 
@@ -213,6 +228,7 @@ pub fn duplicate(old_fd: usize, new_fd: usize) !usize {
     if (old_fd >= descriptors.len or new_fd >= descriptors.len or descriptors[old_fd].kind == .unused) return error.BadFd;
     if (old_fd != new_fd) {
         descriptors[new_fd] = descriptors[old_fd];
+        descriptors[new_fd].generation = newGeneration();
         descriptors[new_fd].close_on_exec = false;
     }
     return new_fd;

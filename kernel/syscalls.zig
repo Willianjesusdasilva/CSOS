@@ -34,7 +34,7 @@ var process_group: u64 = 1;
 var process_session: u64 = 1;
 var signal_stack: [32]u8 = .{0} ** 32;
 const max_epoll_watch = 16;
-const EpollWatch = struct { fd: u32 = 0, events: u32 = 0, data: u64 = 0, active: bool = false };
+const EpollWatch = struct { fd: u32 = 0, generation: u32 = 0, events: u32 = 0, data: u64 = 0, active: bool = false };
 var epoll_watches: [32][max_epoll_watch]EpollWatch = .{.{EpollWatch{}} ** max_epoll_watch} ** 32;
 pub var file_mmaps: u64 = 0;
 pub var protected_mmaps: u64 = 0;
@@ -2921,12 +2921,14 @@ fn epollCtl(epfd: u64, operation: u64, target: u64, event: u64) u64 {
             const input: [*]const u8 = @ptrFromInt(event);
             watches[index].events = read32(input);
             watches[index].data = read64(input + 8);
+            watches[index].generation = vfs.descriptorGeneration(@intCast(target)) catch return errno(9);
+            watches[index].active = true;
             return 0;
         }
         if (slot != null) return errno(17);
         const input: [*]const u8 = @ptrFromInt(event);
         for (watches) |*watch| if (!watch.active) {
-            watch.* = .{ .fd = @intCast(target), .events = read32(input), .data = read64(input + 8), .active = true };
+            watch.* = .{ .fd = @intCast(target), .generation = vfs.descriptorGeneration(@intCast(target)) catch return errno(9), .events = read32(input), .data = read64(input + 8), .active = true };
             return 0;
         };
         return errno(28);
@@ -2942,6 +2944,11 @@ fn epollWait(epfd: u64, output: u64, capacity: u64, timeout: i64) u64 {
     var ready: u64 = 0;
     for (&epoll_watches[@intCast(epfd)]) |*watch| {
         if (!watch.active or ready == capacity or !vfs.isOpen(watch.fd)) continue;
+        const generation = vfs.descriptorGeneration(watch.fd) catch continue;
+        if (generation != watch.generation) {
+            watch.active = false;
+            continue;
+        }
         const item = bytes + ready * 16;
         put32(item, watch.events);
         put32(item + 4, 0);
