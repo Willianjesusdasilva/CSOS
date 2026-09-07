@@ -363,6 +363,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         96 => writeTime(arg1, 16),
         95 => umask(arg1),
         97 => getRlimit(arg1, arg2),
+        98 => getRusage(arg1, arg2),
         102, 104 => 0,
         105, 106 => if (arg1 == 0) 0 else errno(1),
         110 => 0,
@@ -2923,6 +2924,13 @@ fn getRlimit(resource: u64, output: u64) u64 {
     };
     put64(bytes, limit);
     put64(bytes + 8, limit);
+    return 0;
+}
+
+fn getRusage(who: u64, output: u64) u64 {
+    if (who > 1 or !validUserSlice(output, 144)) return errno(22);
+    const bytes: [*]u8 = @ptrFromInt(output);
+    @memset(bytes[0..144], 0);
     return 0;
 }
 
