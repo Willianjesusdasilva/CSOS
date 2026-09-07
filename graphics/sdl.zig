@@ -387,6 +387,7 @@ pub const TextInput = struct {
         while (index + 1 < self.len) : (index += 1) self.bytes[index] = self.bytes[index + 1];
         self.cursor -= 1;
         self.len -= 1;
+        self.bytes[self.len] = 0;
         return true;
     }
 
@@ -396,6 +397,7 @@ pub const TextInput = struct {
         var index = self.cursor;
         while (index + 1 < self.len) : (index += 1) self.bytes[index] = self.bytes[index + 1];
         self.len -= 1;
+        self.bytes[self.len] = 0;
         return true;
     }
 
@@ -867,6 +869,7 @@ test "SDL software event queue and surface contract" {
     input.moveHome();
     try @import("std").testing.expect(input.delete());
     try @import("std").testing.expectEqualStrings("c", input.slice());
+    try @import("std").testing.expectEqual(@as(u8, 0), input.bytes[input.len]);
     input.moveEnd();
     input.cursor = input.bytes.len + 1;
     try @import("std").testing.expect(input.insert('x'));
@@ -875,6 +878,7 @@ test "SDL software event queue and surface contract" {
     try @import("std").testing.expect(!input.delete());
     try @import("std").testing.expect(input.backspace());
     try @import("std").testing.expectEqual(@as(usize, 1), input.cursor);
+    try @import("std").testing.expectEqual(@as(u8, 0), input.bytes[input.len]);
     input.clear();
     try @import("std").testing.expectEqual(@as(usize, 0), input.len);
     try @import("std").testing.expectEqual(@as(usize, 0), input.cursor);
