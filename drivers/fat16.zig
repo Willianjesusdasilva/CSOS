@@ -164,16 +164,23 @@ pub const Volume = struct {
             }
         }
         if (!found and !have_free) return error.DirectoryFull;
-        if (old_cluster >= 2) try self.freeChain(old_cluster);
 
         var clusters: [32]u16 = undefined;
         var allocated: usize = 0;
+        var committed = false;
+        errdefer if (!committed and allocated != 0) self.freeChain(clusters[0]) catch {};
         var search: u16 = 2;
-        while (allocated < needed) : (allocated += 1) {
+        while (allocated < needed) {
             const cluster = try self.findFree(search);
             clusters[allocated] = cluster;
             try self.setFatEntry(cluster, 0xffff);
-            if (allocated != 0) try self.setFatEntry(clusters[allocated - 1], cluster);
+            if (allocated != 0) {
+                self.setFatEntry(clusters[allocated - 1], cluster) catch |err| {
+                    self.setFatEntry(cluster, 0) catch {};
+                    return err;
+                };
+            }
+            allocated += 1;
             search = cluster + 1;
         }
 
@@ -198,6 +205,8 @@ pub const Volume = struct {
         put16(entry + 26, if (needed == 0) 0 else clusters[0]);
         put32(entry + 28, @intCast(data.len));
         try self.storage.writeBlock(self.root_start + directory_sector, self.buffer);
+        committed = true;
+        if (old_cluster >= 2) try self.freeChain(old_cluster);
     }
 
     fn clusterLba(self: *const Volume, cluster: u16) u32 {
@@ -205,6 +214,7 @@ pub const Volume = struct {
     }
 
     fn fatEntry(self: *Volume, cluster: u16) !u16 {
+        try validateDataCluster(cluster, self.cluster_count);
         const byte_offset = @as(u32, cluster) * 2;
         try self.storage.readBlock(self.fat_start + byte_offset / 512, self.buffer);
         const bytes: [*]const u8 = @ptrFromInt(self.buffer);
@@ -212,6 +222,7 @@ pub const Volume = struct {
     }
 
     fn setFatEntry(self: *Volume, cluster: u16, value: u16) !void {
+        try validateDataCluster(cluster, self.cluster_count);
         const byte_offset = @as(u32, cluster) * 2;
         var copy: u8 = 0;
         while (copy < self.fat_count) : (copy += 1) {
@@ -233,10 +244,13 @@ pub const Volume = struct {
 
     fn freeChain(self: *Volume, first: u16) !void {
         var cluster = first;
+        var traversed: u32 = 0;
         while (cluster >= 2 and cluster < 0xfff8) {
+            if (traversed >= self.cluster_count) return error.BrokenChain;
             const next = try self.fatEntry(cluster);
             try self.setFatEntry(cluster, 0);
             cluster = next;
+            traversed += 1;
         }
     }
 };
@@ -291,6 +305,10 @@ fn parseBootSector(boot: [*]const u8, device_blocks: u64) !Layout {
     };
 }
 
+fn validateDataCluster(cluster: u16, cluster_count: u32) !void {
+    if (cluster < 2 or @as(u32, cluster) >= cluster_count + 2 or cluster >= 0xfff0) return error.BrokenChain;
+}
+
 fn validBootSector() [512]u8 {
     var boot = [_]u8{0} ** 512;
     put16(boot[11..].ptr, 512);
@@ -322,6 +340,15 @@ test "FAT16 BPB rejects invalid geometry and device overflow" {
     boot = validBootSector();
     put16(boot[22..].ptr, 1);
     try std.testing.expectError(error.FatTooSmall, parseBootSector(&boot, 32768));
+}
+
+test "FAT16 data cluster validation excludes reserved and out-of-volume entries" {
+    try std.testing.expectError(error.BrokenChain, validateDataCluster(0, 8000));
+    try std.testing.expectError(error.BrokenChain, validateDataCluster(1, 8000));
+    try validateDataCluster(2, 8000);
+    try validateDataCluster(8001, 8000);
+    try std.testing.expectError(error.BrokenChain, validateDataCluster(8002, 8000));
+    try std.testing.expectError(error.BrokenChain, validateDataCluster(0xfff0, 65524));
 }
 
 const std = @import("std");

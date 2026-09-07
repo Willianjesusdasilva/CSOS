@@ -682,7 +682,7 @@ SDL, sem fundir mudanças de botão ou teclado. Contadores separados expõem
 eventos coalescidos e descartes inevitáveis no log serial.
 
 Verificação atual: `zig build` recompilou o EFI em `14/14` etapas e
-`zig build test` passou `17/17` etapas e `25/25` testes. O
+`zig build test` passou `17/17` etapas e `26/26` testes. O
 boot interativo agora entrega o input diretamente à sessão gráfica, sem ficar
 bloqueado pelo shell BusyBox, e publica `CSOS graphical session ready`. O shell
 será reintegrado como uma aplicação de terminal não bloqueante; isso ainda não
@@ -705,6 +705,12 @@ O mount FAT16 passou a validar integralmente o BPB antes de navegar no disco:
 assinatura, setor de 512 bytes, cluster em potência de dois, regiões obrigatórias,
 capacidade das FATs, faixa de clusters FAT16 e tamanho total limitado pelo
 namespace NVMe. Imagens corrompidas deixam de induzir leituras além do volume.
+
+A substituição de arquivos na raiz preserva a cadeia antiga até a nova cadeia
+estar alocada, gravada e publicada no diretório. Falhas antes do commit liberam
+os clusters novos; somente depois do diretório persistir a cadeia anterior é
+recuperada. A travessia de liberação também é limitada pelo tamanho do volume,
+evitando loop infinito em uma FAT cíclica.
 
 O inventário do host também encontrou uma AMD Radeon(TM) Graphics (`1002:164e`)
 e uma NVIDIA GeForce RTX 4060 Ti (`10de:2803`), ambas ativas. Isso viabiliza a
