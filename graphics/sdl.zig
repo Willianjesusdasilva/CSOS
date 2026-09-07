@@ -420,7 +420,7 @@ pub const TextInput = struct {
     }
 
     pub fn replace(self: *TextInput, text: []const u8) void {
-        const old_len = self.len;
+        const old_len = @min(self.len, self.bytes.len);
         self.len = @min(text.len, self.bytes.len);
         @memmove(self.bytes[0..self.len], text[0..self.len]);
         if (old_len > self.len) @memset(self.bytes[self.len..old_len], 0);
@@ -969,6 +969,9 @@ test "SDL software event queue and surface contract" {
     input.replace(&long_text);
     input.replace("z");
     try @import("std").testing.expectEqual(@as(u8, 0), input.bytes[63]);
+    input.len = std.math.maxInt(usize);
+    input.replace("safe");
+    try @import("std").testing.expectEqualStrings("safe", input.slice());
     input.replace("abcdef");
     input.cursor = 2;
     input.eraseToEnd();
