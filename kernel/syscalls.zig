@@ -393,6 +393,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         262 => stat(arg2, arg3, @bitCast(arg1)),
         267 => readlinkat(@bitCast(arg1), arg2, arg3, arg4),
         271 => ppoll(arg1, arg2, arg3, arg4),
+        302 => prlimit64(arg1, arg2, arg3, arg4),
         273 => setRobustList(arg1, arg2),
         274 => getRobustList(arg1, arg2, arg3, arg4),
         309 => getcpu(arg1, arg2),
@@ -2902,6 +2903,16 @@ fn setRlimit(resource: u64, address: u64) u64 {
     const soft = read64(bytes);
     const hard = read64(bytes + 8);
     if (soft > hard or ((resource == 3 or resource == 9) and hard > 16 * 1024 * 1024)) return errno(1);
+    return 0;
+}
+
+fn prlimit64(pid: u64, resource: u64, new_limit: u64, old_limit: u64) u64 {
+    if (pid != 0 and pid != 1) return errno(3);
+    if (old_limit != 0) {
+        const result = getRlimit(resource, old_limit);
+        if (result != 0) return result;
+    }
+    if (new_limit != 0) return setRlimit(resource, new_limit);
     return 0;
 }
 
