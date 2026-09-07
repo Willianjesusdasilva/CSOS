@@ -633,6 +633,16 @@ test "sendfile transfer counter rejects overflow" {
     try std.testing.expectError(error.Overflow, advanceSendfileTransfer(std.math.maxInt(u64), 1));
 }
 
+test "DRM mode dimensions fit the userspace ABI" {
+    const saved = framebuffer;
+    defer framebuffer = saved;
+    framebuffer.width = std.math.maxInt(u16);
+    framebuffer.height = std.math.maxInt(u16);
+    try std.testing.expect(drmModeDimensionsFit());
+    framebuffer.width = @as(u32, std.math.maxInt(u16)) + 1;
+    try std.testing.expect(!drmModeDimensionsFit());
+}
+
 fn writeKernel(fd: u64, bytes: []const u8) !usize {
     if (socketIndex(fd)) |index| {
         const result = socketSend(index, bytes);
