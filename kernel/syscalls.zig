@@ -1,3 +1,4 @@
+const std = @import("std");
 const serial = @import("serial");
 const vfs = @import("vfs");
 const net = @import("net");
@@ -404,8 +405,11 @@ fn sendfile(output_fd: u64, input_fd: u64, offset_address: u64, count: u64) u64 
     var transferred: u64 = 0;
     while (transferred < count) {
         const wanted: usize = @intCast(@min(@as(u64, buffer.len), count - transferred));
-        const read_count = if (explicit_offset) |position|
-            vfs.pread(@intCast(input_fd), buffer[0..wanted], @intCast(position + transferred)) catch |err| return if (transferred == 0) vfsError(err) else transferred
+        const read_count = if (explicit_offset) |position| blk: {
+            if (position > std.math.maxInt(u64) - transferred)
+                return if (transferred == 0) errno(75) else transferred;
+            break :blk vfs.pread(@intCast(input_fd), buffer[0..wanted], @intCast(position + transferred)) catch |err| return if (transferred == 0) vfsError(err) else transferred;
+        }
         else
             vfs.read(@intCast(input_fd), buffer[0..wanted]) catch |err| return if (transferred == 0) vfsError(err) else transferred;
         if (read_count == 0) break;
