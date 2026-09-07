@@ -548,6 +548,7 @@ pub fn chooseFormat(supported: []const Format, preferred_rate: u32) ?Format {
 pub fn normalizeFormat(channels: u16, bits_per_sample: u16, sample_rate: u64) !Format {
     if (channels == 0 or channels > 8) return error.InvalidChannels;
     if (bits_per_sample == 0 or bits_per_sample > 32 or bits_per_sample % 8 != 0) return error.InvalidSampleWidth;
+    if (sample_rate > @import("std").math.maxInt(u32)) return error.UnsupportedFormat;
     if (!isSupportedRate(@intCast(sample_rate))) return error.UnsupportedFormat;
     return .{
         .channels = @intCast(channels),
