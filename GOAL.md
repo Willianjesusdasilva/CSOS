@@ -101,6 +101,9 @@ real e aplicações completas. O cursor acompanha deltas de mouse USB com
 redesenho seguro; cliques e estado dos botões são refletidos visualmente e no
 serial, enquanto o gerenciamento de janelas cobre o conjunto atualmente
 implementado abaixo.
+O delta do mouse normaliza a posição antes de aplicar movimento, mantendo o
+cursor dentro da tela mesmo após uma mudança de resolução ou estado inválido;
+a fila SDL preserva eventos `quit` mesmo quando está saturada.
 O painel também ganhou uma fonte bitmap mínima para o rótulo `READY`, tornando
 o estado de inicialização legível sem depender de uma console serial.
 O primeiro widget clicável alterna estado com botão esquerdo, altera sua cor e

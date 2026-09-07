@@ -694,6 +694,9 @@ examinados, escritas no framebuffer e a porcentagem economizada pelo shadow
 buffer, atualizando junto com os eventos do desktop.
 Movimentos de mouse consecutivos são coalescidos quando a fila SDL está cheia,
 evitando saturação desnecessária do input.
+A posição do cursor é limitada à extensão atual antes de aplicar cada delta, e
+um evento SDL `quit` substitui o item mais antigo quando a fila está cheia para
+que a aplicação continue podendo encerrar sob carga.
 A fila HID xHCI também coalesce deltas consecutivos quando cheia, antes da fila
 SDL, sem fundir mudanças de botão ou teclado. Contadores separados expõem
 eventos coalescidos e descartes inevitáveis no log serial.
