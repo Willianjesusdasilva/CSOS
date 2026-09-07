@@ -648,7 +648,9 @@ O estado fixo do compositor usa armazenamento estático, evitando que a evoluç�
 do desktop esgote a stack inicial fornecida pelo firmware UEFI.
 O contrato SDL software inicial em `graphics/sdl.zig` já define janela/superfície
 RGBA, fila de eventos e dispositivo de áudio com validação de especificação; a
-integração completa com hardware e aplicações SDL ainda está em andamento.
+integração completa com hardware e aplicações SDL ainda está em andamento. O
+dispositivo de áudio já expõe profundidade/disponibilidade, pausa, drenagem e
+limpeza de fila para o futuro ciclo de vida do backend.
 O boot inclui uma aplicação SDL software mínima que desenha uma superfície e a
 apresenta dentro da janela `APP1` via `blitSurface`. A aplicação consome a fila
 SDL no loop gráfico: teclado altera seu indicador superior, movimento do mouse
