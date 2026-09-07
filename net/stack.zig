@@ -94,7 +94,8 @@ pub const Stack = struct {
             var label_end = label_start;
             while (label_end < name.len and name[label_end] != '.') : (label_end += 1) {}
             const length = label_end - label_start;
-            if (length == 0 or length > 63 or offset + 1 + length + 5 > query.len) return error.InvalidDnsName;
+            const next_offset = @import("std").math.add(usize, offset, 1 + length) catch return error.InvalidDnsName;
+            if (length == 0 or length > 63 or next_offset + 5 > query.len) return error.InvalidDnsName;
             query[offset] = @intCast(length); offset += 1;
             @memcpy(query[offset .. offset + length], name[label_start..label_end]); offset += length;
             label_start = label_end + 1;
