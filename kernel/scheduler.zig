@@ -205,6 +205,7 @@ pub fn resumeGroup(group: u16) usize {
     var changed: usize = 0;
     for (threads[0..thread_count]) |*thread| {
         if (thread.group != group or thread.state != .frozen) continue;
+        if (thread.resume_state != .ready and thread.resume_state != .sleeping) continue;
         thread.state = thread.resume_state;
         if (thread.state == .ready) thread.ready_tsc = timestamp();
         thread.lifecycle = .resuming;
@@ -426,6 +427,19 @@ test "scheduler freeze and resume preserve sleeping state" {
     try std.testing.expectEqual(@as(usize, 0), resumeGroup(9));
     try std.testing.expectEqual(State.sleeping, threads[0].state);
     try std.testing.expectEqual(Lifecycle.resuming, threads[0].lifecycle);
+}
+
+test "scheduler resume rejects an invalid saved state" {
+    const saved_count = thread_count;
+    const saved_thread = threads[0];
+    defer {
+        thread_count = saved_count;
+        threads[0] = saved_thread;
+    }
+    threads[0] = .{ .context = .{}, .entry = schedulerTestEntry, .state = .frozen, .group = 10, .resume_state = .finished };
+    thread_count = 1;
+    try std.testing.expectEqual(@as(usize, 0), resumeGroup(10));
+    try std.testing.expectEqual(State.frozen, threads[0].state);
 }
 
 test "scheduler match mode moves a group through standby and resume" {
