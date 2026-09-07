@@ -241,7 +241,7 @@ pub fn tick() void {
 pub fn groupSleepTicks(group: u16) u64 {
     var remaining: u64 = 0;
     for (threads[0..thread_count]) |thread| {
-        if (thread.group == group and thread.state != .finished) remaining = @max(remaining, thread.sleep_ticks);
+        if (thread.group == group and thread.state == .sleeping) remaining = @max(remaining, thread.sleep_ticks);
     }
     return remaining;
 }
@@ -563,6 +563,18 @@ test "scheduler sleep accounting ignores finished threads" {
     threads[1] = .{ .context = .{}, .entry = schedulerTestEntry, .state = .finished, .group = 12, .sleep_ticks = 99 };
     thread_count = 2;
     try std.testing.expectEqual(@as(u64, 3), groupSleepTicks(12));
+}
+
+test "scheduler sleep accounting ignores frozen timer residue" {
+    const saved_count = thread_count;
+    const saved_thread = threads[0];
+    defer {
+        thread_count = saved_count;
+        threads[0] = saved_thread;
+    }
+    threads[0] = .{ .context = .{}, .entry = schedulerTestEntry, .state = .frozen, .group = 26, .sleep_ticks = 99 };
+    thread_count = 1;
+    try std.testing.expectEqual(@as(u64, 0), groupSleepTicks(26));
 }
 
 test "scheduler tick wakes expired sleepers but preserves frozen state" {

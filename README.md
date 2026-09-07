@@ -720,7 +720,7 @@ O caminho de rede correlaciona IDs DNS e sequências ICMP e descarta respostas A
 com MAC de emissor inválido.
 
 Verificação atual: `zig build` recompilou o EFI em `14/14` etapas e
-`zig build test` passou `41/41` etapas e `195/195` testes. O
+`zig build test` passou `41/41` etapas e `196/196` testes. O
 boot interativo agora entrega o input diretamente à sessão gráfica, sem ficar
 bloqueado pelo shell BusyBox, e publica `CSOS graphical session ready`. O shell
 será reintegrado como uma aplicação de terminal não bloqueante; isso ainda não
@@ -840,6 +840,10 @@ O loader ELF valida o fim do trecho de arquivo e os endereços de destino e
 origem usados na cópia de cada página PT_LOAD. Isso mantém carga e retomada de
 páginas fora dos limites como falhas explícitas, sem depender de hardware
 físico.
+
+O scheduler contabiliza o sono de um grupo apenas para threads realmente
+`sleeping`; timers preservados em threads congeladas não aparecem como tempo
+restante falso.
 
 Mapeamentos anônimos fazem rollback transacional quando uma página falha: os
 mapeamentos parciais são removidos e a memória física é devolvida ao allocator.
