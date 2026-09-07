@@ -307,8 +307,12 @@ pub fn migrationCount() u64 {
 
 fn markRunning(index: usize) void {
     const now = timestamp();
-    if (threads[index].ready_tsc != 0 and dispatch_latency.count < dispatch_latency.values.len)
-        dispatch_latency.add(now -% threads[index].ready_tsc) catch {};
+    if (threads[index].ready_tsc != 0) {
+        if (dispatch_latency.count < dispatch_latency.values.len)
+            dispatch_latency.add(now -% threads[index].ready_tsc) catch {};
+        // A amostra pertence a esta transição; não a reutilize em dispatches futuros.
+        threads[index].ready_tsc = 0;
+    }
     const current_apic = apic.id();
     if (threads[index].last_apic != 0xffffffff and threads[index].last_apic != current_apic) migrations += 1;
     threads[index].last_apic = current_apic;
