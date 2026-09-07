@@ -262,6 +262,7 @@ pub fn romInfo(device: Device, probe_size: bool) ?RomBar {
         write16(device.bus, device.slot, device.function, 4, command);
         if (mask != 0) size = @as(u64, (~mask) +% 1);
     }
+    if (size != 0 and (!validBarMapping(address, size) or address > std.math.maxInt(u64) - (size - 1))) return null;
     return .{ .address = address, .size = size, .enabled = (original & 1) != 0 };
 }
 
@@ -361,4 +362,10 @@ test "PCI BAR sizes must be nonzero powers of two" {
     try std.testing.expect(!validBarSize(0x1800));
     try std.testing.expect(validBarMapping(0x8000, 0x1000));
     try std.testing.expect(!validBarMapping(0x8100, 0x1000));
+}
+
+test "PCI expansion ROM mappings use BAR alignment rules" {
+    try std.testing.expect(validBarMapping(0x20000, 0x8000));
+    try std.testing.expect(!validBarMapping(0x21000, 0x8000));
+    try std.testing.expect(!validBarMapping(0x20000, 0x1800));
 }
