@@ -810,6 +810,7 @@ nova contagem quando arquivos desaparecem; voltar ao launcher nunca mostra uma
 lista permanentemente obsoleta.
 No launcher, `1`–`4` selecionam diretamente as aplicações; `Alt+F4` fecha a
 janela focada e `Alt+F10` alterna maximização.
+`Space` também confirma a aplicação selecionada, como alternativa a `Enter`.
 
 Prévia de arquivo agora é paginada sem carregar o objeto inteiro: Page Down,
 Page Up, Home e roda do mouse navegam blocos de 192 bytes, com limites no início
