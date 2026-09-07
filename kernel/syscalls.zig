@@ -351,6 +351,10 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         105, 106 => if (arg1 == 0) 0 else errno(1),
         110 => 0,
         158 => archPrctl(arg1, arg2),
+        // The current userspace model has one kernel thread per process.  Keep
+        // gettid consistent with getpid so musl's thread-local setup does not
+        // fall through to ENOSYS while loading real shared libraries.
+        186 => 1,
         217 => getdents(arg1, arg2, arg3),
         218 => 1,
         228 => writeTime(arg2, 16),
