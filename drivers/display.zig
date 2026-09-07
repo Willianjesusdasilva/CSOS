@@ -214,7 +214,8 @@ pub const WindowManager = struct {
     }
 
     pub fn toggleMaximized(self: *WindowManager, index: usize, screen_width: usize, screen_height: usize) bool {
-        if (index >= self.count or !self.windows[index].visible or screen_width < 32 or screen_height < 44) return false;
+        if (index >= self.count or !self.windows[index].visible or screen_width < min_window_width or
+            screen_height -| 20 < min_window_height) return false;
         const window = &self.windows[index];
         if (window.maximized) {
             const usable_height = screen_height -| 20;
@@ -566,6 +567,7 @@ test "window manager focus alt-tab hit-test and close" {
     try std.testing.expectEqual(@as(usize, 76), manager.windows[0].height);
     try std.testing.expectEqual(@as(usize, 0), manager.windows[0].y);
     try std.testing.expectEqual(@as(usize, 16), manager.windows[0].x);
+    try std.testing.expect(!manager.toggleMaximized(0, 32, 44));
     try std.testing.expect(!manager.move(8, 0, 0, 100, 100));
     try std.testing.expect(manager.move(0, 999, 999, 0, 0));
     try std.testing.expectEqual(@as(usize, 0), manager.windows[0].x);
