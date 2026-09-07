@@ -27,7 +27,9 @@ pub const Controller = struct {
         const capability = read64(base, 0);
         if ((capability & 0xffff) + 1 < queue_depth) return error.QueueTooLarge;
         const submission = pages.allocate(1) orelse return error.OutOfMemory;
+        errdefer pages.release(submission, 1) catch {};
         const completion = pages.allocate(1) orelse return error.OutOfMemory;
+        errdefer pages.release(completion, 1) catch {};
         zeroPage(submission);
         zeroPage(completion);
 
@@ -49,6 +51,7 @@ pub const Controller = struct {
 
     pub fn identify(self: *Controller, pages: *physical.Allocator) !u32 {
         const buffer = pages.allocate(1) orelse return error.OutOfMemory;
+        defer pages.release(buffer, 1) catch {};
         zeroPage(buffer);
         const command = self.submissionCommand();
         @memset(command[0..64], 0);
@@ -80,7 +83,9 @@ pub const Controller = struct {
 
     pub fn initIo(self: *Controller, pages: *physical.Allocator) !void {
         self.io_submission = pages.allocate(1) orelse return error.OutOfMemory;
+        errdefer pages.release(self.io_submission, 1) catch {};
         self.io_completion = pages.allocate(1) orelse return error.OutOfMemory;
+        errdefer pages.release(self.io_completion, 1) catch {};
         zeroPage(self.io_submission);
         zeroPage(self.io_completion);
 
@@ -105,6 +110,7 @@ pub const Controller = struct {
         try self.complete();
 
         const namespace = pages.allocate(1) orelse return error.OutOfMemory;
+        defer pages.release(namespace, 1) catch {};
         zeroPage(namespace);
         command = self.submissionCommand();
         @memset(command[0..64], 0);
