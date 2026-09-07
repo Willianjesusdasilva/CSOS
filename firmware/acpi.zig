@@ -185,7 +185,7 @@ fn legacyGas(address: u32, width: u8) Gas {
 
 fn findSleepTypes(aml: [*]const u8, length: usize) ![2]u16 {
     var index: usize = 0;
-    while (index + 7 < length) : (index += 1) {
+    while (index < length and length - index >= 8) : (index += 1) {
         if (!equal(aml + index, "_S5_") or aml[index + 4] != 0x12) continue;
         var cursor = index + 5;
         cursor += try packageLengthBytes(aml + cursor, length - cursor);
