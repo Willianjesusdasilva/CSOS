@@ -456,6 +456,11 @@ pub const Terminal = struct {
         return true;
     }
 
+    pub fn cancel(self: *Terminal) void {
+        self.input.clear();
+        self.history_cursor = self.history_len;
+    }
+
     pub fn outputSlice(self: *const Terminal) []const u8 {
         return self.output[0..self.output_len];
     }
@@ -816,6 +821,10 @@ test "SDL software event queue and surface contract" {
     try @import("std").testing.expect(input.backspace());
     try @import("std").testing.expectEqual(@as(usize, 1), input.cursor);
     var terminal = Terminal{};
+    for ("discard") |byte| try @import("std").testing.expect(terminal.input.insert(byte));
+    terminal.cancel();
+    try @import("std").testing.expectEqualStrings("", terminal.input.slice());
+    try @import("std").testing.expectEqual(@as(usize, 0), terminal.output_len);
     for ("status") |byte| try @import("std").testing.expect(terminal.input.insert(byte));
     try @import("std").testing.expect(terminal.submit());
     try @import("std").testing.expectEqualStrings("> status\nCSOS READY\n", terminal.outputSlice());
