@@ -98,6 +98,7 @@ pub const EventQueue = struct {
     }
 
     pub fn pushMouseCoalesced(self: *EventQueue, x: i32, y: i32, wheel: i32, buttons: u8) bool {
+        // Never merge across a button transition: doing so could erase a click.
         if (self.write != self.read) {
             const slot = (self.write - 1) % self.items.len;
             if (self.items[slot] == .mouse and self.items[slot].mouse.buttons == buttons) {
