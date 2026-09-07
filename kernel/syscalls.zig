@@ -3256,7 +3256,8 @@ fn setPriority(which: u64, who: u64, priority: i64) u64 {
 }
 
 fn setScheduler(pid: u64, policy: u64, param: u64) u64 {
-    if (pid != 0 and pid != 1 or policy != 0 or (param != 0 and !validUserSlice(param, 4))) return errno(22);
+    if (pid != 0 and pid != 1) return errno(3);
+    if (policy != 0 or (param != 0 and !validUserSlice(param, 4))) return errno(22);
     return 0;
 }
 
@@ -3273,7 +3274,8 @@ fn getSchedulerParam(pid: u64, output: u64) u64 {
 }
 
 fn schedRrInterval(pid: u64, output: u64) u64 {
-    if (pid != 0 and pid != 1 or !validUserSlice(output, 16)) return errno(22);
+    if (pid != 0 and pid != 1) return errno(3);
+    if (!validUserSlice(output, 16)) return errno(22);
     const bytes: [*]u8 = @ptrFromInt(output);
     @memset(bytes[0..16], 0);
     put64(bytes, 0);
