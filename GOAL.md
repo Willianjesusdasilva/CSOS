@@ -210,6 +210,8 @@ permitindo alterar dados pela sessão gráfica sem sair do SO.
 incrementais sem apagar o conteúdo anterior.
 `rm arquivo` agora remove arquivos regulares do diretório FAT raiz e libera sua
 cadeia de clusters através do VFS.
+`cp origem destino` copia arquivos regulares pela sessão gráfica, usando leitura
+e escrita reais do VFS.
 `Ctrl+R` também recupera a entrada anterior, como em shells convencionais.
 O compositor associa a superfície SDL à janela proprietária e aplica clipping
 à área de conteúdo; a aplicação deixa de atravessar bordas ou aparecer por cima

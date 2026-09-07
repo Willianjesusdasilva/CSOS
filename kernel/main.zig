@@ -2602,6 +2602,7 @@ fn resetSdlDemoApplication(app: *sdl.Application) void {
     sdl_terminal.stat_reader = &statTerminalFile;
     sdl_terminal.file_writer = &writeTerminalFile;
     sdl_terminal.file_remover = &removeTerminalFile;
+    sdl_terminal.file_copier = &copyTerminalFile;
     app.running = true;
     app.window.clear(0x182838ff);
     drawSdlTerminal(app);
@@ -2656,6 +2657,17 @@ fn writeTerminalFile(path: []const u8, contents: []const u8, append: bool) bool 
 
 fn removeTerminalFile(path: []const u8) bool {
     return vfs.unlinkAt(-100, path) catch false;
+}
+
+fn copyTerminalFile(source: []const u8, destination: []const u8) bool {
+    const input = vfs.openAt(-100, source, 0) catch return false;
+    defer vfs.close(input) catch {};
+    const output = vfs.openAt(-100, destination, 0x241) catch return false;
+    defer vfs.close(output) catch {};
+    var buffer: [8192]u8 = undefined;
+    const count = vfs.read(input, &buffer) catch return false;
+    _ = vfs.write(output, buffer[0..count]) catch return false;
+    return true;
 }
 
 fn drawSdlTerminal(app: *sdl.Application) void {

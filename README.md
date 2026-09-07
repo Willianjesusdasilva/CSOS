@@ -694,6 +694,8 @@ O formato `echo texto >> arquivo` preserva o conteúdo existente e acrescenta um
 nova linha, usando o modo append do VFS.
 `rm arquivo` remove um arquivo regular do diretório FAT raiz e devolve seus
 clusters ao espaço livre.
+`cp origem destino` copia arquivos regulares entre entradas do FAT usando as
+operações reais de leitura e escrita do VFS.
 Espaços e tabulações nas bordas do comando são ignorados, permitindo, por
 exemplo, executar `  status  ` sem gerar um comando desconhecido.
 Setas para cima/baixo percorrem o histórico, Home/End movem o cursor, Delete
