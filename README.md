@@ -659,6 +659,8 @@ RGBA, fila de eventos e dispositivo de áudio com validação de especificação
 integração completa com hardware e aplicações SDL ainda está em andamento. O
 dispositivo de áudio já expõe profundidade/disponibilidade, pausa, drenagem e
 limpeza de fila para o futuro ciclo de vida do backend.
+O formato pode ser reconfigurado com a fila vazia; trocas incompatíveis com
+frames pendentes são recusadas para preservar a integridade do áudio.
 O boot inclui uma aplicação SDL software mínima que desenha uma superfície e a
 apresenta dentro da janela `APP1` via `blitSurface`. A aplicação consome a fila
 SDL no loop gráfico: teclado altera seu indicador superior, movimento do mouse

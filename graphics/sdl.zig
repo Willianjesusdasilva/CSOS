@@ -742,6 +742,13 @@ pub const AudioDevice = struct {
         return .{ .spec = spec };
     }
 
+    pub fn reconfigure(self: *AudioDevice, spec: AudioSpec) !void {
+        if (spec.sample_rate == 0 or spec.channels == 0 or spec.channels > 8) return error.InvalidAudioSpec;
+        if (self.queued_frames != 0 and (spec.sample_rate != self.spec.sample_rate or spec.channels != self.spec.channels))
+            return error.AudioQueued;
+        self.spec = spec;
+    }
+
     pub fn queue(self: *AudioDevice, frames: u64) u64 {
         // Return the post-operation depth so callers can apply backpressure.
         const result = @addWithOverflow(self.queued_frames, frames);
@@ -1240,6 +1247,7 @@ test "SDL software event queue and surface contract" {
     try @import("std").testing.expectError(error.InvalidAudioSpec, AudioDevice.init(.{ .sample_rate = 0, .channels = 2 }));
     try @import("std").testing.expectError(error.InvalidAudioSpec, AudioDevice.init(.{ .sample_rate = 48000, .channels = 0 }));
     try @import("std").testing.expectError(error.InvalidAudioSpec, AudioDevice.init(.{ .sample_rate = 48000, .channels = 9 }));
+    try @import("std").testing.expectError(error.AudioQueued, audio.reconfigure(.{ .sample_rate = 44100, .channels = 2 }));
 }
 
 test "SDL event queue survives counter wraparound" {
