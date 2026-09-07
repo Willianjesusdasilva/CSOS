@@ -33,6 +33,9 @@ var process_name: [16]u8 = .{ 'c', 's', 'o', 's', 0 } ++ .{0} ** 11;
 var process_group: u64 = 1;
 var process_session: u64 = 1;
 var signal_stack: [32]u8 = .{0} ** 32;
+const max_epoll_watch = 16;
+const EpollWatch = struct { fd: u32 = 0, events: u32 = 0, data: u64 = 0, active: bool = false };
+var epoll_watches: [32][max_epoll_watch]EpollWatch = .{.{EpollWatch{}} ** max_epoll_watch} ** 32;
 pub var file_mmaps: u64 = 0;
 pub var protected_mmaps: u64 = 0;
 pub var unmapped_mmaps: u64 = 0;
@@ -423,6 +426,9 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         271 => ppoll(arg1, arg2, arg3, arg4),
         302 => prlimit64(arg1, arg2, arg3, arg4),
         306 => syncFile(arg1),
+        232 => epollWait(arg1, arg2, arg3, @bitCast(arg4)),
+        233 => epollCtl(arg1, arg2, arg3, arg4),
+        291 => epollCreate(arg1),
         273 => setRobustList(arg1, arg2),
         274 => getRobustList(arg1, arg2, arg3, arg4),
         309 => getcpu(arg1, arg2),
@@ -2888,6 +2894,51 @@ fn syncFile(fd: u64) u64 {
 
 fn syncAll() u64 {
     return 0;
+}
+
+fn epollCreate(flags: u64) u64 {
+    if ((flags & ~@as(u64, 0x80000)) != 0) return errno(22);
+    const fd = vfs.openEpoll() catch |err| return vfsError(err);
+    return fd;
+}
+
+fn epollCtl(epfd: u64, operation: u64, target: u64, event: u64) u64 {
+    if (!vfs.isEpoll(@intCast(epfd)) or !vfs.isOpen(@intCast(target)) or target == epfd) return errno(9);
+    if (event == 0 and operation != 2) return errno(14);
+    const watches = &epoll_watches[@intCast(epfd)];
+    if (operation == 1 or operation == 2) {
+        var slot: ?usize = null;
+        for (watches, 0..) |watch, index| if (watch.active and watch.fd == target) { slot = index; break; };
+        if (operation == 2) {
+            if (slot) |index| watches[index].active = false else return errno(2);
+            return 0;
+        }
+        if (slot != null) return errno(17);
+        const input: [*]const u8 = @ptrFromInt(event);
+        for (watches) |*watch| if (!watch.active) {
+            watch.* = .{ .fd = @intCast(target), .events = read32(input), .data = read64(input + 8), .active = true };
+            return 0;
+        };
+        return errno(28);
+    }
+    if (operation == 3) return errno(22);
+    return errno(22);
+}
+
+fn epollWait(epfd: u64, output: u64, capacity: u64, timeout: i64) u64 {
+    if (!vfs.isEpoll(@intCast(epfd)) or capacity == 0 or capacity > max_epoll_watch or !validUserSlice(output, capacity * 16)) return errno(22);
+    const bytes: [*]u8 = @ptrFromInt(output);
+    var ready: u64 = 0;
+    for (epoll_watches[@intCast(epfd)]) |watch| {
+        if (!watch.active or ready == capacity or !vfs.isOpen(watch.fd)) continue;
+        const item = bytes + ready * 16;
+        put32(item, watch.events);
+        put32(item + 4, 0);
+        put64(item + 8, watch.data);
+        ready += 1;
+    }
+    if (ready == 0 and timeout > 0) if (idle_hook) |hook| hook();
+    return ready;
 }
 
 fn futex(address: u64, operation: u64, expected: u64) u64 {

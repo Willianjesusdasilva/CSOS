@@ -5,7 +5,7 @@ const hello = "Hello from initramfs\n";
 
 const max_fds = 32;
 
-const Kind = enum { unused, console, file, directory, device };
+const Kind = enum { unused, console, file, directory, device, epoll };
 const Node = enum {
     root, bin, dev, dri, sys, sys_dev, sys_char, drm_char_primary, drm_char_render,
     drm_device, drm_device_drm, drm_subsystem, drm_pci_uevent, drm_vendor,
@@ -193,6 +193,16 @@ pub fn openAt(directory_fd: i64, path: []const u8, flags: u64) !usize {
     descriptors[fd].writable = (flags & 0x3) != 0;
     return fd;
 }
+
+pub fn openEpoll() !usize {
+    var fd: usize = 3;
+    while (fd < descriptors.len and descriptors[fd].kind != .unused) : (fd += 1) {}
+    if (fd == descriptors.len) return error.TooManyFiles;
+    descriptors[fd] = .{ .kind = .epoll, .node = .root };
+    return fd;
+}
+
+pub fn isEpoll(fd: usize) bool { return fd < descriptors.len and descriptors[fd].kind == .epoll; }
 
 pub fn close(fd: usize) !void {
     if (fd >= descriptors.len or descriptors[fd].kind == .unused) return error.BadFd;
