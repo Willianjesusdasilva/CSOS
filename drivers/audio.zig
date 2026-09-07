@@ -432,6 +432,9 @@ pub const DeviceManager = struct {
         var device = Device{ .state = .discovered, .format = format };
         try device.validate(periods_per_second, packet_size);
         const stream = try Stream.init(format);
+        // Validate and construct the replacement first; only then tear down
+        // the previous transport so a failed attach leaves it usable.
+        self.stop();
         self.device = device;
         self.stream = stream;
         self.metrics = .{};
@@ -1025,6 +1028,17 @@ test "device manager stop clears suspension state" {
     manager.stop();
     try @import("std").testing.expect(!manager.device.suspended);
     try @import("std").testing.expect(!manager.device.suspended_streaming);
+}
+
+test "device manager attach replaces active stream cleanly" {
+    var manager = DeviceManager{};
+    try manager.attach(.{ .channels = 2, .bits_per_sample = 16, .sample_rate = 48000 }, 1000, 4096);
+    try manager.configure();
+    try manager.start();
+    try manager.attach(.{ .channels = 1, .bits_per_sample = 16, .sample_rate = 44100 }, 1000, 4096);
+    try @import("std").testing.expectEqual(State.discovered, manager.device.state);
+    try @import("std").testing.expectEqual(@as(u8, 1), manager.device.format.channels);
+    try @import("std").testing.expect(manager.stream != null);
 }
 
 test "device manager reset clears stream mixer and metrics" {
