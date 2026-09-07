@@ -576,10 +576,11 @@ pub const DeviceManager = struct {
     }
 
     pub fn errorRate(self: *const DeviceManager) u8 {
-        const total = self.metrics.completed + self.metrics.underruns + self.metrics.overruns;
+        const total = (self.metrics.completed +| self.metrics.underruns) +| self.metrics.overruns;
         if (total == 0) return 0;
-        const errors = self.metrics.underruns + self.metrics.overruns;
-        return @intCast(@min(@as(u64, 100), (errors * 100) / total));
+        const errors = self.metrics.underruns +| self.metrics.overruns;
+        const scaled: u128 = (@as(u128, errors) * 100) / @as(u128, total);
+        return @intCast(@min(@as(u128, 100), scaled));
     }
 
     pub fn isDegraded(self: *const DeviceManager) bool {
