@@ -94,13 +94,13 @@ obrigatório e volta a ser executado antes de Steam/CS2.
 
 O framebuffer atual já produz uma saída visual verificável (`zig-out/display.png`)
 com painel de status, barra, cursor e elementos de diagnóstico. Isso é um
-primeiro passo gráfico em QEMU, mas ainda não é uma sessão interativa: faltam
-SDL, eventos de input ligados à UI, compositor, janelas e runtime HTML/CSS/Jinja.
-O cursor agora acompanha deltas de mouse USB no loop principal, com redesenho
-seguro da base e apresentação do novo frame; cliques, texto e gerenciamento de
-janelas continuam pendentes. O estado dos botões também é preservado no evento
-HID e refletido em laranja no cursor e no painel, validando feedback visual de
-pressionamento dentro do caminho emulado.
+primeiro passo gráfico em QEMU e já é uma sessão interativa básica: SDL software,
+eventos de teclado/mouse, compositor, janelas, foco e FILES estão ligados ao
+loop principal. Ainda faltam texto completo, runtime HTML/CSS/Jinja, áudio SDL
+real e aplicações completas. O cursor acompanha deltas de mouse USB com
+redesenho seguro; cliques e estado dos botões são refletidos visualmente e no
+serial, enquanto o gerenciamento de janelas cobre o conjunto atualmente
+implementado abaixo.
 O painel também ganhou uma fonte bitmap mínima para o rótulo `READY`, tornando
 o estado de inicialização legível sem depender de uma console serial.
 O primeiro widget clicável alterna estado com botão esquerdo, altera sua cor e
