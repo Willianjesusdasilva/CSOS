@@ -357,6 +357,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         45 => receiveFrom(arg1, arg2, arg3),
         48 => shutdown(arg1),
         60 => exitSyscall(arg1),
+        62 => kill(arg1, arg2),
         61 => wait4(arg1, arg2, arg3, arg4),
         63 => uname(arg1),
         72 => fcntl(arg1, arg2, arg3),
@@ -2802,6 +2803,14 @@ fn schedYield() u64 {
 
 fn exitSyscall(status: u64) u64 {
     process_exit_status = status;
+    return 0;
+}
+
+fn kill(pid: u64, signal: u64) u64 {
+    if (pid != 1 and pid != 0) return errno(3);
+    if (signal == 0) return 0;
+    if (signal != 9 and signal != 15) return errno(22);
+    process_exit_status = 128 + signal;
     return 0;
 }
 
