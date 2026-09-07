@@ -2261,17 +2261,24 @@ pub fn start(info: BootInfo) noreturn {
                     }
                 }
                 if (!terminal_shortcut_pressed and !monitor_shortcut_pressed and !system_shortcut_pressed and !files_shortcut_pressed and !launcher_consumed and !tab_switch_pressed and event.c != 0 and event.a == 0x2b and focusedWindowIs(window_manager, 3)) {
-                    system_html_focus = (system_html_focus + 1) % 2;
+                    system_html_focus = (system_html_focus + 1) % 3;
                     drawSystemSurface(&system_window, storage.block_count, @as(usize, hid.keyboards) + hid.mice, audio_info.playback_endpoints);
                     serial.write("UI HTML focus: ");
                     serial.writeDecimal(system_html_focus);
                     serial.write("\n");
                 }
                 if (!terminal_shortcut_pressed and !monitor_shortcut_pressed and !system_shortcut_pressed and !files_shortcut_pressed and !launcher_consumed and !tab_switch_pressed and event.c != 0 and event.a == 0x28 and focusedWindowIs(window_manager, 3)) {
-                    if (system_html_focus == 1) system_html_active = false else system_html_active = !system_html_active;
-                    drawSystemSurface(&system_window, storage.block_count, @as(usize, hid.keyboards) + hid.mice, audio_info.playback_endpoints);
-                    serial.write("UI HTML button: ");
-                    serial.write(if (system_html_focus == 1) "RESET (keyboard)\n" else if (system_html_active) "ACTIVE (keyboard)\n" else "READY (keyboard)\n");
+                    if (system_html_focus == 2) {
+                        const terminal_was_open = window_manager.findById(1) != null;
+                        _ = launchDesktopWindow(window_manager, 1, &demo_app.window, &monitor_window, &system_window, &files_window) catch panic("UI HTML terminal launch failed");
+                        if (!terminal_was_open) resetSdlDemoApplication(&demo_app);
+                        serial.write("UI HTML button: TERMINAL (keyboard)\n");
+                    } else {
+                        if (system_html_focus == 1) system_html_active = false else system_html_active = !system_html_active;
+                        drawSystemSurface(&system_window, storage.block_count, @as(usize, hid.keyboards) + hid.mice, audio_info.playback_endpoints);
+                        serial.write("UI HTML button: ");
+                        serial.write(if (system_html_focus == 1) "RESET (keyboard)\n" else if (system_html_active) "ACTIVE (keyboard)\n" else "READY (keyboard)\n");
+                    }
                 }
                 if (!terminal_shortcut_pressed and !monitor_shortcut_pressed and !system_shortcut_pressed and !files_shortcut_pressed and !launcher_consumed and !tab_switch_pressed and focusedWindowIs(window_manager, 1)) {
                     _ = sdl_events.pushKeyboard(event.a, event.a != 0, event.b);
@@ -2583,6 +2590,12 @@ pub fn start(info: BootInfo) noreturn {
                                 drawSystemSurface(&system_window, storage.block_count, @as(usize, hid.keyboards) + hid.mice, audio_info.playback_endpoints);
                                 serial.write("UI HTML button: ");
                                 serial.write(if (system_html_active) "ACTIVE\n" else "READY\n");
+                            } else if (window.id == 3 and window_manager.contentRectHitTest(hit, cursor_x, cursor_y, 4, 42, 64, 14)) {
+                                const terminal_was_open = window_manager.findById(1) != null;
+                                _ = launchDesktopWindow(window_manager, 1, &demo_app.window, &monitor_window, &system_window, &files_window) catch panic("UI HTML terminal launch failed");
+                                if (!terminal_was_open) resetSdlDemoApplication(&demo_app);
+                                system_html_focus = 2;
+                                serial.write("UI HTML button: TERMINAL\n");
                             }
                             _ = window_manager.focus(hit);
                             if (!window_manager.windows[window_manager.focused.?].maximized and cursor_y >= window.y and cursor_y < window.y +| 20) {
@@ -2841,7 +2854,7 @@ fn launchDesktopWindow(manager: *display.WindowManager, application_id: u32, app
 
 fn drawSystemSurface(window: *sdl.Window, storage_blocks: u64, input_devices: usize, audio_endpoints: usize) void {
     window.clear(0x14201cff);
-    const document = if (system_html_active) html.Document.parse("<h1>CSOS SYSTEM</h1><button>ACTIVE</button><button>RESET</button><p>ONLINE</p>") else html.Document.parse("<h1>CSOS SYSTEM</h1><button>READY</button><button>RESET</button><p>ONLINE</p>");
+    const document = if (system_html_active) html.Document.parse("<h1>CSOS SYSTEM</h1><button>ACTIVE</button><button>RESET</button><button>TERMINAL</button><p>ONLINE</p>") else html.Document.parse("<h1>CSOS SYSTEM</h1><button>READY</button><button>RESET</button><button>TERMINAL</button><p>ONLINE</p>");
     window.drawHtmlFocused(&document, 4, 2, 1 + system_html_focus);
     window.drawText(4, 48, "DISK BLOCKS", 0xa0b8d0ff);
     drawSurfaceNumber(window, 108, 48, storage_blocks, 0xe0e8f0ff);
