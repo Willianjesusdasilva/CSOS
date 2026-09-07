@@ -33,10 +33,14 @@ pub const Allocator = struct {
         var index: usize = 0;
         while (index < descriptor_count and self.range_count < self.ranges.len) : (index += 1) {
             const descriptor: *align(1) const Descriptor = @ptrCast(map + index * descriptor_size);
+            var installed_pages = self.installed_pages;
             if ((descriptor.kind >= 1 and descriptor.kind <= 10) or descriptor.kind == 14) {
-                self.installed_pages = std.math.add(u64, self.installed_pages, descriptor.page_count) catch continue;
+                installed_pages = std.math.add(u64, self.installed_pages, descriptor.page_count) catch continue;
             }
-            if (descriptor.kind != conventional_memory or descriptor.page_count == 0) continue;
+            if (descriptor.kind != conventional_memory or descriptor.page_count == 0) {
+                self.installed_pages = installed_pages;
+                continue;
+            }
 
             var start = descriptor.physical_start;
             const bytes = std.math.mul(u64, descriptor.page_count, page_size) catch continue;
@@ -46,8 +50,11 @@ pub const Allocator = struct {
             self.ranges[self.range_count] = .{ .next = start, .end = end };
             self.range_count += 1;
             const pages = (end - start) / page_size;
-            self.free_pages = std.math.add(u64, self.free_pages, pages) catch continue;
-            self.total_pages = std.math.add(u64, self.total_pages, pages) catch continue;
+            const free_pages = std.math.add(u64, self.free_pages, pages) catch continue;
+            const total_pages = std.math.add(u64, self.total_pages, pages) catch continue;
+            self.installed_pages = installed_pages;
+            self.free_pages = free_pages;
+            self.total_pages = total_pages;
         }
         return self;
     }
