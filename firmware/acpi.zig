@@ -57,6 +57,7 @@ pub fn findPower(rsdp_address: u64) !Power {
     if (length < 129 or !checksum(fadt, length)) return error.InvalidFadt;
     const reset_register = readGas(fadt + 116);
     if (reset_register.address == 0) return error.ResetUnsupported;
+    _ = validateGas(reset_register) catch return error.ResetUnsupported;
     const dsdt_address = if (length >= 148 and read64(fadt + 140) != 0) read64(fadt + 140) else read32(fadt + 40);
     if (dsdt_address == 0) return error.MissingDsdt;
     const dsdt: [*]const u8 = @ptrFromInt(dsdt_address);
@@ -235,8 +236,7 @@ fn readAml(bytes: [*]const u8, length: usize, cursor: *usize, count: usize) !u64
 }
 
 fn writeGas(register: Gas, value: u64) !void {
-    if (register.offset != 0 or register.address == 0) return error.UnsupportedRegister;
-    const width: u8 = if (register.width != 0) register.width else switch (register.access) { 1 => 8, 2 => 16, 3 => 32, else => 0 };
+    const width = try validateGas(register);
     const bytes = @as(u64, width / 8);
     if (bytes == 0 or register.address > std.math.maxInt(u64) - (bytes - 1)) return error.UnsupportedRegister;
     switch (register.space) {
@@ -256,6 +256,14 @@ fn writeGas(register: Gas, value: u64) !void {
     }
 }
 
+fn validateGas(register: Gas) !u8 {
+    if (register.offset != 0 or register.address == 0) return error.UnsupportedRegister;
+    const width: u8 = if (register.width != 0) register.width else switch (register.access) { 1 => 8, 2 => 16, 3 => 32, else => 0 };
+    if (width != 8 and width != 16 and width != 32) return error.UnsupportedRegister;
+    if (register.space != 0 and register.space != 1) return error.UnsupportedAddressSpace;
+    return width;
+}
+
 test "ACPI GAS rejects unsafe register ranges before MMIO" {
     try @import("std").testing.expectError(error.UnsupportedRegister, writeGas(.{
         .space = 0, .width = 64, .offset = 0, .access = 0, .address = 0x1000,
@@ -266,6 +274,12 @@ test "ACPI GAS rejects unsafe register ranges before MMIO" {
     try @import("std").testing.expectError(error.UnsupportedRegister, writeGas(.{
         .space = 0, .width = 16, .offset = 0, .access = 0, .address = std.math.maxInt(u64),
     }, 0));
+}
+
+test "ACPI GAS parser rejects unsupported address spaces" {
+    try @import("std").testing.expectError(error.UnsupportedAddressSpace, validateGas(.{
+        .space = 2, .width = 32, .offset = 0, .access = 0, .address = 0x1000,
+    }));
 }
 
 test "ACPI rejects a null RSDP address" {
