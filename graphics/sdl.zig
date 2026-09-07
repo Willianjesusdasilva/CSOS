@@ -106,6 +106,19 @@ pub const EventQueue = struct {
     }
 
     pub fn pushText(self: *EventQueue, byte: u8) bool {
+        if (self.isFull()) {
+            // Texto é entrada de controle: preserve-o durante uma rajada de
+            // movimento, substituindo somente o evento de mouse mais antigo.
+            var index = self.read;
+            while (index != self.write) : (index +%= 1) {
+                const slot = index % self.items.len;
+                if (self.items[slot] == .mouse) {
+                    self.items[slot] = .{ .text = byte };
+                    self.dropped = saturatingCount(self.dropped, 1);
+                    return true;
+                }
+            }
+        }
         return self.push(.{ .text = byte });
     }
 
@@ -1272,6 +1285,20 @@ test "SDL software event queue and surface contract" {
     try @import("std").testing.expectError(error.InvalidAudioSpec, AudioDevice.init(.{ .sample_rate = 0, .channels = 2 }));
     try @import("std").testing.expectError(error.InvalidAudioSpec, AudioDevice.init(.{ .sample_rate = 48000, .channels = 0 }));
     try @import("std").testing.expectError(error.InvalidAudioSpec, AudioDevice.init(.{ .sample_rate = 48000, .channels = 9 }));
+}
+
+test "SDL text input displaces oldest mouse event in a full queue" {
+    var events = EventQueue{};
+    var index: usize = 0;
+    while (index < events.items.len) : (index += 1)
+        try @import("std").testing.expect(events.pushMouse(@intCast(index), 0, 0, 0));
+    try @import("std").testing.expect(events.pushText('x'));
+    try @import("std").testing.expectEqual(@as(u64, 1), events.droppedCount());
+    var saw_text = false;
+    while (events.poll()) |event| {
+        if (event == .text and event.text == 'x') saw_text = true;
+    }
+    try @import("std").testing.expect(saw_text);
 }
 
 test "SDL event queue survives counter wraparound" {
