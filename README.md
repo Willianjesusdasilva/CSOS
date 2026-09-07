@@ -1655,12 +1655,10 @@ negociação do ICD e recuperou todas as páginas. Isso valida loader e filesyst
 não inicialização Vulkan nem execução na GPU.
 
 O incremento seguinte adicionou a ordem real de construtores ELF
-(`DT_INIT`/`DT_INIT_ARRAY`) e revelou uma limitação que o probe de negociação
-não exercitava: a `libc.so` materializada pelo Zig é uma DSO de stubs para link,
-com código apontando para uma seção `.text` vazia. O construtor de detecção de
-CPU do RADV reproduziu o fault ao chamar libc. Portanto, antes de avançar para
-`vkCreateInstance`, é necessário compilar uma musl compartilhada real com PIC e
-repetir o probe. Os boots de diagnóstico foram limitados e o QEMU foi encerrado.
+(`DT_INIT`/`DT_INIT_ARRAY`). A musl 1.2.5 compartilhada real, compilada com PIC
+e auditada, agora fornece o runtime executável; bootstrap TLS, construtores do
+RADV, descoberta libdrm e `vkCreateInstance` passam no probe de boot limitado.
+Filas, dispositivo e triângulo Vulkan ainda dependem de uma Radeon física.
 
 O grande próximo desafio continua sendo a stack gráfica:
 

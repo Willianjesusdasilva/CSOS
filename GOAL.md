@@ -941,13 +941,13 @@ para uma `.text` de tamanho zero fora de `PT_LOAD`. O `DT_INIT` sentinela foi
 tratado sem enfraquecer a validação dos construtores reais, mas
 `__cpu_indicator_init` do RADV confirmou o mesmo defeito ao chamar libc. Dois
 boots QEMU limitados reproduziram o fault em `libc.so + 0x15360` e foram
-encerrados automaticamente. A `libc.a` completa do cache também não serve para
-uma DSO porque foi compilada sem PIC. O próximo artefato obrigatório é uma musl
-compartilhada real, compilada com PIC a partir das fontes e auditada antes de
-repetir os construtores; o marcador antigo do probe não deve ser considerado
-válido com construtores habilitados.
+encerrados automaticamente. A musl 1.2.5 compartilhada real, compilada com PIC
+a partir das fontes e auditada, agora substitui a DSO de stubs; bootstrap TLS,
+construtores do RADV, descoberta libdrm e criação da instância Vulkan passam no
+boot limitado. Ainda faltam dispositivo, filas e command submission numa
+Radeon física.
 
-1. Construir e auditar uma musl compartilhada real com PIC, concluir a execução de `DT_INIT`/`DT_INIT_ARRAY`, e então inventariar e implementar no loader/ABI do CSOS os requisitos observados pelo `libvulkan_radeon.so` até executar libdrm_amdgpu/RADV real e validar command submission no caminho AMD GFX11 em hardware real.
+1. Inventariar e implementar no loader/ABI do CSOS os requisitos restantes observados pelo `libvulkan_radeon.so` até executar libdrm_amdgpu/RADV real e validar command submission no caminho AMD GFX11 em hardware real.
 2. Validar o primeiro triângulo AMD/RADV em Radeon real suportada.
 3. Tornar NVIDIA a frente ativa de M14: adaptar a infraestrutura compartilhada e validar Nouveau/NVK ou stack compatível em uma máquina somente com GeForce suportada, incluindo inicialização, display, memória, filas, sincronização e triângulo Vulkan.
 4. Integrar a seleção AMD/NVIDIA ao instalador e ao `hardware.csc`, incluindo o caso híbrido suportado.
