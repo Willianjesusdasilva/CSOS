@@ -510,7 +510,15 @@ fn clockNanosleep(clock: u64, flags: u64, request: u64, remaining: u64) u64 {
     const nanoseconds = read64(value + 8);
     if (nanoseconds >= 1_000_000_000) return errno(22);
     if (remaining != 0 and !validUserSlice(remaining, 16)) return errno(14);
-    if (seconds != 0 or nanoseconds != 0) if (idle_hook) |hook| hook();
+    const requested_ns = if (seconds > std.math.maxInt(u64) / 1_000_000_000)
+        std.math.maxInt(u64)
+    else
+        (seconds * 1_000_000_000) +| nanoseconds;
+    const should_wait = if ((flags & 1) != 0)
+        requested_ns > monotonic_time_ns
+    else
+        requested_ns != 0;
+    if (should_wait) if (idle_hook) |hook| hook();
     if (remaining != 0) @memset(@as([*]u8, @ptrFromInt(remaining))[0..16], 0);
     return 0;
 }
