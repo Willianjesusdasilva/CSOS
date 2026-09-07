@@ -700,7 +700,7 @@ pub const HidDevices = struct {
 
     fn push(self: *HidDevices, event: InputEvent) void {
         const next: u8 = (self.queue_tail + 1) % 64;
-        self.events_total += 1;
+        self.events_total +%= 1;
         if (next == self.queue_head) {
             const previous_slot: u8 = if (self.queue_tail == 0) 63 else self.queue_tail - 1;
             const previous = &self.queue[previous_slot];
@@ -709,11 +709,11 @@ pub const HidDevices = struct {
                 previous.c = coalesceHidDelta(previous.c, event.c);
                 previous.d = coalesceHidDelta(previous.d, event.d);
                 self.queue_tsc[previous_slot] = timestamp();
-                self.mouse_events_coalesced += 1;
+                self.mouse_events_coalesced +%= 1;
                 return;
             }
             self.queue_head = (self.queue_head + 1) % 64;
-            self.events_dropped += 1;
+            self.events_dropped +%= 1;
         }
         self.queue[self.queue_tail] = event;
         self.queue_tsc[self.queue_tail] = timestamp();
