@@ -682,6 +682,8 @@ janela sem interromper mouse, compositor ou outras aplicações.
 `Ctrl+R` recupera a entrada anterior do histórico quando o terminal está focado.
 O comando `cat /hello.txt` lê o arquivo virtual do initramfs e caminhos
 desconhecidos retornam erro explícito; `CAT` também aparece no help.
+Durante o boot, o terminal é conectado à VFS real por `openAt` e `read`, em vez
+de responder somente com conteúdo embutido na aplicação.
 Espaços e tabulações nas bordas do comando são ignorados, permitindo, por
 exemplo, executar `  status  ` sem gerar um comando desconhecido.
 Setas para cima/baixo percorrem o histórico, Home/End movem o cursor, Delete

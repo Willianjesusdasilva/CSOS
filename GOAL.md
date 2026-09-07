@@ -198,6 +198,8 @@ as seis linhas mais recentes.
 O terminal gráfico agora executa `cat /hello.txt` contra o arquivo virtual do
 initramfs e retorna erro explícito para caminhos ausentes, além de listar `CAT`
 no help.
+Na sessão real, o comando agora usa um callback VFS do kernel (`openAt`/`read`)
+e deixa o fallback apenas para testes isolados do módulo SDL.
 `Ctrl+R` também recupera a entrada anterior, como em shells convencionais.
 O compositor associa a superfície SDL à janela proprietária e aplica clipping
 à área de conteúdo; a aplicação deixa de atravessar bordas ou aparecer por cima

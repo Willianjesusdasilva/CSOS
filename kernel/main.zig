@@ -2597,9 +2597,17 @@ fn handleSdlDemoEvent(app: *sdl.Application, event: sdl.Event) void {
 
 fn resetSdlDemoApplication(app: *sdl.Application) void {
     sdl_terminal = .{};
+    sdl_terminal.file_reader = &readTerminalFile;
     app.running = true;
     app.window.clear(0x182838ff);
     drawSdlTerminal(app);
+}
+
+fn readTerminalFile(path: []const u8, output: []u8) ?[]const u8 {
+    const fd = vfs.openAt(-100, path, 0) catch return null;
+    defer vfs.close(fd) catch {};
+    const count = vfs.read(fd, output) catch return null;
+    return output[0..count];
 }
 
 fn drawSdlTerminal(app: *sdl.Application) void {
