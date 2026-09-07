@@ -1102,6 +1102,19 @@ test "SDL software event queue and surface contract" {
     try @import("std").testing.expectError(error.InvalidAudioSpec, AudioDevice.init(.{ .sample_rate = 48000, .channels = 9 }));
 }
 
+test "SDL event queue survives counter wraparound" {
+    var queue = EventQueue{};
+    const start = std.math.maxInt(usize) - 1;
+    queue.read = start;
+    queue.write = start;
+    try @import("std").testing.expect(queue.pushText('a'));
+    try @import("std").testing.expect(queue.pushText('b'));
+    try @import("std").testing.expectEqual(@as(usize, 2), queue.len());
+    try @import("std").testing.expectEqual(Event{ .text = 'a' }, queue.poll().?);
+    try @import("std").testing.expectEqual(Event{ .text = 'b' }, queue.poll().?);
+    try @import("std").testing.expect(queue.isEmpty());
+}
+
 test "SDL list selection normalizes zero visible rows" {
     var selection = ListSelection{ .visible_rows = 0 };
     selection.setCount(3);
