@@ -185,6 +185,7 @@ pub const WindowManager = struct {
 
     pub fn toggleMinimized(self: *WindowManager, index: usize) bool {
         if (index >= self.count or !self.windows[index].visible) return false;
+        self.taskbar_hover = null;
         self.windows[index].minimized = !self.windows[index].minimized;
         if (!self.windows[index].minimized) {
             _ = self.focus(index);
@@ -665,6 +666,12 @@ test "window manager focus alt-tab hit-test and close" {
     try std.testing.expectEqual(@as(usize, 0), manager.windows[0].y);
     try std.testing.expectEqual(@as(usize, 16), manager.windows[0].x);
     try std.testing.expect(!manager.toggleMaximized(0, 32, 44));
+    manager.taskbar_hover = 0;
+    try std.testing.expect(manager.toggleMinimized(0));
+    try std.testing.expect(manager.windows[0].minimized);
+    try std.testing.expect(manager.taskbar_hover == null);
+    try std.testing.expect(manager.toggleMinimized(0));
+    try std.testing.expect(!manager.windows[0].minimized);
     try std.testing.expect(!manager.move(8, 0, 0, 100, 100));
     try std.testing.expect(manager.move(0, 999, 999, 0, 0));
     try std.testing.expectEqual(@as(usize, 0), manager.windows[0].x);
