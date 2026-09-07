@@ -496,6 +496,7 @@ test "scheduler game mode freezes without standby" {
     thread_count = 1;
     system_mode = .game;
     try std.testing.expectEqual(@as(usize, 1), applyMode(24));
+    try std.testing.expectEqual(@as(usize, 0), applyMode(24));
     try std.testing.expectEqual(State.frozen, threads[0].state);
     try std.testing.expectEqual(Lifecycle.frozen, threads[0].lifecycle);
 }
