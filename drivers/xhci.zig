@@ -844,6 +844,12 @@ test "HID modifier-only reports count as pressed" {
     try @import("std").testing.expect(keyboardReportPressed(&second_slot));
 }
 
+test "HID short keyboard reports are safely treated as released" {
+    try @import("std").testing.expect(!keyboardReportPressed(&[_]u8{}));
+    try @import("std").testing.expect(!keyboardReportPressed(&[_]u8{0}));
+    try @import("std").testing.expect(!keyboardReportPressed(&[_]u8{0, 0}));
+}
+
 test "xHCI residual cannot underflow the HID report length" {
     try @import("std").testing.expectEqual(@as(u16, 8), transferredReportSize(8, 0));
     try @import("std").testing.expectEqual(@as(u16, 3), transferredReportSize(8, 5));
