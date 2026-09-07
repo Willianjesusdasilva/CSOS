@@ -777,11 +777,7 @@ fn discardCleanPages(address_space: *paging.AddressSpace, pages: *physical.Alloc
     // Validate the complete candidate set before changing page tables.  A
     // corrupt resident mapping must fail atomically rather than leaving a
     // prefix discarded and making resume depend on iteration order.
-    for (mappings) |mapping| {
-        if (!shouldReclaimMapping(mapping.writable, mapping.resident, mapping.reclaimable)) continue;
-        if (mapping.physical == 0 or mapping.owner_index >= owned.len) return error.MappingMissing;
-        if (owned[mapping.owner_index].pages == 0) return error.MappingMissing;
-    }
+    try validateReclaimCandidates(mappings, owned);
     var discarded: u64 = 0;
     for (mappings) |*mapping| {
         if (!shouldReclaimMapping(mapping.writable, mapping.resident, mapping.reclaimable)) continue;
@@ -796,6 +792,14 @@ fn discardCleanPages(address_space: *paging.AddressSpace, pages: *physical.Alloc
     return discarded;
 }
 
+fn validateReclaimCandidates(mappings: []const Mapping, owned: []const OwnedRange) !void {
+    for (mappings) |mapping| {
+        if (!shouldReclaimMapping(mapping.writable, mapping.resident, mapping.reclaimable)) continue;
+        if (mapping.physical == 0 or mapping.owner_index >= owned.len) return error.MappingMissing;
+        if (owned[mapping.owner_index].pages == 0) return error.MappingMissing;
+    }
+}
+
 fn shouldReclaimMapping(writable: bool, resident: bool, reclaimable: bool) bool {
     return !writable and resident and reclaimable;
 }
@@ -805,6 +809,18 @@ test "standby reclaim only selects clean resident main-image pages" {
     try @import("std").testing.expect(!shouldReclaimMapping(true, true, true));
     try @import("std").testing.expect(!shouldReclaimMapping(false, false, true));
     try @import("std").testing.expect(!shouldReclaimMapping(false, true, false));
+}
+
+test "standby reclaim preflight rejects missing ownership" {
+    const owned = [_]OwnedRange{.{ .address = 0x4000, .pages = 1 }};
+    var mappings = [_]Mapping{.{
+        .virtual = 0x8000,
+        .physical = 0x9000,
+        .owner_index = 1,
+        .resident = true,
+        .reclaimable = true,
+    }};
+    try @import("std").testing.expectError(error.MappingMissing, validateReclaimCandidates(&mappings, &owned));
 }
 
 fn applyRelativeRelocations(mappings: []const Mapping, load_bias: u64, program_offset: u64, program_entry_size: u16, program_count: u16, allow_unresolved: bool) !void {
