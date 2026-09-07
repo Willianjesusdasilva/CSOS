@@ -242,10 +242,13 @@ const NamespaceInventory = struct {
 
 fn parseActiveNamespaces(data: [*]const u8, maximum_namespace_id: u32) !NamespaceInventory {
     var inventory: NamespaceInventory = .{ .count = 0, .first = 0 };
+    var seen: [1024]u32 = undefined;
     for (0..1024) |index| {
         const namespace_id = get32(data + index * 4);
         if (namespace_id == 0) break;
         if (namespace_id > maximum_namespace_id) return error.InvalidNamespaceId;
+        for (seen[0..inventory.count]) |previous| if (previous == namespace_id) return error.DuplicateNamespaceId;
+        seen[inventory.count] = namespace_id;
         if (inventory.first == 0) inventory.first = namespace_id;
         inventory.count += 1;
     }
@@ -297,6 +300,9 @@ test "active namespace inventory rejects invalid and empty lists" {
     try std.testing.expectError(error.NoNamespace, parseActiveNamespaces(&data, 256));
     put32(&data, 257);
     try std.testing.expectError(error.InvalidNamespaceId, parseActiveNamespaces(&data, 256));
+    put32(&data, 2);
+    put32(data[4..].ptr, 2);
+    try std.testing.expectError(error.DuplicateNamespaceId, parseActiveNamespaces(&data, 256));
 }
 
 test "namespace geometry exposes usable capacity and block size" {
