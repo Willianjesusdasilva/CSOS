@@ -363,6 +363,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         // fall through to ENOSYS while loading real shared libraries.
         186 => 1,
         202 => futex(arg1, arg2, arg3),
+        204 => schedGetAffinity(arg1, arg2, arg3),
         217 => getdents(arg1, arg2, arg3),
         221 => fadvise64(arg1, arg2, arg3, arg4),
         218 => 1,
@@ -2777,6 +2778,17 @@ fn futex(address: u64, operation: u64, expected: u64) u64 {
         1 => return 0, // FUTEX_WAKE: no blocked waiter exists yet.
         else => return errno(38),
     }
+}
+
+fn schedGetAffinity(pid: u64, size: u64, mask: u64) u64 {
+    _ = pid;
+    if (size < 8 or !validUserSlice(mask, size)) return errno(22);
+    const bytes: [*]u8 = @ptrFromInt(mask);
+    @memset(bytes[0..@intCast(size)], 0);
+    // The userspace scheduler currently exposes one runnable CPU to each
+    // process; secondary kernel workers do not imply extra userspace CPUs.
+    bytes[0] = 1;
+    return 8;
 }
 
 fn validUserSlice(address: u64, length: u64) bool {
