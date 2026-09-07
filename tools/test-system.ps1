@@ -20,8 +20,8 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'RADV hardware-log verifier fixture failed.' }
     & "$PSScriptRoot/build-libdrm-probe.ps1" -SourceDirectory $LibdrmSource
     if ($LASTEXITCODE -ne 0) { throw 'Upstream libdrm probe build failed.' }
-    & $zig build run -- -SmokeTestSeconds $SmokeTestSeconds -SmokeDesktopFiles -ExpectSerial 'UI files preview closed'
-    if ($LASTEXITCODE -ne 0) { throw 'Normal boot did not complete launcher, FILES, and preview input flow.' }
+    & $zig build run -- -SmokeTestSeconds $SmokeTestSeconds -SmokeDesktopFiles -SmokeDesktopMouse -ExpectSerial 'UI files preview closed'
+    if ($LASTEXITCODE -ne 0) { throw 'Normal boot did not complete keyboard FILES/preview and mouse action-button input flow.' }
     & $zig build run -Ddrm-amdgpu-abi-test=true `
         -Dlibdrm-probe=zig-out/libdrm-probe/libdrm-probe -Dlibdrm-probe-after-gpu=true `
         -- -SmokeTestSeconds $SmokeTestSeconds -ExpectSerial 'CSOS graphical session ready'
