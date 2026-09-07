@@ -58,7 +58,7 @@ pub const Volume = struct {
                 var copied: usize = 0;
                 var traversed: u32 = 0;
                 while (copied < size) {
-                    if (traversed >= self.cluster_count) return error.BrokenChain;
+                    if (!chainTraversalAllowed(traversed, self.cluster_count)) return error.BrokenChain;
                     traversed += 1;
                     var cluster_sector: u32 = 0;
                     while (cluster_sector < self.sectors_per_cluster and copied < size) : (cluster_sector += 1) {
@@ -134,7 +134,7 @@ pub const Volume = struct {
         var skip = file_offset / cluster_bytes;
         var traversed: u32 = 0;
         while (skip != 0) : (skip -= 1) {
-            if (traversed >= self.cluster_count) return error.BrokenChain;
+            if (!chainTraversalAllowed(traversed, self.cluster_count)) return error.BrokenChain;
             traversed += 1;
             cluster = try self.fatEntry(cluster);
             if (cluster >= 0xfff8) return error.BrokenChain;
@@ -144,7 +144,7 @@ pub const Volume = struct {
         var copied: usize = 0;
         const wanted = @min(output.len, size - file_offset);
         while (copied < wanted) {
-            if (traversed >= self.cluster_count) return error.BrokenChain;
+            if (!chainTraversalAllowed(traversed, self.cluster_count)) return error.BrokenChain;
             traversed += 1;
             var cluster_sector: u32 = @intCast(within_cluster / 512);
             var sector_offset = within_cluster % 512;
@@ -375,6 +375,10 @@ fn validateDataCluster(cluster: u16, cluster_count: u32) !void {
     if (cluster < 2 or @as(u32, cluster) >= cluster_count + 2 or cluster >= 0xfff0) return error.BrokenChain;
 }
 
+fn chainTraversalAllowed(traversed: u32, cluster_count: u32) bool {
+    return cluster_count != 0 and traversed < cluster_count;
+}
+
 fn clustersForLength(length: usize, cluster_bytes: usize, cluster_count: u32) !usize {
     if (cluster_bytes == 0) return error.InvalidClusterSize;
     if (length > std.math.maxInt(u32)) return error.FileTooLarge;
@@ -436,6 +440,12 @@ test "FAT16 data cluster validation excludes reserved and out-of-volume entries"
     try validateDataCluster(8001, 8000);
     try std.testing.expectError(error.BrokenChain, validateDataCluster(8002, 8000));
     try std.testing.expectError(error.BrokenChain, validateDataCluster(0xfff0, 65524));
+}
+
+test "FAT16 chain traversal is bounded by the volume cluster count" {
+    try std.testing.expect(chainTraversalAllowed(0, 1));
+    try std.testing.expect(!chainTraversalAllowed(1, 1));
+    try std.testing.expect(!chainTraversalAllowed(0, 0));
 }
 
 test "FAT16 file sizing is volume-bound instead of stack-bound" {
