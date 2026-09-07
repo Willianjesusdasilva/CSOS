@@ -54,10 +54,10 @@ pub fn setSecondaryEntry(entry: *const fn (u32) callconv(.c) noreturn) void {
 }
 
 fn patch(comptime T: type, source_symbol: *const u8, value: T, length: usize) !void {
-    const start = @intFromPtr(&ap_trampoline_start);
+    const trampoline_start = @intFromPtr(&ap_trampoline_start);
     const source = @intFromPtr(source_symbol);
-    if (source < start or source - start > length or @sizeOf(T) > length - (source - start)) return error.InvalidTrampoline;
-    const offset = source - start;
+    if (source < trampoline_start or source - trampoline_start > length or @sizeOf(T) > length - (source - trampoline_start)) return error.InvalidTrampoline;
+    const offset = source - trampoline_start;
     const target: *align(1) T = @ptrFromInt(trampoline_address + offset);
     target.* = value;
 }

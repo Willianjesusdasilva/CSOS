@@ -2290,6 +2290,8 @@ pub fn start(info: BootInfo) noreturn {
                     drawSdlTerminal(&demo_app);
                     if (!demo_app.running) {
                         if (window_manager.findById(1)) |application_window| window_manager.close(application_window);
+                        drag_window = null;
+                        resize_window = null;
                     }
                 }
                 if (tab_switch_pressed and !alt_tab_down) {
@@ -2464,6 +2466,8 @@ pub fn start(info: BootInfo) noreturn {
                         if (window_manager.closeHitTest(hit, cursor_x, cursor_y)) {
                             const closed_id = window.id;
                             window_manager.close(hit);
+                            drag_window = null;
+                            resize_window = null;
                             if (closed_id == 1) demo_app.running = false;
                             if (closed_id == 4) {
                                 files_preview_open = false;
