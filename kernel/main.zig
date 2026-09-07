@@ -2621,8 +2621,10 @@ fn drawSdlTerminal(app: *sdl.Application) void {
 fn launchDesktopWindow(manager: *display.WindowManager, application_id: u32, app_surface: *sdl.Window, monitor_surface: *sdl.Window, system_surface: *sdl.Window, files_surface: *sdl.Window) !usize {
     if (manager.findById(application_id)) |existing| {
         _ = manager.restore(existing);
+        if (application_id == 3) system_surface_cache = null;
         return manager.focused.?;
     }
+    if (application_id == 3) system_surface_cache = null;
     return switch (application_id) {
         1 => manager.create(.{ .id = 1, .title = "TERMINAL", .x = 32, .y = 220, .width = 260, .height = 140, .title_color = 0x405070, .body_color = 0x18202c, .surface = app_surface }),
         2 => manager.create(.{ .id = 2, .title = "MONITOR", .x = 180, .y = 280, .width = 260, .height = 140, .title_color = 0x604070, .body_color = 0x241828, .surface = monitor_surface }),
