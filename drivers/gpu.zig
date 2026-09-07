@@ -3919,7 +3919,7 @@ pub const AmdGpuVmManager = struct {
         const end = std.math.add(u64, address, size - 1) catch return error.InvalidAmdGpuVaMapping;
         if (end >= 0x0000800000000000) return error.InvalidAmdGpuVaMapping;
         for (&vm.mappings) |*mapping| if (mapping.active) {
-            const mapping_end = mapping.address + mapping.size - 1;
+            const mapping_end = std.math.add(u64, mapping.address, mapping.size - 1) catch return error.InvalidAmdGpuVaMapping;
             if (!(end < mapping.address or address > mapping_end)) return error.AmdGpuVaOverlap;
         };
         for (&vm.mappings) |*mapping| if (!mapping.active) {
