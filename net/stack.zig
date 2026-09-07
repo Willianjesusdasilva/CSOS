@@ -561,6 +561,7 @@ test "ARP sender validation rejects empty and broadcast MACs" {
     try @import("std").testing.expect(validArpSenderMac(&[_]u8{ 0x52, 0x54, 0, 0x12, 0x34, 0x56 }));
     try @import("std").testing.expect(!validArpSenderMac(&[_]u8{0} ** 6));
     try @import("std").testing.expect(!validArpSenderMac(&[_]u8{0xff} ** 6));
+    try @import("std").testing.expect(!validArpSenderMac(&[_]u8{ 0x01, 0x54, 0, 0x12, 0x34, 0x56 }));
 }
 
 test "TCP port validation rejects the unspecified port" {
@@ -590,7 +591,7 @@ fn equal(left: []const u8, right: []const u8) bool { for (left, right) |a, b| if
 fn zero(value: []const u8) bool { for (value) |byte| if (byte != 0) return false; return true; }
 
 fn validArpSenderMac(value: []const u8) bool {
-    if (value.len != 6 or zero(value)) return false;
+    if (value.len != 6 or zero(value) or (value[0] & 1) != 0) return false;
     for (value) |byte| if (byte != 0xff) return true;
     return false;
 }
