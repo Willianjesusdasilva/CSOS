@@ -989,11 +989,16 @@ pub fn mapAmdGfx11GfxRingIntoGart(
         return error.InvalidAmdGfx11GfxRingResources;
     const first_page: u64 = @as(u64, rlc.first_gart_page) + 1;
     if (first_page >= 511) return error.AmdGfxRingExceedsGartWindow;
+    if (first_page > std.math.maxInt(u64) / 4096 or
+        window_start > std.math.maxInt(u64) - first_page * 4096 or
+        window_start > std.math.maxInt(u64) - (first_page + 1) * 4096)
+        return error.InvalidAmdGfx11GfxRingResources;
     const table: [*]u64 = @ptrFromInt(staging.page_table_address);
     if (table[first_page] != 0 or table[first_page + 1] != 0) return error.AmdGfxRingGartPageAlreadyMapped;
     table[first_page] = amdGttPte(resources.ring);
     table[first_page + 1] = amdGttPte(resources.pointers);
     const pointer_gpu = window_start + (first_page + 1) * 4096;
+    if (pointer_gpu > std.math.maxInt(u64) - 8) return error.InvalidAmdGfx11GfxRingResources;
     return .{
         .ring = window_start + first_page * 4096,
         .rptr = pointer_gpu,
