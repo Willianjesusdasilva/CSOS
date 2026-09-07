@@ -317,7 +317,7 @@ fn markRunning(index: usize) void {
         threads[index].ready_tsc = 0;
     }
     const current_apic = apic.id();
-    if (threads[index].last_apic != 0xffffffff and threads[index].last_apic != current_apic) migrations += 1;
+    if (threads[index].last_apic != 0xffffffff and threads[index].last_apic != current_apic) migrations +%= 1;
     threads[index].last_apic = current_apic;
     threads[index].state = .running;
     if (threads[index].lifecycle == .resuming) threads[index].lifecycle = .running;
