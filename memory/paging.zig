@@ -228,6 +228,7 @@ fn table(address: u64) *[entry_count]u64 {
 }
 
 fn userLeaf(root: u64, virtual: u64) ?*u64 {
+    if (virtual > user_address_limit) return null;
     const pml4_entry = &table(root)[(virtual >> 39) & 0x1ff];
     if ((pml4_entry.* & 1) == 0 or (pml4_entry.* & 0x080) != 0) return null;
     const pdpt_entry = &table(pml4_entry.* & address_mask)[(virtual >> 30) & 0x1ff];
