@@ -100,7 +100,12 @@ pub const Controller = struct {
             return if (length < 14) error.FrameTooSmall else error.FrameTooLarge;
         }
         if (length > output.len) { self.recycleRx(descriptor); return error.BufferTooSmall; }
-        const source: [*]const u8 = @ptrFromInt(self.rx_buffers[self.rx_index]);
+        const buffer_address = self.rx_buffers[self.rx_index];
+        if (!validDmaBuffer(buffer_address)) {
+            self.recycleRx(descriptor);
+            return error.InvalidBuffer;
+        }
+        const source: [*]const u8 = @ptrFromInt(buffer_address);
         @memcpy(output[0..length], source[0..length]);
         const rx_interrupt_count = @atomicLoad(u64, &rx_interrupts, .acquire);
         if (rx_interrupt_count != self.sampled_rx_interrupts) {
@@ -157,6 +162,10 @@ fn validFrameLength(length: usize) bool {
     return length >= 14 and length <= 1514;
 }
 
+fn validDmaBuffer(address: u64) bool {
+    return address != 0 and (address & 0xfff) == 0;
+}
+
 fn validRxStatus(status: u8, errors: u8) bool {
     return (status & 0x03) == 0x03 and errors == 0;
 }
@@ -172,6 +181,12 @@ test "e1000 receive requires complete error-free descriptors" {
     try @import("std").testing.expect(validRxStatus(0x03, 0));
     try @import("std").testing.expect(!validRxStatus(0x01, 0));
     try @import("std").testing.expect(!validRxStatus(0x03, 0x10));
+}
+
+test "e1000 receive rejects invalid DMA buffer addresses" {
+    try @import("std").testing.expect(validDmaBuffer(0x1000));
+    try @import("std").testing.expect(!validDmaBuffer(0));
+    try @import("std").testing.expect(!validDmaBuffer(0x1001));
 }
 
 test "e1000 interrupt counters saturate" {
