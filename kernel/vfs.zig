@@ -189,6 +189,23 @@ test "VFS generation exhaustion fails closed until reset" {
     try std.testing.expectError(error.GenerationExhausted, newGeneration());
 }
 
+test "VFS duplicate preserves destination when generation is exhausted" {
+    const saved_descriptors = descriptors;
+    const saved_next = next_generation;
+    const saved_exhausted = generations_exhausted;
+    defer {
+        descriptors = saved_descriptors;
+        next_generation = saved_next;
+        generations_exhausted = saved_exhausted;
+    }
+    descriptors = .{Descriptor{}} ** max_fds;
+    descriptors[3] = .{ .generation = 11, .kind = .console };
+    descriptors[4] = .{ .generation = 22, .kind = .console };
+    generations_exhausted = true;
+    try std.testing.expectError(error.GenerationExhausted, duplicate(3, 4));
+    try std.testing.expectEqual(@as(u32, 22), descriptors[4].generation);
+}
+
 pub fn descriptorGeneration(fd: usize) !u32 {
     if (!isOpen(fd)) return error.BadFd;
     return descriptors[fd].generation;
