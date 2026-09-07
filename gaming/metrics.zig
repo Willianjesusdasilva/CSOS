@@ -12,6 +12,7 @@ pub const Samples = struct {
 
     pub fn summarize(self: *const Samples) !Summary {
         if (self.count == 0) return error.Empty;
+        if (self.count > self.values.len) return error.Full;
         var ordered: [32]u64 = undefined;
         @memcpy(ordered[0..self.count], self.values[0..self.count]);
         var index: usize = 1;
@@ -56,4 +57,5 @@ test "metrics rejects empty and overfull sample sets" {
     try @import("std").testing.expectError(error.Full, samples.add(99));
     samples.count = samples.values.len + 1;
     try @import("std").testing.expectError(error.Full, samples.add(100));
+    try @import("std").testing.expectError(error.Full, samples.summarize());
 }
