@@ -2256,6 +2256,10 @@ pub fn start(info: BootInfo) noreturn {
                 serial.writeDecimal(cursor_x);
                 serial.write(",");
                 serial.writeDecimal(cursor_y);
+                serial.write(" delta=");
+                serial.writeDecimal(@as(i16, dx));
+                serial.write(",");
+                serial.writeDecimal(@as(i16, dy));
                 serial.write("\n");
             }
             if (focusedWindowIs(window_manager, 4)) {
