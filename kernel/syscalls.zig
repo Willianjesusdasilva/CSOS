@@ -35,6 +35,7 @@ var process_session: u64 = 1;
 var signal_stack: [32]u8 = .{0} ** 32;
 var random_state: u64 = 0x9e3779b97f4a7c15;
 var registered_rseq: u64 = 0;
+var monotonic_time_ns: u64 = 0;
 const max_epoll_watch = 16;
 const EpollWatch = struct { fd: u32 = 0, generation: u32 = 0, events: u32 = 0, data: u64 = 0, active: bool = false };
 var epoll_watches: [32][max_epoll_watch]EpollWatch = .{.{EpollWatch{}} ** max_epoll_watch} ** 32;
@@ -415,7 +416,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         217 => getdents(arg1, arg2, arg3),
         221 => fadvise64(arg1, arg2, arg3, arg4),
         218 => setTidAddress(arg1),
-        228 => writeTime(arg2, 16),
+        228 => clockGetTime(arg1, arg2),
         229 => clockGetRes(arg1, arg2),
         230 => clockNanosleep(arg1, arg2, arg3, arg4),
         231 => exitSyscall(arg1),
@@ -464,6 +465,17 @@ fn writeTime(address: u64, size: u64) u64 {
     if (!validUserSlice(address, size)) return errno(14);
     const bytes: [*]u8 = @ptrFromInt(address);
     @memset(bytes[0..@intCast(size)], 0);
+    return 0;
+}
+
+fn clockGetTime(clock: u64, address: u64) u64 {
+    if (clock > 1 or !validUserSlice(address, 16)) return errno(22);
+    // The firmware timer is not wired into this early userspace ABI yet; keep
+    // a monotonic software clock so libc does not observe time going backward.
+    monotonic_time_ns +%= 1_000_000;
+    const bytes: [*]u8 = @ptrFromInt(address);
+    put64(bytes, monotonic_time_ns / 1_000_000_000);
+    put64(bytes + 8, monotonic_time_ns % 1_000_000_000);
     return 0;
 }
 
