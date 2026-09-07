@@ -374,6 +374,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         142 => setScheduler(arg1, arg2, arg3),
         143 => getSchedulerParam(arg1, arg2),
         145 => getScheduler(arg1),
+        148 => schedRrInterval(arg1, arg2),
         158 => archPrctl(arg1, arg2),
         160 => setRlimit(arg1, arg2),
         // The current userspace model has one kernel thread per process.  Keep
@@ -2869,6 +2870,15 @@ fn getSchedulerParam(pid: u64, output: u64) u64 {
     if (pid != 0 and pid != 1) return errno(3);
     if (!validUserSlice(output, 4)) return errno(14);
     @as(*align(1) i32, @ptrFromInt(output)).* = 0;
+    return 0;
+}
+
+fn schedRrInterval(pid: u64, output: u64) u64 {
+    if (pid != 0 and pid != 1 or !validUserSlice(output, 16)) return errno(22);
+    const bytes: [*]u8 = @ptrFromInt(output);
+    @memset(bytes[0..16], 0);
+    put64(bytes, 0);
+    put64(bytes + 8, 10_000_000); // 10 ms cooperative scheduler quantum
     return 0;
 }
 
