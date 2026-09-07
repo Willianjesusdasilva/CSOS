@@ -771,8 +771,9 @@ fn loadSegment(
             }
         }
 
+        const page_end = std.math.add(u64, page_virtual, page_size) catch return error.InvalidElf;
         const copy_start = @max(page_virtual, virtual);
-        const copy_end = @min(page_virtual + page_size, virtual + file_size);
+        const copy_end = @min(page_end, virtual + file_size);
         if (copy_start < copy_end) {
             const destination: [*]u8 = @ptrFromInt(physical_address.? + copy_start - page_virtual);
             const source: usize = @intCast(file_offset + copy_start - virtual);
