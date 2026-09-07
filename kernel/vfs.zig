@@ -506,6 +506,11 @@ fn toFatName(path: []const u8) ?[11]u8 {
     return result;
 }
 
+test "FAT path conversion rejects extended characters" {
+    try std.testing.expect(toFatName("café.txt") == null);
+    try std.testing.expect(toFatName("valid.txt") != null);
+}
+
 fn runtimeLibraryFatAlias(path: []const u8) ?[11]u8 {
     const prefix = "/usr/lib/";
     const name = if (path.len > prefix.len and equal(path[0..prefix.len], prefix)) path[prefix.len..] else path;
