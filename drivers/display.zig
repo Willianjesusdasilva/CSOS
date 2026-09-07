@@ -110,8 +110,7 @@ pub const WindowManager = struct {
         for (&self.windows) |*window| window.* = undefined;
         self.count = 0;
         self.focused = null;
-        self.launcher_open = false;
-        self.launcher_selection = 0;
+        self.dismissLauncher();
         self.switcher_open = false;
         self.taskbar_hover = null;
         self.switcher_hover = null;
@@ -128,8 +127,7 @@ pub const WindowManager = struct {
         self.count += 1;
         self.focused = if (window.visible) index else self.topVisible();
         // A nova janela assume o desktop; overlays não devem cobrir seu primeiro frame.
-        self.launcher_open = false;
-        self.launcher_selection = 0;
+        self.dismissLauncher();
         self.switcher_open = false;
         self.taskbar_hover = null;
         self.switcher_hover = null;
@@ -138,9 +136,7 @@ pub const WindowManager = struct {
 
     pub fn close(self: *WindowManager, index: usize) void {
         if (index >= self.count) return;
-        self.launcher_open = false;
-        self.launcher_selection = 0;
-        self.taskbar_hover = null;
+        self.dismissLauncher();
         self.switcher_hover = null;
         self.switcher_open = false;
         const old_focused = self.focused;
@@ -150,9 +146,8 @@ pub const WindowManager = struct {
         // Do not retain a stale surface pointer in the reusable tail slot.
         self.windows[self.count] = undefined;
         if (self.count == 0) {
-            self.launcher_open = false;
+            self.dismissLauncher();
             self.switcher_open = false;
-            self.launcher_selection = 0;
         }
         self.focused = if (self.count == 0) null else if (old_focused) |focused| blk: {
             if (focused >= self.count) break :blk self.topVisible();
@@ -167,9 +162,7 @@ pub const WindowManager = struct {
         self.windows[index].minimized = false;
         // Clicking or otherwise focusing a window dismisses the launcher
         // overlay; leaving it open would paint the menu over the new focus.
-        self.launcher_open = false;
-        self.launcher_selection = 0;
-        self.taskbar_hover = null;
+        self.dismissLauncher();
         self.switcher_hover = null;
         if (index + 1 < self.count) {
             const selected = self.windows[index];
