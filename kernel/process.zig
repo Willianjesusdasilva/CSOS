@@ -459,8 +459,14 @@ fn mapDevice(virtual: u64, physical_address: u64, length: u64, writable: bool) c
     if (length == 0 or (virtual & (page_size - 1)) != 0 or (physical_address & (page_size - 1)) != 0 or
         length > std.math.maxInt(u64) - virtual or length > std.math.maxInt(u64) - physical_address) return false;
     var offset: u64 = 0;
-    while (offset < length) : (offset += @min(@as(u64, page_size), length - offset))
-        address_space.mapUserPage(virtual + offset, physical_address + offset, writable, false) catch return false;
+    while (offset < length) : (offset += @min(@as(u64, page_size), length - offset)) {
+        address_space.mapUserPage(virtual + offset, physical_address + offset, writable, false) catch {
+            var rollback: u64 = 0;
+            while (rollback < offset) : (rollback += @min(@as(u64, page_size), offset - rollback))
+                _ = address_space.unmapUserPage(virtual + rollback);
+            return false;
+        };
+    }
     return true;
 }
 

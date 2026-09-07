@@ -325,6 +325,8 @@ da imagem durante carga ou retomada de página.
 
 Mapeamentos anônimos também possuem rollback transacional: uma falha no meio da
 criação remove as páginas já instaladas e devolve a alocação e o ownership.
+Mapeamentos de dispositivo seguem a mesma regra, desfazendo páginas MMIO
+parciais quando uma instalação posterior falha.
 
 Inventário do host Windows no mesmo snapshot detectou uma AMD Radeon(TM)
 Graphics (`1002:164e`) e uma NVIDIA GeForce RTX 4060 Ti (`10de:2803`), ambas
