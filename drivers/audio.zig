@@ -521,8 +521,9 @@ pub const DeviceManager = struct {
         return self.device.state == .streaming and self.healthScore() < 75;
     }
 
-    pub fn resetStream(self: *DeviceManager) void {
-        self.stream = null;
+    pub fn resetStream(self: *DeviceManager) !void {
+        const stream = try Stream.init(self.device.format);
+        self.stream = stream;
         self.device.state = .discovered;
         self.metrics = .{};
     }
@@ -891,6 +892,20 @@ test "device manager rebuilds stream during recovery" {
     try std.testing.expect(manager.device.state == .streaming);
     try std.testing.expect(manager.stream != null);
     try std.testing.expectEqual(@as(u64, 0), manager.metrics.underruns);
+}
+
+test "device manager resetStream rebuilds a configurable stream" {
+    var manager = DeviceManager{};
+    const format = Format{ .channels = 2, .bits_per_sample = 16, .sample_rate = 48_000 };
+    try manager.attach(format, 1000, 4096);
+    try manager.configure();
+    try manager.start();
+    try manager.resetStream();
+    try std.testing.expect(manager.stream != null);
+    try std.testing.expectEqual(State.discovered, manager.device.state);
+    try manager.configure();
+    try manager.start();
+    try std.testing.expectEqual(State.streaming, manager.device.state);
 }
 
 test "device manager reports whether recovery was needed" {
