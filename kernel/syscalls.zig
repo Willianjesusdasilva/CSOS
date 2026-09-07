@@ -504,7 +504,7 @@ fn clockGetTime(clock: u64, address: u64) u64 {
 }
 
 fn clockNanosleep(clock: u64, flags: u64, request: u64, remaining: u64) u64 {
-    if (clock > 1 or (flags & ~@as(u64, 1)) != 0 or !validUserSlice(request, 16)) return errno(22);
+    if (!supportedClock(clock) or (flags & ~@as(u64, 1)) != 0 or !validUserSlice(request, 16)) return errno(22);
     const value: [*]const u8 = @ptrFromInt(request);
     const seconds = read64(value);
     const nanoseconds = read64(value + 8);
