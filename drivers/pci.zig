@@ -1,3 +1,4 @@
+const std = @import("std");
 const max_devices = 256;
 
 pub const Device = struct {
@@ -176,7 +177,11 @@ pub fn enableMsix(device: Device, vector: u8, destination_apic: u8) !void {
     var control = read16(device.bus, device.slot, device.function, offset + 2);
     const table = read32(device.bus, device.slot, device.function, offset + 4);
     const bir: u3 = @truncate(table & 7);
-    const table_base = (barAddress(device, bir) orelse return error.MsixTableBarMissing) + (table & ~@as(u32, 7));
+    const bar = barInfo(device, bir, true) orelse return error.MsixTableBarMissing;
+    const table_offset: u64 = table & ~@as(u32, 7);
+    const entry_end = std.math.add(u64, table_offset, 16) catch return error.MsixTableOutOfRange;
+    if (bar.size == 0 or entry_end > bar.size) return error.MsixTableOutOfRange;
+    const table_base = std.math.add(u64, bar.address, table_offset) catch return error.MsixTableOutOfRange;
     const entry: [*]volatile u32 = @ptrFromInt(table_base);
     control |= 1 << 14;
     write16(device.bus, device.slot, device.function, offset + 2, control);
