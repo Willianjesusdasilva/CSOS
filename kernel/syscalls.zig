@@ -2940,13 +2940,14 @@ fn epollWait(epfd: u64, output: u64, capacity: u64, timeout: i64) u64 {
     if (!vfs.isEpoll(@intCast(epfd)) or capacity == 0 or capacity > max_epoll_watch or !validUserSlice(output, bytes_len)) return errno(22);
     const bytes: [*]u8 = @ptrFromInt(output);
     var ready: u64 = 0;
-    for (epoll_watches[@intCast(epfd)]) |watch| {
+    for (&epoll_watches[@intCast(epfd)]) |*watch| {
         if (!watch.active or ready == capacity or !vfs.isOpen(watch.fd)) continue;
         const item = bytes + ready * 16;
         put32(item, watch.events);
         put32(item + 4, 0);
         put64(item + 8, watch.data);
         ready += 1;
+        if ((watch.events & (1 << 30)) != 0) watch.active = false;
     }
     if (ready == 0 and timeout > 0) if (idle_hook) |hook| hook();
     return ready;
