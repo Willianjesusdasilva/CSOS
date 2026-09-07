@@ -50,6 +50,7 @@ var sdl_monitor_pixels: [224 * 96]u32 = .{0} ** (224 * 96);
 var sdl_system_pixels: [224 * 96]u32 = .{0} ** (224 * 96);
 var sdl_terminal = sdl.Terminal{};
 var files_preview_back_hover = false;
+var system_surface_cache: ?struct { storage_blocks: u64, input_devices: usize, audio_endpoints: usize } = null;
 // Keep the compositor's fixed-capacity window table off the UEFI boot stack.
 // kernel.start already coordinates the entire bring-up and must not grow with
 // every desktop feature added late in that function.
@@ -1569,7 +1570,7 @@ pub fn start(info: BootInfo) noreturn {
     var monitor_window = sdl.createWindow(&sdl_monitor_pixels, 224, 96) catch panic("SDL monitor surface creation failed");
     drawMonitorSurface(&monitor_window, &screen);
     var system_window = sdl.createWindow(&sdl_system_pixels, 224, 96) catch panic("SDL system surface creation failed");
-    drawSystemSurface(&system_window, storage.block_count, @as(usize, hid.keyboards) + hid.mice, audio_info.playback_endpoints);
+    refreshSystemSurface(&system_window, storage.block_count, @as(usize, hid.keyboards) + hid.mice, audio_info.playback_endpoints);
     const files_surface_page_count = (224 * 96 * @sizeOf(u32) + 4095) / 4096;
     const files_surface_address = pages.allocate(files_surface_page_count) orelse panic("SDL files surface allocation failed");
     const files_surface_pixels: [*]u32 = @ptrFromInt(files_surface_address);
@@ -2337,7 +2338,7 @@ pub fn start(info: BootInfo) noreturn {
                 }
                 screen.drawBaseline(@as(usize, hid.keyboards) + hid.mice, audio_info.playback_endpoints);
                 drawMonitorSurface(&monitor_window, &screen);
-                drawSystemSurface(&system_window, storage.block_count, @as(usize, hid.keyboards) + hid.mice, audio_info.playback_endpoints);
+                refreshSystemSurface(&system_window, storage.block_count, @as(usize, hid.keyboards) + hid.mice, audio_info.playback_endpoints);
                 window_manager.compose(&screen);
                 screen.drawActionButton(action_button_active);
                 screen.drawKeyboardActivity();
@@ -2544,7 +2545,7 @@ pub fn start(info: BootInfo) noreturn {
             }
             screen.drawBaseline(@as(usize, hid.keyboards) + hid.mice, audio_info.playback_endpoints);
             drawMonitorSurface(&monitor_window, &screen);
-            drawSystemSurface(&system_window, storage.block_count, @as(usize, hid.keyboards) + hid.mice, audio_info.playback_endpoints);
+            refreshSystemSurface(&system_window, storage.block_count, @as(usize, hid.keyboards) + hid.mice, audio_info.playback_endpoints);
             window_manager.compose(&screen);
             screen.drawActionButton(action_button_active);
             screen.drawPointerButtons(event.a);
@@ -2642,6 +2643,15 @@ fn drawSystemSurface(window: *sdl.Window, storage_blocks: u64, input_devices: us
     drawSurfaceNumber(window, 108, 58, @intCast(input_devices), 0xe0e8f0ff);
     window.drawText(4, 76, "AUDIO", 0xa0b8d0ff);
     drawSurfaceNumber(window, 108, 76, @intCast(audio_endpoints), 0xe0e8f0ff);
+}
+
+fn refreshSystemSurface(window: *sdl.Window, storage_blocks: u64, input_devices: usize, audio_endpoints: usize) void {
+    const current = .{ .storage_blocks = storage_blocks, .input_devices = input_devices, .audio_endpoints = audio_endpoints };
+    if (system_surface_cache) |cached| {
+        if (cached.storage_blocks == current.storage_blocks and cached.input_devices == current.input_devices and cached.audio_endpoints == current.audio_endpoints) return;
+    }
+    drawSystemSurface(window, storage_blocks, input_devices, audio_endpoints);
+    system_surface_cache = current;
 }
 
 fn drawFilesSurface(window: *sdl.Window, entries: []const fat16.Volume.DirectoryEntry, selection: *const sdl.ListSelection) void {
