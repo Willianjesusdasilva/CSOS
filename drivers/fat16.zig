@@ -18,28 +18,18 @@ pub const Volume = struct {
         const buffer = pages.allocate(1) orelse return error.OutOfMemory;
         try storage.readBlock(0, buffer);
         const boot: [*]const u8 = @ptrFromInt(buffer);
-        if (boot[510] != 0x55 or boot[511] != 0xaa or get16(boot + 11) != 512) return error.InvalidBootSector;
-        const reserved = get16(boot + 14);
-        const fats = boot[16];
-        const root_entries = get16(boot + 17);
-        const fat_sectors = get16(boot + 22);
-        if (fats == 0 or fat_sectors == 0 or boot[13] == 0) return error.InvalidBootSector;
-        const root_start = @as(u32, reserved) + @as(u32, fats) * fat_sectors;
-        const root_sectors = (@as(u32, root_entries) * 32 + 511) / 512;
-        const total_sectors = if (get16(boot + 19) != 0) @as(u32, get16(boot + 19)) else get32(boot + 32);
-        const data_start = root_start + root_sectors;
-        if (total_sectors <= data_start) return error.InvalidBootSector;
+        const layout = try parseBootSector(boot, storage.block_count);
         return .{
             .storage = storage,
             .buffer = buffer,
-            .sectors_per_cluster = boot[13],
-            .fat_start = reserved,
-            .fat_sectors = fat_sectors,
-            .fat_count = fats,
-            .root_start = root_start,
-            .root_sectors = root_sectors,
-            .data_start = data_start,
-            .cluster_count = (total_sectors - data_start) / boot[13],
+            .sectors_per_cluster = layout.sectors_per_cluster,
+            .fat_start = layout.fat_start,
+            .fat_sectors = layout.fat_sectors,
+            .fat_count = layout.fat_count,
+            .root_start = layout.root_start,
+            .root_sectors = layout.root_sectors,
+            .data_start = layout.data_start,
+            .cluster_count = layout.cluster_count,
         };
     }
 
@@ -159,11 +149,16 @@ pub const Volume = struct {
             var offset: usize = 0;
             while (offset < 512) : (offset += 32) {
                 if (!have_free and (bytes[offset] == 0 or bytes[offset] == 0xe5)) {
-                    directory_sector = sector; directory_offset = offset; have_free = true;
+                    directory_sector = sector;
+                    directory_offset = offset;
+                    have_free = true;
                 }
                 if (bytes[offset] != 0 and bytes[offset] != 0xe5 and equal11(bytes + offset, name)) {
-                    directory_sector = sector; directory_offset = offset;
-                    old_cluster = get16(bytes + offset + 26); found = true; break;
+                    directory_sector = sector;
+                    directory_offset = offset;
+                    old_cluster = get16(bytes + offset + 26);
+                    found = true;
+                    break;
                 }
                 if (bytes[offset] == 0) break;
             }
@@ -251,7 +246,97 @@ fn equal11(left: [*]const u8, right: *const [11]u8) bool {
     return true;
 }
 
-fn get16(source: [*]const u8) u16 { return @as(u16, source[0]) | (@as(u16, source[1]) << 8); }
-fn get32(source: [*]const u8) u32 { return @as(u32, get16(source)) | (@as(u32, get16(source + 2)) << 16); }
-fn put16(target: [*]u8, value: u16) void { target[0] = @truncate(value); target[1] = @truncate(value >> 8); }
-fn put32(target: [*]u8, value: u32) void { put16(target, @truncate(value)); put16(target + 2, @truncate(value >> 16)); }
+const Layout = struct {
+    sectors_per_cluster: u8,
+    fat_start: u32,
+    fat_sectors: u16,
+    fat_count: u8,
+    root_start: u32,
+    root_sectors: u32,
+    data_start: u32,
+    cluster_count: u32,
+};
+
+fn parseBootSector(boot: [*]const u8, device_blocks: u64) !Layout {
+    if (boot[510] != 0x55 or boot[511] != 0xaa) return error.InvalidBootSector;
+    if (get16(boot + 11) != 512) return error.UnsupportedSectorSize;
+
+    const sectors_per_cluster = boot[13];
+    const reserved = get16(boot + 14);
+    const fats = boot[16];
+    const root_entries = get16(boot + 17);
+    const fat_sectors = get16(boot + 22);
+    if (sectors_per_cluster == 0 or (sectors_per_cluster & (sectors_per_cluster - 1)) != 0) return error.InvalidBootSector;
+    if (reserved == 0 or fats == 0 or root_entries == 0 or fat_sectors == 0) return error.InvalidBootSector;
+
+    const total_sectors = if (get16(boot + 19) != 0) @as(u32, get16(boot + 19)) else get32(boot + 32);
+    if (total_sectors == 0 or @as(u64, total_sectors) > device_blocks) return error.VolumeOutsideDevice;
+    const root_start = @as(u32, reserved) + @as(u32, fats) * fat_sectors;
+    const root_sectors = (@as(u32, root_entries) * 32 + 511) / 512;
+    const data_start = root_start + root_sectors;
+    if (total_sectors <= data_start) return error.InvalidBootSector;
+    const cluster_count = (total_sectors - data_start) / sectors_per_cluster;
+    if (cluster_count < 4085 or cluster_count >= 65525) return error.NotFat16;
+    if (cluster_count + 2 > @as(u32, fat_sectors) * 256) return error.FatTooSmall;
+
+    return .{
+        .sectors_per_cluster = sectors_per_cluster,
+        .fat_start = reserved,
+        .fat_sectors = fat_sectors,
+        .fat_count = fats,
+        .root_start = root_start,
+        .root_sectors = root_sectors,
+        .data_start = data_start,
+        .cluster_count = cluster_count,
+    };
+}
+
+fn validBootSector() [512]u8 {
+    var boot = [_]u8{0} ** 512;
+    put16(boot[11..].ptr, 512);
+    boot[13] = 4;
+    put16(boot[14..].ptr, 1);
+    boot[16] = 2;
+    put16(boot[17..].ptr, 512);
+    put16(boot[22..].ptr, 64);
+    put32(boot[32..].ptr, 32768);
+    boot[510] = 0x55;
+    boot[511] = 0xaa;
+    return boot;
+}
+
+test "FAT16 BPB produces a bounded volume layout" {
+    const boot = validBootSector();
+    const layout = try parseBootSector(&boot, 32768);
+    try std.testing.expectEqual(@as(u32, 129), layout.root_start);
+    try std.testing.expectEqual(@as(u32, 32), layout.root_sectors);
+    try std.testing.expectEqual(@as(u32, 161), layout.data_start);
+    try std.testing.expectEqual(@as(u32, 8151), layout.cluster_count);
+}
+
+test "FAT16 BPB rejects invalid geometry and device overflow" {
+    var boot = validBootSector();
+    try std.testing.expectError(error.VolumeOutsideDevice, parseBootSector(&boot, 32767));
+    boot[13] = 3;
+    try std.testing.expectError(error.InvalidBootSector, parseBootSector(&boot, 32768));
+    boot = validBootSector();
+    put16(boot[22..].ptr, 1);
+    try std.testing.expectError(error.FatTooSmall, parseBootSector(&boot, 32768));
+}
+
+const std = @import("std");
+
+fn get16(source: [*]const u8) u16 {
+    return @as(u16, source[0]) | (@as(u16, source[1]) << 8);
+}
+fn get32(source: [*]const u8) u32 {
+    return @as(u32, get16(source)) | (@as(u32, get16(source + 2)) << 16);
+}
+fn put16(target: [*]u8, value: u16) void {
+    target[0] = @truncate(value);
+    target[1] = @truncate(value >> 8);
+}
+fn put32(target: [*]u8, value: u32) void {
+    put16(target, @truncate(value));
+    put16(target + 2, @truncate(value >> 16));
+}

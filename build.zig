@@ -180,6 +180,13 @@ pub fn build(b: *std.Build) void {
     const fat16_module = b.createModule(.{ .root_source_file = b.path("drivers/fat16.zig") });
     fat16_module.addImport("nvme", nvme_module);
     fat16_module.addImport("physical", physical_module);
+    const fat16_test_module = b.createModule(.{
+        .root_source_file = b.path("drivers/fat16.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+    });
+    fat16_test_module.addImport("nvme", nvme_test_module);
+    fat16_test_module.addImport("physical", physical_module);
     const xhci_module = b.createModule(.{ .root_source_file = b.path("drivers/xhci.zig") });
     xhci_module.addImport("pci", pci_module);
     xhci_module.addImport("physical", physical_module);
@@ -212,6 +219,9 @@ pub fn build(b: *std.Build) void {
     const nvme_tests = b.addTest(.{ .root_module = nvme_test_module });
     const run_nvme_tests = b.addRunArtifact(nvme_tests);
     test_step.dependOn(&run_nvme_tests.step);
+    const fat16_tests = b.addTest(.{ .root_module = fat16_test_module });
+    const run_fat16_tests = b.addRunArtifact(fat16_tests);
+    test_step.dependOn(&run_fat16_tests.step);
     const xhci_tests = b.addTest(.{ .root_module = xhci_test_module });
     const run_xhci_tests = b.addRunArtifact(xhci_tests);
     test_step.dependOn(&run_xhci_tests.step);
