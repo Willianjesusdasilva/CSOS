@@ -543,7 +543,8 @@ pub const Controller = struct {
                     const pressed = keyboardReportPressed(report[0..size]);
                     const usage = keyboardReportUsage(report[0..size]);
                     const event_usage = keyboardEventUsage(devices.keyboard_usage, report[0..size]);
-                    devices.push(.{ .kind = .keyboard, .a = event_usage, .b = if (size > 0) report[0] else 0, .c = @intFromBool(pressed) });
+                    const event_pressed = pressed and (usage != 0 or devices.keyboard_usage == 0);
+                    devices.push(.{ .kind = .keyboard, .a = event_usage, .b = if (size > 0) report[0] else 0, .c = @intFromBool(event_pressed) });
                     if (pressed and usage != 0) devices.keyboard_usage = usage else if (!pressed) devices.keyboard_usage = 0;
                 } else {
                     devices.push(.{ .kind = .mouse, .a = if (size > 0) report[0] else 0, .b = if (size > 1) report[1] else 0, .c = if (size > 2) report[2] else 0, .d = if (size > 3) report[3] else 0 });
@@ -744,7 +745,8 @@ fn keyboardReportUsage(report: []const u8) u8 {
 }
 
 fn keyboardEventUsage(previous: u8, report: []const u8) u8 {
-    return if (keyboardReportPressed(report)) keyboardReportUsage(report) else previous;
+    const usage = keyboardReportUsage(report);
+    return if (usage != 0) usage else previous;
 }
 pub const HidDevices = struct {
     keyboards: u8 = 0,
