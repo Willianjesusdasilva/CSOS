@@ -180,6 +180,18 @@ test "hardware profile rejects zero CPU topology" {
     try @import("std").testing.expectError(error.InvalidCpuTopology, build(cpu, facts));
 }
 
+test "hardware profile round-trips its generated signature" {
+    var cpu = @import("std").mem.zeroes(Cpu);
+    cpu.vendor = "GenuineIntel".*;
+    cpu.family = 6;
+    cpu.model = 0x9a;
+    cpu.threads_per_core = 2;
+    cpu.logical_per_package = 8;
+    const facts = @import("std").mem.zeroes(Facts);
+    const profile = try build(cpu, facts);
+    try @import("std").testing.expect(matchesSignature(profile.text(), profile.signature));
+}
+
 pub fn build(cpu: Cpu, facts: Facts) !Profile {
     if (cpu.threads_per_core == 0 or cpu.logical_per_package == 0) return error.InvalidCpuTopology;
     var result = Profile{};
