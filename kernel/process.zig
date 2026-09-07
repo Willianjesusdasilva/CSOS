@@ -1048,7 +1048,9 @@ fn applySymbolTable(consumer: []const u8, consumer_base: u64, consumer_module: u
         }
         if (relocation_type != 1 and relocation_type != 6 and relocation_type != 7) return error.UnsupportedSymbolRelocation;
         const symbol_index: u32 = @truncate(info >> 32);
-        const consumer_symbol: usize = @intCast(wanted.symbol_file + @as(u64, symbol_index) * 24);
+        if (symbol_index >= wanted.symbol_count) return error.InvalidSymbolRelocation;
+        const consumer_symbol_offset = std.math.add(u64, wanted.symbol_file, std.math.mul(u64, symbol_index, 24) catch return error.InvalidSymbolRelocation) catch return error.InvalidSymbolRelocation;
+        const consumer_symbol: usize = std.math.cast(usize, consumer_symbol_offset) orelse return error.InvalidSymbolRelocation;
         const name_offset = read32From(consumer, consumer_symbol);
         const name = try stringFrom(consumer, wanted.string_file + name_offset);
         const required_version = try requiredSymbolVersion(consumer, wanted, symbol_index);
@@ -1057,7 +1059,8 @@ fn applySymbolTable(consumer: []const u8, consumer_base: u64, consumer_module: u
             const supplied = try dynamicSymbols(provider.bytes, provider.program_offset, provider.program_entry_size, provider.program_count, false);
             var provider_index: u32 = 0;
             while (provider_index < supplied.symbol_count) : (provider_index += 1) {
-                const provider_symbol: usize = @intCast(supplied.symbol_file + @as(u64, provider_index) * 24);
+                const provider_symbol_offset = std.math.add(u64, supplied.symbol_file, std.math.mul(u64, provider_index, 24) catch return error.InvalidSymbolRelocation) catch return error.InvalidSymbolRelocation;
+                const provider_symbol: usize = std.math.cast(usize, provider_symbol_offset) orelse return error.InvalidSymbolRelocation;
                 if (read16From(provider.bytes, provider_symbol + 6) == 0) continue;
                 const provider_name_offset = read32From(provider.bytes, provider_symbol);
                 const provider_name = try stringFrom(provider.bytes, supplied.string_file + provider_name_offset);

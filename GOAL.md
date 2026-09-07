@@ -344,6 +344,8 @@ As rotas VFS para propriedades DRM com sufixo agora comparam comprimentos por
 subtração, sem somar tamanhos controlados pelo caminho antes do slicing.
 Relocações simbólicas validam a soma entre valor do símbolo e base do módulo
 antes de gravar o destino, rejeitando endereços que ultrapassem `u64`.
+Índices de símbolos vindos das relocations agora precisam estar dentro de
+`symbol_count`, com offsets de entradas convertidos de forma checked.
 
 Mapeamentos anônimos também possuem rollback transacional: uma falha no meio da
 criação remove as páginas já instaladas e devolve a alocação e o ownership.

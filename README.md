@@ -863,6 +863,8 @@ A resolução de caminhos DRM evita overflow ao comparar prefixos e sufixos
 fornecidos pelo processo antes de criar slices.
 O linker de símbolos também usa soma checked para bases de consumidor e
 provedor antes de aplicar relocations.
+Relocations com índice fora da tabela são rejeitadas antes de ler entradas de
+24 bytes, incluindo overflow na conversão do offset para `usize`.
 
 Mapeamentos anônimos fazem rollback transacional quando uma página falha: os
 mapeamentos parciais são removidos e a memória física é devolvida ao allocator.
