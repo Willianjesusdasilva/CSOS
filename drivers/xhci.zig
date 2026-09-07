@@ -117,7 +117,7 @@ pub const Controller = struct {
                 }
             }
             if (protocol == 0) continue;
-            if (endpoint_address == 0 or endpoint_packet == 0) return error.HidEndpointMissing;
+            if (endpoint_address == 0 or !validHidPacketSize(endpoint_packet)) return error.HidEndpointMissing;
             const endpoint_id: u5 = @intCast((endpoint_address & 0x0f) * 2 + 1);
             const interrupt_ring = pages.allocate(1) orelse return error.OutOfMemory;
             const report = pages.allocate(1) orelse return error.OutOfMemory;
@@ -785,6 +785,10 @@ fn transferredReportSize(packet_size: u16, residual: u32) u16 {
     return packet_size - @as(u16, @intCast(bounded));
 }
 
+fn validHidPacketSize(packet_size: u16) bool {
+    return packet_size != 0 and packet_size <= 1024;
+}
+
 test "full HID queue coalesces mouse motion without losing buttons" {
     var devices = HidDevices{};
     for (0..63) |_| devices.push(.{ .kind = .mouse, .a = 1, .b = 1, .c = 0, .d = 0 });
@@ -820,6 +824,14 @@ test "xHCI residual cannot underflow the HID report length" {
     try @import("std").testing.expectEqual(@as(u16, 8), transferredReportSize(8, 0));
     try @import("std").testing.expectEqual(@as(u16, 3), transferredReportSize(8, 5));
     try @import("std").testing.expectEqual(@as(u16, 0), transferredReportSize(8, 0xffff_ffff));
+}
+
+test "HID endpoint packet size stays within USB interrupt limits" {
+    try @import("std").testing.expect(!validHidPacketSize(0));
+    try @import("std").testing.expect(validHidPacketSize(64));
+    try @import("std").testing.expect(validHidPacketSize(1024));
+    try @import("std").testing.expect(!validHidPacketSize(1025));
+    try @import("std").testing.expect(!validHidPacketSize(2047));
 }
 
 pub const AudioDevices = struct {
