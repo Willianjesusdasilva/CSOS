@@ -865,6 +865,12 @@ test "audio port generation exhaustion fails closed" {
     try std.testing.expect(!port.connected);
 }
 
+test "audio registry rejects ports outside its table" {
+    var registry = Registry{};
+    try std.testing.expectError(error.InvalidPort, registry.attach(16));
+    try std.testing.expectEqual(@as(u8, 0), registry.count);
+}
+
 pub const Registry = struct {
     ports: [16]Port = .{Port{}} ** 16,
     count: u8 = 0,
