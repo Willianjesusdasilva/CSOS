@@ -369,6 +369,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         257 => openat(arg1, arg2, arg3),
         262 => stat(arg2, arg3, @bitCast(arg1)),
         267 => readlinkat(@bitCast(arg1), arg2, arg3, arg4),
+        436 => closeRange(arg1, arg2, arg3),
         else => unsupported(number),
     };
 }
@@ -2707,6 +2708,16 @@ fn fadvise64(fd: u64, offset: u64, length: u64, advice: u64) u64 {
     _ = offset;
     _ = advice;
     if (!vfs.isOpen(@intCast(fd)) or length == 0) return if (length == 0) 0 else errno(9);
+    return 0;
+}
+
+fn closeRange(first: u64, last: u64, flags: u64) u64 {
+    if (flags != 0 or first > last or first >= 1024) return errno(22);
+    const limit = @min(last, 1023);
+    var fd = first;
+    while (fd <= limit) : (fd += 1) {
+        if (vfs.isOpen(@intCast(fd))) _ = vfs.close(@intCast(fd)) catch {};
+    }
     return 0;
 }
 
