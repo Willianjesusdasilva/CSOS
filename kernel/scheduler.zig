@@ -241,7 +241,8 @@ pub fn tick() void {
 pub fn groupSleepTicks(group: u16) u64 {
     var remaining: u64 = 0;
     for (threads[0..thread_count]) |thread| {
-        if (thread.group == group and thread.state == .sleeping) remaining = @max(remaining, thread.sleep_ticks);
+        const sleeping = thread.state == .sleeping or (thread.state == .frozen and thread.resume_state == .sleeping);
+        if (thread.group == group and sleeping) remaining = @max(remaining, thread.sleep_ticks);
     }
     return remaining;
 }
