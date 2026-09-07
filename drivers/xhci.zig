@@ -47,9 +47,13 @@ pub const Controller = struct {
         if ((read32(operational, 8) & 1) == 0) return error.UnsupportedPageSize;
 
         const dcbaa = pages.allocate(1) orelse return error.OutOfMemory;
+        errdefer pages.release(dcbaa, 1) catch {};
         const command_ring = pages.allocate(1) orelse return error.OutOfMemory;
+        errdefer pages.release(command_ring, 1) catch {};
         const event_ring = pages.allocate(1) orelse return error.OutOfMemory;
+        errdefer pages.release(event_ring, 1) catch {};
         const erst = pages.allocate(1) orelse return error.OutOfMemory;
+        errdefer pages.release(erst, 1) catch {};
         zeroPage(dcbaa);
         zeroPage(command_ring);
         zeroPage(event_ring);
