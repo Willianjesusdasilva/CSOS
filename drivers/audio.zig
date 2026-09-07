@@ -326,6 +326,15 @@ test "PCM ring clear drops queued buffers and rewinds indices" {
     try std.testing.expectEqual(@as(?u64, 0x33), ring.dequeue());
 }
 
+test "PCM ring reports full capacity before rejecting enqueue" {
+    var ring = PcmRing{};
+    for (0..8) |index| try ring.enqueue(@intCast(index));
+    try std.testing.expectError(error.QueueFull, ring.enqueue(8));
+    ring.clear();
+    try ring.enqueue(9);
+    try std.testing.expectEqual(@as(?u64, 9), ring.dequeue());
+}
+
 pub const DeviceManager = struct {
     device: Device = .{},
     stream: ?Stream = null,
