@@ -134,7 +134,7 @@ fn amdgpuAbiTestSubmit(_: *anyopaque, vmid: u4, ibs: []const gpu.AmdGfx11Indirec
     if (vmid != 1 or ibs.len == 0 or ibs.len > 2) return error.InvalidAmdGpuAbiTestSubmission;
     for (ibs, 0..) |ib, index| if (ib.address != 0x4000 + index * 16 or ib.dwords != 4)
         return error.InvalidAmdGpuAbiTestSubmission;
-    amdgpu_abi_test_dispatches += 1;
+    amdgpu_abi_test_dispatches +%= 1;
     return 0x100 + amdgpu_abi_test_dispatches;
 }
 
@@ -426,7 +426,7 @@ fn sendfile(output_fd: u64, input_fd: u64, offset_address: u64, count: u64) u64 
         const pointer: *align(1) u64 = @ptrFromInt(offset_address);
         pointer.* = explicit_offset.? + transferred;
     }
-    sendfile_calls += 1;
+    sendfile_calls +%= 1;
     return transferred;
 }
 
@@ -439,7 +439,7 @@ fn writeKernel(fd: u64, bytes: []const u8) !usize {
     if (vfs.isDiskFile(@intCast(fd))) return vfs.write(@intCast(fd), bytes);
     if (!vfs.isConsole(@intCast(fd))) return error.BadFd;
     serial.write(bytes);
-    writes += 1;
+    writes +%= 1;
     return bytes.len;
 }
 
@@ -482,7 +482,7 @@ fn ioctl(fd: u64, request: u32, address: u64) u64 {
             0x4602 => framebufferFixed(address),
             else => errno(25),
         };
-        if (result == 0) framebuffer_ioctls += 1;
+        if (result == 0) framebuffer_ioctls +%= 1;
         return result;
     }
     if (vfs.isDrm(@intCast(fd))) {
@@ -529,7 +529,7 @@ fn ioctl(fd: u64, request: u32, address: u64) u64 {
         };
         drm_last_request = request;
         drm_last_result = result;
-        if (result == 0) drm_ioctls += 1;
+        if (result == 0) drm_ioctls +%= 1;
         return result;
     }
     return errno(25);
@@ -785,7 +785,7 @@ fn drmCreateDumb(address: u64) u64 {
     put32(output + 20, @intCast(pitch));
     put64(output + 24, size);
     drm_objects[object_index] = .{ .allocated = true, .handle_open = true, .handle = handle, .size = size, .physical_address = allocation, .pages = page_count, .map_offset = @as(u64, @intCast(object_index)) * drm_object_stride };
-    drm_allocations += 1;
+    drm_allocations +%= 1;
     return 0;
 }
 
@@ -815,7 +815,7 @@ fn amdgpuGemCreate(address: u64) u64 {
             drm_objects[object_index] = .{ .allocated = true, .handle_open = true, .handle = handle, .size = size, .physical_address = vram.cpu_address, .gpu_address = vram.mc_address, .vram_backed = true, .pages = page_count, .map_offset = @as(u64, @intCast(object_index)) * drm_object_stride, .alignment = alignment, .domains = 0x4, .allocation_flags = flags };
             put32(io, handle);
             put32(io + 4, 0);
-            drm_allocations += 1;
+            drm_allocations +%= 1;
             return 0;
         }
         if ((domains & 0x3) == 0) return errno(12);
@@ -832,7 +832,7 @@ fn amdgpuGemCreate(address: u64) u64 {
     drm_objects[object_index] = .{ .allocated = true, .handle_open = true, .handle = handle, .size = size, .physical_address = allocation, .gpu_address = allocation, .pages = page_count, .map_offset = @as(u64, @intCast(object_index)) * drm_object_stride, .alignment = alignment, .domains = domains & 0x3, .allocation_flags = flags };
     put32(io, handle);
     put32(io + 4, 0);
-    drm_allocations += 1;
+    drm_allocations +%= 1;
     return 0;
 }
 
@@ -2116,7 +2116,7 @@ fn releaseDrmObject(object: *DrmObject) void {
         if (object.vram_backed) {
             if (amdgpu_vram_endpoint) |endpoint| endpoint.release(endpoint.context, .{ .cpu_address = object.physical_address, .mc_address = object.gpu_address, .bytes = object.pages * 4096 }) catch {};
         } else if (drm_pages) |pages| pages.release(object.physical_address, object.pages) catch {};
-        drm_releases += 1;
+        drm_releases +%= 1;
     }
     object.* = .{};
 }
@@ -2499,7 +2499,7 @@ fn write(fd: u64, address: u64, length: u64) u64 {
     if (vfs.isDiskFile(@intCast(fd))) return vfs.write(@intCast(fd), text[0..@intCast(length)]) catch |err| vfsError(err);
     if (!vfs.isConsole(@intCast(fd))) return errno(9);
     serial.write(text[0..@intCast(length)]);
-    writes += 1;
+    writes +%= 1;
     return length;
 }
 
@@ -2600,7 +2600,7 @@ fn mmap(requested: u64, length: u64, protection: u64, flags: u64, fd: u64, file_
         const physical_address = if (drm_object) |object| object.physical_address + (file_offset - object.map_offset) else framebuffer.base + file_offset;
         if (!hook(address, physical_address, aligned_length, (protection & 2) != 0)) return errno(12);
         device_mmap_next = address + aligned_length;
-        if (drm_device) drm_mmaps += 1 else framebuffer_mmaps += 1;
+        if (drm_device) drm_mmaps +%= 1 else framebuffer_mmaps +%= 1;
         return address;
     }
     if (!anonymous and (flags & 2) == 0) return errno(22);
@@ -2618,7 +2618,7 @@ fn mmap(requested: u64, length: u64, protection: u64, flags: u64, fd: u64, file_
     if (!anonymous) {
         const count = vfs.pread(@intCast(fd), target[0..@intCast(length)], @intCast(file_offset)) catch |err| return vfsError(err);
         if (count == 0) return errno(19);
-        file_mmaps += 1;
+        file_mmaps +%= 1;
     }
     if (!hook(address, aligned_length, (protection & 2) != 0, (protection & 4) != 0)) return errno(12);
     mmap_next = address + aligned_length;
@@ -2632,7 +2632,7 @@ fn mprotect(address: u64, length: u64, protection: u64) u64 {
     if (!mmapRegion(address, aligned_length)) return errno(12);
     const hook = mmap_protect_hook orelse return errno(12);
     if (!hook(address, aligned_length, (protection & 2) != 0, (protection & 4) != 0)) return errno(12);
-    protected_mmaps += 1;
+    protected_mmaps +%= 1;
     return 0;
 }
 
@@ -2643,7 +2643,7 @@ fn munmap(address: u64, length: u64) u64 {
     if (!mmapRegion(address, aligned_length)) return errno(22);
     const hook = mmap_unmap_hook orelse return errno(22);
     if (!hook(address, aligned_length)) return errno(22);
-    unmapped_mmaps += 1;
+    unmapped_mmaps +%= 1;
     return 0;
 }
 
