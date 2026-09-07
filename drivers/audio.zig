@@ -869,6 +869,17 @@ test "device manager reset clears stream mixer and metrics" {
     try std.testing.expectEqual(@as(u64, 0), manager.metrics.submitted);
 }
 
+test "device manager stop and detach leaves an absent device" {
+    var manager = DeviceManager{};
+    try manager.attach(.{ .channels = 2, .bits_per_sample = 16, .sample_rate = 48_000 }, 1000, 4096);
+    try manager.configure();
+    try manager.start();
+    manager.stopAndDetach();
+    try std.testing.expect(manager.stream == null);
+    try std.testing.expectEqual(State.absent, manager.device.state);
+    try std.testing.expectError(error.DeviceNotConfigured, manager.start());
+}
+
 test "device manager rebuilds stream during recovery" {
     var manager = DeviceManager{};
     try manager.attach(.{ .channels = 2, .bits_per_sample = 16, .sample_rate = 48_000 }, 1000, 4096);
