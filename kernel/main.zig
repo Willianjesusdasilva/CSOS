@@ -2331,6 +2331,7 @@ pub fn start(info: BootInfo) noreturn {
                 }
                 screen.drawBaseline(@as(usize, hid.keyboards) + hid.mice, audio_info.playback_endpoints);
                 drawMonitorSurface(&monitor_window, &screen);
+                drawSystemSurface(&system_window, storage.block_count, @as(usize, hid.keyboards) + hid.mice, audio_info.playback_endpoints);
                 window_manager.compose(&screen);
                 screen.drawActionButton(action_button_active);
                 screen.drawKeyboardActivity();
@@ -2537,6 +2538,7 @@ pub fn start(info: BootInfo) noreturn {
             }
             screen.drawBaseline(@as(usize, hid.keyboards) + hid.mice, audio_info.playback_endpoints);
             drawMonitorSurface(&monitor_window, &screen);
+            drawSystemSurface(&system_window, storage.block_count, @as(usize, hid.keyboards) + hid.mice, audio_info.playback_endpoints);
             window_manager.compose(&screen);
             screen.drawActionButton(action_button_active);
             screen.drawPointerButtons(event.a);

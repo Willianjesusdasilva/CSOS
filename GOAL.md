@@ -254,6 +254,8 @@ O launcher passou de duas entradas genéricas para três aplicações nomeadas:
 `TERMINAL`, `MONITOR` e `SYSTEM`. A nova janela SYSTEM possui superfície SDL
 própria e apresenta estado do SO, capacidade NVMe, dispositivos USB de input e
 endpoints de áudio; mouse e teclado percorrem o mesmo caminho de launch/restore.
+Sua superfície é atualizada a cada ciclo do desktop, refletindo mudanças nos
+dispositivos observados após o boot.
 
 O volume FAT16 agora enumera arquivos regulares da raiz com limite explícito do
 buffer de saída. A quarta aplicação SDL, `FILES`, mostra nomes 8.3 e tamanhos;
