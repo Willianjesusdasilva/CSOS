@@ -168,7 +168,7 @@ pub const Stack = struct {
         var attempts: u8 = 0;
         while (attempts < 64 and received_bytes == 0) : (attempts += 1) {
             const segment = try self.receiveTcp(destination, destination_port, source_port, null);
-            if (segment.acknowledgement > sequence) return error.InvalidTcpAcknowledgement;
+            if (sequenceAhead(segment.acknowledgement, sequence)) return error.InvalidTcpAcknowledgement;
             if (segment.sequence != peer_sequence and
                 (segment.payload_length != 0 or (segment.flags & tcp_fin) != 0)) continue;
             if (segment.payload_length != 0) {
