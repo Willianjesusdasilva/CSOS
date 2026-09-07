@@ -82,9 +82,9 @@ pub const Controller = struct {
         while ((descriptor[12] & 1) == 0 and spins < 1_000_000_000) : (spins += 1) asm volatile ("pause");
         if (spins == 1_000_000_000) return error.ReceiveTimeout;
         const length = get16(descriptor + 8);
-        if (length < 14) return error.FrameTooSmall;
-        if (length > 1514) return error.FrameTooLarge;
-        if (length > output.len) return error.BufferTooSmall;
+        if (length < 14) { self.recycleRx(descriptor); return error.FrameTooSmall; }
+        if (length > 1514) { self.recycleRx(descriptor); return error.FrameTooLarge; }
+        if (length > output.len) { self.recycleRx(descriptor); return error.BufferTooSmall; }
         const source: [*]const u8 = @ptrFromInt(self.rx_buffers[self.rx_index]);
         @memcpy(output[0..length], source[0..length]);
         const rx_interrupt_count = @atomicLoad(u64, &rx_interrupts, .acquire);
@@ -94,11 +94,15 @@ pub const Controller = struct {
                 self.rx_latency.add(timestamp() -% rx_interrupt_tsc) catch {};
             self.sampled_rx_interrupts = rx_interrupt_count;
         }
+        self.recycleRx(descriptor);
+        return length;
+    }
+
+    fn recycleRx(self: *Controller, descriptor: [*]volatile u8) void {
         descriptor[12] = 0;
         const completed = self.rx_index;
         self.rx_index = (self.rx_index + 1) % descriptor_count;
         write32(self.base, 0x2818, completed);
-        return length;
     }
 };
 
