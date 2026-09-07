@@ -96,7 +96,7 @@ pub const EventQueue = struct {
     }
 
     pub fn pushMouseCoalesced(self: *EventQueue, x: i32, y: i32, wheel: i32, buttons: u8) bool {
-        if (self.remaining() == 0 and self.write != 0) {
+        if (self.write != self.read) {
             const slot = (self.write - 1) % self.items.len;
             if (self.items[slot] == .mouse) {
                 self.items[slot].mouse.x += x;
@@ -589,6 +589,10 @@ test "SDL software event queue and surface contract" {
     try @import("std").testing.expect(events.poll() != null);
     try @import("std").testing.expect(events.poll() != null);
     try @import("std").testing.expectEqual(@as(usize, 0), events.len());
+    try @import("std").testing.expect(events.pushMouse(4, 2, 0, 0));
+    try @import("std").testing.expect(events.pushMouseCoalesced(3, -1, 1, 1));
+    try @import("std").testing.expectEqual(@as(usize, 1), events.len());
+    try @import("std").testing.expectEqual(Event{ .mouse = .{ .x = 7, .y = 1, .wheel = 1, .buttons = 1 } }, events.poll().?);
     var full = EventQueue{};
     var index: usize = 0;
     while (index < full.items.len) : (index += 1)
