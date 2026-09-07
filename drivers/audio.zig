@@ -30,9 +30,7 @@ pub const Device = struct {
     }
 
     pub fn frameBytes(self: *const Device) ?usize {
-        if (self.format.channels == 0 or self.format.bits_per_sample == 0) return null;
-        if (self.format.bits_per_sample % 8 != 0) return null;
-        return @as(usize, self.format.channels) * (@as(usize, self.format.bits_per_sample) / 8);
+        return pcmFrameBytes(self.format.channels, self.format.bits_per_sample) catch null;
     }
 
     pub fn periodBytes(self: *const Device, periods_per_second: u32) ?usize {
@@ -625,7 +623,7 @@ pub fn applyPcm16(samples: []u8, volume: u8, muted: bool) !void {
 
 pub fn pcmFrameBytes(channels: u8, bits_per_sample: u8) !usize {
     if (channels == 0 or channels > 8) return error.InvalidChannels;
-    if (bits_per_sample == 0 or bits_per_sample % 8 != 0) return error.InvalidSampleWidth;
+    if (bits_per_sample == 0 or bits_per_sample > 32 or bits_per_sample % 8 != 0) return error.InvalidSampleWidth;
     const bytes = @as(usize, channels) * (@as(usize, bits_per_sample) / 8);
     if (bytes > 32) return error.FrameTooLarge;
     return bytes;
@@ -706,7 +704,14 @@ test "audio PCM frame sizing enforces channel and width limits" {
     try std.testing.expectEqual(@as(usize, 32), try pcmFrameBytes(8, 32));
     try std.testing.expectError(error.InvalidChannels, pcmFrameBytes(0, 16));
     try std.testing.expectError(error.InvalidSampleWidth, pcmFrameBytes(2, 12));
-    try std.testing.expectError(error.FrameTooLarge, pcmFrameBytes(8, 64));
+    try std.testing.expectError(error.InvalidSampleWidth, pcmFrameBytes(8, 64));
+}
+
+test "audio device rejects frame formats outside the PCM contract" {
+    const invalid_channels = Device{ .format = .{ .channels = 9, .bits_per_sample = 16, .sample_rate = 48_000 } };
+    const invalid_width = Device{ .format = .{ .channels = 2, .bits_per_sample = 64, .sample_rate = 48_000 } };
+    try std.testing.expectEqual(@as(?usize, null), invalid_channels.frameBytes());
+    try std.testing.expectEqual(@as(?usize, null), invalid_width.frameBytes());
 }
 
 pub fn normalizeFormat(channels: u16, bits_per_sample: u16, sample_rate: u64) !Format {
