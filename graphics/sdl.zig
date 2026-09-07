@@ -299,6 +299,13 @@ pub const Pager = struct {
         self.offset = 0;
         return true;
     }
+
+    pub fn end(self: *Pager) bool {
+        const last = if (self.total == 0) 0 else ((self.total - 1) / self.page_size) * self.page_size;
+        if (self.offset == last) return false;
+        self.offset = last;
+        return true;
+    }
 };
 
 pub const Window = struct {
@@ -1363,6 +1370,9 @@ test "list selection keeps the selected row inside its viewport" {
     try testing.expectEqual(@as(usize, 192), pager.offset);
     try testing.expect(pager.home());
     try testing.expectEqual(@as(usize, 0), pager.offset);
+    try testing.expect(pager.end());
+    try testing.expectEqual(@as(usize, 384), pager.offset);
+    try testing.expect(!pager.end());
 }
 
 test "SDL pager recovers an offset beyond the current total" {

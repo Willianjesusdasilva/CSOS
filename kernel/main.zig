@@ -2159,6 +2159,7 @@ pub fn start(info: BootInfo) noreturn {
                             0x4e => files_preview_pager.next(),
                             0x4b => files_preview_pager.previous(),
                             0x4a => files_preview_pager.home(),
+                            0x4d => files_preview_pager.end(),
                             else => false,
                         };
                         if (changed) {
