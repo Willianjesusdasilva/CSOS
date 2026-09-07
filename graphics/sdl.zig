@@ -904,6 +904,7 @@ test "SDL software event queue and surface contract" {
     app.reset();
     try @import("std").testing.expect(app.running);
     try @import("std").testing.expect(app.last_event == null);
+    try @import("std").testing.expect(app.window.pixels[0] == 0);
     try @import("std").testing.expect(app.window.dirtyRect() != null);
     try @import("std").testing.expect(app.render(&testApplicationDraw));
     app.running = true;
