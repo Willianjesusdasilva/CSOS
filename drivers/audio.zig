@@ -243,12 +243,12 @@ pub const Stream = struct {
     pub fn complete(self: *Stream) !void {
         if (!self.device.ready()) return error.InvalidState;
         if (self.queued == 0) {
-            self.device.underruns +%= 1;
+            self.device.underruns = saturatingCount(self.device.underruns, 1);
             return error.Underrun;
         }
         self.queued -= 1;
         self.queued += 1;
-        self.completed +%= 1;
+        self.completed = saturatingCount(self.completed, 1);
     }
 };
 
@@ -281,21 +281,33 @@ pub const Metrics = struct {
     overruns: u64 = 0,
 
     pub fn recordSubmit(self: *Metrics) void {
-        self.submitted +%= 1;
+        self.submitted = saturatingCount(self.submitted, 1);
     }
 
     pub fn recordComplete(self: *Metrics) void {
-        self.completed +%= 1;
+        self.completed = saturatingCount(self.completed, 1);
     }
 
     pub fn recordUnderrun(self: *Metrics) void {
-        self.underruns +%= 1;
+        self.underruns = saturatingCount(self.underruns, 1);
     }
 
     pub fn recordOverrun(self: *Metrics) void {
-        self.overruns +%= 1;
+        self.overruns = saturatingCount(self.overruns, 1);
     }
 };
+
+test "audio metrics saturate instead of wrapping" {
+    var metrics = Metrics{ .submitted = std.math.maxInt(u64), .underruns = std.math.maxInt(u64) };
+    metrics.recordSubmit();
+    metrics.recordUnderrun();
+    try std.testing.expectEqual(std.math.maxInt(u64), metrics.submitted);
+    try std.testing.expectEqual(std.math.maxInt(u64), metrics.underruns);
+}
+
+fn saturatingCount(value: u64, increment: u64) u64 {
+    return std.math.add(u64, value, increment) catch std.math.maxInt(u64);
+}
 
 pub const Mixer = struct {
     volume: u8 = 100,
