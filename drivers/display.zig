@@ -672,6 +672,18 @@ test "taskbar hover tracks a slot without changing focus" {
     try std.testing.expect(manager.taskbar_hover == null);
 }
 
+test "focus and close clear taskbar hover" {
+    var manager = WindowManager{};
+    _ = try manager.create(.{ .id = 1, .x = 0, .y = 0, .width = 64, .height = 32 });
+    _ = try manager.create(.{ .id = 2, .x = 4, .y = 4, .width = 64, .height = 32 });
+    manager.taskbar_hover = 0;
+    try std.testing.expect(manager.focus(1));
+    try std.testing.expect(manager.taskbar_hover == null);
+    manager.taskbar_hover = 0;
+    manager.close(0);
+    try std.testing.expect(manager.taskbar_hover == null);
+}
+
 test "window manager dismisses launcher when focusing a window" {
     var manager = WindowManager{};
     _ = try manager.create(.{ .id = 1, .x = 0, .y = 0, .width = 80, .height = 48 });
