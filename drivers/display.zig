@@ -41,8 +41,9 @@ const launcher_labels = [_][]const u8{ "TERMINAL", "MONITOR", "SYSTEM", "FILES" 
 
 pub fn applyPointerDelta(position: usize, delta: i8, extent: usize) usize {
     if (extent == 0) return 0;
-    if (delta < 0) return position -| @as(usize, @intCast(-@as(i16, delta)));
-    return @min(extent - 1, position +| @as(usize, @intCast(delta)));
+    const bounded = @min(position, extent - 1);
+    if (delta < 0) return bounded -| @as(usize, @intCast(-@as(i16, delta)));
+    return @min(extent - 1, bounded +| @as(usize, @intCast(delta)));
 }
 
 pub fn pointerWheelColor(wheel: i8) u32 {
@@ -583,6 +584,7 @@ test "pointer delta saturates at both display edges" {
     try std.testing.expectEqual(@as(usize, 0), applyPointerDelta(4, -5, 100));
     try std.testing.expectEqual(@as(usize, 0), applyPointerDelta(50, -128, 100));
     try std.testing.expectEqual(@as(usize, 99), applyPointerDelta(96, 5, 100));
+    try std.testing.expectEqual(@as(usize, 99), applyPointerDelta(1000, 0, 100));
     try std.testing.expectEqual(@as(usize, 15), applyPointerDelta(10, 5, 100));
     try std.testing.expectEqual(@as(usize, 0), applyPointerDelta(10, 5, 0));
     try std.testing.expectEqual(@as(u32, 0x4080e0), pointerWheelColor(-1));
