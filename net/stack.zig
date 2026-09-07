@@ -235,7 +235,7 @@ pub const Stack = struct {
         var attempts: u8 = 0;
         while (attempts < 64) : (attempts += 1) {
             const length = try self.device.receive(&frame);
-            if (length < 54 or get16(frame[12..]) != 0x0800 or frame[23] != 6 or frame[14] >> 4 != 4) continue;
+            if (length > frame.len or length < 54 or get16(frame[12..]) != 0x0800 or frame[23] != 6 or frame[14] >> 4 != 4) continue;
             const ip_header = @as(usize, frame[14] & 0x0f) * 4;
             const total_length = get16(frame[16..]);
             if (ip_header < 20 or total_length < ip_header + 20 or (get16(frame[20..]) & 0x3fff) != 0 or length < 14 + total_length) continue;
@@ -277,7 +277,7 @@ pub const Stack = struct {
         var attempts: u8 = 0;
         while (attempts < 16) : (attempts += 1) {
             const length = try self.device.receive(&received);
-            if (length < 42 or get16(received[12..]) != 0x0806 or get16(received[14..]) != 1 or
+            if (length > received.len or length < 42 or get16(received[12..]) != 0x0806 or get16(received[14..]) != 1 or
                 get16(received[16..]) != 0x0800 or received[18] != 6 or received[19] != 4 or
                 get16(received[20..]) != 2) continue;
             if (!equal(received[28..32], &address) or !equal(received[38..42], &self.local_ip) or
@@ -308,7 +308,7 @@ pub const Stack = struct {
         var attempts: u8 = 0;
         while (attempts < 16) : (attempts += 1) {
             const length = try self.device.receive(&received);
-            if (length < 42 or get16(received[12..]) != 0x0800 or received[14] >> 4 != 4 or
+            if (length > received.len or length < 42 or get16(received[12..]) != 0x0800 or received[14] >> 4 != 4 or
                 !equal(received[6..12], &self.gateway_mac) or !equal(received[0..6], &self.device.mac)) continue;
             const header_length = @as(usize, received[14] & 0x0f) * 4;
             const total_length = get16(received[16..]);
@@ -354,7 +354,7 @@ pub const Stack = struct {
         var attempts: u8 = 0;
         while (attempts < 32) : (attempts += 1) {
             const length = try self.device.receive(&frame);
-            if (length < 42 + 240 or get16(frame[12..]) != 0x0800 or frame[23] != 17 or frame[14] >> 4 != 4) continue;
+            if (length > frame.len or length < 42 + 240 or get16(frame[12..]) != 0x0800 or frame[23] != 17 or frame[14] >> 4 != 4) continue;
             const ip_header = @as(usize, frame[14] & 0x0f) * 4;
             const total_length = get16(frame[16..]);
             if (ip_header < 20 or total_length < ip_header + 8 + 240 or
