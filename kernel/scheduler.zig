@@ -497,6 +497,23 @@ test "scheduler game mode freezes without standby" {
     try std.testing.expectEqual(Lifecycle.frozen, threads[0].lifecycle);
 }
 
+test "scheduler normal mode leaves group runnable" {
+    const saved_count = thread_count;
+    const saved_thread = threads[0];
+    const saved_mode = system_mode;
+    defer {
+        thread_count = saved_count;
+        threads[0] = saved_thread;
+        system_mode = saved_mode;
+    }
+    threads[0] = .{ .context = .{}, .entry = schedulerTestEntry, .state = .ready, .group = 25, .policy = .freeze, .lifecycle = .running };
+    thread_count = 1;
+    system_mode = .normal;
+    try std.testing.expectEqual(@as(usize, 0), applyMode(25));
+    try std.testing.expectEqual(State.ready, threads[0].state);
+    try std.testing.expectEqual(Lifecycle.running, threads[0].lifecycle);
+}
+
 test "scheduler sleep accounting ignores finished threads" {
     const saved_count = thread_count;
     const saved_threads = threads[0..2].*;
