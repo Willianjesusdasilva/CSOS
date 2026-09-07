@@ -362,6 +362,8 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         61 => wait4(arg1, arg2, arg3, arg4),
         63 => uname(arg1),
         72 => fcntl(arg1, arg2, arg3),
+        74 => syncFile(arg1),
+        75 => syncFile(arg1),
         79 => getcwd(arg1, arg2),
         89 => readlinkat(@bitCast(@as(i64, -100)), arg1, arg2, arg3),
         96 => writeTime(arg1, 16),
@@ -419,6 +421,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         247 => waitId(arg1, arg2, arg3, arg4),
         271 => ppoll(arg1, arg2, arg3, arg4),
         302 => prlimit64(arg1, arg2, arg3, arg4),
+        306 => syncFile(arg1),
         273 => setRobustList(arg1, arg2),
         274 => getRobustList(arg1, arg2, arg3, arg4),
         309 => getcpu(arg1, arg2),
@@ -2875,6 +2878,11 @@ fn faccessat2(directory_fd: u64, path: u64, mode: u64, flags: u64) u64 {
     _ = directory_fd;
     if (flags != 0 and flags != 0x200) return errno(22);
     return access(path, @truncate(mode));
+}
+
+fn syncFile(fd: u64) u64 {
+    if (!vfs.isOpen(@intCast(fd))) return errno(9);
+    return 0;
 }
 
 fn futex(address: u64, operation: u64, expected: u64) u64 {
