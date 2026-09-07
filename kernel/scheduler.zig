@@ -446,6 +446,23 @@ test "scheduler match mode moves a group through standby and resume" {
     try std.testing.expectEqual(Lifecycle.resuming, threads[0].lifecycle);
 }
 
+test "scheduler match mode preserves keep alive threads" {
+    const saved_count = thread_count;
+    const saved_thread = threads[0];
+    const saved_mode = system_mode;
+    defer {
+        thread_count = saved_count;
+        threads[0] = saved_thread;
+        system_mode = saved_mode;
+    }
+    threads[0] = .{ .context = .{}, .entry = schedulerTestEntry, .state = .ready, .group = 22, .policy = .keep_alive, .lifecycle = .running };
+    thread_count = 1;
+    system_mode = .match;
+    try std.testing.expectEqual(@as(usize, 0), applyMode(22));
+    try std.testing.expectEqual(State.ready, threads[0].state);
+    try std.testing.expectEqual(Lifecycle.running, threads[0].lifecycle);
+}
+
 test "scheduler sleep accounting ignores finished threads" {
     const saved_count = thread_count;
     const saved_threads = threads[0..2].*;
