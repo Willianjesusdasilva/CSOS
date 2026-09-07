@@ -517,6 +517,14 @@ pub const AudioDevice = struct {
     pub fn pause(self: *AudioDevice, value: bool) void {
         self.paused = value;
     }
+
+    pub fn queuedFrames(self: *const AudioDevice) u64 {
+        return self.queued_frames;
+    }
+
+    pub fn availableFrames(self: *const AudioDevice) u64 {
+        return if (self.paused) 0 else self.queued_frames;
+    }
 };
 
 pub fn createWindow(storage: []u32, width: usize, height: usize) !Window {
@@ -704,9 +712,12 @@ test "SDL software event queue and surface contract" {
     try @import("std").testing.expect(app.frame(&app_events, &testApplicationEvent, &testApplicationDraw));
     var audio = try AudioDevice.init(.{ .sample_rate = 48000, .channels = 2 });
     audio.queue(256);
+    try @import("std").testing.expectEqual(@as(u64, 256), audio.queuedFrames());
+    try @import("std").testing.expectEqual(@as(u64, 256), audio.availableFrames());
     try @import("std").testing.expectEqual(@as(u64, 128), audio.consume(128));
     audio.pause(true);
     try @import("std").testing.expect(audio.paused);
+    try @import("std").testing.expectEqual(@as(u64, 0), audio.availableFrames());
     try @import("std").testing.expectEqual(@as(u64, 0), audio.consume(64));
     try @import("std").testing.expectEqual(@as(u64, 128), audio.queued_frames);
     audio.pause(false);
