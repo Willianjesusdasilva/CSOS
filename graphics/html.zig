@@ -1,7 +1,7 @@
 const std = @import("std");
 
 pub const Kind = enum { heading, paragraph, button, link };
-pub const Element = struct { kind: Kind, text: []const u8, accent: bool = false, muted: bool = false, danger: bool = false };
+pub const Element = struct { kind: Kind, text: []const u8, target: []const u8 = "", accent: bool = false, muted: bool = false, danger: bool = false };
 pub const DrawText = *const fn (x: usize, y: usize, text: []const u8, color: u32) void;
 
 /// Small allocation-free HTML subset used by the planned system UI.
@@ -24,7 +24,17 @@ pub const Document = struct {
             if (kind) |value| {
                 const end_tag = switch (value) { .heading => "</h1>", .paragraph => "</p>", .button => "</button>", .link => "</a>" };
                 if (std.mem.indexOfPos(u8, source, close + 1, end_tag)) |end| {
-                    document.elements[document.count] = .{ .kind = value, .text = std.mem.trim(u8, source[close + 1 .. end], " \t\r\n"), .accent = std.mem.indexOf(u8, tag, "accent") != null, .muted = std.mem.indexOf(u8, tag, "muted") != null, .danger = std.mem.indexOf(u8, tag, "danger") != null };
+                    var target: []const u8 = "";
+                    if (value == .link) {
+                        if (std.mem.indexOf(u8, tag, "href=")) |href_start| {
+                            var value_start = href_start + 5;
+                            if (value_start < tag.len and (tag[value_start] == '"' or tag[value_start] == '\'')) value_start += 1;
+                            const quote: u8 = if (href_start + 5 < tag.len and tag[href_start + 5] == '\'') '\'' else '"';
+                            const value_end = std.mem.indexOfScalarPos(u8, tag, value_start, quote) orelse tag.len;
+                            target = tag[value_start..value_end];
+                        }
+                    }
+                    document.elements[document.count] = .{ .kind = value, .text = std.mem.trim(u8, source[close + 1 .. end], " \t\r\n"), .target = target, .accent = std.mem.indexOf(u8, tag, "accent") != null, .muted = std.mem.indexOf(u8, tag, "muted") != null, .danger = std.mem.indexOf(u8, tag, "danger") != null };
                     document.count += 1;
                     cursor = end + end_tag.len;
                     continue;
@@ -62,7 +72,7 @@ pub const Document = struct {
 
     pub fn activateAt(self: *const Document, x: usize, y: usize, origin_x: usize, origin_y: usize) ?[]const u8 {
         const index = self.hitTest(x, y, origin_x, origin_y) orelse return null;
-        return self.elements[index].text;
+        return if (self.elements[index].kind == .link and self.elements[index].target.len != 0) self.elements[index].target else self.elements[index].text;
     }
 
     pub fn nextButton(self: *const Document, current: ?usize, forward: bool) ?usize {
@@ -78,7 +88,7 @@ pub const Document = struct {
 
     pub fn activateIndex(self: *const Document, index: usize) ?[]const u8 {
         if (index >= self.count or (self.elements[index].kind != .button and self.elements[index].kind != .link)) return null;
-        return self.elements[index].text;
+        return if (self.elements[index].kind == .link and self.elements[index].target.len != 0) self.elements[index].target else self.elements[index].text;
     }
 };
 
@@ -132,9 +142,9 @@ test "HTML danger class is preserved for destructive actions" {
 test "HTML links are actionable and participate in focus" {
     const document = Document.parse("<p>Menu</p><a href=/system>System</a>");
     try std.testing.expectEqual(Kind.link, document.elements[1].kind);
-    try std.testing.expectEqualStrings("System", document.activateAt(12, 20, 4, 4).?);
+    try std.testing.expectEqualStrings("/system", document.activateAt(12, 20, 4, 4).?);
     try std.testing.expectEqual(@as(usize, 1), document.nextButton(null, true).?);
-    try std.testing.expectEqualStrings("System", document.activateIndex(1).?);
+    try std.testing.expectEqualStrings("/system", document.activateIndex(1).?);
 }
 
 test "HTML button focus cycles with keyboard direction" {
