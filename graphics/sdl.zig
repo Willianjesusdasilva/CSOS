@@ -440,6 +440,7 @@ pub const TextInput = struct {
     }
 
     pub fn eraseWordBackward(self: *TextInput) void {
+        self.len = @min(self.len, self.bytes.len);
         self.cursor = @min(self.cursor, self.len);
         const old_cursor = self.cursor;
         while (self.cursor > 0 and isWordSeparator(self.bytes[self.cursor - 1])) : (self.cursor -= 1) {}
@@ -972,6 +973,10 @@ test "SDL software event queue and surface contract" {
     input.len = std.math.maxInt(usize);
     input.replace("safe");
     try @import("std").testing.expectEqualStrings("safe", input.slice());
+    input.clear();
+    input.len = std.math.maxInt(usize);
+    input.eraseWordBackward();
+    try @import("std").testing.expectEqual(@as(usize, 0), input.len);
     input.replace("abcdef");
     input.cursor = 2;
     input.eraseToEnd();
