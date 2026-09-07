@@ -55,6 +55,8 @@ pub const Device = struct {
     pub fn resumeDevice(self: *Device) !void {
         if (!self.suspended) return error.DeviceNotSuspended;
         if (self.state != .configured) return error.DeviceNotConfigured;
+        if (!isSupportedRate(self.format.sample_rate) or self.frameBytes() == null)
+            return error.UnsupportedFormat;
         self.suspended = false;
         if (self.suspended_streaming) self.state = .streaming;
         self.suspended_streaming = false;
@@ -135,6 +137,14 @@ test "audio subsystem rejects unsupported sample rates" {
 test "audio device validation rejects unsupported sample rates" {
     const device = Device{ .format = .{ .channels = 2, .bits_per_sample = 16, .sample_rate = 12_345 } };
     try std.testing.expectError(error.UnsupportedFormat, device.validate(1000, 4096));
+}
+
+test "audio resume revalidates a changed format" {
+    var device = Device{ .state = .streaming, .format = .{ .channels = 2, .bits_per_sample = 16, .sample_rate = 48_000 } };
+    device.suspendDevice();
+    device.format.sample_rate = 12_345;
+    try std.testing.expectError(error.UnsupportedFormat, device.resumeDevice());
+    try std.testing.expect(device.suspended);
 }
 
 test "audio rediscovery resets stream metrics" {
@@ -985,7 +995,7 @@ test "device manager reports whether recovery was needed" {
 }
 
 test "device resume preserves non-streaming state" {
-    var device = Device{ .state = .configured };
+    var device = Device{ .state = .configured, .format = .{ .channels = 2, .bits_per_sample = 16, .sample_rate = 48_000 } };
     device.suspendDevice();
     try device.resumeDevice();
     try @import("std").testing.expectEqual(State.configured, device.state);
