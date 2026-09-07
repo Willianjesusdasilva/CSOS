@@ -296,7 +296,11 @@ pub const DeviceManager = struct {
     }
 
     pub fn resume(self: *DeviceManager) !void {
-        if (self.device.state != .configured) return error.DeviceNotConfigured;
+        if (self.stream == null or self.device.state != .configured) return error.DeviceNotConfigured;
+        // Re-arm the transport as well as the manager state. Merely marking the
+        // manager streaming leaves the paused stream configured with no queued
+        // periods, causing the first completion to underrun immediately.
+        self.stream.?.start() catch return error.StreamStartFailed;
         self.device.state = .streaming;
     }
 
