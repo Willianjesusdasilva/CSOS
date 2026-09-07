@@ -211,12 +211,14 @@ pub const Pager = struct {
     }
 
     pub fn next(self: *Pager) bool {
+        if (self.offset > self.total) self.offset = self.total;
         if (self.offset >= self.total or self.page_size >= self.total - self.offset) return false;
         self.offset += self.page_size;
         return true;
     }
 
     pub fn previous(self: *Pager) bool {
+        if (self.offset > self.total) self.offset = self.total;
         if (self.offset == 0) return false;
         self.offset -|= self.page_size;
         return true;
@@ -1220,6 +1222,16 @@ test "list selection keeps the selected row inside its viewport" {
     try testing.expectEqual(@as(usize, 192), pager.offset);
     try testing.expect(pager.home());
     try testing.expectEqual(@as(usize, 0), pager.offset);
+}
+
+test "SDL pager recovers an offset beyond the current total" {
+    var pager = Pager.init(4);
+    pager.reset(10);
+    pager.offset = 99;
+    try @import("std").testing.expect(!pager.next());
+    try @import("std").testing.expectEqual(@as(usize, 10), pager.offset);
+    try @import("std").testing.expect(pager.previous());
+    try @import("std").testing.expectEqual(@as(usize, 6), pager.offset);
 }
 
 test "SDL pager clamps page movement and zero page sizes" {
