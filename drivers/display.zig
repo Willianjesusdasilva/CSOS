@@ -470,6 +470,14 @@ pub const WindowManager = struct {
         return true;
     }
 
+    pub fn updateLauncherHover(self: *WindowManager, x: usize, y: usize, screen_height: usize) bool {
+        if (!self.launcher_open) return false;
+        if (self.launcherItemHitTest(x, y, screen_height)) |application_id| {
+            return self.launcherSelectApplication(application_id);
+        }
+        return false;
+    }
+
     pub fn compose(self: *const WindowManager, context: *Context) void {
         var i: usize = 0;
         while (i < self.count) : (i += 1) {
@@ -834,6 +842,17 @@ test "launcher wheel navigation wraps selection" {
     try std.testing.expect(manager.launcherSelectWheel(-1));
     try std.testing.expectEqual(@as(u8, 0), manager.launcher_selection);
     try std.testing.expect(!manager.launcherSelectWheel(0));
+}
+
+test "launcher hover updates selection" {
+    var manager = WindowManager{};
+    manager.launcher_open = true;
+    try std.testing.expect(manager.updateLauncherHover(12, 70, 180));
+    try std.testing.expectEqual(@as(u8, 0), manager.launcher_selection);
+    try std.testing.expect(manager.updateLauncherHover(12, 94, 180));
+    try std.testing.expectEqual(@as(u8, 1), manager.launcher_selection);
+    try std.testing.expect(!manager.updateLauncherHover(300, 20, 180));
+    try std.testing.expectEqual(@as(u8, 1), manager.launcher_selection);
 }
 
 test "window manager rejects hit tests outside the screen" {

@@ -2326,6 +2326,9 @@ pub fn start(info: BootInfo) noreturn {
                 _ = window_manager.launcherSelectWheel(wheel);
             }
             if (dx != 0 or dy != 0) window_manager.updateTaskbarHover(cursor_x, cursor_y, screen.framebuffer.height);
+            if (window_manager.launcher_open and (dx != 0 or dy != 0)) {
+                _ = window_manager.updateLauncherHover(cursor_x, cursor_y, screen.framebuffer.height);
+            }
             if (window_manager.switcher_open and (dx != 0 or dy != 0)) window_manager.updateSwitcherHover(cursor_x, cursor_y, screen.framebuffer.width, screen.framebuffer.height);
             if (focusedWindowIs(window_manager, 4)) {
                 if (!files_preview_open and files_selection.wheel(wheel)) {
