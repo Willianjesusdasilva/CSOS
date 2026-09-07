@@ -1582,8 +1582,9 @@ pub fn start(info: BootInfo) noreturn {
     const files_surface_pixels: [*]u32 = @ptrFromInt(files_surface_address);
     var files_window = sdl.createWindow(files_surface_pixels[0 .. 224 * 96], 224, 96) catch panic("SDL files surface creation failed");
     var root_files: [32]fat16.Volume.DirectoryEntry = undefined;
+    var files_filter = sdl.TextInput{};
     var files_selection = sdl.ListSelection.init(0, 7);
-    var root_file_count = refreshFiles(&volume, &root_files, &files_selection, &files_window) catch panic("FAT16 root listing failed");
+    var root_file_count = refreshFiles(&volume, &root_files, &files_selection, &files_window, &files_filter) catch panic("FAT16 root listing failed");
     var files_preview: [192]u8 = undefined;
     var files_preview_pager = sdl.Pager.init(files_preview.len);
     var files_preview_open = false;
@@ -2139,7 +2140,7 @@ pub fn start(info: BootInfo) noreturn {
                     if (files_shortcut_pressed) {
                         files_preview_open = false;
                         files_preview_back_hover = false;
-                        root_file_count = refreshFiles(&volume, &root_files, &files_selection, &files_window) catch panic("UI files shortcut refresh failed");
+                        root_file_count = refreshFiles(&volume, &root_files, &files_selection, &files_window, &files_filter) catch panic("UI files shortcut refresh failed");
                     }
                     serial.write(if (system_shortcut_pressed) "UI system shortcut\n" else "UI files shortcut\n");
                 }
@@ -2185,7 +2186,7 @@ pub fn start(info: BootInfo) noreturn {
                             if (application_id == 4) {
                                 files_preview_open = false;
                                 files_preview_back_hover = false;
-                                root_file_count = refreshFiles(&volume, &root_files, &files_selection, &files_window) catch panic("UI files keyboard refresh failed");
+                                root_file_count = refreshFiles(&volume, &root_files, &files_selection, &files_window, &files_filter) catch panic("UI files keyboard refresh failed");
                             }
                             window_manager.dismissLauncher();
                             serial.write(if (event.a == 0x28) "UI launch application (keyboard): " else "UI launch application (Space): ");
@@ -2197,15 +2198,28 @@ pub fn start(info: BootInfo) noreturn {
                     }
                 }
                 if (!terminal_shortcut_pressed and !monitor_shortcut_pressed and !system_shortcut_pressed and !files_shortcut_pressed and !launcher_consumed and !tab_switch_pressed and event.c != 0 and focusedWindowIs(window_manager, 4) and event.a != 0) {
-                    if (event.a == 0x3e or (event.a == 0x15 and (event.b & 0x11) != 0)) {
-                        root_file_count = refreshFiles(&volume, &root_files, &files_selection, &files_window) catch panic("UI files F5 refresh failed");
+                    if (!files_preview_open and event.a == 0x29) {
+                        files_filter.clear();
+                        root_file_count = refreshFiles(&volume, &root_files, &files_selection, &files_window, &files_filter) catch panic("UI files filter clear failed");
+                        file_browser_consumed = true;
+                    } else if (!files_preview_open and event.a == 0x2a) {
+                        _ = files_filter.backspace();
+                        root_file_count = refreshFiles(&volume, &root_files, &files_selection, &files_window, &files_filter) catch panic("UI files filter edit failed");
+                        file_browser_consumed = true;
+                    } else if (!files_preview_open and event.a != 0x3e and event.a != 0x51 and event.a != 0x52 and event.a != 0x4a and event.a != 0x4d and event.a != 0x4b and event.a != 0x4e and event.a != 0x28 and event.a != 0x2c and event.a != 0x4c) {
+                        if (hidCharacter(event.a, event.b, hid_caps_lock)) |byte| {
+                            if (files_filter.insert(byte)) root_file_count = refreshFiles(&volume, &root_files, &files_selection, &files_window, &files_filter) catch panic("UI files filter edit failed");
+                            file_browser_consumed = true;
+                        }
+                    } else if (event.a == 0x3e or (event.a == 0x15 and (event.b & 0x11) != 0)) {
+                        root_file_count = refreshFiles(&volume, &root_files, &files_selection, &files_window, &files_filter) catch panic("UI files F5 refresh failed");
                         files_preview_open = false;
                         files_preview_back_hover = false;
                         file_browser_consumed = true;
                         serial.write(if (event.a == 0x3e) "UI files refreshed\n" else "UI files refreshed (Ctrl+R)\n");
                     } else if (files_preview_open and event.a == 0x29) {
                         files_preview_open = false;
-                        drawFilesSurface(&files_window, root_files[0..root_file_count], &files_selection);
+                        drawFilesSurface(&files_window, root_files[0..root_file_count], &files_selection, files_filter.slice());
                         file_browser_consumed = true;
                         serial.write("UI files preview closed\n");
                     } else if (files_preview_open) {
@@ -2233,14 +2247,14 @@ pub fn start(info: BootInfo) noreturn {
                             0x4e => files_selection.pageNext(),
                             else => false,
                         };
-                        if (changed) drawFilesSurface(&files_window, root_files[0..root_file_count], &files_selection);
+                        if (changed) drawFilesSurface(&files_window, root_files[0..root_file_count], &files_selection, files_filter.slice());
                         if (event.a == 0x4c and root_file_count != 0) {
                             volume.deleteRootFile(&root_files[files_selection.selected].name) catch |err| {
                                 serial.write("UI files delete failed: ");
                                 serial.write(@errorName(err));
                                 serial.write("\n");
                             };
-                            root_file_count = refreshFiles(&volume, &root_files, &files_selection, &files_window) catch panic("UI files delete refresh failed");
+                            root_file_count = refreshFiles(&volume, &root_files, &files_selection, &files_window, &files_filter) catch panic("UI files delete refresh failed");
                             files_preview_open = false;
                             files_preview_back_hover = false;
                             file_browser_consumed = true;
@@ -2274,7 +2288,7 @@ pub fn start(info: BootInfo) noreturn {
                         const application_was_open = window_manager.findById(application_id) != null;
                         _ = launchDesktopWindow(window_manager, application_id, &demo_app.window, &monitor_window, &system_window, &files_window) catch panic("UI HTML application launch failed");
                         if (application_id == 1 and !application_was_open) resetSdlDemoApplication(&demo_app);
-                        if (application_id == 4) root_file_count = refreshFiles(&volume, &root_files, &files_selection, &files_window) catch panic("UI HTML files refresh failed");
+                        if (application_id == 4) root_file_count = refreshFiles(&volume, &root_files, &files_selection, &files_window, &files_filter) catch panic("UI HTML files refresh failed");
                         serial.write("UI HTML link: ");
                         serial.write(route);
                         serial.write(" (keyboard)\n");
@@ -2441,7 +2455,7 @@ pub fn start(info: BootInfo) noreturn {
             if (window_manager.switcher_open and pointer_state_changed) window_manager.updateSwitcherHover(cursor_x, cursor_y, screen.framebuffer.width, screen.framebuffer.height);
             if (focusedWindowIs(window_manager, 4)) {
                 if (!files_preview_open and files_selection.wheel(wheel)) {
-                    drawFilesSurface(&files_window, root_files[0..root_file_count], &files_selection);
+                    drawFilesSurface(&files_window, root_files[0..root_file_count], &files_selection, files_filter.slice());
                 } else if (files_preview_open and wheel != 0) {
                     const changed = if (wheel < 0) files_preview_pager.next() else files_preview_pager.previous();
                     if (changed) _ = loadFilePreview(&volume, root_files[files_selection.selected], &files_preview_pager, &files_preview, &files_window) catch panic("UI mouse file preview page read failed");
@@ -2455,7 +2469,7 @@ pub fn start(info: BootInfo) noreturn {
                 }
                 if (!files_preview_open and pointer_state_changed and root_file_count != 0) {
                     if (window_manager.contentListRowHitTest(window_manager.focused.?, cursor_x, cursor_y, 17, 11, 10, files_selection.visible_rows)) |row| {
-                        if (files_selection.selectVisibleRow(row)) drawFilesSurface(&files_window, root_files[0..root_file_count], &files_selection);
+                        if (files_selection.selectVisibleRow(row)) drawFilesSurface(&files_window, root_files[0..root_file_count], &files_selection, files_filter.slice());
                     }
                 }
             }
@@ -2494,7 +2508,7 @@ pub fn start(info: BootInfo) noreturn {
                         if (dock_application == 4) {
                             files_preview_open = false;
                             files_preview_back_hover = false;
-                            root_file_count = refreshFiles(&volume, &root_files, &files_selection, &files_window) catch panic("desktop dock files refresh failed");
+                            root_file_count = refreshFiles(&volume, &root_files, &files_selection, &files_window, &files_filter) catch panic("desktop dock files refresh failed");
                         }
                         serial.write("UI dock application: ");
                         serial.writeDecimal(dock_application);
@@ -2515,7 +2529,7 @@ pub fn start(info: BootInfo) noreturn {
                         if (application_id == 4) {
                             files_preview_open = false;
                             files_preview_back_hover = false;
-                            root_file_count = refreshFiles(&volume, &root_files, &files_selection, &files_window) catch panic("UI files mouse refresh failed");
+                            root_file_count = refreshFiles(&volume, &root_files, &files_selection, &files_window, &files_filter) catch panic("UI files mouse refresh failed");
                         }
                         window_manager.dismissLauncher();
                         serial.write("UI launch application: ");
@@ -2571,10 +2585,10 @@ pub fn start(info: BootInfo) noreturn {
                             if (window.id == 4 and files_preview_open and window_manager.contentRectHitTest(hit, cursor_x, cursor_y, 164, 2, 58, 12)) {
                                 files_preview_open = false;
                                 files_preview_back_hover = false;
-                                drawFilesSurface(&files_window, root_files[0..root_file_count], &files_selection);
+                                drawFilesSurface(&files_window, root_files[0..root_file_count], &files_selection, files_filter.slice());
                                 serial.write("UI files mouse back\n");
                             } else if (window.id == 4 and !files_preview_open and root_file_count != 0) {
-                                if (window_manager.contentListRowHitTest(hit, cursor_x, cursor_y, 17, 11, 10, files_selection.visible_rows)) |row| {
+                                if (window_manager.contentListRowHitTest(hit, cursor_x, cursor_y, 27, 11, 10, files_selection.visible_rows)) |row| {
                                     _ = files_selection.selectVisibleRow(row);
                                     files_preview_pager.reset(root_files[files_selection.selected].size);
                                     _ = loadFilePreview(&volume, root_files[files_selection.selected], &files_preview_pager, &files_preview, &files_window) catch panic("UI mouse file preview read failed");
@@ -2607,7 +2621,7 @@ pub fn start(info: BootInfo) noreturn {
                                 serial.write("UI HTML button: MONITOR\n");
                             } else if (window.id == 3 and window_manager.contentRectHitTest(hit, cursor_x, cursor_y, 4, 66, 40, 14)) {
                                 _ = launchDesktopWindow(window_manager, 4, &demo_app.window, &monitor_window, &system_window, &files_window) catch panic("UI HTML files launch failed");
-                                root_file_count = refreshFiles(&volume, &root_files, &files_selection, &files_window) catch panic("UI HTML files refresh failed");
+                                root_file_count = refreshFiles(&volume, &root_files, &files_selection, &files_window, &files_filter) catch panic("UI HTML files refresh failed");
                                 system_html_focus = 4;
                                 serial.write("UI HTML button: FILES\n");
                             }
@@ -2902,28 +2916,57 @@ fn refreshSystemSurface(window: *sdl.Window, storage_blocks: u64, input_devices:
     system_surface_cache = current;
 }
 
-fn drawFilesSurface(window: *sdl.Window, entries: []const fat16.Volume.DirectoryEntry, selection: *const sdl.ListSelection) void {
+fn drawFilesSurface(window: *sdl.Window, entries: []const fat16.Volume.DirectoryEntry, selection: *const sdl.ListSelection, filter: []const u8) void {
     window.clear(0x201a14ff);
     window.drawText(4, 4, "FILES /", 0xf0c080ff);
+    window.drawText(4, 14, "FILTER:", 0x90b0d0ff);
+    window.drawText(60, 14, filter, 0xe0e8f0ff);
     if (entries.len == 0) {
-        window.drawText(4, 22, "EMPTY", 0xa0b8d0ff);
+        window.drawText(4, 28, "EMPTY", 0xa0b8d0ff);
         return;
     }
     const end = @min(entries.len, selection.first_visible + selection.visible_rows);
     for (entries[selection.first_visible..end], selection.first_visible..) |entry, index| {
         const row = index - selection.first_visible;
-        const y = 18 + row * 11;
+        const y = 28 + row * 11;
         if (index == selection.selected) window.fillRect(2, y - 1, 220, 10, 0x50402cff);
         window.drawText(4, y, &entry.name, 0xd8d0c0ff);
         drawSurfaceNumber(window, 108, y, entry.size, 0x90b0d0ff);
     }
 }
 
-fn refreshFiles(volume: *fat16.Volume, entries: []fat16.Volume.DirectoryEntry, selection: *sdl.ListSelection, window: *sdl.Window) !usize {
+fn refreshFiles(volume: *fat16.Volume, entries: []fat16.Volume.DirectoryEntry, selection: *sdl.ListSelection, window: *sdl.Window, filter: *const sdl.TextInput) !usize {
     const count = try volume.listRootFiles(entries);
-    selection.setCount(count);
-    drawFilesSurface(window, entries[0..count], selection);
-    return count;
+    const query = filter.slice();
+    if (query.len == 0) {
+        selection.setCount(count);
+        drawFilesSurface(window, entries[0..count], selection, query);
+        return count;
+    }
+    var kept: usize = 0;
+    for (entries[0..count]) |entry| {
+        if (containsAsciiFold(&entry.name, query)) {
+            entries[kept] = entry;
+            kept += 1;
+        }
+    }
+    selection.setCount(kept);
+    drawFilesSurface(window, entries[0..kept], selection, query);
+    return kept;
+}
+
+fn containsAsciiFold(name: []const u8, query: []const u8) bool {
+    if (query.len == 0) return true;
+    if (query.len > name.len) return false;
+    var offset_start: usize = 0;
+    while (offset_start + query.len <= name.len) : (offset_start += 1) {
+        var matched = true;
+        for (query, 0..) |byte, offset| {
+            if (std.ascii.toUpper(name[offset_start + offset]) != std.ascii.toUpper(byte)) { matched = false; break; }
+        }
+        if (matched) return true;
+    }
+    return false;
 }
 
 fn loadFilePreview(volume: *fat16.Volume, entry: fat16.Volume.DirectoryEntry, pager: *const sdl.Pager, buffer: []u8, window: *sdl.Window) !usize {
