@@ -43,7 +43,7 @@ test "metrics summary orders samples and computes percentiles" {
     try samples.add(30);
     const summary = try samples.summarize();
     try @import("std").testing.expectEqual(@as(u64, 10), summary.minimum);
-    try @import("std").testing.expectEqual(@as(u64, 10), summary.p50);
+    try @import("std").testing.expectEqual(@as(u64, 30), summary.p50);
     try @import("std").testing.expectEqual(@as(u64, 50), summary.p95);
     try @import("std").testing.expectEqual(@as(u64, 50), summary.p99);
     try @import("std").testing.expectEqual(@as(u64, 50), summary.maximum);

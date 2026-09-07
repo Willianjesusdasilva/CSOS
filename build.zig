@@ -216,6 +216,14 @@ pub fn build(b: *std.Build) void {
     const run_gpu_tests = b.addRunArtifact(gpu_tests);
     const test_step = b.step("test", "Run CSOS host-side tests");
     test_step.dependOn(&run_gpu_tests.step);
+    const metrics_test_module = b.createModule(.{
+        .root_source_file = b.path("gaming/metrics.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+    });
+    const metrics_tests = b.addTest(.{ .root_module = metrics_test_module });
+    const run_metrics_tests = b.addRunArtifact(metrics_tests);
+    test_step.dependOn(&run_metrics_tests.step);
     const nvme_tests = b.addTest(.{ .root_module = nvme_test_module });
     const run_nvme_tests = b.addRunArtifact(nvme_tests);
     test_step.dependOn(&run_nvme_tests.step);
