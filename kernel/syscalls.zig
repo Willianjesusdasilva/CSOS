@@ -361,6 +361,8 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         110 => 0,
         140 => getPriority(arg1, arg2),
         141 => setPriority(arg1, arg2, @bitCast(arg3)),
+        142 => setScheduler(arg1, arg2, arg3),
+        145 => getScheduler(arg1),
         158 => archPrctl(arg1, arg2),
         // The current userspace model has one kernel thread per process.  Keep
         // gettid consistent with getpid so musl's thread-local setup does not
@@ -2838,6 +2840,16 @@ fn getPriority(which: u64, who: u64) u64 {
 fn setPriority(which: u64, who: u64, priority: i64) u64 {
     if (which > 2 or (who != 0 and who != 1) or priority < -20 or priority > 19) return errno(22);
     return 0;
+}
+
+fn setScheduler(pid: u64, policy: u64, param: u64) u64 {
+    if (pid != 0 and pid != 1 or policy != 0 or (param != 0 and !validUserSlice(param, 4))) return errno(22);
+    return 0;
+}
+
+fn getScheduler(pid: u64) u64 {
+    if (pid != 0 and pid != 1) return errno(3);
+    return 0; // SCHED_OTHER
 }
 
 fn setRobustList(head: u64, length: u64) u64 {
