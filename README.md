@@ -770,6 +770,8 @@ e inclui uma terceira aplicação SDL, `SYSTEM`. Ela mostra estado READY,
 capacidade em blocos do NVMe, quantidade de dispositivos USB de input e
 endpoints de áudio, podendo ser aberta/restaurada tanto por mouse quanto por
 teclado e fechada pelo mesmo lifecycle das outras janelas.
+Atalhos `Ctrl+Alt+T/M/S/F` abrem diretamente TERMINAL, MONITOR, SYSTEM e FILES;
+no FILES, o último atalho também atualiza a enumeração.
 
 O FAT16 expõe agora enumeração limitada da raiz, e o launcher inclui `FILES`,
 uma quarta aplicação SDL que apresenta nomes 8.3 e tamanhos reais. O boot QEMU
