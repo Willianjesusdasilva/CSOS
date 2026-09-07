@@ -348,6 +348,7 @@ pub const TextInput = struct {
 
     pub fn insert(self: *TextInput, byte: u8) bool {
         if (byte < 0x20 or byte > 0x7e or self.len == self.bytes.len) return false;
+        self.cursor = @min(self.cursor, self.len);
         var index = self.len;
         while (index > self.cursor) : (index -= 1) self.bytes[index] = self.bytes[index - 1];
         self.bytes[self.cursor] = byte;
@@ -748,6 +749,9 @@ test "SDL software event queue and surface contract" {
     try @import("std").testing.expect(input.delete());
     try @import("std").testing.expectEqualStrings("c", input.slice());
     input.moveEnd();
+    input.cursor = input.bytes.len + 1;
+    try @import("std").testing.expect(input.insert('x'));
+    try @import("std").testing.expectEqual(@as(usize, 2), input.cursor);
     var terminal = Terminal{};
     for ("status") |byte| try @import("std").testing.expect(terminal.input.insert(byte));
     try @import("std").testing.expect(terminal.submit());
