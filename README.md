@@ -667,6 +667,8 @@ Essa aplicação agora funciona como terminal gráfico não bloqueante: `Enter`
 executa os comandos internos `help`, `status`, `version`, `echo [texto]`,
 `history` e `clear`, mantendo a saída na
 janela sem interromper mouse, compositor ou outras aplicações.
+Espaços e tabulações nas bordas do comando são ignorados, permitindo, por
+exemplo, executar `  status  ` sem gerar um comando desconhecido.
 Setas para cima/baixo percorrem o histórico, Home/End movem o cursor, Delete
 remove à frente, `Esc` cancela a edição e `Ctrl+L` limpa a saída sem apagar o
 histórico; a saída acompanha automaticamente as seis linhas mais novas.
