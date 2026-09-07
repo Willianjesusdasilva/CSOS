@@ -1,4 +1,5 @@
 const physical = @import("physical");
+const std = @import("std");
 
 const page_size = 4096;
 
@@ -14,6 +15,7 @@ pub const Heap = struct {
 
     pub fn allocate(self: *Heap, size: usize, alignment: usize) ?[]u8 {
         if (size == 0 or alignment == 0 or !isPowerOfTwo(alignment)) return null;
+        if (self.used > std.math.maxInt(usize) - (alignment - 1)) return null;
         const start = (self.used + alignment - 1) & ~(alignment - 1);
         if (start > self.size or size > self.size - start) return null;
         self.used = start + size;
