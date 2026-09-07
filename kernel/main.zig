@@ -2172,6 +2172,8 @@ pub fn start(info: BootInfo) noreturn {
                             sdl_terminal.input.moveHome();
                         } else if (event.a == 0x08 and (event.b & 0x01) != 0) {
                             sdl_terminal.input.moveEnd();
+                        } else if (event.a == 0x18 and (event.b & 0x01) != 0) {
+                            sdl_terminal.input.clear();
                         } else if (event.a == 0x2a) {
                             _ = sdl_terminal.input.backspace();
                         } else if (event.a == 0x4c) {
