@@ -368,6 +368,7 @@ pub const Stack = struct {
             if (bootp[0] != 2 or get32(bootp[4..]) != self.dhcp_transaction or !equal(bootp[28..34], &self.device.mac)) continue;
             if (bootp[236] != 99 or bootp[237] != 130 or bootp[238] != 83 or bootp[239] != 99) continue;
             var lease = Lease{ .address = bootp[16..20].* };
+            if (zero(&lease.address)) continue;
             var message_type: u8 = 0;
             var saw_end = false;
             var malformed = false;
