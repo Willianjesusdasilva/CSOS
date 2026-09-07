@@ -2899,6 +2899,7 @@ fn syncAll() u64 {
 fn epollCreate(flags: u64) u64 {
     if ((flags & ~@as(u64, 0x80000)) != 0) return errno(22);
     const fd = vfs.openEpoll() catch |err| return vfsError(err);
+    epoll_watches[fd] = .{EpollWatch{}} ** max_epoll_watch;
     return fd;
 }
 
