@@ -659,6 +659,16 @@ test "window manager enforces maximum window count" {
     try std.testing.expectError(error.WindowLimit, manager.create(.{ .id = 99, .x = 0, .y = 0, .width = 32, .height = 24 }));
 }
 
+test "window manager can unmaximize after display shrink" {
+    var manager = WindowManager{};
+    _ = try manager.create(.{ .id = 1, .x = 8, .y = 8, .width = 80, .height = 48 });
+    try std.testing.expect(manager.toggleMaximized(0, 128, 96));
+    try std.testing.expect(manager.windows[0].maximized);
+    try std.testing.expect(manager.toggleMaximized(0, 32, 44));
+    try std.testing.expect(!manager.windows[0].maximized);
+    try std.testing.expect(manager.windows[0].width <= 32);
+}
+
 test "window manager clamps geometry to usable screen" {
     var manager = WindowManager{};
     const index = try manager.create(.{ .id = 7, .x = 4, .y = 4, .width = 80, .height = 48 });
