@@ -2130,6 +2130,7 @@ pub fn start(info: BootInfo) noreturn {
                             if (application_id == 1 and !was_open) resetSdlDemoApplication(&demo_app);
                             if (application_id == 4) {
                                 files_preview_open = false;
+                                files_preview_back_hover = false;
                                 root_file_count = refreshFiles(&volume, &root_files, &files_selection, &files_window) catch panic("UI files keyboard refresh failed");
                             }
                             window_manager.dismissLauncher();
@@ -2145,6 +2146,7 @@ pub fn start(info: BootInfo) noreturn {
                     if (event.a == 0x3e) {
                         root_file_count = refreshFiles(&volume, &root_files, &files_selection, &files_window) catch panic("UI files F5 refresh failed");
                         files_preview_open = false;
+                        files_preview_back_hover = false;
                         file_browser_consumed = true;
                         serial.write("UI files refreshed\n");
                     } else if (files_preview_open and event.a == 0x29) {
@@ -2264,6 +2266,7 @@ pub fn start(info: BootInfo) noreturn {
                     window_manager.close(closing);
                     if (closed_id == 1) demo_app.running = false;
                     if (closed_id == 4) files_preview_open = false;
+                    if (closed_id == 4) files_preview_back_hover = false;
                     serial.write(if (event.a == 0x29) "UI close window (Esc): " else "UI close window (Ctrl+W): ");
                     serial.writeDecimal(closed_id);
                     serial.write("\n");
@@ -2389,6 +2392,7 @@ pub fn start(info: BootInfo) noreturn {
                         if (application_id == 1 and !was_open) resetSdlDemoApplication(&demo_app);
                         if (application_id == 4) {
                             files_preview_open = false;
+                            files_preview_back_hover = false;
                             root_file_count = refreshFiles(&volume, &root_files, &files_selection, &files_window) catch panic("UI files mouse refresh failed");
                         }
                         window_manager.dismissLauncher();
@@ -2407,7 +2411,10 @@ pub fn start(info: BootInfo) noreturn {
                             const closed_id = window.id;
                             window_manager.close(hit);
                             if (closed_id == 1) demo_app.running = false;
-                            if (closed_id == 4) files_preview_open = false;
+                            if (closed_id == 4) {
+                                files_preview_open = false;
+                                files_preview_back_hover = false;
+                            }
                             serial.write("UI close window: ");
                             serial.writeDecimal(closed_id);
                             serial.write("\n");
@@ -2439,6 +2446,7 @@ pub fn start(info: BootInfo) noreturn {
                             window_manager.dismissLauncher();
                             if (window.id == 4 and files_preview_open and window_manager.contentRectHitTest(hit, cursor_x, cursor_y, 164, 2, 58, 12)) {
                                 files_preview_open = false;
+                                files_preview_back_hover = false;
                                 drawFilesSurface(&files_window, root_files[0..root_file_count], &files_selection);
                                 serial.write("UI files mouse back\n");
                             } else if (window.id == 4 and !files_preview_open and root_file_count != 0) {
