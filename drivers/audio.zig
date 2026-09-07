@@ -882,6 +882,17 @@ test "device manager rebuilds stream during recovery" {
     try std.testing.expectEqual(@as(u64, 0), manager.metrics.underruns);
 }
 
+test "device manager reports whether recovery was needed" {
+    var manager = DeviceManager{};
+    try manager.attach(.{ .channels = 2, .bits_per_sample = 16, .sample_rate = 48_000 }, 1000, 4096);
+    try manager.configure();
+    try manager.start();
+    try std.testing.expect(!(try manager.recoverIfNeeded()));
+    try std.testing.expectError(error.QueueEmpty, manager.noteComplete());
+    try std.testing.expect(try manager.recoverIfNeeded());
+    try std.testing.expect(manager.device.state == .streaming);
+}
+
 test "device resume preserves non-streaming state" {
     var device = Device{ .state = .configured };
     device.suspendDevice();
