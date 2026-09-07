@@ -42,6 +42,7 @@ var timer_lifecycle_phase: u8 = 0;
 var console_usb: ?*xhci.Controller = null;
 var console_hid: ?*xhci.HidDevices = null;
 var console_last_key: u8 = 0;
+var hid_caps_lock = false;
 var console_input_irq_apic: u32 = 0;
 var audio_reported = false;
 var sdl_demo_pixels: [224 * 96]u32 = .{0} ** (224 * 96);
@@ -2089,6 +2090,7 @@ pub fn start(info: BootInfo) noreturn {
         };
         while (hid.pop()) |event| {
             if (event.kind == .keyboard) {
+                if (event.c != 0 and event.a == 0x39) hid_caps_lock = !hid_caps_lock;
                 var launcher_consumed = false;
                 var switcher_consumed = false;
                 var file_browser_consumed = false;
@@ -2215,7 +2217,7 @@ pub fn start(info: BootInfo) noreturn {
                             _ = sdl_terminal.historyPrevious();
                         } else if (event.a == 0x51) {
                             _ = sdl_terminal.historyNext();
-                        } else if (hidCharacter(event.a, event.b)) |byte| {
+                        } else if (hidCharacter(event.a, event.b, hid_caps_lock)) |byte| {
                             if (sdl_terminal.input.insert(byte)) _ = sdl_events.pushText(byte);
                         }
                     }
@@ -2663,7 +2665,8 @@ fn consoleRead(output: [*]u8, length: usize) callconv(.c) usize {
                 }
                 if (event.a == console_last_key) continue;
                 console_last_key = event.a;
-                if (hidCharacter(event.a, event.b)) |byte| {
+                if (event.c != 0 and event.a == 0x39) hid_caps_lock = !hid_caps_lock;
+                if (hidCharacter(event.a, event.b, hid_caps_lock)) |byte| {
                     output[count] = byte;
                     count += 1;
                     break;
@@ -2675,10 +2678,10 @@ fn consoleRead(output: [*]u8, length: usize) callconv(.c) usize {
     return count;
 }
 
-fn hidCharacter(usage: u8, modifiers: u8) ?u8 {
+fn hidCharacter(usage: u8, modifiers: u8, caps_lock: bool) ?u8 {
     const shifted = (modifiers & 0x22) != 0;
     if (usage >= 4 and usage <= 29) {
-        const base: u8 = if (shifted) 'A' else 'a';
+        const base: u8 = if (shifted != caps_lock) 'A' else 'a';
         return base + usage - 4;
     }
     if (usage >= 30 and usage <= 38) return if (shifted) "!@#$%^&*("[usage - 30] else "123456789"[usage - 30];
@@ -2705,10 +2708,12 @@ fn hidCharacter(usage: u8, modifiers: u8) ?u8 {
 
 test "HID character mapping covers control and shifted keys" {
     const testing = @import("std").testing;
-    try testing.expectEqual(@as(?u8, '\t'), hidCharacter(43, 0));
-    try testing.expectEqual(@as(?u8, '\n'), hidCharacter(40, 0));
-    try testing.expectEqual(@as(?u8, 'A'), hidCharacter(4, 0x02));
-    try testing.expectEqual(@as(?u8, '!'), hidCharacter(30, 0x20));
+    try testing.expectEqual(@as(?u8, '\t'), hidCharacter(43, 0, false));
+    try testing.expectEqual(@as(?u8, '\n'), hidCharacter(40, 0, false));
+    try testing.expectEqual(@as(?u8, 'A'), hidCharacter(4, 0x02, false));
+    try testing.expectEqual(@as(?u8, 'A'), hidCharacter(4, 0, true));
+    try testing.expectEqual(@as(?u8, 'a'), hidCharacter(4, 0x02, true));
+    try testing.expectEqual(@as(?u8, '!'), hidCharacter(30, 0x20, false));
 }
 
 fn consoleWait() callconv(.c) void {
