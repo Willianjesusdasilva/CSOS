@@ -300,8 +300,9 @@ pub fn seek(fd: usize, offset: i64, whence: u64) !usize {
     if (fd >= descriptors.len or descriptors[fd].kind != .file) return error.BadFd;
     const size: i64 = @intCast(descriptors[fd].size);
     const base: i64 = switch (whence) { 0 => 0, 1 => @intCast(descriptors[fd].offset), 2 => size, else => return error.Invalid };
-    if (offset < -base or base + offset < 0) return error.Invalid;
-    descriptors[fd].offset = @intCast(base + offset);
+    const result = @addWithOverflow(base, offset);
+    if (result[1] != 0 or result[0] < 0) return error.Invalid;
+    descriptors[fd].offset = @intCast(result[0]);
     return descriptors[fd].offset;
 }
 
