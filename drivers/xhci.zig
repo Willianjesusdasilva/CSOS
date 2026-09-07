@@ -538,7 +538,8 @@ pub const Controller = struct {
         trb[1] = @truncate(parameter >> 32);
         trb[2] = status;
         trb[3] = control | (@as(u32, trb_type) << 10) | 1 | (@as(u32, slot) << 24);
-        self.command_index += 1;
+        // Entry 255 is reserved for the link TRB; wrap before reusing it.
+        self.command_index = if (self.command_index == 254) 0 else self.command_index + 1;
         write32(self.doorbells, 0, 0);
         const event = try self.waitEvent(33);
         if (event.completion != 1) return error.CommandFailed;
