@@ -2702,7 +2702,7 @@ fn parseFirmwareRequirements(value: []const u8) !FirmwareRequirements {
             if (result.psp_host_boot) return error.DuplicateFirmwareRequirement;
             result.psp_host_boot = true;
             const next = if (end < value.len) std.math.add(usize, end, 1) catch return error.InvalidFirmwareRequirement else end;
-            if (next == value.len) return error.InvalidFirmwareRequirement;
+            if (end < value.len and next == value.len) return error.InvalidFirmwareRequirement;
             offset = next;
             continue;
         }
@@ -2711,7 +2711,7 @@ fn parseFirmwareRequirements(value: []const u8) !FirmwareRequirements {
         if ((result.blocks & bit) != 0) return error.DuplicateFirmwareRequirement;
         result.blocks |= bit;
         const next = if (end < value.len) std.math.add(usize, end, 1) catch return error.InvalidFirmwareRequirement else end;
-        if (next == value.len) return error.InvalidFirmwareRequirement;
+        if (end < value.len and next == value.len) return error.InvalidFirmwareRequirement;
         offset = next;
     }
     return result;
