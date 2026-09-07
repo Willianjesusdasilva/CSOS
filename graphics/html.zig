@@ -46,6 +46,21 @@ pub const Document = struct {
             y += if (element.kind == .heading) 16 else 12;
         }
     }
+
+    pub fn hitTest(self: *const Document, x: usize, y: usize, origin_x: usize, origin_y: usize) ?usize {
+        var cursor_y = origin_y;
+        for (self.elements[0..self.count], 0..) |element, index| {
+            const height: usize = if (element.kind == .heading) 16 else 12;
+            if (element.kind == .button and x >= origin_x and x < origin_x +| element.text.len * 8 and y >= cursor_y and y < cursor_y + height) return index;
+            cursor_y +|= height;
+        }
+        return null;
+    }
+
+    pub fn activateAt(self: *const Document, x: usize, y: usize, origin_x: usize, origin_y: usize) ?[]const u8 {
+        const index = self.hitTest(x, y, origin_x, origin_y) orelse return null;
+        return self.elements[index].text;
+    }
 };
 
 var rendered_count: usize = 0;
@@ -70,4 +85,11 @@ test "HTML subset emits vertical render operations" {
     rendered_count = 0;
     document.render(&countDraw, 4, 8);
     try std.testing.expectEqual(@as(usize, 3), rendered_count);
+}
+
+test "HTML buttons support hit testing and activation" {
+    const document = Document.parse("<p>Ready</p><button>Launch</button>");
+    try std.testing.expect(document.hitTest(12, 13, 4, 4) == null);
+    try std.testing.expectEqualStrings("Launch", document.activateAt(12, 20, 4, 4).?);
+    try std.testing.expect(document.activateAt(60, 20, 4, 4) == null);
 }
