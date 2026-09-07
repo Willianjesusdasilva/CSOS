@@ -2113,6 +2113,10 @@ pub fn start(info: BootInfo) noreturn {
                 const monitor_shortcut_pressed = event.c != 0 and event.a == 0x10 and ctrl_held and alt_held;
                 const system_shortcut_pressed = event.c != 0 and event.a == 0x16 and ctrl_held and alt_held;
                 const files_shortcut_pressed = event.c != 0 and event.a == 0x09 and ctrl_held and alt_held;
+                if (event.c != 0 and event.a == 0x29 and desktop_menu_open != 0) {
+                    desktop_menu_open = 0;
+                    serial.write("UI menu closed\n");
+                }
                 const launcher_direct_shortcut = event.c != 0 and event.a == 0x0f and ctrl_held and alt_held;
                 if (terminal_shortcut_pressed) {
                     const was_open = window_manager.findById(1) != null;
