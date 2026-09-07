@@ -138,7 +138,7 @@ pub const AddressSpace = struct {
     }
 
     pub fn userPermissions(self: *const AddressSpace, virtual: u64) ?Permissions {
-        if (!isUserPageAddress(virtual)) return null;
+        if (!isUserAddress(virtual)) return null;
         const entry = userLeaf(self.root, virtual) orelse return null;
         if ((entry.* & 1) == 0) return null;
         return .{ .writable = (entry.* & 0x002) != 0, .executable = (entry.* & (@as(u64, 1) << 63)) == 0 };
@@ -181,6 +181,10 @@ fn isUserPageAddress(virtual: u64) bool {
     return virtual <= user_address_limit and (virtual & (page_size - 1)) == 0;
 }
 
+fn isUserAddress(virtual: u64) bool {
+    return virtual <= user_address_limit;
+}
+
 test "user mapping rejects physical addresses outside the page-table mask" {
     try std.testing.expectError(error.Unaligned, validateUserMapping(0x4000, address_mask + page_size));
     try std.testing.expectError(error.Unaligned, validateUserMapping(0x4001, 0x4000));
@@ -191,6 +195,12 @@ test "user page operations require page-aligned virtual addresses" {
     try std.testing.expect(isUserPageAddress(0x4000));
     try std.testing.expect(!isUserPageAddress(0x4001));
     try std.testing.expect(!isUserPageAddress(user_address_limit + 1));
+}
+
+test "user permissions accepts an address inside a mapped page" {
+    try std.testing.expect(isUserAddress(0x4001));
+    try std.testing.expect(isUserAddress(user_address_limit));
+    try std.testing.expect(!isUserAddress(user_address_limit + 1));
 }
 
 pub fn activateRoot(root: u64) void {
