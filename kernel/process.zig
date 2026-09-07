@@ -552,9 +552,15 @@ fn buildInitialStack(
     bootstrap_target.* = musl_bootstrap.*;
 
     var phdr_address: u64 = 0;
+    const entry_size = @as(u64, program_entry_size);
+    if (entry_size < 56) return error.InvalidElf;
+    const table_bytes = std.math.mul(u64, entry_size, @as(u64, program_count)) catch return error.InvalidElf;
+    if (program_offset > image.len or table_bytes > image.len - program_offset) return error.InvalidElf;
     var header_index: usize = 0;
     while (header_index < program_count) : (header_index += 1) {
-        const header: usize = @intCast(program_offset + @as(u64, program_entry_size) * header_index);
+        const header_offset = std.math.add(u64, program_offset, std.math.mul(u64, entry_size, @as(u64, header_index)) catch return error.InvalidElf) catch return error.InvalidElf;
+        const header: usize = std.math.cast(usize, header_offset) orelse return error.InvalidElf;
+        if (header > image.len or 56 > image.len - header) return error.InvalidElf;
         if (read32At(header) != 1) continue;
         const file_offset = read64At(header + 8);
         const virtual = read64At(header + 16);

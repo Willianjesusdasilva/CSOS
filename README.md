@@ -847,6 +847,8 @@ restante falso.
 A pilha inicial ELF valida reservas de strings, bootstrap e vetores
 `argv`/`auxv` antes de escrever, retornando `InitialStackOverflow` quando o
 espaço não é suficiente.
+Antes de calcular `AT_PHDR`, ela valida tamanho, multiplicação e limites da
+tabela de programas, rejeitando cabeçalhos fora da imagem.
 
 Mapeamentos anônimos fazem rollback transacional quando uma página falha: os
 mapeamentos parciais são removidos e a memória física é devolvida ao allocator.
