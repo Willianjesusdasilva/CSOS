@@ -2906,11 +2906,18 @@ fn epollCtl(epfd: u64, operation: u64, target: u64, event: u64) u64 {
     if (!vfs.isEpoll(@intCast(epfd)) or !vfs.isOpen(@intCast(target)) or target == epfd) return errno(9);
     if (event == 0 and operation != 2) return errno(14);
     const watches = &epoll_watches[@intCast(epfd)];
-    if (operation == 1 or operation == 2) {
+    if (operation == 1 or operation == 2 or operation == 3) {
         var slot: ?usize = null;
         for (watches, 0..) |watch, index| if (watch.active and watch.fd == target) { slot = index; break; };
         if (operation == 2) {
             if (slot) |index| watches[index].active = false else return errno(2);
+            return 0;
+        }
+        if (operation == 3) {
+            const index = slot orelse return errno(2);
+            const input: [*]const u8 = @ptrFromInt(event);
+            watches[index].events = read32(input);
+            watches[index].data = read64(input + 8);
             return 0;
         }
         if (slot != null) return errno(17);
