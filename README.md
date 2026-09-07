@@ -567,7 +567,7 @@ O contrato atual também cobre o lifecycle Linux usado pelos runtimes:
 afinidade e política do scheduler, limites de recursos, grupos/sessões,
 credenciais, robust-list, sinais básicos, `wait4`/`waitid`, `prctl` para nome
 de processo, operações vetorizadas de arquivo (`readv`/`writev`), `statx`,
-`getrandom`, `rseq` e epoll bounded (`epoll_create1`, `epoll_ctl`,
+`sysinfo`, `getrandom`, `rseq` e epoll bounded (`epoll_create1`, `epoll_ctl`,
 `epoll_wait`, até 16 watches). `getrandom` atualmente usa uma fonte
 determinística de bootstrap; entropia física ainda depende da plataforma.
 
