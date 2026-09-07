@@ -363,6 +363,8 @@ O E1000 valida anéis e todos os buffers DMA antes de programar seus registrador
 recusando endereços fora da máscara do dispositivo.
 O xHCI valida DCBAA, command ring, event ring e ERST antes de escrever seus
 ponteiros nos registradores do controlador.
+Rings, relatórios HID e contexts alocados por dispositivo e pelo áudio também
+passam pela validação DMA antes de configurar endpoints.
 
 Mapeamentos anônimos também possuem rollback transacional: uma falha no meio da
 criação remove as páginas já instaladas e devolve a alocação e o ownership.

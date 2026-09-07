@@ -130,6 +130,8 @@ pub const Controller = struct {
             errdefer pages.release(report, 1) catch {};
             const configure = pages.allocate(1) orelse return error.OutOfMemory;
             errdefer pages.release(configure, 1) catch {};
+            if (!validDmaPage(interrupt_ring) or !validDmaPage(report) or !validDmaPage(configure))
+                return error.InvalidDmaAddress;
             zeroPage(interrupt_ring);
             zeroPage(report);
             zeroPage(configure);
@@ -266,6 +268,7 @@ pub const Controller = struct {
         errdefer pages.release(ring, 1) catch {};
         const configure = pages.allocate(1) orelse return error.OutOfMemory;
         errdefer pages.release(configure, 1) catch {};
+        if (!validDmaPage(ring) or !validDmaPage(configure)) return error.InvalidDmaAddress;
         zeroPage(ring);
         zeroPage(configure);
         const endpoint_id: u5 = @intCast((self.audio.endpoint_address & 0x0f) * 2);

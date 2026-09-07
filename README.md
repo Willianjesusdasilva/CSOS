@@ -883,6 +883,8 @@ Na inicialização E1000, anéis RX/TX e buffers individuais passam por validaç
 de endereço DMA antes de qualquer programação MMIO.
 A inicialização xHCI aplica o mesmo gate aos quatro blocos DMA fundamentais
 antes de configurar os registradores de rings.
+Os caminhos HID e áudio repetem a validação para rings, buffers de relatório e
+contexts específicos de cada endpoint.
 
 Mapeamentos anônimos fazem rollback transacional quando uma página falha: os
 mapeamentos parciais são removidos e a memória física é devolvida ao allocator.
