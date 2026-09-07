@@ -607,6 +607,9 @@ test "SDL software event queue and surface contract" {
     try @import("std").testing.expect(events.pushMouse(std.math.maxInt(i32), 0, 0, 1));
     try @import("std").testing.expect(events.pushMouseCoalesced(1, 0, 0, 1));
     try @import("std").testing.expectEqual(std.math.maxInt(i32), events.poll().?.mouse.x);
+    try @import("std").testing.expect(events.pushMouse(std.math.minInt(i32), 0, 0, 1));
+    try @import("std").testing.expect(events.pushMouseCoalesced(-1, 0, 0, 1));
+    try @import("std").testing.expectEqual(std.math.minInt(i32), events.poll().?.mouse.x);
     var full = EventQueue{};
     var index: usize = 0;
     while (index < full.items.len) : (index += 1)
