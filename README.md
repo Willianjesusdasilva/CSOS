@@ -667,7 +667,8 @@ Essa aplicação agora funciona como terminal gráfico não bloqueante: `Enter`
 executa os comandos internos `help`, `status` e `clear`, mantendo a saída na
 janela sem interromper mouse, compositor ou outras aplicações.
 Setas para cima/baixo percorrem o histórico, Home/End movem o cursor, Delete
-remove à frente e a saída acompanha automaticamente as seis linhas mais novas.
+remove à frente, `Esc` cancela a edição e `Ctrl+L` limpa a saída sem apagar o
+histórico; a saída acompanha automaticamente as seis linhas mais novas.
 Superfícies SDL são compostas dentro da camada de sua própria janela, com
 clipping pela área de conteúdo. Assim, respeitam sobreposição, foco,
 minimização e redimensionamento sem desenhar sobre janelas superiores.
