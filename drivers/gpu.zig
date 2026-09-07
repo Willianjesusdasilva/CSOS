@@ -928,6 +928,8 @@ pub fn mapAmdGfx11RlcIntoGart(staging: AmdPspGttStaging, firmware: AmdGfx11CpFir
         return error.InvalidAmdRlcResources;
     const first_page: u64 = @as(u64, firmware.first_gart_page) + firmware.gart_pages;
     if (first_page >= 512) return error.AmdRlcExceedsGartWindow;
+    if (first_page > std.math.maxInt(u64) / 4096 or window_start > std.math.maxInt(u64) - first_page * 4096)
+        return error.InvalidAmdRlcResources;
     const table: [*]u64 = @ptrFromInt(staging.page_table_address);
     if (table[first_page] != 0) return error.AmdRlcGartPageAlreadyMapped;
     table[first_page] = amdGttPte(resources.page);
