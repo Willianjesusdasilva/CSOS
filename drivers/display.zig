@@ -585,6 +585,24 @@ test "window manager enforces maximum window count" {
     try std.testing.expectError(error.WindowLimit, manager.create(.{ .id = 99, .x = 0, .y = 0, .width = 32, .height = 24 }));
 }
 
+test "window manager clamps geometry to usable screen" {
+    var manager = WindowManager{};
+    const index = try manager.create(.{ .id = 7, .x = 4, .y = 4, .width = 80, .height = 48 });
+
+    try std.testing.expect(manager.move(index, 999, 999, 120, 90));
+    try std.testing.expectEqual(@as(usize, 40), manager.windows[index].x);
+    try std.testing.expectEqual(@as(usize, 22), manager.windows[index].y);
+
+    try std.testing.expect(manager.resize(index, 500, 500, 120, 90));
+    try std.testing.expectEqual(@as(usize, 80), manager.windows[index].width);
+    try std.testing.expectEqual(@as(usize, 48), manager.windows[index].height);
+
+    try std.testing.expect(!manager.resize(index, 80, 48, 30, 30));
+    try std.testing.expect(manager.move(index, 0, 0, 0, 0));
+    try std.testing.expectEqual(@as(usize, 0), manager.windows[index].x);
+    try std.testing.expectEqual(@as(usize, 0), manager.windows[index].y);
+}
+
 test "pointer delta saturates at both display edges" {
     try std.testing.expectEqual(@as(usize, 0), applyPointerDelta(4, -5, 100));
     try std.testing.expectEqual(@as(usize, 0), applyPointerDelta(50, -128, 100));
