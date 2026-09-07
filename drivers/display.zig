@@ -34,6 +34,10 @@ pub fn applyPointerDelta(position: usize, delta: i8, extent: usize) usize {
     return @min(extent - 1, position +| @as(usize, @intCast(delta)));
 }
 
+pub fn pointerWheelColor(wheel: i8) u32 {
+    return if (wheel < 0) 0x4080e0 else 0x80a0e0;
+}
+
 pub const Window = struct {
     id: u32,
     title: []const u8 = "APP",
@@ -522,6 +526,8 @@ test "pointer delta saturates at both display edges" {
     try std.testing.expectEqual(@as(usize, 99), applyPointerDelta(96, 5, 100));
     try std.testing.expectEqual(@as(usize, 15), applyPointerDelta(10, 5, 100));
     try std.testing.expectEqual(@as(usize, 0), applyPointerDelta(10, 5, 0));
+    try std.testing.expectEqual(@as(u32, 0x4080e0), pointerWheelColor(-1));
+    try std.testing.expectEqual(@as(u32, 0x80a0e0), pointerWheelColor(1));
 }
 
 pub const Context = struct {
@@ -766,7 +772,7 @@ pub const Context = struct {
     pub fn drawPointerWheel(self: *Context, wheel: i8) void {
         if (wheel == 0 or self.framebuffer.width < 64 or self.framebuffer.height < 176) return;
         const width = @min(@as(usize, self.framebuffer.width) -| 64, 160);
-        self.fillRect(32, 168, width, 4, if (wheel < 0) 0x4080e0 else 0x80a0e0);
+        self.fillRect(32, 168, width, 4, pointerWheelColor(wheel));
     }
 
     pub fn drawKeyboardActivity(self: *Context) void {
