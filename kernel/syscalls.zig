@@ -370,7 +370,9 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         221 => fadvise64(arg1, arg2, arg3, arg4),
         218 => 1,
         228 => writeTime(arg2, 16),
+        229 => clockGetRes(arg1, arg2),
         230 => clockNanosleep(arg1, arg2, arg3, arg4),
+        35 => clockNanosleep(1, 0, arg1, arg2),
         257 => openat(arg1, arg2, arg3),
         262 => stat(arg2, arg3, @bitCast(arg1)),
         267 => readlinkat(@bitCast(arg1), arg2, arg3, arg4),
@@ -415,6 +417,16 @@ fn clockNanosleep(clock: u64, flags: u64, request: u64, remaining: u64) u64 {
     if (nanoseconds >= 1_000_000_000) return errno(22);
     if (remaining != 0 and !validUserSlice(remaining, 16)) return errno(14);
     if (seconds != 0 or nanoseconds != 0) if (idle_hook) |hook| hook();
+    return 0;
+}
+
+fn clockGetRes(clock: u64, output: u64) u64 {
+    if (clock > 1) return errno(22);
+    if (output == 0) return 0;
+    if (!validUserSlice(output, 16)) return errno(14);
+    const bytes: [*]u8 = @ptrFromInt(output);
+    @memset(bytes[0..16], 0);
+    bytes[8] = 1; // one nanosecond software resolution
     return 0;
 }
 
