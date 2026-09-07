@@ -697,6 +697,7 @@ clusters ao espaço livre.
 `cp origem destino` copia arquivos regulares entre entradas do FAT usando as
 operações reais de leitura e escrita do VFS.
 `mv origem destino` renomeia a entrada FAT diretamente, preservando seus dados.
+`touch arquivo` cria um arquivo regular vazio usando `openAt`/`write` no VFS.
 No aplicativo FILES, a tecla Delete remove o item selecionado e atualiza a lista
 sem fechar a janela.
 Espaços e tabulações nas bordas do comando são ignorados, permitindo, por

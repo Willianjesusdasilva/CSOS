@@ -214,6 +214,8 @@ cadeia de clusters através do VFS.
 e escrita reais do VFS.
 `mv origem destino` renomeia entradas regulares no diretório FAT sem copiar os
 dados, via operação nativa do VFS.
+`touch arquivo` cria ou zera um arquivo regular pelo mesmo caminho de escrita do
+terminal.
 No gerenciador FILES, Delete agora remove o item selecionado do FAT e atualiza a
 lista imediatamente.
 `Ctrl+R` também recupera a entrada anterior, como em shells convencionais.
