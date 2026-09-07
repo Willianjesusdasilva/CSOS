@@ -176,6 +176,7 @@ pub fn activateRoot(root: u64) void {
 }
 
 fn cloneTable(pages: *physical.Allocator, source_address: u64, level: u8) !u64 {
+    if (level == 0) return error.InvalidPageTableLevel;
     const destination_address = try allocateTable(pages);
     const source = table(source_address);
     const destination = table(destination_address);
