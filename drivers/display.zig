@@ -103,6 +103,7 @@ pub const WindowManager = struct {
     launcher_open: bool = false,
     launcher_selection: u8 = 0,
     switcher_open: bool = false,
+    taskbar_hover: ?usize = null,
 
     pub fn reset(self: *WindowManager) void {
         for (&self.windows) |*window| window.* = undefined;
@@ -111,6 +112,7 @@ pub const WindowManager = struct {
         self.launcher_open = false;
         self.launcher_selection = 0;
         self.switcher_open = false;
+        self.taskbar_hover = null;
     }
 
     pub fn create(self: *WindowManager, window: Window) !usize {
@@ -372,6 +374,10 @@ pub const WindowManager = struct {
         return null;
     }
 
+    pub fn updateTaskbarHover(self: *WindowManager, x: usize, y: usize, screen_height: usize) void {
+        self.taskbar_hover = self.taskbarHitTest(x, y, screen_height);
+    }
+
     pub fn launcherButtonHitTest(_: *const WindowManager, x: usize, y: usize, screen_height: usize) bool {
         return screen_height >= 24 and y < screen_height and x >= 4 and x < 56 and y >= screen_height - 17 and y < screen_height - 3;
     }
@@ -472,7 +478,8 @@ pub const WindowManager = struct {
             const slot_x = 64 + task_slot * 112 + 4;
             if (slot_x >= context.framebuffer.width) break;
             const slot_width = @min(@as(usize, 104), context.framebuffer.width - slot_x);
-            context.fillRect(slot_x, taskbar_y + 3, slot_width, 14, if (self.focused == i and !w.minimized) 0x5070a0 else 0x303848);
+            const hovered = self.taskbar_hover == i;
+            context.fillRect(slot_x, taskbar_y + 3, slot_width, 14, if (hovered) 0x406080 else if (self.focused == i and !w.minimized) 0x5070a0 else 0x303848);
             context.drawWindowTitleLimited(slot_x + 8, taskbar_y + 5, w.title, slot_width -| 16);
             task_slot += 1;
         }
@@ -647,6 +654,18 @@ test "taskbar maps compact visible slots to real window indices" {
     _ = try manager.create(.{ .id = 1, .visible = false, .x = 0, .y = 0, .width = 64, .height = 32 });
     _ = try manager.create(.{ .id = 2, .x = 0, .y = 0, .width = 64, .height = 32 });
     try std.testing.expectEqual(@as(?usize, 1), manager.taskbarHitTest(80, 119, 128));
+}
+
+test "taskbar hover tracks a slot without changing focus" {
+    var manager = WindowManager{};
+    _ = try manager.create(.{ .id = 1, .x = 0, .y = 0, .width = 64, .height = 32 });
+    _ = try manager.create(.{ .id = 2, .x = 4, .y = 4, .width = 64, .height = 32 });
+    const focused = manager.focused;
+    manager.updateTaskbarHover(80, 110, 128);
+    try std.testing.expectEqual(@as(?usize, 0), manager.taskbar_hover);
+    try std.testing.expectEqual(focused, manager.focused);
+    manager.updateTaskbarHover(300, 110, 128);
+    try std.testing.expect(manager.taskbar_hover == null);
 }
 
 test "window manager dismisses launcher when focusing a window" {
