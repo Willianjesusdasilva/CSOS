@@ -229,6 +229,8 @@ estados e atualizam o marcador serial. A janela também exibe um segundo botão
 O framebuffer base também ganhou chrome persistente inspirado na referência:
 barra superior e dock inferior com sete áreas de aplicação, atrás das janelas
 SDL.
+Os ícones do dock agora têm hit-test e abrem/focam as aplicações existentes
+TERMINAL, MONITOR, SYSTEM e FILES.
 `echo texto > arquivo` agora cria/trunca e grava no arquivo FAT via callback VFS,
 permitindo alterar dados pela sessão gráfica sem sair do SO.
 `echo texto >> arquivo` também usa o modo append do descritor, permitindo logs

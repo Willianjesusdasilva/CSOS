@@ -2455,7 +2455,17 @@ pub fn start(info: BootInfo) noreturn {
                         }
                         window_manager.dismissSwitcher();
                     }
-                    if (window_manager.launcherButtonHitTest(cursor_x, cursor_y, screen.framebuffer.height)) {
+                    if (desktopDockHitTest(cursor_x, cursor_y, screen.framebuffer.width, screen.framebuffer.height)) |dock_application| {
+                        _ = launchDesktopWindow(window_manager, dock_application, &demo_app.window, &monitor_window, &system_window, &files_window) catch panic("desktop dock application launch failed");
+                        if (dock_application == 4) {
+                            files_preview_open = false;
+                            files_preview_back_hover = false;
+                            root_file_count = refreshFiles(&volume, &root_files, &files_selection, &files_window) catch panic("desktop dock files refresh failed");
+                        }
+                        serial.write("UI dock application: ");
+                        serial.writeDecimal(dock_application);
+                        serial.write("\n");
+                    } else if (window_manager.launcherButtonHitTest(cursor_x, cursor_y, screen.framebuffer.height)) {
                         window_manager.toggleLauncher();
                         drag_window = null;
                         resize_window = null;
@@ -2897,6 +2907,19 @@ fn focusedWindowIs(manager: *const display.WindowManager, window_id: u32) bool {
     const focused = manager.focused orelse return false;
     return focused < manager.count and manager.windows[focused].id == window_id and
         manager.windows[focused].visible and !manager.windows[focused].minimized;
+}
+
+fn desktopDockHitTest(x: usize, y: usize, width: usize, height: usize) ?u32 {
+    if (width < 240 or height < 120 or y < height -| 52 or y >= height) return null;
+    const icon_size: usize = 28;
+    const gap: usize = 10;
+    const total = 7 * icon_size + 6 * gap;
+    const left = if (width > total) (width - total) / 2 else 4;
+    if (x < left or x >= left + total) return null;
+    const slot = (x - left) / (icon_size + gap);
+    if (slot >= 7 or (x - left) % (icon_size + gap) >= icon_size) return null;
+    const applications = [_]u32{ 1, 2, 3, 4, 1, 2, 4 };
+    return applications[slot];
 }
 
 fn reportAudio(usb: *xhci.Controller) void {
