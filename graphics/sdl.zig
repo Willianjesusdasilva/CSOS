@@ -939,7 +939,7 @@ test "SDL software event queue and surface contract" {
     try @import("std").testing.expect(events.pushKeyboard(0x04, true, 0x04));
     try @import("std").testing.expect(events.pushText('a'));
     try @import("std").testing.expect(events.pushMouse(12, -3, 1, 1));
-    try @import("std").testing.expect(events.poll() != null);
+    try @import("std").testing.expectEqual(Event{ .key = .{ .scancode = 0x04, .pressed = true, .modifiers = 0x04 } }, events.poll().?);
     try @import("std").testing.expect(events.poll() != null);
     try @import("std").testing.expect(events.poll() != null);
     try @import("std").testing.expectEqual(@as(usize, 0), events.len());
