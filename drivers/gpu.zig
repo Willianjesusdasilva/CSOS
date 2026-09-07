@@ -2701,16 +2701,18 @@ fn parseFirmwareRequirements(value: []const u8) !FirmwareRequirements {
         if (equal(name, "psp-host-boot")) {
             if (result.psp_host_boot) return error.DuplicateFirmwareRequirement;
             result.psp_host_boot = true;
-            if (end < value.len and end + 1 == value.len) return error.InvalidFirmwareRequirement;
-            offset = if (end < value.len) end + 1 else end;
+            const next = if (end < value.len) std.math.add(usize, end, 1) catch return error.InvalidFirmwareRequirement else end;
+            if (next == value.len) return error.InvalidFirmwareRequirement;
+            offset = next;
             continue;
         }
         const block: FirmwareBlock = if (equal(name, "security")) .security else if (equal(name, "management")) .management else if (equal(name, "memory")) .memory else if (equal(name, "graphics")) .graphics else if (equal(name, "dma")) .dma else if (equal(name, "display")) .display else if (equal(name, "media")) .media else if (equal(name, "discovery")) .discovery else if (equal(name, "other")) .other else return error.InvalidFirmwareRequirement;
         const bit = @as(u16, 1) << @intFromEnum(block);
         if ((result.blocks & bit) != 0) return error.DuplicateFirmwareRequirement;
         result.blocks |= bit;
-        if (end < value.len and end + 1 == value.len) return error.InvalidFirmwareRequirement;
-        offset = if (end < value.len) end + 1 else end;
+        const next = if (end < value.len) std.math.add(usize, end, 1) catch return error.InvalidFirmwareRequirement else end;
+        if (next == value.len) return error.InvalidFirmwareRequirement;
+        offset = next;
     }
     return result;
 }
