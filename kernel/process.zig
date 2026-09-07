@@ -774,6 +774,14 @@ fn loadSegment(
 }
 
 fn discardCleanPages(address_space: *paging.AddressSpace, pages: *physical.Allocator, mappings: []Mapping, owned: []OwnedRange) !u64 {
+    // Validate the complete candidate set before changing page tables.  A
+    // corrupt resident mapping must fail atomically rather than leaving a
+    // prefix discarded and making resume depend on iteration order.
+    for (mappings) |mapping| {
+        if (!shouldReclaimMapping(mapping.writable, mapping.resident, mapping.reclaimable)) continue;
+        if (mapping.physical == 0 or mapping.owner_index >= owned.len) return error.MappingMissing;
+        if (owned[mapping.owner_index].pages == 0) return error.MappingMissing;
+    }
     var discarded: u64 = 0;
     for (mappings) |*mapping| {
         if (!shouldReclaimMapping(mapping.writable, mapping.resident, mapping.reclaimable)) continue;
