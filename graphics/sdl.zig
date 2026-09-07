@@ -567,10 +567,13 @@ fn trimCommand(bytes: []const u8) []const u8 {
 fn bytesEqualIgnoreCase(left: []const u8, right: []const u8) bool {
     if (left.len != right.len) return false;
     for (left, right) |lhs, rhs| {
-        const lower = if (lhs >= 'A' and lhs <= 'Z') lhs + 32 else lhs;
-        if (lower != rhs) return false;
+        if (asciiLower(lhs) != asciiLower(rhs)) return false;
     }
     return true;
+}
+
+fn asciiLower(byte: u8) u8 {
+    return if (byte >= 'A' and byte <= 'Z') byte + 32 else byte;
 }
 
 fn bytesEqual(left: []const u8, right: []const u8) bool {
