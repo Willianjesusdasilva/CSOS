@@ -206,6 +206,7 @@ pub fn resumeGroup(group: u16) usize {
     for (threads[0..thread_count]) |*thread| {
         if (thread.group != group or thread.state != .frozen) continue;
         if (thread.resume_state != .ready and thread.resume_state != .sleeping) continue;
+        if (thread.resume_state == .sleeping and thread.sleep_ticks == 0) continue;
         thread.state = thread.resume_state;
         if (thread.state == .ready) thread.ready_tsc = timestamp();
         thread.lifecycle = .resuming;
@@ -418,7 +419,7 @@ test "scheduler freeze and resume preserve sleeping state" {
         thread_count = saved_count;
         threads[0] = saved_thread;
     }
-    threads[0] = .{ .context = .{}, .entry = schedulerTestEntry, .state = .sleeping, .group = 9, .policy = .freeze, .lifecycle = .background };
+    threads[0] = .{ .context = .{}, .entry = schedulerTestEntry, .state = .sleeping, .group = 9, .policy = .freeze, .lifecycle = .background, .sleep_ticks = 3 };
     thread_count = 1;
     try std.testing.expectEqual(@as(usize, 1), freezeGroup(9));
     try std.testing.expectEqual(@as(usize, 0), freezeGroup(9));
@@ -439,6 +440,19 @@ test "scheduler resume rejects an invalid saved state" {
     threads[0] = .{ .context = .{}, .entry = schedulerTestEntry, .state = .frozen, .group = 10, .resume_state = .finished };
     thread_count = 1;
     try std.testing.expectEqual(@as(usize, 0), resumeGroup(10));
+    try std.testing.expectEqual(State.frozen, threads[0].state);
+}
+
+test "scheduler resume rejects a sleeping state without a timer" {
+    const saved_count = thread_count;
+    const saved_thread = threads[0];
+    defer {
+        thread_count = saved_count;
+        threads[0] = saved_thread;
+    }
+    threads[0] = .{ .context = .{}, .entry = schedulerTestEntry, .state = .frozen, .group = 11, .resume_state = .sleeping, .sleep_ticks = 0 };
+    thread_count = 1;
+    try std.testing.expectEqual(@as(usize, 0), resumeGroup(11));
     try std.testing.expectEqual(State.frozen, threads[0].state);
 }
 
