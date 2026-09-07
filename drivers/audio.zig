@@ -633,6 +633,8 @@ test "audio error rate remains bounded at saturated metrics" {
     pub fn stop(self: *DeviceManager) void {
         self.stream = null;
         if (self.device.state == .streaming) self.device.state = .configured;
+        self.device.suspended = false;
+        self.device.suspended_streaming = false;
     }
 
     pub fn detach(self: *DeviceManager) void {
@@ -995,6 +997,17 @@ test "device manager stop preserves absent state" {
     manager.stop();
     try @import("std").testing.expectEqual(State.absent, manager.device.state);
     try @import("std").testing.expect(manager.stream == null);
+}
+
+test "device manager stop clears suspension state" {
+    var manager = DeviceManager{};
+    try manager.attach(.{ .channels = 2, .bits_per_sample = 16, .sample_rate = 48000 }, 1000, 4096);
+    try manager.configure();
+    manager.device.suspended = true;
+    manager.device.suspended_streaming = true;
+    manager.stop();
+    try @import("std").testing.expect(!manager.device.suspended);
+    try @import("std").testing.expect(!manager.device.suspended_streaming);
 }
 
 test "device manager reset clears stream mixer and metrics" {
