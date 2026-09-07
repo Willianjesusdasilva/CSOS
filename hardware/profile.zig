@@ -58,6 +58,10 @@ pub const Profile = struct {
         nvme_p50: u64, nvme_p95: u64, nvme_p99: u64,
         tcp_p50: u64, tcp_p95: u64, tcp_p99: u64,
     ) !void {
+        if (!validPercentiles(freeze_p50, freeze_p95, freeze_p99) or
+            !validPercentiles(resume_p50, resume_p95, resume_p99) or
+            !validPercentiles(nvme_p50, nvme_p95, nvme_p99) or
+            !validPercentiles(tcp_p50, tcp_p95, tcp_p99)) return error.InvalidBaseline;
         try append(self, "\n[baseline_cycles]\nfreeze_p50="); try appendDecimal(self, freeze_p50);
         try append(self, "\nfreeze_p95="); try appendDecimal(self, freeze_p95);
         try append(self, "\nfreeze_p99="); try appendDecimal(self, freeze_p99);
@@ -73,6 +77,10 @@ pub const Profile = struct {
         try append(self, "\n");
     }
 };
+
+fn validPercentiles(p50: u64, p95: u64, p99: u64) bool {
+    return p50 <= p95 and p95 <= p99;
+}
 
 pub fn matchesSignature(text: []const u8, expected: u64) bool {
     const key = "signature=";
@@ -199,6 +207,15 @@ test "hardware profile rejects empty hardware facts" {
         .tsc = true, .invariant_tsc = true, .threads_per_core = 1, .logical_per_package = 1 };
     const facts = @import("std").mem.zeroes(Facts);
     try @import("std").testing.expectError(error.InvalidHardwareFacts, build(cpu, facts));
+}
+
+test "hardware profile rejects non-monotonic baselines" {
+    var profile = Profile{};
+    try @import("std").testing.expectError(error.InvalidBaseline, profile.addBaseline(
+        10, 9, 20, 1, 2, 3, 4, 5, 6, 7, 8, 9,
+    ));
+    try profile.addBaseline(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12);
+    try @import("std").testing.expect(profile.length != 0);
 }
 
 pub fn build(cpu: Cpu, facts: Facts) !Profile {
