@@ -117,6 +117,8 @@ teclado.
 No ciclo de standby, páginas somente-leitura da imagem principal podem ser
 descartadas e restauradas; intérprete e bibliotecas compartilhadas permanecem
 residentes até haver metadado de backing individual para recuperação segura.
+Na rede, DNS correlaciona IDs de transação, ICMP exige a sequência da sondagem
+e ARP rejeita MACs de emissor vazios ou broadcast.
 O runner QEMU agora possui `-SmokeDesktopMouse`, que injeta movimento relativo
 um evento de roda e um ciclo de botão esquerdo no dispositivo USB emulado; o
 teste exige movimento, `UI mouse wheel` e os marcadores `UI mouse buttons: 1/0`.

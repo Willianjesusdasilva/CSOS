@@ -703,6 +703,8 @@ eventos coalescidos e descartes inevitáveis no log serial.
 O reclaim de standby descarta somente páginas limpas da imagem principal;
 páginas de intérprete e bibliotecas compartilhadas ficam residentes para não
 serem restauradas com cabeçalhos ELF incorretos.
+O caminho de rede correlaciona IDs DNS e sequências ICMP e descarta respostas ARP
+com MAC de emissor inválido.
 
 Verificação atual: `zig build` recompilou o EFI em `14/14` etapas e
 `zig build test` passou `17/17` etapas e `38/38` testes. O
