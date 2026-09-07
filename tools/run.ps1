@@ -144,6 +144,7 @@ if ($SmokeTestSeconds -gt 0) {
             }
             if ($SmokeDesktopMouse) {
                 $observed = $observed -and
+                    $serialText.Contains('UI pointer moved:') -and
                     $serialText.Contains('UI mouse buttons: 1') -and
                     $serialText.Contains('UI mouse buttons: 0')
             }

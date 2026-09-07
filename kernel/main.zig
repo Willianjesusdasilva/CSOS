@@ -2251,6 +2251,13 @@ pub fn start(info: BootInfo) noreturn {
             // previous report's coordinates.
             cursor_x = display.applyPointerDelta(cursor_x, dx, screen.framebuffer.width);
             cursor_y = display.applyPointerDelta(cursor_y, dy, screen.framebuffer.height);
+            if (dx != 0 or dy != 0) {
+                serial.write("UI pointer moved: ");
+                serial.writeDecimal(cursor_x);
+                serial.write(",");
+                serial.writeDecimal(cursor_y);
+                serial.write("\n");
+            }
             if (focusedWindowIs(window_manager, 4)) {
                 if (!files_preview_open and files_selection.wheel(wheel)) {
                     drawFilesSurface(&files_window, root_files[0..root_file_count], &files_selection);
