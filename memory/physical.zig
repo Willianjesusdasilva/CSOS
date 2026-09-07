@@ -53,13 +53,13 @@ pub const Allocator = struct {
             const end = std.math.add(u64, start, bytes) catch continue;
             if (end <= 0x100000) continue;
             if (start < 0x100000) start = 0x100000;
+            const pages = (end - start) / page_size;
+            const free_pages = std.math.add(u64, self.free_pages, pages) catch continue;
+            const total_pages = std.math.add(u64, self.total_pages, pages) catch continue;
             self.ranges[self.range_count] = .{ .next = start, .end = end };
             self.managed[self.managed_count] = .{ .next = start, .end = end };
             self.range_count += 1;
             self.managed_count += 1;
-            const pages = (end - start) / page_size;
-            const free_pages = std.math.add(u64, self.free_pages, pages) catch continue;
-            const total_pages = std.math.add(u64, self.total_pages, pages) catch continue;
             self.installed_pages = installed_pages;
             self.free_pages = free_pages;
             self.total_pages = total_pages;
