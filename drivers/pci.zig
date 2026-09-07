@@ -93,6 +93,8 @@ pub const Inventory = struct {
         const class = read8(bus, slot, function, 0x0b);
         const subclass = read8(bus, slot, function, 0x0a);
         const header_type = read8(bus, slot, function, 0x0e) & 0x7f;
+        const secondary_bus = if (class == 0x06 and subclass == 0x04) read8(bus, slot, function, 0x19) else 0;
+        const subordinate_bus = if (class == 0x06 and subclass == 0x04) read8(bus, slot, function, 0x1a) else 0;
         const probe = Device{ .bus = bus, .slot = slot, .function = function, .vendor = vendor, .device = 0, .revision = 0, .subsystem_vendor = 0, .subsystem_device = 0, .class = class, .subclass = subclass, .programming_interface = 0, .header_type = header_type, .msi = false, .msix = false };
         const pcie_link = pcieLinkCapability(probe);
         self.devices[self.count] = .{
@@ -110,13 +112,14 @@ pub const Inventory = struct {
             .header_type = header_type,
             .msi = capabilityOffset(probe, 0x05) != null,
             .msix = capabilityOffset(probe, 0x11) != null,
-            .secondary_bus = if (class == 0x06 and subclass == 0x04) read8(bus, slot, function, 0x19) else 0,
-            .subordinate_bus = if (class == 0x06 and subclass == 0x04) read8(bus, slot, function, 0x1a) else 0,
+            .secondary_bus = secondary_bus,
+            .subordinate_bus = subordinate_bus,
             .pcie_generation = if (pcie_link) |link| link.generation else 0,
             .pcie_width = if (pcie_link) |link| link.width else 0,
         };
         self.count += 1;
-        if (class == 0x06 and subclass == 0x04) self.scanBus(read8(bus, slot, function, 0x19));
+        if (class == 0x06 and subclass == 0x04 and secondary_bus != 0 and secondary_bus <= subordinate_bus)
+            self.scanBus(secondary_bus);
     }
 };
 
