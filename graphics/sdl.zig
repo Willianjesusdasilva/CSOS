@@ -253,7 +253,7 @@ pub const Window = struct {
             const glyph_x = cursor_x;
             const glyph = glyph3x5(character);
             for (glyph, 0..) |row_bits, row| {
-                const glyph_y = y +| row * 2;
+                const glyph_y = cursor_y +| row * 2;
                 for (0..3) |column| {
                     if ((row_bits & (@as(u8, 1) << @intCast(2 - column))) != 0)
                         self.fillRect(glyph_x +| column * 2, glyph_y, 2, 2, color);
