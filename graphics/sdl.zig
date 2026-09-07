@@ -1058,6 +1058,12 @@ test "SDL software event queue and surface contract" {
     input.moveLeft();
     try @import("std").testing.expect(input.insert('b'));
     try @import("std").testing.expectEqualStrings("abc", input.slice());
+    try @import("std").testing.expectEqual(@as(u8, 0), input.bytes[input.len]);
+    input.replace("xy");
+    try @import("std").testing.expectEqualStrings("xy", input.slice());
+    try @import("std").testing.expectEqual(@as(u8, 0), input.bytes[input.len]);
+    input.replace("abc");
+    input.cursor = 2;
     try @import("std").testing.expect(input.backspace());
     try @import("std").testing.expectEqualStrings("ac", input.slice());
     input.moveRight();
