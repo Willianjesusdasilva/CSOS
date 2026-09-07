@@ -561,14 +561,15 @@ fn supportedClock(clock: u64) bool {
 
 fn read(fd: u64, address: u64, length: u64) u64 {
     if (!validUserSlice(address, length)) return errno(14);
+    const length_usize = std.math.cast(usize, length) orelse return errno(14);
     const output: [*]u8 = @ptrFromInt(address);
     if (fd == 0) {
         if (length == 0) return 0;
         const hook = stdin_hook orelse return 0;
-        return hook(output, @intCast(length));
+        return hook(output, length_usize);
     }
-    if (socketIndex(fd)) |index| return socketReceive(index, output[0..@intCast(length)]);
-    return vfs.read(@intCast(fd), output[0..@intCast(length)]) catch |err| vfsError(err);
+    if (socketIndex(fd)) |index| return socketReceive(index, output[0..length_usize]);
+    return vfs.read(@intCast(fd), output[0..length_usize]) catch |err| vfsError(err);
 }
 
 fn sendfile(output_fd: u64, input_fd: u64, offset_address: u64, count: u64) u64 {
