@@ -2104,6 +2104,7 @@ pub fn start(info: BootInfo) noreturn {
                 if (launcher_shortcut_pressed and !launcher_key_down) {
                     window_manager.launcher_open = !window_manager.launcher_open;
                     if (window_manager.launcher_open) window_manager.launcher_selection = 0;
+                    window_manager.taskbar_hover = null;
                     launcher_consumed = true;
                     serial.write(if (window_manager.launcher_open) "UI launcher open (keyboard)\n" else "UI launcher closed (keyboard)\n");
                 }
@@ -2117,7 +2118,10 @@ pub fn start(info: BootInfo) noreturn {
                         0x2b => if ((event.b & 0x22) != 0) window_manager.launcherSelectPrevious() else window_manager.launcherSelectNext(),
                         0x4a => window_manager.launcher_selection = 0,
                         0x4d => window_manager.launcher_selection = display.launcher_item_count - 1,
-                        0x29 => window_manager.launcher_open = false,
+                        0x29 => {
+                            window_manager.launcher_open = false;
+                            window_manager.taskbar_hover = null;
+                        },
                         0x28 => if (window_manager.launcherSelectedApplication()) |application_id| {
                             const was_open = window_manager.findById(application_id) != null;
                             if (application_id == 1 and !demo_app.running) {
@@ -2131,6 +2135,7 @@ pub fn start(info: BootInfo) noreturn {
                                 root_file_count = refreshFiles(&volume, &root_files, &files_selection, &files_window) catch panic("UI files keyboard refresh failed");
                             }
                             window_manager.launcher_open = false;
+                            window_manager.taskbar_hover = null;
                             serial.write("UI launch application (keyboard): ");
                             serial.writeDecimal(application_id);
                             serial.write("\n");
@@ -2238,6 +2243,7 @@ pub fn start(info: BootInfo) noreturn {
                 }
                 if (tab_switch_pressed and !alt_tab_down) {
                     window_manager.launcher_open = false;
+                    window_manager.taskbar_hover = null;
                     window_manager.openSwitcher();
                     switcher_consumed = true;
                     const reverse = (event.b & 0x02) != 0;
