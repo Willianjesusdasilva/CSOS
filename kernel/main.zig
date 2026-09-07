@@ -2172,6 +2172,10 @@ pub fn start(info: BootInfo) noreturn {
                         const changed = switch (event.a) {
                             0x51 => files_selection.next(),
                             0x52 => files_selection.previous(),
+                            0x4a => files_selection.home(),
+                            0x4d => files_selection.end(),
+                            0x4b => files_selection.pagePrevious(),
+                            0x4e => files_selection.pageNext(),
                             else => false,
                         };
                         if (changed) drawFilesSurface(&files_window, root_files[0..root_file_count], &files_selection);

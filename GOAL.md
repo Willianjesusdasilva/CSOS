@@ -252,6 +252,8 @@ Marcadores por fase confirmaram o GART pronto e o boot completo após a correç�
 
 A aplicação `FILES` agora enumera até 32 entradas, apresenta sete por viewport
 e permite selecionar por setas ou roda do mouse; Enter publica nome e tamanho do
+item. Home/End saltam para o primeiro/último item e PageUp/PageDown avançam uma
+página da lista pelo teclado.
 item. O QEMU encontrou 14 arquivos reais, exercitando rolagem além da primeira
 tela antes de chegar ao desktop.
 

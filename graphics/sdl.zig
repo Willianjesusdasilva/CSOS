@@ -191,6 +191,36 @@ pub const ListSelection = struct {
         return true;
     }
 
+    pub fn home(self: *ListSelection) bool {
+        if (self.count == 0 or self.selected == 0) return false;
+        self.selected = 0;
+        self.first_visible = 0;
+        return true;
+    }
+
+    pub fn end(self: *ListSelection) bool {
+        if (self.count == 0 or self.selected + 1 >= self.count) return false;
+        self.selected = self.count - 1;
+        self.reveal();
+        return true;
+    }
+
+    pub fn pageNext(self: *ListSelection) bool {
+        if (self.count == 0) return false;
+        const target = @min(self.count - 1, self.selected +| self.visible_rows);
+        if (target == self.selected) return false;
+        self.selected = target;
+        self.reveal();
+        return true;
+    }
+
+    pub fn pagePrevious(self: *ListSelection) bool {
+        if (self.count == 0 or self.selected == 0) return false;
+        self.selected -|= self.visible_rows;
+        self.reveal();
+        return true;
+    }
+
     pub fn wheel(self: *ListSelection, delta: i16) bool {
         if (delta < 0) return self.next();
         if (delta > 0) return self.previous();
@@ -1298,6 +1328,15 @@ test "list selection keeps the selected row inside its viewport" {
     try testing.expectEqual(@as(usize, 4), list.selected);
     try testing.expect(!list.selectVisibleRow(2));
     try testing.expect(!list.selectVisibleRow(3));
+    try testing.expect(list.pageNext());
+    try testing.expectEqual(@as(usize, 7), list.selected);
+    try testing.expect(list.pagePrevious());
+    try testing.expectEqual(@as(usize, 4), list.selected);
+    try testing.expect(list.end());
+    try testing.expectEqual(@as(usize, 9), list.selected);
+    try testing.expect(list.home());
+    try testing.expectEqual(@as(usize, 0), list.selected);
+    list.selected = 4;
     list.setCount(3);
     try testing.expectEqual(@as(usize, 2), list.selected);
     try testing.expectEqual(@as(usize, 0), list.first_visible);
