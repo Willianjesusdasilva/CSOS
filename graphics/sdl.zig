@@ -903,13 +903,17 @@ test "SDL software event queue and surface contract" {
     try @import("std").testing.expect(terminal.submit());
     try @import("std").testing.expectEqualStrings("> STATUS\nCSOS READY\n", terminal.outputSlice());
     terminal.clearOutput();
+    terminal.input.replace("ECHO ready");
+    try @import("std").testing.expect(terminal.submit());
+    try @import("std").testing.expectEqualStrings("> ECHO ready\nready\n", terminal.outputSlice());
+    terminal.clearOutput();
     terminal.input.replace("help");
     try @import("std").testing.expect(terminal.submit());
     try @import("std").testing.expectEqualStrings("> help\nHELP CLEAR STATUS VERSION ECHO HISTORY [TEXT]\n", terminal.outputSlice());
     terminal.clearOutput();
     terminal.input.replace("history");
     try @import("std").testing.expect(terminal.submit());
-    try @import("std").testing.expectEqualStrings("> history\nHISTORY\n  status\n  STATUS\n  help\n  history\n", terminal.outputSlice());
+    try @import("std").testing.expectEqualStrings("> history\nHISTORY\n  STATUS\n  ECHO ready\n  help\n  history\n", terminal.outputSlice());
     terminal.clearOutput();
     try @import("std").testing.expect(terminal.historyPrevious());
     try @import("std").testing.expectEqualStrings("history", terminal.input.slice());
