@@ -819,11 +819,24 @@ fn shouldReclaimMapping(writable: bool, resident: bool, reclaimable: bool) bool 
     return !writable and resident and reclaimable;
 }
 
+fn canRestoreMapping(mapping: Mapping, owned_count: usize) bool {
+    return !mapping.resident and !mapping.writable and mapping.physical == 0 and mapping.owner_index < owned_count;
+}
+
 test "standby reclaim only selects clean resident main-image pages" {
     try @import("std").testing.expect(shouldReclaimMapping(false, true, true));
     try @import("std").testing.expect(!shouldReclaimMapping(true, true, true));
     try @import("std").testing.expect(!shouldReclaimMapping(false, false, true));
     try @import("std").testing.expect(!shouldReclaimMapping(false, true, false));
+}
+
+test "page restore rejects stale or unsafe mapping metadata" {
+    const valid = Mapping{ .virtual = 0x1000, .owner_index = 0 };
+    try @import("std").testing.expect(canRestoreMapping(valid, 1));
+    try @import("std").testing.expect(!canRestoreMapping(.{ .virtual = 0x1000, .resident = true }, 1));
+    try @import("std").testing.expect(!canRestoreMapping(.{ .virtual = 0x1000, .writable = true }, 1));
+    try @import("std").testing.expect(!canRestoreMapping(.{ .virtual = 0x1000, .physical = 0x9000 }, 1));
+    try @import("std").testing.expect(!canRestoreMapping(.{ .virtual = 0x1000, .owner_index = 1 }, 1));
 }
 
 test "standby counters saturate instead of wrapping" {
@@ -1247,11 +1260,11 @@ pub fn handlePageFault(address: u64, instruction: u64, code: u64) callconv(.c) b
     const owned = active_owned orelse return false;
     const page_virtual = address & ~(page_size - 1);
     for (mappings) |*mapping| {
-        if (mapping.virtual != page_virtual or mapping.resident or mapping.writable) continue;
+        if (mapping.virtual != page_virtual) continue;
         // A tabela de mapeamentos pode sobreviver a reclaim/retomada; trate
         // metadados corrompidos como page fault não resolvível, nunca como um
         // acesso fora dos limites da lista de ownership do processo.
-        if (mapping.owner_index >= owned.len or mapping.physical != 0) return false;
+        if (!canRestoreMapping(mapping.*, owned.len)) return false;
         const physical_address = pages.allocate(1) orelse return false;
         const bytes: [*]u8 = @ptrFromInt(physical_address);
         @memset(bytes[0..page_size], 0);
