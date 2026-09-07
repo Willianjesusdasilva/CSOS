@@ -478,6 +478,7 @@ pub const WindowManager = struct {
                 if (window.visible) visible_count += 1;
             }
             const visible_slots = @min(visible_count, (@as(usize, context.framebuffer.width) - 32) / 112);
+            if (visible_slots == 0) return;
             const overlay_width = visible_slots * 112 + 16;
             const overlay_x = (@as(usize, context.framebuffer.width) - overlay_width) / 2;
             const overlay_y = @as(usize, context.framebuffer.height) / 2 -| 24;
