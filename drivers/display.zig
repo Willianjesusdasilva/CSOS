@@ -726,6 +726,19 @@ test "switcher hit test maps visible slots" {
     try std.testing.expect(manager.switcherHitTest(10, 10, 320, 128) == null);
 }
 
+test "switcher hover tracks a slot without changing focus" {
+    var manager = WindowManager{};
+    _ = try manager.create(.{ .id = 1, .x = 0, .y = 0, .width = 64, .height = 32 });
+    _ = try manager.create(.{ .id = 2, .x = 4, .y = 4, .width = 64, .height = 32 });
+    manager.switcher_open = true;
+    const focused = manager.focused;
+    manager.updateSwitcherHover(160, 48, 320, 128);
+    try std.testing.expectEqual(@as(?usize, 1), manager.switcher_hover);
+    try std.testing.expectEqual(focused, manager.focused);
+    manager.updateSwitcherHover(10, 10, 320, 128);
+    try std.testing.expect(manager.switcher_hover == null);
+}
+
 test "window manager dismisses launcher when focusing a window" {
     var manager = WindowManager{};
     _ = try manager.create(.{ .id = 1, .x = 0, .y = 0, .width = 80, .height = 48 });
