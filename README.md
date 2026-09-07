@@ -688,6 +688,8 @@ de responder somente com conteúdo embutido na aplicação.
 raiz.
 `stat <arquivo>` consulta `vfs.infoAt` para exibir tipo e tamanho reais no
 terminal.
+O comando `run ...` inicia applets BusyBox pelo loader de userspace real, por
+exemplo `run echo pronto` ou `run ls /`.
 `echo texto > arquivo` usa `openAt`/`write` para criar ou truncar um arquivo FAT
 real, tornando o terminal capaz de persistir dados durante a sessão.
 O formato `echo texto >> arquivo` preserva o conteúdo existente e acrescenta uma

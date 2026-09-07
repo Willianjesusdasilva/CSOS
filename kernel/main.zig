@@ -59,6 +59,7 @@ var desktop_window_manager = display.WindowManager{};
 // The physical allocator owns large fixed-capacity range tables; keep it out
 // of the small firmware entry stack for the entire kernel lifetime.
 var pages: physical.Allocator = undefined;
+var desktop_kernel_root: u64 = 0;
 var gpu_gmc11_activation_workspace = gpu.AmdGmc11ActivationWorkspace{};
 const GpuVmRuntime = struct {
     transport: ?gpu.AmdGmc11MmioTransport = null,
@@ -2050,6 +2051,7 @@ pub fn start(info: BootInfo) noreturn {
     console_usb = &usb;
     console_hid = &hid;
     console_input_irq_apic = input_irq_apic;
+    desktop_kernel_root = mapper.root;
     serial.write("CSOS graphical session ready\n");
     if (hid.latency.count != 0) {
         const input_latency = hid.latency.summarize() catch panic("input metrics missing");
@@ -2616,6 +2618,7 @@ fn resetSdlDemoApplication(app: *sdl.Application) void {
     sdl_terminal.file_remover = &removeTerminalFile;
     sdl_terminal.file_copier = &copyTerminalFile;
     sdl_terminal.file_mover = &moveTerminalFile;
+    sdl_terminal.program_runner = &runTerminalProgram;
     app.running = true;
     app.window.clear(0x182838ff);
     drawSdlTerminal(app);
@@ -2689,6 +2692,27 @@ fn copyTerminalFile(source: []const u8, destination: []const u8) bool {
 
 fn moveTerminalFile(source: []const u8, destination: []const u8) bool {
     vfs.renameAt(-100, source, destination) catch return false;
+    return true;
+}
+
+fn runTerminalProgram(command: []const u8) bool {
+    var arguments: [8][]const u8 = undefined;
+    var count: usize = 1;
+    arguments[0] = "/bin/busybox";
+    var rest = command;
+    while (rest.len != 0 and count < arguments.len) {
+        const trimmed = std.mem.trim(u8, rest, " \t");
+        if (trimmed.len == 0) break;
+        const separator = std.mem.indexOfAny(u8, trimmed, " \t") orelse {
+            arguments[count] = trimmed;
+            count += 1;
+            break;
+        };
+        arguments[count] = trimmed[0..separator];
+        count += 1;
+        rest = trimmed[separator..];
+    }
+    process.runBusyBox(desktop_kernel_root, &pages, arguments[0..count]) catch return false;
     return true;
 }
 

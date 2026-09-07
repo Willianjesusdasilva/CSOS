@@ -204,6 +204,8 @@ O `ls` segue o mesmo caminho: o callback usa `vfs.getDents` para listar o
 diretório raiz real na sessão gráfica.
 `stat <arquivo>` agora consulta `vfs.infoAt` e mostra tipo e tamanho reais,
 com erro explícito quando o caminho não existe.
+`run echo ...`, `run ls ...` e outros comandos BusyBox agora podem ser lançados
+diretamente pelo terminal gráfico através do loader userspace real.
 `echo texto > arquivo` agora cria/trunca e grava no arquivo FAT via callback VFS,
 permitindo alterar dados pela sessão gráfica sem sair do SO.
 `echo texto >> arquivo` também usa o modo append do descritor, permitindo logs

@@ -584,6 +584,7 @@ pub const Terminal = struct {
     pub const FileRemover = *const fn (path: []const u8) bool;
     pub const FileCopier = *const fn (source: []const u8, destination: []const u8) bool;
     pub const FileMover = *const fn (source: []const u8, destination: []const u8) bool;
+    pub const ProgramRunner = *const fn (command: []const u8) bool;
     input: TextInput = .{},
     output: [256]u8 = undefined,
     file_reader: ?FileReader = null,
@@ -593,6 +594,7 @@ pub const Terminal = struct {
     file_remover: ?FileRemover = null,
     file_copier: ?FileCopier = null,
     file_mover: ?FileMover = null,
+    program_runner: ?ProgramRunner = null,
     file_scratch: [128]u8 = undefined,
     output_len: usize = 0,
     history: [4][64]u8 = undefined,
@@ -615,7 +617,7 @@ pub const Terminal = struct {
             self.append(command);
             self.append("\n");
             if (bytesEqualIgnoreCase(command, "help"))
-                self.append("HELP CLEAR RESET STATUS VERSION WHOAMI PWD LS CAT STAT RM CP MV TOUCH ECHO HISTORY [TEXT] ECHO > FILE\n")
+                self.append("HELP CLEAR RESET STATUS VERSION WHOAMI PWD LS CAT STAT RM CP MV TOUCH RUN ECHO HISTORY [TEXT] ECHO > FILE\n")
             else if (bytesEqualIgnoreCase(command, "status"))
                 self.append("CSOS READY\n")
             else if (bytesEqualIgnoreCase(command, "version"))
@@ -683,6 +685,12 @@ pub const Terminal = struct {
                 if (path.len == 0) self.append("touch: MISSING FILE\n") else if (self.file_writer) |writer| {
                     if (writer(path, "", false)) self.append("OK\n") else self.append("touch: WRITE ERROR\n");
                 } else self.append("touch: VFS UNAVAILABLE\n");
+            }
+            else if (command.len >= 4 and bytesEqualIgnoreCase(command[0..4], "run ")) {
+                const program = trimCommand(command[4..]);
+                if (program.len == 0) self.append("run: MISSING PROGRAM\n") else if (self.program_runner) |runner| {
+                    if (runner(program)) self.append("PROGRAM EXITED 0\n") else self.append("run: PROGRAM FAILED\n");
+                } else self.append("run: USERSPACE UNAVAILABLE\n");
             }
             else if (bytesEqualIgnoreCase(command, "echo"))
                 self.append("ECHO READY\n")
@@ -1033,6 +1041,10 @@ fn testFileMover(source: []const u8, destination: []const u8) bool {
     return bytesEqual(source, "notes.txt") and bytesEqual(destination, "renamed.txt");
 }
 
+fn testProgramRunner(command: []const u8) bool {
+    return bytesEqual(command, "echo ready");
+}
+
 test "SDL software event queue and surface contract" {
     try @import("std").testing.expectEqual(std.math.maxInt(i32), saturatingAdd(std.math.maxInt(i32), 1));
     try @import("std").testing.expectEqual(std.math.minInt(i32), saturatingAdd(std.math.minInt(i32), -1));
@@ -1315,7 +1327,7 @@ test "SDL software event queue and surface contract" {
     terminal.clearOutput();
     terminal.input.replace("help");
     try @import("std").testing.expect(terminal.submit());
-    try @import("std").testing.expectEqualStrings("> help\nHELP CLEAR RESET STATUS VERSION WHOAMI PWD LS CAT STAT RM CP MV TOUCH ECHO HISTORY [TEXT] ECHO > FILE\n", terminal.outputSlice());
+    try @import("std").testing.expectEqualStrings("> help\nHELP CLEAR RESET STATUS VERSION WHOAMI PWD LS CAT STAT RM CP MV TOUCH RUN ECHO HISTORY [TEXT] ECHO > FILE\n", terminal.outputSlice());
     terminal.clearOutput();
     terminal.file_writer = &testFileWriter;
     terminal.input.replace("echo hello > notes.txt");
@@ -1344,6 +1356,11 @@ test "SDL software event queue and surface contract" {
     terminal.input.replace("touch notes.txt");
     try @import("std").testing.expect(terminal.submit());
     try @import("std").testing.expectEqualStrings("> touch notes.txt\nOK\n", terminal.outputSlice());
+    terminal.clearOutput();
+    terminal.program_runner = &testProgramRunner;
+    terminal.input.replace("run echo ready");
+    try @import("std").testing.expect(terminal.submit());
+    try @import("std").testing.expectEqualStrings("> run echo ready\nPROGRAM EXITED 0\n", terminal.outputSlice());
     terminal.clearOutput();
     terminal.input.replace("cat /hello.txt");
     try @import("std").testing.expect(terminal.submit());
