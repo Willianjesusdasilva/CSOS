@@ -12,6 +12,7 @@ pub const Stack = struct {
     dns_ip: [4]u8 = .{0} ** 4,
     identification: u16 = 1,
     tcp_nonce: u16 = 0,
+    dns_transaction: u16 = 0x4353,
 
     pub fn init(device: *e1000.Controller) Stack { return .{ .device = device }; }
 
@@ -87,7 +88,9 @@ pub const Stack = struct {
         if (name.len == 0 or name.len > 253) return error.InvalidDnsName;
         const dns_mac = try self.resolveAddress(self.dns_ip);
         var query: [512]u8 = .{0} ** 512;
-        put16(query[0..], 0x4353); put16(query[2..], 0x0100); put16(query[4..], 1);
+        const dns_transaction = self.dns_transaction;
+        self.dns_transaction +%= 1;
+        put16(query[0..], dns_transaction); put16(query[2..], 0x0100); put16(query[4..], 1);
         var offset: usize = 12;
         var label_start: usize = 0;
         while (label_start < name.len) {
@@ -105,7 +108,7 @@ pub const Stack = struct {
         try self.sendUdp(self.dns_ip, dns_mac, 49152, 53, query[0..offset]);
         var response: [512]u8 = undefined;
         const size = try self.receiveUdp(self.dns_ip, 53, 49152, &response);
-        if (size < 12 or get16(response[0..]) != 0x4353 or (get16(response[2..]) & 0x800f) != 0x8000 or get16(response[6..]) == 0) return error.InvalidDnsReply;
+        if (size < 12 or get16(response[0..]) != dns_transaction or (get16(response[2..]) & 0x800f) != 0x8000 or get16(response[6..]) == 0) return error.InvalidDnsReply;
         offset = 12;
         var question: u16 = 0;
         while (question < get16(response[4..])) : (question += 1) {
