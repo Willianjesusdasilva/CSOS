@@ -357,6 +357,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         45 => receiveFrom(arg1, arg2, arg3),
         48 => shutdown(arg1),
         60 => exitSyscall(arg1),
+        61 => wait4(arg1, arg2, arg3, arg4),
         63 => uname(arg1),
         72 => fcntl(arg1, arg2, arg3),
         79 => getcwd(arg1, arg2),
@@ -406,6 +407,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         257 => openat(arg1, arg2, arg3),
         262 => stat(arg2, arg3, @bitCast(arg1)),
         267 => readlinkat(@bitCast(arg1), arg2, arg3, arg4),
+        247 => waitId(arg1, arg2, arg3, arg4),
         271 => ppoll(arg1, arg2, arg3, arg4),
         302 => prlimit64(arg1, arg2, arg3, arg4),
         273 => setRobustList(arg1, arg2),
@@ -2801,6 +2803,22 @@ fn schedYield() u64 {
 fn exitSyscall(status: u64) u64 {
     process_exit_status = status;
     return 0;
+}
+
+fn wait4(pid: u64, status: u64, options: u64, usage: u64) u64 {
+    _ = pid;
+    _ = options;
+    _ = usage;
+    if (status != 0 and !validUserSlice(status, 4)) return errno(14);
+    return errno(10); // ECHILD: CSOS has no child process yet.
+}
+
+fn waitId(id_type: u64, id: u64, info: u64, options: u64) u64 {
+    _ = id_type;
+    _ = id;
+    _ = options;
+    if (info != 0 and !validUserSlice(info, 128)) return errno(14);
+    return errno(10);
 }
 
 fn madvise(address: u64, length: u64, advice: u64) u64 {
