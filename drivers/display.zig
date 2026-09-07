@@ -354,8 +354,9 @@ pub const WindowManager = struct {
         const content_width = window.width - 24;
         const content_height = window.height - 32;
         if (left >= content_width or top >= content_height) return false;
-        const clipped_width = @min(width, content_width - left);
-        const clipped_height = @min(height, content_height - top);
+        const clipped_width = @min(width, content_width -| left);
+        const clipped_height = @min(height, content_height -| top);
+        if (clipped_width == 0 or clipped_height == 0) return false;
         const rect_x = window.x +| 12 +| left;
         const rect_y = window.y +| 28 +| top;
         return x >= rect_x and x < rect_x +| clipped_width and y >= rect_y and y < rect_y +| clipped_height;
