@@ -167,7 +167,8 @@ pub fn openAt(directory_fd: i64, path: []const u8, flags: u64) !usize {
             error.NotFound => if ((flags & 0x40) != 0) @as(usize, 0) else return error.NotFound,
             else => return err,
         };
-        if ((flags & 0x200) != 0 or (size == 0 and (flags & 0x40) != 0)) {
+        const writable = (flags & 0x3) != 0;
+        if ((flags & 0x200) != 0 and writable or (size == 0 and (flags & 0x40) != 0)) {
             try volume.writeRootFile(&fat_name, "");
             size = 0;
         }
