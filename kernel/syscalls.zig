@@ -372,6 +372,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         262 => stat(arg2, arg3, @bitCast(arg1)),
         267 => readlinkat(@bitCast(arg1), arg2, arg3, arg4),
         271 => ppoll(arg1, arg2, arg3, arg4),
+        309 => getcpu(arg1, arg2),
         436 => closeRange(arg1, arg2, arg3),
         else => unsupported(number),
     };
@@ -2789,6 +2790,14 @@ fn schedGetAffinity(pid: u64, size: u64, mask: u64) u64 {
     // process; secondary kernel workers do not imply extra userspace CPUs.
     bytes[0] = 1;
     return 8;
+}
+
+fn getcpu(cpu: u64, node: u64) u64 {
+    if (cpu != 0 and !validUserSlice(cpu, 4)) return errno(14);
+    if (node != 0 and !validUserSlice(node, 4)) return errno(14);
+    if (cpu != 0) @as(*align(1) u32, @ptrFromInt(cpu)).* = 0;
+    if (node != 0) @as(*align(1) u32, @ptrFromInt(node)).* = 0;
+    return 0;
 }
 
 fn validUserSlice(address: u64, length: u64) bool {
