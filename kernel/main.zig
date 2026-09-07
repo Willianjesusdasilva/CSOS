@@ -2685,6 +2685,7 @@ fn hidCharacter(usage: u8, modifiers: u8) ?u8 {
     return switch (usage) {
         39 => if (shifted) ')' else '0',
         40 => '\n',
+        43 => '\t',
         42 => 0x7f,
         44 => ' ',
         45 => if (shifted) '_' else '-',
