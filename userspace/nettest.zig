@@ -41,6 +41,10 @@ pub export fn _start() callconv(.naked) noreturn {
         \\syscall
         \\testq %%rax, %%rax
         \\jle 1f
+        \\cmpl $0x50545448, (%%rsi)
+        \\jne 1f
+        \\cmpb $47, 4(%%rsi)
+        \\jne 1f
         \\movq $48, %%rax
         \\movq %%r12, %%rdi
         \\movq $2, %%rsi
