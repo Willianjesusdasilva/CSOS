@@ -2168,6 +2168,10 @@ pub fn start(info: BootInfo) noreturn {
                             sdl_terminal.cancel();
                         } else if (event.a == 0x28) {
                             _ = sdl_terminal.submit();
+                        } else if (event.a == 0x04 and (event.b & 0x01) != 0) {
+                            sdl_terminal.input.moveHome();
+                        } else if (event.a == 0x08 and (event.b & 0x01) != 0) {
+                            sdl_terminal.input.moveEnd();
                         } else if (event.a == 0x2a) {
                             _ = sdl_terminal.input.backspace();
                         } else if (event.a == 0x4c) {
