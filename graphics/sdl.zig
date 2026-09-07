@@ -395,7 +395,7 @@ pub const Window = struct {
     pub fn drawHtmlFocused(self: *Window, document: *const html.Document, x: usize, y: usize, focused: ?usize) void {
         var cursor_y = y;
         for (document.elements[0..document.count], 0..) |element, index| {
-            const color: u32 = if (element.muted) 0x7890a0ff else switch (element.kind) {
+            const color: u32 = if (element.muted) 0x7890a0ff else if (element.danger) 0xff8060ff else switch (element.kind) {
                 .heading => 0x70d0ffff,
                 .paragraph => 0xa0b8d0ff,
                 .button => if (element.accent) 0x70e0a0ff else 0xffd070ff,
