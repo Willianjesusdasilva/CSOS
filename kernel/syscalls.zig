@@ -60,6 +60,10 @@ pub var drm_releases: u64 = 0;
 fn saturatingCount(value: u64, increment: u64) u64 {
     return std.math.add(u64, value, increment) catch std.math.maxInt(u64);
 }
+
+fn pageCountForBytes(size: u64) !u64 {
+    return (try std.math.add(u64, size, 4095)) / 4096;
+}
 pub var drm_last_request: u64 = 0;
 pub var drm_last_result: u64 = 0;
 var network_stack: ?*net.Stack = null;
@@ -978,8 +982,7 @@ fn drmCreateDumb(address: u64) u64 {
     const pitch = std.math.mul(u64, width, 4) catch return errno(12);
     const size = std.math.mul(u64, pitch, height) catch return errno(12);
     if (size > framebuffer.size) return errno(12);
-    const rounded_size = std.math.add(u64, size, 4095) catch return errno(12);
-    const page_count = rounded_size / 4096;
+    const page_count = pageCountForBytes(size) catch return errno(12);
     const pages = drm_pages orelse return errno(19);
     const allocation = pages.allocate(page_count) orelse return errno(12);
     if (allocation >= (@as(u64, 1) << 44) or page_count > ((@as(u64, 1) << 44) - allocation) / 4096) {
@@ -1013,7 +1016,7 @@ fn amdgpuGemCreate(address: u64) u64 {
     var free_index: ?usize = null;
     for (drm_objects, 0..) |object, index| if (!object.allocated) { free_index = index; break; };
     const object_index = free_index orelse return errno(12);
-    const page_count = (size + 4095) / 4096;
+    const page_count = pageCountForBytes(size) catch return errno(12);
     if ((domains & 0x4) != 0) if (amdgpu_vram_endpoint) |endpoint| {
         const allocation = endpoint.allocate(endpoint.context, page_count * 4096, alignment) catch null;
         if (allocation) |vram| {
