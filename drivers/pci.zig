@@ -171,6 +171,7 @@ pub fn enableMsi(device: Device, vector: u8, destination_apic: u8) !void {
     const data_offset: u16 = if ((control & (1 << 7)) != 0) @as(u16, offset) + 12 else @as(u16, offset) + 8;
     if (data_offset + 2 > 0x100) return error.MsiUnavailable;
     write32(device.bus, device.slot, device.function, offset + 4, 0xfee00000 | (@as(u32, destination_apic) << 12));
+    if ((control & (1 << 7)) != 0) write32(device.bus, device.slot, device.function, offset + 8, 0);
     write16(device.bus, device.slot, device.function, @intCast(data_offset), vector);
     control &= ~@as(u16, 0x70);
     control |= 1;
