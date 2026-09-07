@@ -132,6 +132,13 @@ test "audio subsystem rejects an empty period ring" {
     try std.testing.expectError(error.InvalidPeriodCount, subsystem.configure());
 }
 
+test "audio subsystem queue depth does not underflow" {
+    var subsystem = Subsystem{ .device = .{ .state = .streaming }, .periods = 8 };
+    subsystem.metrics.completed = std.math.maxInt(u64);
+    try subsystem.submit();
+    try std.testing.expectEqual(@as(u64, 1), subsystem.metrics.submitted);
+}
+
 test "audio subsystem rejects unsupported sample rates" {
     var subsystem = Subsystem{};
     subsystem.discover(1, 1, .{ .channels = 2, .bits_per_sample = 16, .sample_rate = 12_345 });
