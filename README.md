@@ -696,6 +696,8 @@ nova linha, usando o modo append do VFS.
 clusters ao espaço livre.
 `cp origem destino` copia arquivos regulares entre entradas do FAT usando as
 operações reais de leitura e escrita do VFS.
+No aplicativo FILES, a tecla Delete remove o item selecionado e atualiza a lista
+sem fechar a janela.
 Espaços e tabulações nas bordas do comando são ignorados, permitindo, por
 exemplo, executar `  status  ` sem gerar um comando desconhecido.
 Setas para cima/baixo percorrem o histórico, Home/End movem o cursor, Delete

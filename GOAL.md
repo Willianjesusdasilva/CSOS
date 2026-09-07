@@ -212,6 +212,8 @@ incrementais sem apagar o conteúdo anterior.
 cadeia de clusters através do VFS.
 `cp origem destino` copia arquivos regulares pela sessão gráfica, usando leitura
 e escrita reais do VFS.
+No gerenciador FILES, Delete agora remove o item selecionado do FAT e atualiza a
+lista imediatamente.
 `Ctrl+R` também recupera a entrada anterior, como em shells convencionais.
 O compositor associa a superfície SDL à janela proprietária e aplica clipping
 à área de conteúdo; a aplicação deixa de atravessar bordas ou aparecer por cima

@@ -2224,6 +2224,18 @@ pub fn start(info: BootInfo) noreturn {
                             else => false,
                         };
                         if (changed) drawFilesSurface(&files_window, root_files[0..root_file_count], &files_selection);
+                        if (event.a == 0x4c and root_file_count != 0) {
+                            volume.deleteRootFile(&root_files[files_selection.selected].name) catch |err| {
+                                serial.write("UI files delete failed: ");
+                                serial.write(@errorName(err));
+                                serial.write("\n");
+                            };
+                            root_file_count = refreshFiles(&volume, &root_files, &files_selection, &files_window) catch panic("UI files delete refresh failed");
+                            files_preview_open = false;
+                            files_preview_back_hover = false;
+                            file_browser_consumed = true;
+                            serial.write("UI files deleted\n");
+                        }
                     }
                     if (!files_preview_open and (event.a == 0x28 or event.a == 0x2c) and root_file_count != 0) {
                         files_preview_pager.reset(root_files[files_selection.selected].size);
