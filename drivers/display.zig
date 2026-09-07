@@ -83,6 +83,10 @@ pub const WindowManager = struct {
         var i = index;
         while (i + 1 < self.count) : (i += 1) self.windows[i] = self.windows[i + 1];
         self.count -= 1;
+        if (self.count == 0) {
+            self.launcher_open = false;
+            self.switcher_open = false;
+        }
         self.focused = if (self.count == 0) null else if (old_focused) |focused| blk: {
             if (focused > index) break :blk focused - 1;
             if (focused == index) break :blk self.topVisible();
@@ -508,6 +512,13 @@ test "window manager focus alt-tab hit-test and close" {
     const count_before_invalid_close = manager.count;
     manager.close(max_windows);
     try std.testing.expectEqual(count_before_invalid_close, manager.count);
+    manager.windows[0].visible = true;
+    manager.launcher_open = true;
+    manager.switcher_open = true;
+    manager.close(0);
+    try std.testing.expectEqual(@as(usize, 0), manager.count);
+    try std.testing.expect(!manager.launcher_open);
+    try std.testing.expect(!manager.switcher_open);
 }
 
 test "window manager enforces maximum window count" {
