@@ -72,12 +72,16 @@ pub const Subsystem = struct {
     pub fn discover(self: *Subsystem, interfaces: u8, playback_endpoints: u8, format: Format) void {
         if (interfaces == 0 or playback_endpoints == 0) {
             self.device = .{};
+            self.period_index = 0;
+            self.metrics = .{};
             return;
         }
         self.device = .{
             .state = .discovered,
             .format = format,
         };
+        self.period_index = 0;
+        self.metrics = .{};
     }
 
     pub fn configure(self: *Subsystem) !void {
@@ -120,6 +124,20 @@ test "audio subsystem rejects an empty period ring" {
     subsystem.discover(1, 1, .{ .channels = 2, .bits_per_sample = 16, .sample_rate = 48_000 });
     subsystem.periods = 0;
     try std.testing.expectError(error.InvalidPeriodCount, subsystem.configure());
+}
+
+test "audio rediscovery resets stream metrics" {
+    var subsystem = Subsystem{};
+    subsystem.discover(1, 1, .{ .channels = 2, .bits_per_sample = 16, .sample_rate = 48_000 });
+    try subsystem.configure();
+    try subsystem.start();
+    try subsystem.submit();
+    try subsystem.completePeriod();
+    try std.testing.expect(subsystem.metrics.submitted != 0);
+    subsystem.discover(1, 1, .{ .channels = 1, .bits_per_sample = 16, .sample_rate = 44_100 });
+    try std.testing.expectEqual(@as(u64, 0), subsystem.metrics.submitted);
+    try std.testing.expectEqual(@as(u64, 0), subsystem.metrics.completed);
+    try std.testing.expectEqual(@as(u8, 0), subsystem.period_index);
 }
 
 pub const Stream = struct {
