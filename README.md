@@ -763,6 +763,11 @@ prévia, e o botão `BACK` da própria superfície retorna à lista. O hit-test 
 botão é recortado pela área útil da janela, inclusive após move, resize ou
 maximize.
 
+`FILES` relê a raiz FAT16 ao ser aberta ou restaurada e também por F5. A seleção
+e o início do viewport são preservados quando ainda válidos e reduzidos para a
+nova contagem quando arquivos desaparecem; voltar ao launcher nunca mostra uma
+lista permanentemente obsoleta.
+
 O inventário do host também encontrou uma AMD Radeon(TM) Graphics (`1002:164e`)
 e uma NVIDIA GeForce RTX 4060 Ti (`10de:2803`), ambas ativas. Isso viabiliza a
 próxima validação física, mas detecção no host não é evidência de suporte do

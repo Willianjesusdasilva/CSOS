@@ -243,6 +243,10 @@ O mouse completa o ciclo de `FILES`: clique numa linha abre a prévia real e o
 botão `BACK` retorna à lista. Retângulos interativos do conteúdo respeitam a
 área recortada da janela em qualquer posição e tamanho.
 
+Abrir/restaurar `FILES` ou pressionar F5 relê a raiz FAT16. O modelo atualiza a
+contagem preservando seleção/viewport válidos e faz clamp quando a lista diminui,
+evitando que a interface permaneça presa ao snapshot criado durante o boot.
+
 Esta porcentagem não é uma contagem simples de milestones. M0–M13 têm bases relevantes, mas M14 ainda não possui triângulos Vulkan validados em AMD e NVIDIA, e M15–M30 permanecem majoritariamente pendentes. Código preparatório ou teste no host não equivale a hardware funcional.
 
 Verificação mais recente em 2026-09-06: `zig build test` concluiu `17/17` etapas

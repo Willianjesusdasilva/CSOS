@@ -153,6 +153,19 @@ pub const ListSelection = struct {
         return changed;
     }
 
+    pub fn setCount(self: *ListSelection, count: usize) void {
+        self.count = count;
+        if (count == 0) {
+            self.selected = 0;
+            self.first_visible = 0;
+            return;
+        }
+        if (self.selected >= count) self.selected = count - 1;
+        const maximum_first = count -| self.visible_rows;
+        self.first_visible = @min(self.first_visible, maximum_first);
+        self.reveal();
+    }
+
     fn reveal(self: *ListSelection) void {
         if (self.selected < self.first_visible) self.first_visible = self.selected;
         if (self.selected >= self.first_visible + self.visible_rows)
@@ -668,6 +681,12 @@ test "list selection keeps the selected row inside its viewport" {
     try testing.expectEqual(@as(usize, 4), list.selected);
     try testing.expect(!list.selectVisibleRow(2));
     try testing.expect(!list.selectVisibleRow(3));
+    list.setCount(3);
+    try testing.expectEqual(@as(usize, 2), list.selected);
+    try testing.expectEqual(@as(usize, 0), list.first_visible);
+    list.setCount(0);
+    try testing.expectEqual(@as(usize, 0), list.selected);
+    try testing.expectEqual(@as(usize, 0), list.first_visible);
 
     var empty = ListSelection.init(0, 0);
     try testing.expectEqual(@as(usize, 1), empty.visible_rows);

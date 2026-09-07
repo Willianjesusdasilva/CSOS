@@ -1558,12 +1558,11 @@ pub fn start(info: BootInfo) noreturn {
     const files_surface_pixels: [*]u32 = @ptrFromInt(files_surface_address);
     var files_window = sdl.createWindow(files_surface_pixels[0 .. 224 * 96], 224, 96) catch panic("SDL files surface creation failed");
     var root_files: [32]fat16.Volume.DirectoryEntry = undefined;
-    const root_file_count = volume.listRootFiles(&root_files) catch panic("FAT16 root listing failed");
-    var files_selection = sdl.ListSelection.init(root_file_count, 7);
+    var files_selection = sdl.ListSelection.init(0, 7);
+    var root_file_count = refreshFiles(&volume, &root_files, &files_selection, &files_window) catch panic("FAT16 root listing failed");
     var files_preview: [192]u8 = undefined;
     var files_preview_length: usize = 0;
     var files_preview_open = false;
-    drawFilesSurface(&files_window, root_files[0..root_file_count], &files_selection);
     serial.write("UI files application entries: ");
     serial.writeDecimal(root_file_count);
     serial.write("\n");
@@ -2099,9 +2098,9 @@ pub fn start(info: BootInfo) noreturn {
                             const was_open = window_manager.findById(application_id) != null;
                             _ = launchDesktopWindow(window_manager, application_id, &demo_app.window, &monitor_window, &system_window, &files_window) catch panic("desktop keyboard application launch failed");
                             if (application_id == 1 and !was_open) resetSdlDemoApplication(&demo_app);
-                            if (application_id == 4 and !was_open) {
+                            if (application_id == 4) {
                                 files_preview_open = false;
-                                drawFilesSurface(&files_window, root_files[0..root_file_count], &files_selection);
+                                root_file_count = refreshFiles(&volume, &root_files, &files_selection, &files_window) catch panic("UI files keyboard refresh failed");
                             }
                             window_manager.launcher_open = false;
                             serial.write("UI launch application (keyboard): ");
@@ -2112,7 +2111,12 @@ pub fn start(info: BootInfo) noreturn {
                     }
                 }
                 if (!launcher_consumed and !alt_tab_pressed and focusedWindowIs(window_manager, 4) and event.a != 0) {
-                    if (files_preview_open and event.a == 0x29) {
+                    if (event.a == 0x3e) {
+                        root_file_count = refreshFiles(&volume, &root_files, &files_selection, &files_window) catch panic("UI files F5 refresh failed");
+                        files_preview_open = false;
+                        file_browser_consumed = true;
+                        serial.write("UI files refreshed\n");
+                    } else if (files_preview_open and event.a == 0x29) {
                         files_preview_open = false;
                         drawFilesSurface(&files_window, root_files[0..root_file_count], &files_selection);
                         file_browser_consumed = true;
@@ -2257,9 +2261,9 @@ pub fn start(info: BootInfo) noreturn {
                         const was_open = window_manager.findById(application_id) != null;
                         _ = launchDesktopWindow(window_manager, application_id, &demo_app.window, &monitor_window, &system_window, &files_window) catch panic("desktop application launch failed");
                         if (application_id == 1 and !was_open) resetSdlDemoApplication(&demo_app);
-                        if (application_id == 4 and !was_open) {
+                        if (application_id == 4) {
                             files_preview_open = false;
-                            drawFilesSurface(&files_window, root_files[0..root_file_count], &files_selection);
+                            root_file_count = refreshFiles(&volume, &root_files, &files_selection, &files_window) catch panic("UI files mouse refresh failed");
                         }
                         window_manager.launcher_open = false;
                         serial.write("UI launch application: ");
@@ -2470,6 +2474,13 @@ fn drawFilesSurface(window: *sdl.Window, entries: []const fat16.Volume.Directory
         window.drawText(4, y, &entry.name, 0xd8d0c0ff);
         drawSurfaceNumber(window, 108, y, entry.size, 0x90b0d0ff);
     }
+}
+
+fn refreshFiles(volume: *fat16.Volume, entries: []fat16.Volume.DirectoryEntry, selection: *sdl.ListSelection, window: *sdl.Window) !usize {
+    const count = try volume.listRootFiles(entries);
+    selection.setCount(count);
+    drawFilesSurface(window, entries[0..count], selection);
+    return count;
 }
 
 fn drawFilePreview(window: *sdl.Window, entry: fat16.Volume.DirectoryEntry, data: []const u8) void {
