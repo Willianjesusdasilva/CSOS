@@ -2401,6 +2401,7 @@ pub fn start(info: BootInfo) noreturn {
             window_manager.compose(&screen);
             screen.drawActionButton(action_button_active);
             screen.drawPointerButtons(event.a);
+            screen.drawPointerWheel(wheel);
             screen.drawCursor(cursor_x, cursor_y, if (event.a != 0) 0xffb040 else 0xffffff);
             if (screen.present() == 0) panic("display cursor presentation failed");
         }

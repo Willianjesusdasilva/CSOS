@@ -763,6 +763,12 @@ pub const Context = struct {
         self.fillRect(32, 152, width, 8, if (buttons != 0) 0xffb040 else 0x303038);
     }
 
+    pub fn drawPointerWheel(self: *Context, wheel: i8) void {
+        if (wheel == 0 or self.framebuffer.width < 64 or self.framebuffer.height < 176) return;
+        const width = @min(@as(usize, self.framebuffer.width) -| 64, 160);
+        self.fillRect(32, 168, width, 4, 0x4080e0);
+    }
+
     pub fn drawKeyboardActivity(self: *Context) void {
         if (self.framebuffer.width < 64 or self.framebuffer.height < 160) return;
         const width = @min(@as(usize, self.framebuffer.width) -| 64, 160);
