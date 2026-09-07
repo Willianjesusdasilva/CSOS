@@ -368,7 +368,7 @@ pub const Stack = struct {
             if (bootp[0] != 2 or get32(bootp[4..]) != self.dhcp_transaction or !equal(bootp[28..34], &self.device.mac)) continue;
             if (bootp[236] != 99 or bootp[237] != 130 or bootp[238] != 83 or bootp[239] != 99) continue;
             var lease = Lease{ .address = bootp[16..20].* };
-            if (zero(&lease.address)) continue;
+            if (!validLeaseAddress(lease.address)) continue;
             var message_type: u8 = 0;
             var saw_end = false;
             var malformed = false;
@@ -578,6 +578,11 @@ test "ARP sender validation rejects empty and broadcast MACs" {
     try @import("std").testing.expect(!validArpSenderMac(&[_]u8{ 0x01, 0x54, 0, 0x12, 0x34, 0x56 }));
 }
 
+test "DHCP lease address rejects the unspecified address" {
+    try @import("std").testing.expect(!validLeaseAddress(.{ 0, 0, 0, 0 }));
+    try @import("std").testing.expect(validLeaseAddress(.{ 192, 0, 2, 10 }));
+}
+
 test "TCP port validation rejects the unspecified port" {
     try @import("std").testing.expect(!Stack.validTcpPort(0));
     try @import("std").testing.expect(Stack.validTcpPort(1));
@@ -618,4 +623,8 @@ fn validArpSenderMac(value: []const u8) bool {
     if (value.len != 6 or zero(value) or (value[0] & 1) != 0) return false;
     for (value) |byte| if (byte != 0xff) return true;
     return false;
+}
+
+fn validLeaseAddress(value: [4]u8) bool {
+    return !zero(&value);
 }
