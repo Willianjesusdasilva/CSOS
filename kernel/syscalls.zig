@@ -3053,7 +3053,7 @@ fn wait4(pid: u64, status: u64, options: u64, usage: u64) u64 {
     // Validate the selector and flags even though this single-process kernel
     // has no child to reap yet.  Returning ECHILD for a malformed request
     // hides caller bugs and differs from Linux's EINVAL contract.
-    if ((options & ~@as(u64, 0x1a)) != 0) return errno(22);
+    if ((options & ~@as(u64, 0x0b)) != 0) return errno(22);
     _ = pid;
     if (status != 0 and !validUserSlice(status, 4)) return errno(14);
     if (usage != 0 and !validUserSlice(usage, 144)) return errno(14);
