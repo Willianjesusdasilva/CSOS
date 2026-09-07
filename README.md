@@ -697,6 +697,8 @@ mesmo caminho do terminal, permitindo validar a ABI gráfica sem sair da sessão
 desktop.
 `run libdrm` e `run radv` expõem os probes de libdrm e do carregador RADV pelo
 mesmo fluxo, mantendo a preparação Vulkan/DRM exercitável dentro do desktop.
+`run gpu` executa ambos em sequência como um diagnóstico único da pilha gráfica
+userspace.
 O teste userspace de rede também publica `HTTP GET userspace ready` depois de
 enviar um GET HTTP/1.0 e receber dados pela conexão TCP emulada; a resposta é
 validada pelo prefixo `HTTP/` antes do marcador ser emitido, e os bytes da

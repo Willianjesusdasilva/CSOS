@@ -638,7 +638,7 @@ pub const Terminal = struct {
             self.append(command);
             self.append("\n");
             if (bytesEqualIgnoreCase(command, "help"))
-                self.append("HELP CLEAR RESET STATUS VERSION WHOAMI PWD LS CAT STAT RM CP MV TOUCH RUN HTTP FRAMEBUFFER DRM LIBDRM RADV ECHO HISTORY [TEXT] ECHO > FILE\n")
+                self.append("HELP CLEAR RESET STATUS VERSION WHOAMI PWD LS CAT STAT RM CP MV TOUCH RUN HTTP FRAMEBUFFER DRM LIBDRM RADV GPU ECHO HISTORY [TEXT] ECHO > FILE\n")
             else if (bytesEqualIgnoreCase(command, "status"))
                 self.append("CSOS READY\n")
             else if (bytesEqualIgnoreCase(command, "version"))
@@ -1356,7 +1356,7 @@ test "SDL software event queue and surface contract" {
     terminal.clearOutput();
     terminal.input.replace("help");
     try @import("std").testing.expect(terminal.submit());
-    try @import("std").testing.expectEqualStrings("> help\nHELP CLEAR RESET STATUS VERSION WHOAMI PWD LS CAT STAT RM CP MV TOUCH RUN HTTP FRAMEBUFFER DRM LIBDRM RADV ECHO HISTORY [TEXT] ECHO > FILE\n", terminal.outputSlice());
+    try @import("std").testing.expectEqualStrings("> help\nHELP CLEAR RESET STATUS VERSION WHOAMI PWD LS CAT STAT RM CP MV TOUCH RUN HTTP FRAMEBUFFER DRM LIBDRM RADV GPU ECHO HISTORY [TEXT] ECHO > FILE\n", terminal.outputSlice());
     terminal.clearOutput();
     terminal.file_writer = &testFileWriter;
     terminal.input.replace("echo hello > notes.txt");
