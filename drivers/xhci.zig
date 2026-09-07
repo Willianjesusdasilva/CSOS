@@ -117,7 +117,7 @@ pub const Controller = struct {
                 }
             }
             if (protocol == 0) continue;
-            if (endpoint_address == 0 or !validHidPacketSize(endpoint_packet) or !validHidInterval(interval)) return error.HidEndpointMissing;
+            if (endpoint_address == 0 or !validHidPacketSize(device.speed, endpoint_packet) or !validHidInterval(interval)) return error.HidEndpointMissing;
             const endpoint_id: u5 = @intCast((endpoint_address & 0x0f) * 2 + 1);
             const interrupt_ring = pages.allocate(1) orelse return error.OutOfMemory;
             const report = pages.allocate(1) orelse return error.OutOfMemory;
@@ -785,8 +785,14 @@ fn transferredReportSize(packet_size: u16, residual: u32) u16 {
     return packet_size - @as(u16, @intCast(bounded));
 }
 
-fn validHidPacketSize(packet_size: u16) bool {
-    return packet_size != 0 and packet_size <= 1024;
+fn validHidPacketSize(speed: u4, packet_size: u16) bool {
+    const maximum: u16 = switch (speed) {
+        1 => 64, // full-speed
+        2 => 8, // low-speed
+        3, 4 => 1024, // high/super-speed
+        else => 0,
+    };
+    return packet_size != 0 and packet_size <= maximum;
 }
 
 fn validHidInterval(interval: u8) bool {
@@ -831,11 +837,13 @@ test "xHCI residual cannot underflow the HID report length" {
 }
 
 test "HID endpoint packet size stays within USB interrupt limits" {
-    try @import("std").testing.expect(!validHidPacketSize(0));
-    try @import("std").testing.expect(validHidPacketSize(64));
-    try @import("std").testing.expect(validHidPacketSize(1024));
-    try @import("std").testing.expect(!validHidPacketSize(1025));
-    try @import("std").testing.expect(!validHidPacketSize(2047));
+    try @import("std").testing.expect(!validHidPacketSize(1, 0));
+    try @import("std").testing.expect(validHidPacketSize(1, 64));
+    try @import("std").testing.expect(!validHidPacketSize(1, 65));
+    try @import("std").testing.expect(validHidPacketSize(2, 8));
+    try @import("std").testing.expect(!validHidPacketSize(2, 9));
+    try @import("std").testing.expect(validHidPacketSize(3, 1024));
+    try @import("std").testing.expect(!validHidPacketSize(3, 1025));
 }
 
 test "HID endpoint interval must be present in the descriptor" {
