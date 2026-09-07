@@ -473,17 +473,21 @@ pub const WindowManager = struct {
             }
         }
         if (self.switcher_open and self.count != 0 and context.framebuffer.width >= 144 and context.framebuffer.height >= 96) {
-            const visible_slots = @min(self.count, (@as(usize, context.framebuffer.width) - 32) / 112);
-            const focused_index = self.focused orelse 0;
-            const first_slot = if (focused_index < visible_slots) 0 else focused_index - visible_slots + 1;
+            var visible_count: usize = 0;
+            for (self.windows[0..self.count]) |window| {
+                if (window.visible) visible_count += 1;
+            }
+            const visible_slots = @min(visible_count, (@as(usize, context.framebuffer.width) - 32) / 112);
             const overlay_width = visible_slots * 112 + 16;
             const overlay_x = (@as(usize, context.framebuffer.width) - overlay_width) / 2;
             const overlay_y = @as(usize, context.framebuffer.height) / 2 -| 24;
             context.fillRect(overlay_x, overlay_y, overlay_width, 48, 0x182430);
-            for (self.windows[first_slot .. first_slot + visible_slots], 0..) |window, slot| {
-                const window_index = first_slot + slot;
+            var slot: usize = 0;
+            for (self.windows[0..self.count], 0..) |window, window_index| {
+                if (!window.visible or slot >= visible_slots) continue;
                 context.fillRect(overlay_x + 8 + slot * 112, overlay_y + 8, 104, 32, if (self.focused == window_index) 0x5070a0 else 0x303848);
                 context.drawWindowTitleLimited(overlay_x + 16 + slot * 112, overlay_y + 19, window.title, 88);
+                slot += 1;
             }
         }
     }
