@@ -163,6 +163,18 @@ test "audio manager resets metrics when attaching a new device" {
     try std.testing.expectEqual(@as(u64, 0), manager.metrics.completed);
 }
 
+test "audio manager detaches and can be attached again" {
+    var manager = DeviceManager{};
+    const format = Format{ .channels = 2, .bits_per_sample = 16, .sample_rate = 48_000 };
+    try manager.attach(format, 1000, 4096);
+    manager.detach();
+    try std.testing.expect(manager.stream == null);
+    try std.testing.expectEqual(State.absent, manager.device.state);
+    try std.testing.expectError(error.DeviceNotAttached, manager.configure());
+    try manager.attach(format, 1000, 4096);
+    try std.testing.expect(manager.stream != null);
+}
+
 test "audio attach failure preserves the previous device" {
     var manager = DeviceManager{};
     const original = Format{ .channels = 2, .bits_per_sample = 16, .sample_rate = 48_000 };
