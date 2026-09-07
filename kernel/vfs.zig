@@ -504,13 +504,14 @@ fn toFatName(path: []const u8) ?[11]u8 {
         if (extension) { result[extension_index] = upper; extension_index += 1; }
         else { result[name_index] = upper; name_index += 1; }
     }
-    if (name_index == 0) return null;
+    if (name_index == 0 or (extension and extension_index == 8)) return null;
     return result;
 }
 
 test "FAT path conversion rejects extended characters" {
     try std.testing.expect(toFatName("café.txt") == null);
     try std.testing.expect(toFatName("valid.txt") != null);
+    try std.testing.expect(toFatName("valid.") == null);
 }
 
 fn runtimeLibraryFatAlias(path: []const u8) ?[11]u8 {
