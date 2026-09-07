@@ -322,6 +322,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         4 => stat(arg1, arg2, -100),
         5 => fstat(arg1, arg2),
         6 => stat(arg1, arg2, -100),
+        7 => poll(arg1, arg2, @bitCast(arg3)),
         8 => lseek(arg1, arg2, arg3),
         9 => mmap(arg1, arg2, arg3, arg4, arg5, arg6),
         10 => mprotect(arg1, arg2, arg3),
@@ -2476,6 +2477,31 @@ fn readv(fd: u64, address: u64, count: u64) u64 {
         if (result != length) break;
     }
     return total;
+}
+
+fn poll(address: u64, count: u64, timeout: i64) u64 {
+    const bytes = std.math.mul(u64, count, 8) catch return errno(22);
+    if (count > 64 or !validUserSlice(address, bytes)) return errno(14);
+    var ready: u64 = 0;
+    var index: u64 = 0;
+    while (index < count) : (index += 1) {
+        const item: [*]u8 = @ptrFromInt(address + index * 8);
+        const fd = read32(item);
+        const events = read16(item + 4);
+        var revents: u16 = 0;
+        if (fd == 0) {
+            if (stdin_hook != null and (events & 1) != 0) revents |= 1;
+        } else if (!vfs.isOpen(fd)) {
+            revents = 0x20; // POLLNVAL
+        } else {
+            if ((events & 1) != 0) revents |= 1;
+            if ((events & 4) != 0) revents |= 4;
+        }
+        put16(item + 6, revents);
+        if (revents != 0) ready += 1;
+    }
+    if (ready == 0 and timeout > 0) if (idle_hook) |hook| hook();
+    return ready;
 }
 
 fn uname(address: u64) u64 {
