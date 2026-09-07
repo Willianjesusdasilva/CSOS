@@ -3041,17 +3041,21 @@ fn tgkill(pid: u64, tid: u64, signal: u64) u64 {
 }
 
 fn wait4(pid: u64, status: u64, options: u64, usage: u64) u64 {
+    // Validate the selector and flags even though this single-process kernel
+    // has no child to reap yet.  Returning ECHILD for a malformed request
+    // hides caller bugs and differs from Linux's EINVAL contract.
+    if ((options & ~@as(u64, 0x1a)) != 0) return errno(22);
     _ = pid;
-    _ = options;
-    _ = usage;
     if (status != 0 and !validUserSlice(status, 4)) return errno(14);
+    if (usage != 0 and !validUserSlice(usage, 144)) return errno(14);
     return errno(10); // ECHILD: CSOS has no child process yet.
 }
 
 fn waitId(id_type: u64, id: u64, info: u64, options: u64) u64 {
-    _ = id_type;
     _ = id;
-    _ = options;
+    // P_* selectors are 0..4; WNOHANG/WNOWAIT are the only flags currently
+    // accepted by the ABI shim.
+    if (id_type > 4 or (options & ~@as(u64, 0x3)) != 0) return errno(22);
     if (info != 0 and !validUserSlice(info, 128)) return errno(14);
     return errno(10);
 }
