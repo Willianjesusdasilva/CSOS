@@ -2096,7 +2096,10 @@ pub fn start(info: BootInfo) noreturn {
                         0x29 => window_manager.launcher_open = false,
                         0x28 => if (window_manager.launcherSelectedApplication()) |application_id| {
                             const was_open = window_manager.findById(application_id) != null;
-                            if (application_id == 1 and !demo_app.running) demo_app.reset();
+                            if (application_id == 1 and !demo_app.running) {
+                                demo_app.reset();
+                                serial.write("UI terminal relaunch reset\n");
+                            }
                             _ = launchDesktopWindow(window_manager, application_id, &demo_app.window, &monitor_window, &system_window, &files_window) catch panic("desktop keyboard application launch failed");
                             if (application_id == 1 and !was_open) resetSdlDemoApplication(&demo_app);
                             if (application_id == 4) {
@@ -2301,7 +2304,10 @@ pub fn start(info: BootInfo) noreturn {
                         serial.write(if (window_manager.launcher_open) "UI launcher open\n" else "UI launcher closed\n");
                     } else if (window_manager.launcherItemHitTest(cursor_x, cursor_y, screen.framebuffer.height)) |application_id| {
                         const was_open = window_manager.findById(application_id) != null;
-                        if (application_id == 1 and !demo_app.running) demo_app.reset();
+                        if (application_id == 1 and !demo_app.running) {
+                            demo_app.reset();
+                            serial.write("UI terminal relaunch reset\n");
+                        }
                         _ = launchDesktopWindow(window_manager, application_id, &demo_app.window, &monitor_window, &system_window, &files_window) catch panic("desktop application launch failed");
                         if (application_id == 1 and !was_open) resetSdlDemoApplication(&demo_app);
                         if (application_id == 4) {
