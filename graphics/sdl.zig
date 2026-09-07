@@ -826,6 +826,9 @@ test "SDL software event queue and surface contract" {
     try @import("std").testing.expect(!input.delete());
     try @import("std").testing.expect(input.backspace());
     try @import("std").testing.expectEqual(@as(usize, 1), input.cursor);
+    input.clear();
+    try @import("std").testing.expectEqual(@as(usize, 0), input.len);
+    try @import("std").testing.expectEqual(@as(usize, 0), input.cursor);
     var terminal = Terminal{};
     for ("discard") |byte| try @import("std").testing.expect(terminal.input.insert(byte));
     terminal.cancel();
