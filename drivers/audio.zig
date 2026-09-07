@@ -433,7 +433,7 @@ pub const DeviceManager = struct {
 
     pub fn stop(self: *DeviceManager) void {
         self.stream = null;
-        self.device.state = .configured;
+        if (self.device.state == .streaming) self.device.state = .configured;
     }
 
     pub fn detach(self: *DeviceManager) void {
@@ -707,4 +707,11 @@ test "device manager pauses and resumes stream" {
     try @import("std").testing.expectError(error.DeviceNotConfigured, manager.resume());
     try @import("std").testing.expectEqual(State.streaming, manager.device.state);
     try @import("std").testing.expectEqual(State.streaming, manager.stream.?.device.state);
+}
+
+test "device manager stop preserves absent state" {
+    var manager = DeviceManager{};
+    manager.stop();
+    try @import("std").testing.expectEqual(State.absent, manager.device.state);
+    try @import("std").testing.expect(manager.stream == null);
 }
