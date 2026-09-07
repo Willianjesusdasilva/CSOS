@@ -71,7 +71,7 @@ pub fn enqueue(apic_id: u32, entry: Entry) !void {
     const queue = queueFor(apic_id) orelse return error.UnknownCpu;
     const write_index = @atomicLoad(u32, &queue.write_index, .monotonic);
     const read_index = @atomicLoad(u32, &queue.read_index, .acquire);
-    if (write_index -% read_index == queue_capacity) return error.QueueFull;
+    if (write_index -% read_index >= queue_capacity) return error.QueueFull;
     queue.entries[write_index % queue_capacity] = entry;
     @atomicStore(u32, &queue.write_index, write_index +% 1, .release);
 }
