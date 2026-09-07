@@ -395,6 +395,11 @@ pub const TextInput = struct {
         self.cursor = self.len;
     }
 
+    pub fn clear(self: *TextInput) void {
+        self.len = 0;
+        self.cursor = 0;
+    }
+
     pub fn moveLeft(self: *TextInput) void {
         self.cursor = @min(self.cursor, self.len);
         self.cursor -|= 1;
@@ -444,8 +449,7 @@ pub const Terminal = struct {
             else
                 self.append("UNKNOWN COMMAND\n");
         }
-        self.input.len = 0;
-        self.input.cursor = 0;
+        self.input.clear();
         self.history_cursor = self.history_len;
         return true;
     }
@@ -823,7 +827,7 @@ test "SDL software event queue and surface contract" {
     terminal.history_cursor = terminal.history_len + 1;
     try @import("std").testing.expect(terminal.historyPrevious());
     try @import("std").testing.expectEqualStrings("status", terminal.input.slice());
-    terminal.input.replace("");
+    terminal.input.clear();
     for ("clear") |byte| try @import("std").testing.expect(terminal.input.insert(byte));
     try @import("std").testing.expect(terminal.submit());
     try @import("std").testing.expectEqual(@as(usize, 0), terminal.output_len);
