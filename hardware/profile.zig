@@ -280,6 +280,8 @@ test "hardware profile rejects empty CPU identity" {
     facts.logical_cpus = 1;
     facts.memory_pages = 1;
     try @import("std").testing.expectError(error.InvalidCpuIdentity, build(cpu, facts));
+    cpu.vendor[0] = 'X';
+    try @import("std").testing.expectError(error.InvalidCpuIdentity, build(cpu, facts));
 }
 
 test "hardware profile rejects non-monotonic baselines" {
@@ -306,11 +308,7 @@ test "hardware profile baseline append rolls back on overflow" {
 
 pub fn build(cpu: Cpu, facts: Facts) !Profile {
     if (cpu.threads_per_core == 0 or cpu.logical_per_package == 0) return error.InvalidCpuTopology;
-    var has_cpu_identity = false;
-    for (cpu.vendor) |byte| {
-        if (byte != 0 and byte != ' ') has_cpu_identity = true;
-    }
-    if (!has_cpu_identity) return error.InvalidCpuIdentity;
+    for (cpu.vendor) |byte| if (byte == 0 or byte == ' ') return error.InvalidCpuIdentity;
     if (facts.logical_cpus == 0 or facts.memory_pages == 0) return error.InvalidHardwareFacts;
     var result = Profile{};
     result.signature = signature(cpu, facts);
