@@ -528,8 +528,7 @@ pub const Controller = struct {
             // Residual is a full-width completion field. Truncating it to u16
             // before clamping can turn a large residual into a small one and
             // make us parse bytes that were not transferred.
-            const residual = @min(event.residual, @as(u32, endpoint.packet_size));
-            const size: u16 = endpoint.packet_size - @as(u16, @intCast(residual));
+            const size = transferredReportSize(endpoint.packet_size, event.residual);
             const report: [*]const u8 = @ptrFromInt(endpoint.report);
             const saved_size = @min(@as(usize, size), endpoint.last_report.len);
             var changed = endpoint.last_size != saved_size;
@@ -781,6 +780,11 @@ fn coalesceHidDelta(left: u8, right: u8) u8 {
     return @bitCast(@as(i8, @intCast(total)));
 }
 
+fn transferredReportSize(packet_size: u16, residual: u32) u16 {
+    const bounded = @min(residual, @as(u32, packet_size));
+    return packet_size - @as(u16, @intCast(bounded));
+}
+
 test "full HID queue coalesces mouse motion without losing buttons" {
     var devices = HidDevices{};
     for (0..63) |_| devices.push(.{ .kind = .mouse, .a = 1, .b = 1, .c = 0, .d = 0 });
@@ -810,6 +814,12 @@ test "HID modifier-only reports count as pressed" {
     try @import("std").testing.expect(!keyboardReportPressed(&released));
     var second_slot = [_]u8{ 0, 0, 0, 0x04, 0, 0, 0, 0 };
     try @import("std").testing.expect(keyboardReportPressed(&second_slot));
+}
+
+test "xHCI residual cannot underflow the HID report length" {
+    try @import("std").testing.expectEqual(@as(u16, 8), transferredReportSize(8, 0));
+    try @import("std").testing.expectEqual(@as(u16, 3), transferredReportSize(8, 5));
+    try @import("std").testing.expectEqual(@as(u16, 0), transferredReportSize(8, 0xffff_ffff));
 }
 
 pub const AudioDevices = struct {
