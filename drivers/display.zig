@@ -418,6 +418,11 @@ pub const WindowManager = struct {
         self.switcher_hover = null;
     }
 
+    pub fn openSwitcher(self: *WindowManager) void {
+        self.switcher_open = true;
+        self.switcher_hover = null;
+    }
+
     pub fn launcherButtonHitTest(_: *const WindowManager, x: usize, y: usize, screen_height: usize) bool {
         return screen_height >= 24 and y < screen_height and x >= 4 and x < 56 and y >= screen_height - 17 and y < screen_height - 3;
     }
@@ -750,6 +755,14 @@ test "dismissing switcher clears hover" {
     manager.switcher_hover = 1;
     manager.dismissSwitcher();
     try std.testing.expect(!manager.switcher_open);
+    try std.testing.expect(manager.switcher_hover == null);
+}
+
+test "opening switcher clears previous hover" {
+    var manager = WindowManager{};
+    manager.switcher_hover = 1;
+    manager.openSwitcher();
+    try std.testing.expect(manager.switcher_open);
     try std.testing.expect(manager.switcher_hover == null);
 }
 

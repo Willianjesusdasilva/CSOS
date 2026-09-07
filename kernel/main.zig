@@ -2238,7 +2238,7 @@ pub fn start(info: BootInfo) noreturn {
                 }
                 if (tab_switch_pressed and !alt_tab_down) {
                     window_manager.launcher_open = false;
-                    window_manager.switcher_open = true;
+                    window_manager.openSwitcher();
                     switcher_consumed = true;
                     const reverse = (event.b & 0x02) != 0;
                     const next_window = if (reverse) window_manager.altTabReverse() else window_manager.altTab();
