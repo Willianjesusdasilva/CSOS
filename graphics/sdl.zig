@@ -906,6 +906,9 @@ test "SDL software event queue and surface contract" {
     terminal.input.replace("ECHO ready");
     try @import("std").testing.expect(terminal.submit());
     try @import("std").testing.expectEqualStrings("> ECHO ready\nready\n", terminal.outputSlice());
+    terminal.input.replace("ClEaR");
+    try @import("std").testing.expect(terminal.submit());
+    try @import("std").testing.expectEqual(@as(usize, 0), terminal.output_len);
     terminal.clearOutput();
     terminal.input.replace("help");
     try @import("std").testing.expect(terminal.submit());
@@ -913,7 +916,7 @@ test "SDL software event queue and surface contract" {
     terminal.clearOutput();
     terminal.input.replace("history");
     try @import("std").testing.expect(terminal.submit());
-    try @import("std").testing.expectEqualStrings("> history\nHISTORY\n  STATUS\n  ECHO ready\n  help\n  history\n", terminal.outputSlice());
+    try @import("std").testing.expectEqualStrings("> history\nHISTORY\n  ECHO ready\n  ClEaR\n  help\n  history\n", terminal.outputSlice());
     terminal.clearOutput();
     try @import("std").testing.expect(terminal.historyPrevious());
     try @import("std").testing.expectEqualStrings("history", terminal.input.slice());
