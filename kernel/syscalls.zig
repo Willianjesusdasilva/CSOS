@@ -25,6 +25,8 @@ var device_mmap_hook: ?*const fn (u64, u64, u64, bool) callconv(.c) bool = null;
 var user_slice_hook: ?*const fn (u64, u64) callconv(.c) bool = null;
 var stdin_hook: ?*const fn ([*]u8, usize) callconv(.c) usize = null;
 var idle_hook: ?*const fn () callconv(.c) void = null;
+var robust_head: u64 = 0;
+var robust_len: u64 = 0;
 pub var file_mmaps: u64 = 0;
 pub var protected_mmaps: u64 = 0;
 pub var unmapped_mmaps: u64 = 0;
@@ -373,6 +375,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         267 => readlinkat(@bitCast(arg1), arg2, arg3, arg4),
         271 => ppoll(arg1, arg2, arg3, arg4),
         273 => setRobustList(arg1, arg2),
+        274 => getRobustList(arg1, arg2, arg3, arg4),
         309 => getcpu(arg1, arg2),
         436 => closeRange(arg1, arg2, arg3),
         else => unsupported(number),
@@ -2803,6 +2806,16 @@ fn getcpu(cpu: u64, node: u64) u64 {
 
 fn setRobustList(head: u64, length: u64) u64 {
     if (length != 24 or !validUserSlice(head, length)) return errno(22);
+    robust_head = head;
+    robust_len = length;
+    return 0;
+}
+
+fn getRobustList(pid: u64, head_address: u64, length_address: u64, _: u64) u64 {
+    if (pid != 0 and pid != 1) return errno(3);
+    if (!validUserSlice(head_address, 8) or !validUserSlice(length_address, 8)) return errno(14);
+    @as(*align(1) u64, @ptrFromInt(head_address)).* = robust_head;
+    @as(*align(1) u64, @ptrFromInt(length_address)).* = robust_len;
     return 0;
 }
 
