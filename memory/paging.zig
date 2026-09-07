@@ -137,7 +137,6 @@ pub const AddressSpace = struct {
     }
 
     pub fn userPermissions(self: *const AddressSpace, virtual: u64) ?Permissions {
-        if (!isUserPageAddress(virtual)) return null;
         const entry = userLeaf(self.root, virtual) orelse return null;
         if ((entry.* & 1) == 0) return null;
         return .{ .writable = (entry.* & 0x002) != 0, .executable = (entry.* & (@as(u64, 1) << 63)) == 0 };

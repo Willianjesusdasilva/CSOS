@@ -401,7 +401,12 @@ pub fn start(info: BootInfo) noreturn {
     serial.write("CSOS M17 paused timers ready\n");
 
     const userspace_pages_before = pages.free_pages;
-    process.runHelloPie(mapper.root, &pages) catch panic("PIE userspace failed");
+    process.runHelloPie(mapper.root, &pages) catch |err| {
+        serial.write("PIE userspace error: ");
+        serial.write(@errorName(err));
+        serial.write("\n");
+        panic("PIE userspace failed");
+    };
     mapper.activate();
     if (process.relative_relocations == 0) panic("PIE relative relocation missing");
     if (syscalls.file_mmaps == 0) panic("Linux file mmap missing");
