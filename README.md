@@ -779,8 +779,9 @@ prévia → Page Down → Page Up → Esc. O teste exige simultaneamente launch 
 4, arquivo selecionado, offsets 192/0 e prévia fechada no serial, e sempre
 encerra o emulador. Esse fluxo substitui o boot passivo em `test-system.ps1`.
 O mesmo runner aceita `-SmokeDesktopMouse`: conecta um mouse USB emulado,
-injeta movimento relativo em múltiplos passos e um ciclo esquerdo pressionar/
-soltar, exigindo os marcadores de ambos os estados no serial. O smoke combinado
+injeta movimento relativo em múltiplos passos, um evento de roda e um ciclo
+esquerdo pressionar/soltar, exigindo os marcadores de movimento, roda e ambos
+os estados no serial. O smoke combinado
 de `test-system.ps1` cobre teclado e mouse no mesmo boot e encerra o QEMU.
 Os passos são espaçados para que o dispositivo USB não coalesça toda a trajetória
 em um único relatório; cada movimento aceito registra posição e delta no serial.

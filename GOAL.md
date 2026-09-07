@@ -112,8 +112,9 @@ texto completo e runtime HTML/CSS/Jinja continuam pendentes.
 `Ctrl+W` também fecha a janela focada como atalho equivalente para uso por
 teclado.
 O runner QEMU agora possui `-SmokeDesktopMouse`, que injeta movimento relativo
-e um ciclo de botão esquerdo no dispositivo USB emulado; o teste exige os
-marcadores `UI mouse buttons: 1/0`. O `test-system.ps1` combina esse smoke com
+um evento de roda e um ciclo de botão esquerdo no dispositivo USB emulado; o
+teste exige movimento, `UI mouse wheel` e os marcadores `UI mouse buttons: 1/0`.
+O `test-system.ps1` combina esse smoke com
 o fluxo de teclado/FILES, mantendo a validação limitada ao hardware emulado.
 O espaçamento entre comandos evita perder deltas por coalescência do dispositivo.
 `Ctrl+M` minimiza/restaura a janela focada; janelas minimizadas deixam de
