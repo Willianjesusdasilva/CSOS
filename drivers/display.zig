@@ -74,6 +74,9 @@ pub const WindowManager = struct {
         const index = self.count;
         self.count += 1;
         self.focused = index;
+        // A nova janela assume o desktop; overlays não devem cobrir seu primeiro frame.
+        self.launcher_open = false;
+        self.switcher_open = false;
         return index;
     }
 
@@ -478,6 +481,7 @@ test "window manager focus alt-tab hit-test and close" {
     try std.testing.expect(!manager.windows[0].minimized);
     const third = try manager.create(.{ .id = 30, .x = 0, .y = 0, .width = 64, .height = 32 });
     try std.testing.expectEqual(@as(usize, 1), third);
+    try std.testing.expect(!manager.switcher_open);
     try std.testing.expect(manager.focus(1));
     manager.close(0);
     try std.testing.expectEqual(@as(?usize, 0), manager.focused);
