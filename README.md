@@ -853,6 +853,8 @@ O loader também valida as somas de base dos construtores e os limites dos
 headers e da string do interpretador antes de produzir ponteiros executáveis.
 A busca de `DT_NEEDED` valida a tabela de programas e a soma dos offsets de
 strings antes de consultar a imagem.
+As regiões bloom/bucket/chain de `.gnu.hash` agora usam multiplicações e somas
+checked antes de serem indexadas.
 
 Mapeamentos anônimos fazem rollback transacional quando uma página falha: os
 mapeamentos parciais são removidos e a memória física é devolvida ao allocator.

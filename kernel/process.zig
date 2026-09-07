@@ -1213,19 +1213,23 @@ fn gnuHashSymbolCount(bytes: []const u8, raw_offset: u64) !u32 {
     const symbol_offset = read32From(bytes, offset + 4);
     const bloom_size = read32From(bytes, offset + 8);
     if (bucket_count == 0 or bloom_size == 0) return error.InvalidGnuHash;
-    const buckets_offset = offset + 16 + @as(usize, bloom_size) * 8;
-    const chains_offset = buckets_offset + @as(usize, bucket_count) * 4;
+    const bloom_bytes = std.math.mul(usize, @as(usize, bloom_size), 8) catch return error.InvalidGnuHash;
+    const bucket_bytes = std.math.mul(usize, @as(usize, bucket_count), 4) catch return error.InvalidGnuHash;
+    const bloom_start = std.math.add(usize, offset, 16) catch return error.InvalidGnuHash;
+    const buckets_offset = std.math.add(usize, bloom_start, bloom_bytes) catch return error.InvalidGnuHash;
+    const chains_offset = std.math.add(usize, buckets_offset, bucket_bytes) catch return error.InvalidGnuHash;
     if (buckets_offset > bytes.len or chains_offset > bytes.len) return error.InvalidGnuHash;
     var highest = symbol_offset;
     var bucket_index: u32 = 0;
     while (bucket_index < bucket_count) : (bucket_index += 1) {
-        const first = read32From(bytes, buckets_offset + @as(usize, bucket_index) * 4);
+        const bucket_offset = std.math.add(usize, buckets_offset, std.math.mul(usize, @as(usize, bucket_index), 4) catch return error.InvalidGnuHash) catch return error.InvalidGnuHash;
+        const first = read32From(bytes, bucket_offset);
         if (first == 0) continue;
         if (first < symbol_offset) return error.InvalidGnuHash;
         var symbol = first;
         while (true) : (symbol += 1) {
             const chain_index = @as(usize, symbol - symbol_offset);
-            const chain_offset = chains_offset + chain_index * 4;
+            const chain_offset = std.math.add(usize, chains_offset, std.math.mul(usize, chain_index, 4) catch return error.InvalidGnuHash) catch return error.InvalidGnuHash;
             if (chain_offset > bytes.len - 4) return error.InvalidGnuHash;
             const hash = read32From(bytes, chain_offset);
             highest = @max(highest, symbol + 1);

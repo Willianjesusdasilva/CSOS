@@ -334,6 +334,8 @@ overflow de base/offset e limites de cabeçalhos e strings antes de usar os
 endereços calculados.
 A resolução de dependências `DT_NEEDED` recebe o mesmo preflight e rejeita
 somatórios embrulhados ao localizar nomes na tabela dinâmica.
+O parser GNU hash também verifica os tamanhos de bloom, buckets e chains antes
+de calcular qualquer índice de símbolo.
 
 Mapeamentos anônimos também possuem rollback transacional: uma falha no meio da
 criação remove as páginas já instaladas e devolve a alocação e o ownership.
