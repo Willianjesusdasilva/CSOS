@@ -1697,7 +1697,7 @@ fn amdgpuGemVa(address: u64, extended: bool) u64 {
         if (flags == 0 or (flags & ~@as(u32, 0x0e)) != 0) return errno(95);
         _ = ensureAmdGpuVm() catch |err| return amdGpuVmErrno(err);
         var mapped: u64 = 0;
-        while (mapped < map_size) : (mapped += 4096) {
+        while (mapped < map_size) : (mapped += @min(@as(u64, 4096), map_size - mapped)) {
             mapAmdGpuObjectPage(object, handle, va_address + mapped, bo_offset + mapped, flags) catch |err| {
                 var rollback = mapped;
                 while (rollback != 0) {
@@ -1723,7 +1723,7 @@ fn amdgpuGemVa(address: u64, extended: bool) u64 {
     if (drm_vm_vmid == 0) return errno(2);
     var mapped_flags: ?u32 = null;
     var checked: u64 = 0;
-    while (checked < map_size) : (checked += 4096) {
+    while (checked < map_size) : (checked += @min(@as(u64, 4096), map_size - checked)) {
         const page_flags = validateAmdGpuObjectPage(object, handle, va_address + checked, bo_offset + checked) catch |err| return amdGpuVmErrno(err);
         if (mapped_flags) |expected| {
             if (page_flags != expected) return errno(22);
@@ -1731,13 +1731,13 @@ fn amdgpuGemVa(address: u64, extended: bool) u64 {
     }
     const page_flags = mapped_flags orelse return errno(2);
     var unmapped: u64 = 0;
-    while (unmapped < map_size) : (unmapped += 4096) {
+    while (unmapped < map_size) : (unmapped += @min(@as(u64, 4096), map_size - unmapped)) {
         unmapAmdGpuObjectPage(object, va_address + unmapped, bo_offset + unmapped, page_flags) catch |err|
             return amdGpuVmErrno(err);
     }
     syncAmdGpuVmAfterUnmap() catch |err| {
         var restore: u64 = 0;
-        while (restore < unmapped) : (restore += 4096) mapAmdGpuObjectPage(
+        while (restore < unmapped) : (restore += @min(@as(u64, 4096), unmapped - restore)) mapAmdGpuObjectPage(
             object, handle, va_address + restore, bo_offset + restore, page_flags,
         ) catch {};
         if (drm_vm_hardware) |*session| if (session.bound_vmid != 0)
