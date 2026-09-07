@@ -2115,6 +2115,8 @@ pub fn start(info: BootInfo) noreturn {
                         0x51 => window_manager.launcherSelectNext(),
                         0x52 => window_manager.launcherSelectPrevious(),
                         0x2b => if ((event.b & 0x22) != 0) window_manager.launcherSelectPrevious() else window_manager.launcherSelectNext(),
+                        0x4a => window_manager.launcher_selection = 0,
+                        0x4d => window_manager.launcher_selection = display.launcher_item_count - 1,
                         0x29 => window_manager.launcher_open = false,
                         0x28 => if (window_manager.launcherSelectedApplication()) |application_id| {
                             const was_open = window_manager.findById(application_id) != null;
