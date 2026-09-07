@@ -2832,13 +2832,22 @@ fn setSocketOption(fd: u64, level: u64, option: u64, value: u64, length: u64) u6
 }
 
 fn getSocketOption(fd: u64, level: u64, option: u64, value: u64, length_address: u64) u64 {
-    _ = socketIndex(fd) orelse return errno(9);
-    if (level != 1 or option != 4) return errno(92); // SO_ERROR
+    const index = socketIndex(fd) orelse return errno(9);
+    if (level != 1 or (option != 2 and option != 4 and option != 9 and option != 13)) return errno(92); // SOL_SOCKET
     if (value == 0 or length_address == 0 or !validUserSlice(length_address, 4)) return errno(14);
     const available = @as(*align(1) u32, @ptrFromInt(length_address)).*;
-    if (available < 4 or !validUserSlice(value, 4)) return errno(22);
-    @as(*align(1) u32, @ptrFromInt(value)).* = 0;
-    @as(*align(1) u32, @ptrFromInt(length_address)).* = 4;
+    const result_length: u32 = if (option == 13) 8 else 4;
+    if (available < result_length or !validUserSlice(value, result_length)) return errno(22);
+    const output: [*]u8 = @ptrFromInt(value);
+    @memset(output[0..result_length], 0);
+    if (option == 2) put32(output, @intFromBool(sockets[index].reuse_address));
+    if (option == 4) put32(output, 0); // SO_ERROR
+    if (option == 9) put32(output, @intFromBool(sockets[index].keep_alive));
+    if (option == 13) {
+        put32(output, @intFromBool(sockets[index].linger_enabled));
+        put32(output + 4, sockets[index].linger_seconds);
+    }
+    @as(*align(1) u32, @ptrFromInt(length_address)).* = result_length;
     return 0;
 }
 
