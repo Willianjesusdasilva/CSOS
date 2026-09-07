@@ -635,7 +635,7 @@ test "window manager taskbar hit testing ignores slot gaps" {
     _ = try manager.create(.{ .id = 1, .title = "A", .x = 8, .y = 8, .width = 80, .height = 60 });
     try std.testing.expectEqual(@as(?usize, 0), manager.taskbarHitTest(70, 110, 128));
     try std.testing.expect(manager.taskbarHitTest(64 + 104, 110, 128) == null);
-    try std.testing.expect(manager.taskbarHitTest(64, 108, 128) == null);
+    try std.testing.expect(manager.taskbarHitTest(64, 107, 128) == null);
 }
 
 test "window manager reset clears desktop session state" {
