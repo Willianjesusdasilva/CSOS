@@ -737,7 +737,7 @@ test "SDL software event queue and surface contract" {
     try @import("std").testing.expectEqual(@as(u64, 192), audio.queue(64));
     try @import("std").testing.expectEqual(@as(u64, 0), audio.availableFrames());
     try @import("std").testing.expectEqual(@as(u64, 0), audio.consume(64));
-    try @import("std").testing.expectEqual(@as(u64, 192), audio.queued_frames);
+    try @import("std").testing.expectEqual(@as(u64, 192), audio.queuedFrames());
     try @import("std").testing.expectEqual(@as(u64, 0), audio.drain());
     audio.pause(false);
     try @import("std").testing.expectEqual(@as(u64, 192), audio.drain());
