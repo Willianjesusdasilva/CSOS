@@ -423,7 +423,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         262 => stat(arg2, arg3, @bitCast(arg1)),
         267 => readlinkat(@bitCast(arg1), arg2, arg3, arg4),
         247 => waitId(arg1, arg2, arg3, arg4),
-        271 => ppoll(arg1, arg2, arg3, arg4),
+        271 => ppoll(arg1, arg2, arg3, arg4, arg5),
         302 => prlimit64(arg1, arg2, arg3, arg4),
         306 => syncFile(arg1),
         232 => epollWait(arg1, arg2, arg3, @bitCast(arg4)),
@@ -2593,8 +2593,12 @@ fn poll(address: u64, count: u64, timeout: i64) u64 {
     return ready;
 }
 
-fn ppoll(address: u64, count: u64, timespec: u64, signal_mask: u64) u64 {
-    if (signal_mask != 0 and !validUserSlice(signal_mask, 8)) return errno(14);
+fn ppoll(address: u64, count: u64, timespec: u64, signal_mask: u64, signal_set_size: u64) u64 {
+    // x86_64 Linux exposes an eight-byte kernel sigset for ppoll.  Reject a
+    // non-null mask with another size instead of silently accepting an ABI
+    // layout that userspace cannot rely on.
+    if (signal_mask != 0 and signal_set_size != 8) return errno(22);
+    if (signal_mask != 0 and !validUserSlice(signal_mask, signal_set_size)) return errno(14);
     var timeout: i64 = 0;
     if (timespec != 0) {
         if (!validUserSlice(timespec, 16)) return errno(14);
