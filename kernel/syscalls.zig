@@ -423,6 +423,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         274 => getRobustList(arg1, arg2, arg3, arg4),
         309 => getcpu(arg1, arg2),
         436 => closeRange(arg1, arg2, arg3),
+        439 => faccessat2(arg1, arg2, arg3, arg4),
         else => unsupported(number),
     };
 }
@@ -2868,6 +2869,12 @@ fn closeRange(first: u64, last: u64, flags: u64) u64 {
         }
     }
     return 0;
+}
+
+fn faccessat2(directory_fd: u64, path: u64, mode: u64, flags: u64) u64 {
+    _ = directory_fd;
+    if (flags != 0 and flags != 0x200) return errno(22);
+    return access(path, @truncate(mode));
 }
 
 fn futex(address: u64, operation: u64, expected: u64) u64 {
