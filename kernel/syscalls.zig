@@ -369,6 +369,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         118 => getResUid(arg1, arg2, arg3),
         119 => setResGid(arg1, arg2, arg3),
         120 => getResGid(arg1, arg2, arg3),
+        135 => personality(arg1),
         140 => getPriority(arg1, arg2),
         141 => setPriority(arg1, arg2, @bitCast(arg3)),
         142 => setScheduler(arg1, arg2, arg3),
@@ -2965,6 +2966,11 @@ fn getResUid(real: u64, effective: u64, saved: u64) u64 {
 
 fn setResGid(real: u64, effective: u64, saved: u64) u64 {
     return setResUid(real, effective, saved);
+}
+
+fn personality(value: u64) u64 {
+    if (value == 0xffffffffffffffff or value == 0) return 0;
+    return errno(22);
 }
 
 fn getResGid(real: u64, effective: u64, saved: u64) u64 {
