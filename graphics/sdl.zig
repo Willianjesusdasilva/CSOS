@@ -1084,6 +1084,13 @@ test "SDL software event queue and surface contract" {
     try @import("std").testing.expectError(error.InvalidAudioSpec, AudioDevice.init(.{ .sample_rate = 48000, .channels = 9 }));
 }
 
+test "SDL list selection normalizes zero visible rows" {
+    var selection = ListSelection{ .visible_rows = 0 };
+    selection.setCount(3);
+    try @import("std").testing.expectEqual(@as(usize, 1), selection.visible_rows);
+    try @import("std").testing.expect(!selection.selectVisibleRow(0));
+}
+
 test "list selection keeps the selected row inside its viewport" {
     const testing = @import("std").testing;
     var list = ListSelection.init(10, 3);
