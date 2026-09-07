@@ -454,9 +454,11 @@ pub const Terminal = struct {
             self.append(command);
             self.append("\n");
             if (bytesEqual(command, "help"))
-                self.append("HELP CLEAR STATUS\n")
+                self.append("HELP CLEAR STATUS VERSION\n")
             else if (bytesEqual(command, "status"))
                 self.append("CSOS READY\n")
+            else if (bytesEqual(command, "version"))
+                self.append("CSOS 0.1\n")
             else
                 self.append("UNKNOWN COMMAND\n");
         }
@@ -850,15 +852,19 @@ test "SDL software event queue and surface contract" {
     terminal.clearOutput();
     try @import("std").testing.expectEqual(@as(usize, 0), terminal.output_len);
     terminal.input.replace("status");
+    terminal.input.replace("version");
+    try @import("std").testing.expect(terminal.submit());
+    try @import("std").testing.expectEqualStrings("> version\nCSOS 0.1\n", terminal.outputSlice());
+    terminal.clearOutput();
     try @import("std").testing.expect(terminal.historyPrevious());
-    try @import("std").testing.expectEqualStrings("status", terminal.input.slice());
+    try @import("std").testing.expectEqualStrings("version", terminal.input.slice());
     try @import("std").testing.expect(terminal.historyNext());
     try @import("std").testing.expectEqualStrings("", terminal.input.slice());
     terminal.history_cursor = terminal.history_len + 1;
     try @import("std").testing.expect(!terminal.historyNext());
     terminal.history_cursor = terminal.history_len + 1;
     try @import("std").testing.expect(terminal.historyPrevious());
-    try @import("std").testing.expectEqualStrings("status", terminal.input.slice());
+    try @import("std").testing.expectEqualStrings("version", terminal.input.slice());
     terminal.input.clear();
     for ("clear") |byte| try @import("std").testing.expect(terminal.input.insert(byte));
     try @import("std").testing.expect(terminal.submit());
