@@ -209,11 +209,12 @@ pub fn openAt(directory_fd: i64, path: []const u8, flags: u64) !usize {
         };
         if (existed and (flags & 0xc0) == 0xc0) return error.AlreadyExists;
         const writable = (flags & 0x3) != 0;
+        const generation = try newGeneration();
         if ((flags & 0x200) != 0 and writable or (size == 0 and (flags & 0x40) != 0)) {
             try volume.writeRootFile(&fat_name, "");
             size = 0;
         }
-        descriptors[fd] = .{ .generation = try newGeneration(), .kind = .file, .node = .disk, .size = size, .fat_name = fat_name };
+        descriptors[fd] = .{ .generation = generation, .kind = .file, .node = .disk, .size = size, .fat_name = fat_name };
         descriptors[fd].close_on_exec = (flags & 0x80000) != 0;
         descriptors[fd].append = (flags & 0x400) != 0;
         descriptors[fd].writable = (flags & 0x3) != 0;
