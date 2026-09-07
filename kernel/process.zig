@@ -138,7 +138,9 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
     const program_offset = read64(32);
     const program_entry_size = read16(54);
     const program_count = read16(56);
-    if (program_entry_size < 56 or program_offset + @as(u64, program_entry_size) * program_count > image.len) return error.InvalidElf;
+    const program_table_bytes = @as(u64, program_entry_size) * program_count;
+    if (program_entry_size < 56 or program_offset > std.math.maxInt(u64) - program_table_bytes or
+        program_offset + program_table_bytes > image.len) return error.InvalidElf;
     const program_image = image;
     const interpreter_path = try findInterpreter(program_offset, program_entry_size, program_count);
     const needed = try findNeeded(program_offset, program_entry_size, program_count);
@@ -300,7 +302,9 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
         const interpreter_program_offset = read64(32);
         const interpreter_program_entry_size = read16(54);
         const interpreter_program_count = read16(56);
-        if (interpreter_program_entry_size < 56 or interpreter_program_offset + @as(u64, interpreter_program_entry_size) * interpreter_program_count > image.len)
+        const interpreter_table_bytes = @as(u64, interpreter_program_entry_size) * interpreter_program_count;
+        if (interpreter_program_entry_size < 56 or interpreter_program_offset > std.math.maxInt(u64) - interpreter_table_bytes or
+            interpreter_program_offset + interpreter_table_bytes > image.len)
             return error.InvalidInterpreter;
         interpreter_base = 0x0000007000000000;
         execution_entry = read64(24) + interpreter_base;
