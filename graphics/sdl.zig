@@ -530,6 +530,7 @@ pub const AudioDevice = struct {
     }
 
     pub fn availableFrames(self: *const AudioDevice) u64 {
+        // Paused output retains queued data but exposes no consumable frames.
         return if (self.paused) 0 else self.queued_frames;
     }
 
