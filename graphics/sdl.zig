@@ -398,7 +398,7 @@ pub const Window = struct {
             const color: u32 = switch (element.kind) {
                 .heading => 0x70d0ffff,
                 .paragraph => 0xa0b8d0ff,
-                .button => 0xffd070ff,
+                .button => if (element.accent) 0x70e0a0ff else 0xffd070ff,
             };
             if (focused != null and focused.? == index and element.kind == .button) {
                 self.fillRect(x -| 2, cursor_y -| 2, element.text.len * 8 + 4, 14, 0x304860ff);
