@@ -723,7 +723,10 @@ pub const InputKind = enum { keyboard, mouse };
 pub const InputEvent = struct { kind: InputKind, a: u8, b: u8, c: u8 = 0, d: u8 = 0 };
 
 fn keyboardReportPressed(report: []const u8) bool {
-    return (report.len > 0 and report[0] != 0) or (report.len > 2 and report[2] != 0);
+    if (report.len > 0 and report[0] != 0) return true;
+    if (report.len <= 2) return false;
+    for (report[2..@min(report.len, 8)]) |keycode| if (keycode != 0) return true;
+    return false;
 }
 pub const HidDevices = struct {
     keyboards: u8 = 0,
@@ -805,6 +808,8 @@ test "HID modifier-only reports count as pressed" {
     const released = [_]u8{ 0, 0, 0, 0, 0, 0, 0, 0 };
     try @import("std").testing.expect(keyboardReportPressed(&super_down));
     try @import("std").testing.expect(!keyboardReportPressed(&released));
+    var second_slot = [_]u8{ 0, 0, 0, 0x04, 0, 0, 0, 0 };
+    try @import("std").testing.expect(keyboardReportPressed(&second_slot));
 }
 
 pub const AudioDevices = struct {
