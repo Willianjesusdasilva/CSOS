@@ -285,10 +285,11 @@ pub const Stack = struct {
         var attempts: u8 = 0;
         while (attempts < 16) : (attempts += 1) {
             const length = try self.device.receive(&received);
-            if (length < 42 or get16(received[12..]) != 0x0800) continue;
+            if (length < 42 or get16(received[12..]) != 0x0800 or received[14] >> 4 != 4) continue;
             const header_length = @as(usize, received[14] & 0x0f) * 4;
             const total_length = get16(received[16..]);
-            if (header_length < 20 or total_length < header_length + 8 or length < 14 + total_length or received[23] != 1) continue;
+            if (header_length < 20 or total_length < header_length + 8 or (get16(received[20..]) & 0x3fff) != 0 or length < 14 + total_length or received[23] != 1) continue;
+            if (checksum(received[14 .. 14 + header_length]) != 0) continue;
             if (!equal(received[26..30], &self.gateway_ip) or !equal(received[30..34], &self.local_ip)) continue;
             const reply = received[14 + header_length ..];
             if (reply[0] == 0 and reply[1] == 0 and get16(reply[4..]) == 0x4353 and checksum(reply[0 .. total_length - header_length]) == 0) return;
