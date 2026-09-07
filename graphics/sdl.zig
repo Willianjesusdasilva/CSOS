@@ -439,7 +439,7 @@ pub const Terminal = struct {
         if (command.len == 0) return false;
         self.remember(command);
         if (bytesEqual(command, "clear")) {
-            self.output_len = 0;
+            self.clearOutput();
         } else {
             self.append("> ");
             self.append(command);
@@ -459,6 +459,10 @@ pub const Terminal = struct {
     pub fn cancel(self: *Terminal) void {
         self.input.clear();
         self.history_cursor = self.history_len;
+    }
+
+    pub fn clearOutput(self: *Terminal) void {
+        self.output_len = 0;
     }
 
     pub fn outputSlice(self: *const Terminal) []const u8 {
@@ -830,6 +834,9 @@ test "SDL software event queue and surface contract" {
     for ("status") |byte| try @import("std").testing.expect(terminal.input.insert(byte));
     try @import("std").testing.expect(terminal.submit());
     try @import("std").testing.expectEqualStrings("> status\nCSOS READY\n", terminal.outputSlice());
+    terminal.clearOutput();
+    try @import("std").testing.expectEqual(@as(usize, 0), terminal.output_len);
+    terminal.input.replace("status");
     try @import("std").testing.expectEqualStrings("CSOS READY\n", terminal.outputTailLines(1));
     try @import("std").testing.expect(terminal.historyPrevious());
     try @import("std").testing.expectEqualStrings("status", terminal.input.slice());
