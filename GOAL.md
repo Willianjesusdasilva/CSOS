@@ -82,8 +82,8 @@ implementado ou validado, nem aumenta a porcentagem concluída do projeto.
 Snapshot em 2026-09-07, ponderado por funcionalidade real:
 
 ```text
-concluído: aproximadamente 42%
-restante:  aproximadamente 58%
+concluído: aproximadamente 43%
+restante:  aproximadamente 57%
 ```
 
 Prioridade operacional atualizada: a validação de GPU física AMD/NVIDIA fica
@@ -1056,7 +1056,7 @@ cross-host tentava inserir. A detecção AVX2 não foi desativada: o símbolo
 como PIC pela revisão fixada `3623fe661ae35c6c80ac221f14d85be76aa870f1`.
 Isto comprova o build real do driver, não seu carregamento no CSOS, command
 submission em Radeon nem triângulo Vulkan físico; o progresso global permanece
-em aproximadamente 42% concluído e 58% restante.
+em aproximadamente 43% concluído e 57% restante.
 
 O primeiro inventário do ELF mostra que os tipos de relocation do RADV já são
 os quatro tratados pelo loader (`RELATIVE`, `JUMP_SLOT`, `GLOB_DAT` e
@@ -1073,7 +1073,7 @@ BSS, deixando espaço para o RADV e suas dependências diretas. Isso deverá vir
 estado por processo quando houver `exec` concorrente. A suíte consolidada passou
 10/10 testes de host e os dois boots QEMU limitados até o console; ambos foram
 encerrados automaticamente. O teste ainda não carrega o RADV e não altera a
-estimativa global de 42%/58%.
+estimativa global de 43%/57%.
 
 O inventário agora é um gate automático de `build-radv.ps1`: arquitetura,
 SONAME, NEEDED, exports, ausência de RUNPATH, runtime de CPU, relocations e
