@@ -155,6 +155,7 @@ pub const Controller = struct {
 
     fn ioCommand(self: *Controller, opcode: u8, lba: u64, buffer: u64) !void {
         try validateIoRange(self.namespace_id, self.block_count, lba);
+        try validateIoBuffer(buffer);
         const command: [*]u8 = @ptrFromInt(self.io_submission + @as(u64, self.io_submission_tail) * 64);
         @memset(command[0..64], 0);
         command[0] = opcode;
@@ -276,6 +277,10 @@ fn parseNamespaceGeometry(data: [*]const u8) !NamespaceGeometry {
 fn validateIoRange(namespace_id: u32, block_count: u64, lba: u64) !void {
     if (namespace_id == 0 or block_count == 0) return error.NoNamespace;
     if (lba >= block_count) return error.LbaOutOfRange;
+}
+
+fn validateIoBuffer(buffer: u64) !void {
+    if (buffer == 0 or (buffer & 0xfff) != 0) return error.InvalidIoBuffer;
 }
 
 test "active namespace inventory counts sparse namespace identifiers" {
