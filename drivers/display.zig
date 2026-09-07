@@ -362,8 +362,14 @@ pub const WindowManager = struct {
         if (x < 64) return null;
         const task_x = x - 64;
         const slot = task_x / 112;
-        if (slot >= self.count or !self.windows[slot].visible or task_x % 112 >= 104) return null;
-        return slot;
+        if (task_x % 112 >= 104) return null;
+        var visible_slot: usize = 0;
+        for (self.windows[0..self.count], 0..) |window, index| {
+            if (!window.visible) continue;
+            if (visible_slot == slot) return index;
+            visible_slot += 1;
+        }
+        return null;
     }
 
     pub fn launcherButtonHitTest(_: *const WindowManager, x: usize, y: usize, screen_height: usize) bool {
@@ -447,13 +453,16 @@ pub const WindowManager = struct {
         context.fillRect(4, taskbar_y + 3, 52, 14, if (self.launcher_open) 0x50a078 else 0x405070);
         context.drawWindowTitle(12, taskbar_y + 5, "CS");
         i = 0;
+        var task_slot: usize = 0;
         while (i < self.count) : (i += 1) {
             const w = self.windows[i];
-            const slot_x = 64 + i * 112 + 4;
+            if (!w.visible) continue;
+            const slot_x = 64 + task_slot * 112 + 4;
             if (slot_x >= context.framebuffer.width) break;
             const slot_width = @min(@as(usize, 104), context.framebuffer.width - slot_x);
             context.fillRect(slot_x, taskbar_y + 3, slot_width, 14, if (self.focused == i and !w.minimized) 0x5070a0 else 0x303848);
             context.drawWindowTitleLimited(slot_x + 8, taskbar_y + 5, w.title, slot_width -| 16);
+            task_slot += 1;
         }
         if (self.launcher_open and context.framebuffer.height >= launcher_menu_height + 4) {
             const menu_top = @as(usize, context.framebuffer.height) - launcher_menu_height;
