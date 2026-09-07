@@ -175,7 +175,7 @@ pub fn freezeCurrent() !void {
 pub fn standbyGroup(group: u16) usize {
     var changed: usize = 0;
     for (threads[0..thread_count]) |*thread| {
-        if (thread.group != group or thread.state != .frozen or thread.policy == .keep_alive) continue;
+        if (thread.group != group or thread.state != .frozen or thread.policy == .keep_alive or thread.lifecycle == .standby) continue;
         thread.lifecycle = .standby;
         changed += 1;
     }
