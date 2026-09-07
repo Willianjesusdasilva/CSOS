@@ -202,7 +202,8 @@ pub const WindowManager = struct {
                 return self.focused.?;
             }
         }
-        return self.focused;
+        self.focused = null;
+        return null;
     }
 
     pub fn altTabReverse(self: *WindowManager) ?usize {
@@ -217,7 +218,8 @@ pub const WindowManager = struct {
                 return self.focused.?;
             }
         }
-        return self.focused;
+        self.focused = null;
+        return null;
     }
 
     pub fn hitTest(self: *const WindowManager, x: usize, y: usize) ?usize {
@@ -517,6 +519,9 @@ test "window manager focus alt-tab hit-test and close" {
     try std.testing.expect(!manager.move(0, 0, 0, 100, 100));
     try std.testing.expect(!manager.resize(0, 80, 60, 100, 100));
     try std.testing.expect(!manager.restore(0));
+    try std.testing.expect(manager.altTab() == null);
+    try std.testing.expect(manager.altTabReverse() == null);
+    try std.testing.expect(manager.focused == null);
     const count_before_invalid_close = manager.count;
     manager.close(max_windows);
     try std.testing.expectEqual(count_before_invalid_close, manager.count);
