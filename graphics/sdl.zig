@@ -578,7 +578,8 @@ pub const Terminal = struct {
                 self.clearOutput();
             } else if (bytesEqualIgnoreCase(command, "reset")) {
                 self.clearOutput();
-                self.history_cursor = self.history_len;
+                self.history_len = 0;
+                self.history_cursor = 0;
             } else {
             self.append("> ");
             self.append(command);
@@ -1149,6 +1150,7 @@ test "SDL software event queue and surface contract" {
     terminal.input.replace("reset");
     try @import("std").testing.expect(terminal.submit());
     try @import("std").testing.expectEqual(@as(usize, 0), terminal.output_len);
+    try @import("std").testing.expectEqual(@as(usize, 0), terminal.history_len);
     terminal.clearOutput();
     terminal.input.replace("help");
     try @import("std").testing.expect(terminal.submit());
