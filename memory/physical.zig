@@ -250,3 +250,15 @@ test "physical allocator ignores truncated UEFI descriptors" {
     try @import("std").testing.expectEqual(@as(usize, 0), allocator.range_count);
     try @import("std").testing.expectEqual(@as(u64, 0), allocator.free_pages);
 }
+
+test "physical allocator initInto resets persistent state" {
+    var bytes: [40]u8 align(8) = .{0} ** 40;
+    std.mem.writeInt(u32, bytes[0..4], conventional_memory, .little);
+    std.mem.writeInt(u64, bytes[8..16], 0x200000, .little);
+    std.mem.writeInt(u64, bytes[24..32], 2, .little);
+    var allocator = Allocator{ .range_count = 1, .free_pages = 99 };
+    allocator.initInto(&bytes, 1, bytes.len);
+    try @import("std").testing.expectEqual(@as(usize, 1), allocator.range_count);
+    try @import("std").testing.expectEqual(@as(u64, 2), allocator.free_pages);
+    try @import("std").testing.expectEqual(@as(usize, 0), allocator.returned_count);
+}
