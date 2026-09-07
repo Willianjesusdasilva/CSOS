@@ -863,14 +863,14 @@ test "SDL software event queue and surface contract" {
     try @import("std").testing.expectEqualStrings("> echo\nECHO READY\n", terminal.outputSlice());
     terminal.clearOutput();
     try @import("std").testing.expect(terminal.historyPrevious());
-    try @import("std").testing.expectEqualStrings("version", terminal.input.slice());
+    try @import("std").testing.expectEqualStrings("echo", terminal.input.slice());
     try @import("std").testing.expect(terminal.historyNext());
     try @import("std").testing.expectEqualStrings("", terminal.input.slice());
     terminal.history_cursor = terminal.history_len + 1;
     try @import("std").testing.expect(!terminal.historyNext());
     terminal.history_cursor = terminal.history_len + 1;
     try @import("std").testing.expect(terminal.historyPrevious());
-    try @import("std").testing.expectEqualStrings("version", terminal.input.slice());
+    try @import("std").testing.expectEqualStrings("echo", terminal.input.slice());
     terminal.input.clear();
     for ("clear") |byte| try @import("std").testing.expect(terminal.input.insert(byte));
     try @import("std").testing.expect(terminal.submit());
