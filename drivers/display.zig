@@ -115,8 +115,6 @@ pub const WindowManager = struct {
         self.switcher_open = false;
         self.taskbar_hover = null;
         self.switcher_hover = null;
-        self.taskbar_hover = null;
-        self.switcher_hover = null;
     }
 
     pub fn create(self: *WindowManager, window: Window) !usize {
