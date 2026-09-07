@@ -2712,11 +2712,13 @@ fn fadvise64(fd: u64, offset: u64, length: u64, advice: u64) u64 {
 }
 
 fn closeRange(first: u64, last: u64, flags: u64) u64 {
-    if (flags != 0 or first > last or first >= 1024) return errno(22);
+    if ((flags & ~@as(u64, 2)) != 0 or first > last or first >= 1024) return errno(22);
     const limit = @min(last, 1023);
     var fd = first;
     while (fd <= limit) : (fd += 1) {
-        if (vfs.isOpen(@intCast(fd))) _ = vfs.close(@intCast(fd)) catch {};
+        if (vfs.isOpen(@intCast(fd))) {
+            if ((flags & 2) != 0) _ = vfs.setDescriptorFlags(@intCast(fd), 1) catch {} else _ = vfs.close(@intCast(fd)) catch {};
+        }
     }
     return 0;
 }
