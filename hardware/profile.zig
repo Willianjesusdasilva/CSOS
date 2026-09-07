@@ -133,6 +133,11 @@ fn systemSection(text: []const u8) ?[]const u8 {
             if ((end == 0 or text[end - 1] == '\n') and text[end] == '[') break;
             end += 1;
         }
+        var duplicate = end;
+        while (duplicate + header.len <= text.len) : (duplicate += 1) {
+            if (duplicate != 0 and text[duplicate - 1] != '\n') continue;
+            if (equalIgnoreCase(text[duplicate .. duplicate + header.len], header)) return null;
+        }
         return text[start..end];
     }
     return null;
@@ -223,6 +228,7 @@ test "hardware profile persistence requires current system version" {
     try @import("std").testing.expect(!matchesPersistedProfile("version=7\nsignature=abcdef\n", 0xabcdef));
     try @import("std").testing.expect(!matchesPersistedProfile("[other]\nversion=7\n[system]\nsignature=abcdef\n", 0xabcdef));
     try @import("std").testing.expect(!matchesPersistedProfile("[system]\nversion=7\n[other]\nsignature=abcdef\n", 0xabcdef));
+    try @import("std").testing.expect(!matchesPersistedProfile("[system]\nversion=7\nsignature=abcdef\n[system]\nversion=7\nsignature=abcdef\n", 0xabcdef));
 }
 
 test "hardware profile rejects zero CPU topology" {
