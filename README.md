@@ -664,7 +664,7 @@ O campo também oferece `TextInput.clear()` e `Terminal.cancel()` para cancelar
 edições sem poluir histórico ou saída; cursores restaurados fora dos limites são
 normalizados antes de qualquer acesso ao buffer.
 Essa aplicação agora funciona como terminal gráfico não bloqueante: `Enter`
-executa os comandos internos `help`, `status` e `clear`, mantendo a saída na
+executa os comandos internos `help`, `status`, `version` e `clear`, mantendo a saída na
 janela sem interromper mouse, compositor ou outras aplicações.
 Setas para cima/baixo percorrem o histórico, Home/End movem o cursor, Delete
 remove à frente, `Esc` cancela a edição e `Ctrl+L` limpa a saída sem apagar o
