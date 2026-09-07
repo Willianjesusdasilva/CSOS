@@ -2792,10 +2792,10 @@ const Socket = struct {
 };
 
 fn socket(domain: u64, kind: u64, protocol: u64) u64 {
-    if (domain != 2 or (kind & 0xf) != 1 or (protocol != 0 and protocol != 6)) return errno(97);
+    if (domain != 2 or (kind & 0xf) != 1 or (kind & ~@as(u64, 0x80801)) != 0 or (protocol != 0 and protocol != 6)) return errno(97);
     for (&sockets, 0..) |*entry, index| {
         if (!entry.allocated) {
-            entry.* = .{ .allocated = true };
+            entry.* = .{ .allocated = true, .close_on_exec = (kind & 0x80000) != 0 };
             return 32 + index;
         }
     }
