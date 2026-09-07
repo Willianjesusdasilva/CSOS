@@ -123,13 +123,14 @@ pub const Volume = struct {
         }
         if (!found) return error.NotFound;
         if (file_offset >= size or output.len == 0) return 0;
-        if (first_cluster < 2) return error.BrokenChain;
+        try validateDataCluster(first_cluster, self.cluster_count);
         const cluster_bytes = @as(usize, self.sectors_per_cluster) * 512;
         var cluster = first_cluster;
         var skip = file_offset / cluster_bytes;
         while (skip != 0) : (skip -= 1) {
             cluster = try self.fatEntry(cluster);
-            if (cluster < 2 or cluster >= 0xfff8) return error.BrokenChain;
+            if (cluster >= 0xfff8) return error.BrokenChain;
+            try validateDataCluster(cluster, self.cluster_count);
         }
         var within_cluster = file_offset % cluster_bytes;
         var copied: usize = 0;
@@ -148,7 +149,8 @@ pub const Volume = struct {
             within_cluster = 0;
             if (copied < wanted) {
                 cluster = try self.fatEntry(cluster);
-                if (cluster < 2 or cluster >= 0xfff8) return error.BrokenChain;
+                if (cluster >= 0xfff8) return error.BrokenChain;
+                try validateDataCluster(cluster, self.cluster_count);
             }
         }
         return copied;
