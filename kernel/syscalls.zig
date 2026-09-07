@@ -372,6 +372,8 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         105, 106 => if (arg1 == 0) 0 else errno(1),
         110 => 0,
         112 => setSid(),
+        113 => setRegId(arg1, arg2),
+        114 => setRegId(arg1, arg2),
         109 => setPgid(arg1, arg2),
         121 => getPgid(arg1),
         124 => getSid(arg1),
@@ -3075,6 +3077,11 @@ fn setSid() u64 {
 fn getSid(pid: u64) u64 {
     if (pid != 0 and pid != 1) return errno(3);
     return process_session;
+}
+
+fn setRegId(real: u64, effective: u64) u64 {
+    if ((real != 0 and real != std.math.maxInt(u32)) or (effective != 0 and effective != std.math.maxInt(u32))) return errno(1);
+    return 0;
 }
 
 fn capGet(header: u64, data: u64) u64 {
