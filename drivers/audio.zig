@@ -557,7 +557,7 @@ pub const DeviceManager = struct {
     }
 
     pub fn canStart(self: *const DeviceManager) bool {
-        return self.stream != null and self.device.state == .configured and
+        return self.stream != null and !self.device.suspended and self.device.state == .configured and
             self.device.frameBytes() != null;
     }
 
@@ -1126,6 +1126,14 @@ test "device manager reports whether recovery was needed" {
     try std.testing.expectError(error.QueueEmpty, manager.noteComplete());
     try std.testing.expect(try manager.recoverIfNeeded());
     try std.testing.expect(manager.device.state == .streaming);
+}
+
+test "device manager cannot start while suspended" {
+    var manager = DeviceManager{};
+    try manager.attach(.{ .channels = 2, .bits_per_sample = 16, .sample_rate = 48000 }, 1000, 4096);
+    try manager.configure();
+    manager.device.suspended = true;
+    try std.testing.expect(!manager.canStart());
 }
 
 test "device resume preserves non-streaming state" {
