@@ -54,6 +54,12 @@ test "pointer delta clamps invalid positions and both edges" {
     try std.testing.expectEqual(@as(usize, 9), applyPointerDelta(9, 127, 10));
 }
 
+test "pointer wheel feedback distinguishes direction" {
+    try std.testing.expectEqual(@as(u32, 0x4080e0), pointerWheelColor(-1));
+    try std.testing.expectEqual(@as(u32, 0x506070), pointerWheelColor(0));
+    try std.testing.expectEqual(@as(u32, 0x80a0e0), pointerWheelColor(1));
+}
+
 pub fn pointerWheelColor(wheel: i8) u32 {
     return if (wheel < 0) 0x4080e0 else if (wheel > 0) 0x80a0e0 else 0x506070;
 }
