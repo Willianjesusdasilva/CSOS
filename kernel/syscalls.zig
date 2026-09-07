@@ -258,6 +258,15 @@ pub fn configure(base: u64, size: u64, stack: u64, stack_length: u64, initial_br
     process_exit_status = 0xffffffffffffffff;
     process_pause = null;
     process_nice = 0;
+    process_umask = 0o022;
+    process_name = .{ 'c', 's', 'o', 's', 0 } ++ .{0} ** 11;
+    process_group = 1;
+    process_session = 1;
+    robust_head = 0;
+    robust_len = 0;
+    clear_tid_address = 0;
+    signal_stack = .{0} ** 32;
+    registered_rseq = 0;
     framebuffer_ioctls = 0;
     framebuffer_mmaps = 0;
     drm_ioctls = 0;
