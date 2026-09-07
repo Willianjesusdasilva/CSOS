@@ -2783,6 +2783,7 @@ const Socket = struct {
     close_on_exec: bool = false,
     connection: ?net.TcpConnection = null,
     reuse_address: bool = false,
+    reuse_port: bool = false,
     keep_alive: bool = false,
     linger_enabled: bool = false,
     linger_seconds: u32 = 0,
@@ -2836,12 +2837,13 @@ fn socketName(fd: u64, address: u64, length_address: u64, peer: bool) u64 {
 
 fn setSocketOption(fd: u64, level: u64, option: u64, value: u64, length: u64) u64 {
     const index = socketIndex(fd) orelse return errno(9);
-    if (level != 1 or (option != 2 and option != 9 and option != 13)) return errno(92); // SOL_SOCKET: REUSEADDR, KEEPALIVE, LINGER
-    if ((option == 2 or option == 9) and length != 4) return errno(22);
+    if (level != 1 or (option != 2 and option != 9 and option != 13 and option != 15)) return errno(92); // SOL_SOCKET
+    if ((option == 2 or option == 9 or option == 15) and length != 4) return errno(22);
     if (option == 13 and length != 8) return errno(22);
     if (!validUserSlice(value, length)) return errno(14);
     const bytes: [*]const u8 = @ptrFromInt(value);
     if (option == 2) sockets[index].reuse_address = read32(bytes) != 0;
+    if (option == 15) sockets[index].reuse_port = read32(bytes) != 0;
     if (option == 9) sockets[index].keep_alive = read32(bytes) != 0;
     if (option == 13) {
         sockets[index].linger_enabled = read32(bytes) != 0;
@@ -2852,7 +2854,7 @@ fn setSocketOption(fd: u64, level: u64, option: u64, value: u64, length: u64) u6
 
 fn getSocketOption(fd: u64, level: u64, option: u64, value: u64, length_address: u64) u64 {
     const index = socketIndex(fd) orelse return errno(9);
-    if (level != 1 or (option != 2 and option != 3 and option != 4 and option != 7 and option != 8 and option != 9 and option != 13 and option != 30)) return errno(92); // SOL_SOCKET
+    if (level != 1 or (option != 2 and option != 3 and option != 4 and option != 7 and option != 8 and option != 9 and option != 13 and option != 15 and option != 30)) return errno(92); // SOL_SOCKET
     if (value == 0 or length_address == 0 or !validUserSlice(length_address, 4)) return errno(14);
     const available = @as(*align(1) u32, @ptrFromInt(length_address)).*;
     const result_length: u32 = if (option == 13) 8 else 4;
@@ -2860,6 +2862,7 @@ fn getSocketOption(fd: u64, level: u64, option: u64, value: u64, length_address:
     const output: [*]u8 = @ptrFromInt(value);
     @memset(output[0..result_length], 0);
     if (option == 2) put32(output, @intFromBool(sockets[index].reuse_address));
+    if (option == 15) put32(output, @intFromBool(sockets[index].reuse_port));
     if (option == 3) put32(output, 1); // SO_TYPE = SOCK_STREAM
     if (option == 4) put32(output, 0); // SO_ERROR
     if (option == 30) put32(output, 0); // SO_ACCEPTCONN
