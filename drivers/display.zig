@@ -284,7 +284,8 @@ pub const WindowManager = struct {
         if (index >= self.count) return false;
         const window = self.windows[index];
         return window.visible and !window.minimized and
-            x >= window.x +| window.width -| 20 and y >= window.y and y < window.y +| 20;
+            x >= window.x +| window.width -| 20 and x < window.x +| window.width and
+            y >= window.y and y < window.y +| 20;
     }
 
     pub fn maximizeHitTest(self: *const WindowManager, index: usize, x: usize, y: usize) bool {
@@ -473,6 +474,7 @@ test "window manager focus alt-tab hit-test and close" {
     try std.testing.expect(manager.hitTest(std.math.maxInt(usize), std.math.maxInt(usize)) == null);
     try std.testing.expect(manager.closeHitTest(1, 120, 24));
     try std.testing.expect(!manager.closeHitTest(1, 107, 24));
+    try std.testing.expect(!manager.closeHitTest(1, 1000, 24));
     try std.testing.expect(manager.maximizeHitTest(1, 94, 24));
     try std.testing.expect(!manager.maximizeHitTest(1, 120, 24));
     try std.testing.expect(manager.minimizeHitTest(1, 74, 24));
