@@ -1,7 +1,7 @@
 const std = @import("std");
 
 pub const Kind = enum { heading, paragraph, button };
-pub const Element = struct { kind: Kind, text: []const u8, accent: bool = false };
+pub const Element = struct { kind: Kind, text: []const u8, accent: bool = false, muted: bool = false };
 pub const DrawText = *const fn (x: usize, y: usize, text: []const u8, color: u32) void;
 
 /// Small allocation-free HTML subset used by the planned system UI.
@@ -24,7 +24,7 @@ pub const Document = struct {
             if (kind) |value| {
                 const end_tag = switch (value) { .heading => "</h1>", .paragraph => "</p>", .button => "</button>" };
                 if (std.mem.indexOfPos(u8, source, close + 1, end_tag)) |end| {
-                    document.elements[document.count] = .{ .kind = value, .text = std.mem.trim(u8, source[close + 1 .. end], " \t\r\n"), .accent = std.mem.indexOf(u8, tag, "accent") != null };
+                    document.elements[document.count] = .{ .kind = value, .text = std.mem.trim(u8, source[close + 1 .. end], " \t\r\n"), .accent = std.mem.indexOf(u8, tag, "accent") != null, .muted = std.mem.indexOf(u8, tag, "muted") != null };
                     document.count += 1;
                     cursor = end + end_tag.len;
                     continue;
@@ -116,6 +116,11 @@ test "HTML accent class is preserved for renderers" {
     const document = Document.parse("<button class=accent>Launch</button><p>Ready</p>");
     try std.testing.expect(document.elements[0].accent);
     try std.testing.expect(!document.elements[1].accent);
+}
+
+test "HTML muted class is preserved for status text" {
+    const document = Document.parse("<p class=muted>ONLINE</p>");
+    try std.testing.expect(document.elements[0].muted);
 }
 
 test "HTML button focus cycles with keyboard direction" {
