@@ -111,6 +111,10 @@ pub fn spawnProcess(entry: Entry, pages: *physical.Allocator, process_id: u32, g
         pages.release(stack, stack_pages) catch {};
         return error.StackAddressOverflow;
     };
+    if (stack_top < 80) {
+        pages.release(stack, stack_pages) catch {};
+        return error.StackAddressOverflow;
+    }
     const saved_stack: [*]u64 = @ptrFromInt(stack_top - 80);
     @memset(saved_stack[0..10], 0);
     saved_stack[8] = @intFromPtr(&threadBootstrap);
