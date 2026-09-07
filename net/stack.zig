@@ -48,7 +48,8 @@ pub const Stack = struct {
             const segment = try self.receiveTcp(connection.destination, connection.destination_port, connection.source_port, output);
             if ((segment.flags & tcp_ack) != 0 and sequenceAhead(segment.acknowledgement, connection.sequence))
                 return error.InvalidTcpAcknowledgement;
-            if (segment.sequence != connection.peer_sequence and segment.payload_length != 0) continue;
+            if (segment.sequence != connection.peer_sequence and
+                (segment.payload_length != 0 or (segment.flags & tcp_fin) != 0)) continue;
             if (segment.payload_length != 0) connection.peer_sequence +%= @intCast(segment.payload_length);
             if ((segment.flags & tcp_fin) != 0) {
                 connection.peer_sequence +%= 1;
@@ -168,7 +169,8 @@ pub const Stack = struct {
         while (attempts < 64 and received_bytes == 0) : (attempts += 1) {
             const segment = try self.receiveTcp(destination, destination_port, source_port, null);
             if (segment.acknowledgement > sequence) return error.InvalidTcpAcknowledgement;
-            if (segment.sequence != peer_sequence and segment.payload_length != 0) continue;
+            if (segment.sequence != peer_sequence and
+                (segment.payload_length != 0 or (segment.flags & tcp_fin) != 0)) continue;
             if (segment.payload_length != 0) {
                 received_bytes += segment.payload_length;
                 peer_sequence +%= @intCast(segment.payload_length);
