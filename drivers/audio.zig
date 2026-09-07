@@ -583,6 +583,12 @@ pub const DeviceManager = struct {
         return @intCast(@min(@as(u128, 100), scaled));
     }
 
+test "audio error rate remains bounded at saturated metrics" {
+    var manager = DeviceManager{};
+    manager.metrics = .{ .completed = std.math.maxInt(u64), .underruns = std.math.maxInt(u64), .overruns = 1 };
+    try std.testing.expectEqual(@as(u8, 100), manager.errorRate());
+}
+
     pub fn isDegraded(self: *const DeviceManager) bool {
         return self.errorRate() >= 5;
     }
