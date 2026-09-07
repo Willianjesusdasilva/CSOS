@@ -347,6 +347,7 @@ pub const PcmRing = struct {
     write_index: u8 = 0,
 
     pub fn enqueue(self: *PcmRing, buffer: u64) !void {
+        if (buffer == 0) return error.InvalidBuffer;
         if (self.ready == self.buffers.len) return error.QueueFull;
         self.buffers[self.write_index] = buffer;
         self.write_index = @intCast((@as(usize, self.write_index) + 1) % self.buffers.len);
@@ -382,10 +383,16 @@ test "PCM ring clear drops queued buffers and rewinds indices" {
     try std.testing.expectEqual(@as(?u64, 0x33), ring.dequeue());
 }
 
+test "PCM ring rejects a null DMA buffer" {
+    var ring = PcmRing{};
+    try std.testing.expectError(error.InvalidBuffer, ring.enqueue(0));
+    try std.testing.expectEqual(@as(u8, 0), ring.ready);
+}
+
 test "PCM ring reports full capacity before rejecting enqueue" {
     var ring = PcmRing{};
-    for (0..8) |index| try ring.enqueue(@intCast(index));
-    try std.testing.expectError(error.QueueFull, ring.enqueue(8));
+    for (0..8) |index| try ring.enqueue(@intCast(index + 1));
+    try std.testing.expectError(error.QueueFull, ring.enqueue(9));
     ring.clear();
     try ring.enqueue(9);
     try std.testing.expectEqual(@as(?u64, 9), ring.dequeue());
@@ -393,10 +400,10 @@ test "PCM ring reports full capacity before rejecting enqueue" {
 
 test "PCM ring preserves FIFO order across index wrap" {
     var ring = PcmRing{};
-    for (0..8) |index| try ring.enqueue(@intCast(index));
-    for (0..8) |index| try std.testing.expectEqual(@as(?u64, @intCast(index)), ring.dequeue());
-    for (8..16) |index| try ring.enqueue(@intCast(index));
-    for (8..16) |index| try std.testing.expectEqual(@as(?u64, @intCast(index)), ring.dequeue());
+    for (0..8) |index| try ring.enqueue(@intCast(index + 1));
+    for (0..8) |index| try std.testing.expectEqual(@as(?u64, @intCast(index + 1)), ring.dequeue());
+    for (8..16) |index| try ring.enqueue(@intCast(index + 1));
+    for (8..16) |index| try std.testing.expectEqual(@as(?u64, @intCast(index + 1)), ring.dequeue());
 }
 
 pub const DeviceManager = struct {
