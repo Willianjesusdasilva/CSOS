@@ -112,6 +112,44 @@ pub fn matchesSignature(text: []const u8, expected: u64) bool {
     return false;
 }
 
+pub fn matchesPersistedProfile(text: []const u8, expected: u64) bool {
+    if (!hasSystemVersion(text)) return false;
+    return matchesSignature(text, expected);
+}
+
+fn hasSystemVersion(text: []const u8) bool {
+    if (!containsSystemSection(text)) return false;
+    const key = "version=";
+    var offset: usize = 0;
+    while (offset + key.len <= text.len) : (offset += 1) {
+        if (offset != 0 and text[offset - 1] != '\n') continue;
+        if (!equalIgnoreCase(text[offset .. offset + key.len], key)) continue;
+        offset += key.len;
+        var value: u16 = 0;
+        var digits: usize = 0;
+        while (offset < text.len) : (offset += 1) {
+            const byte = text[offset];
+            if (byte < '0' or byte > '9') break;
+            if (digits == 3) return false;
+            value = value * 10 + (byte - '0');
+            digits += 1;
+        }
+        const terminated = offset == text.len or text[offset] == '\n' or text[offset] == '\r' or text[offset] == ' ' or text[offset] == '\t';
+        return digits != 0 and terminated and value == profile_version;
+    }
+    return false;
+}
+
+fn containsSystemSection(text: []const u8) bool {
+    const section = "[system]";
+    var offset: usize = 0;
+    while (offset + section.len <= text.len) : (offset += 1) {
+        if (offset != 0 and text[offset - 1] != '\n') continue;
+        if (equalIgnoreCase(text[offset .. offset + section.len], section)) return true;
+    }
+    return false;
+}
+
 fn equalIgnoreCase(left: []const u8, right: []const u8) bool {
     if (left.len != right.len) return false;
     for (left, right) |a, b| {
@@ -177,6 +215,13 @@ test "hardware profile signatures accept upper-case hexadecimal" {
     try @import("std").testing.expect(!matchesSignature("signature=ABCDEFgarbage\n", 0xabcdef));
     try @import("std").testing.expect(!matchesSignature("signature=ABCDFE\n", 0xabcdef));
     try @import("std").testing.expect(!matchesSignature("signature=10000000000000000\n", 0));
+}
+
+test "hardware profile persistence requires current system version" {
+    const valid = "[system]\nversion=7\nsignature=abcdef\n";
+    try @import("std").testing.expect(matchesPersistedProfile(valid, 0xabcdef));
+    try @import("std").testing.expect(!matchesPersistedProfile("[system]\nversion=6\nsignature=abcdef\n", 0xabcdef));
+    try @import("std").testing.expect(!matchesPersistedProfile("version=7\nsignature=abcdef\n", 0xabcdef));
 }
 
 test "hardware profile rejects zero CPU topology" {

@@ -1951,7 +1951,7 @@ pub fn start(info: BootInfo) noreturn {
         error.NotFound => 0,
         else => panic("hardware profile read failed"),
     };
-    const profile_reused = hardware_profile.matchesSignature(stored_profile[0..stored_length], current_profile.signature);
+    const profile_reused = hardware_profile.matchesPersistedProfile(stored_profile[0..stored_length], current_profile.signature);
     if (!installation_current or !profile_reused) {
         while (nvme_sample < 16) : (nvme_sample += 1) {
             const started = timestamp(cpu_profile.tsc);
@@ -2009,7 +2009,7 @@ pub fn start(info: BootInfo) noreturn {
     if (!profile_reused) volume.writeRootFile(&hardware_name, current_profile.text()) catch panic("hardware profile write failed");
     var verified_profile: [2048]u8 = undefined;
     const verified_length = volume.readRootFile(&hardware_name, &verified_profile) catch panic("hardware profile verification read failed");
-    if (!hardware_profile.matchesSignature(verified_profile[0..verified_length], current_profile.signature))
+    if (!hardware_profile.matchesPersistedProfile(verified_profile[0..verified_length], current_profile.signature))
         panic("hardware profile verification failed");
     if (!profile_reused and (!containsBytes(verified_profile[0..verified_length], "[baseline_cycles]") or
         !containsBytes(verified_profile[0..verified_length], "freeze_p99=") or
