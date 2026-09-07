@@ -537,6 +537,16 @@ test "window manager focus alt-tab hit-test and close" {
     try std.testing.expectEqual(@as(u8, 0), manager.launcher_selection);
 }
 
+test "window manager dismisses switcher when closing non-last window" {
+    var manager = WindowManager{};
+    _ = try manager.create(.{ .id = 1, .x = 0, .y = 0, .width = 64, .height = 48 });
+    _ = try manager.create(.{ .id = 2, .x = 4, .y = 4, .width = 64, .height = 48 });
+    manager.switcher_open = true;
+    manager.close(0);
+    try std.testing.expect(!manager.switcher_open);
+    try std.testing.expectEqual(@as(usize, 1), manager.count);
+}
+
 test "window manager enforces maximum window count" {
     var manager = WindowManager{};
     var index: usize = 0;
