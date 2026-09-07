@@ -3026,17 +3026,15 @@ fn waitId(id_type: u64, id: u64, info: u64, options: u64) u64 {
 }
 
 fn madvise(address: u64, length: u64, advice: u64) u64 {
-    _ = advice;
-    if (length == 0 or !validUserSlice(address, length)) return errno(22);
+    if (advice > 16 or length == 0 or !validUserSlice(address, length)) return errno(22);
     // Hints are accepted, but reclaim remains controlled by the process
     // lifecycle and never trusts userspace to discard live mappings.
     return 0;
 }
 
 fn fadvise64(fd: u64, offset: u64, length: u64, advice: u64) u64 {
-    _ = offset;
-    _ = advice;
-    if (!vfs.isOpen(@intCast(fd)) or length == 0) return if (length == 0) 0 else errno(9);
+    if (!vfs.isOpen(@intCast(fd))) return errno(9);
+    if (advice > 5 or offset > std.math.maxInt(u64) - length) return errno(22);
     return 0;
 }
 
