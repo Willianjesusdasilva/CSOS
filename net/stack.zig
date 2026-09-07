@@ -494,8 +494,8 @@ fn skipDnsName(message: []const u8, start: usize) !usize {
 }
 
 fn validDnsResponse(response: []const u8, transaction: u16) bool {
-    return response.len >= 12 and get16(response.ptr) == transaction and
-        (get16(response.ptr + 2) & 0x800f) == 0x8000 and get16(response.ptr + 6) != 0;
+    return response.len >= 12 and get16(response[0..]) == transaction and
+        (get16(response[2..]) & 0x800f) == 0x8000 and get16(response[6..]) != 0;
 }
 
 test "DNS name skipping rejects malformed labels and accepts compression" {
