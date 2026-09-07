@@ -332,6 +332,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         // Linux ioctl's command is unsigned int. musl passes its signed int
         // API argument sign-extended; upper register bits are not command bits.
         16 => ioctl(arg1, @truncate(arg2), arg3),
+        19 => readv(arg1, arg2, arg3),
         20 => writev(arg1, arg2, arg3),
         21 => access(arg1, @truncate(arg2)),
         // Let libc/runtimes yield through the same bounded idle hook used by
@@ -2442,7 +2443,8 @@ fn getdents(fd: u64, address: u64, length: u64) u64 {
 }
 
 fn writev(fd: u64, address: u64, count: u64) u64 {
-    if (count > 64 or !validUserSlice(address, count * 16)) return errno(14);
+    const bytes = std.math.mul(u64, count, 16) catch return errno(14);
+    if (count > 64 or !validUserSlice(address, bytes)) return errno(14);
     var total: u64 = 0;
     var index: u64 = 0;
     while (index < count) : (index += 1) {
@@ -2452,6 +2454,23 @@ fn writev(fd: u64, address: u64, count: u64) u64 {
         const result = write(fd, base, length);
         if (@as(i64, @bitCast(result)) < 0) return result;
         total += result;
+    }
+    return total;
+}
+
+fn readv(fd: u64, address: u64, count: u64) u64 {
+    const bytes = std.math.mul(u64, count, 16) catch return errno(14);
+    if (count > 64 or !validUserSlice(address, bytes)) return errno(14);
+    var total: u64 = 0;
+    var index: u64 = 0;
+    while (index < count) : (index += 1) {
+        const item: [*]const u8 = @ptrFromInt(address + index * 16);
+        const base = read64(item);
+        const length = read64(item + 8);
+        const result = read(fd, base, length);
+        if (@as(i64, @bitCast(result)) < 0) return if (total == 0) result else total;
+        total += result;
+        if (result != length) break;
     }
     return total;
 }
