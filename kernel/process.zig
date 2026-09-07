@@ -181,8 +181,9 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
         const memory_size = read64At(header + 40);
         if (file_size > memory_size or file_offset > std.math.maxInt(u64) - file_size or file_offset + file_size > image.len or
             virtual > std.math.maxInt(u64) - memory_size or memory_size == 0) return error.InvalidElf;
+        const segment_end = std.math.add(u64, virtual, memory_size) catch return error.InvalidElf;
         image_start = @min(image_start, virtual);
-        image_end = @max(image_end, virtual + memory_size);
+        image_end = @max(image_end, segment_end);
         try loadSegment(&address_space, pages, mappings, &mapping_count, owned, &owned_count, virtual, file_offset, file_size, memory_size, (flags & 2) != 0, (flags & 1) != 0, true);
     }
     if (mapping_count == 0 or entry < image_start or entry >= image_end) return error.InvalidElf;
