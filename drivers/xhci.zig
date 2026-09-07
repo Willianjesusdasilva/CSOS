@@ -899,6 +899,8 @@ test "xHCI residual cannot underflow the HID report length" {
     try @import("std").testing.expectEqual(@as(u16, 8), transferredReportSize(8, 0));
     try @import("std").testing.expectEqual(@as(u16, 3), transferredReportSize(8, 5));
     try @import("std").testing.expectEqual(@as(u16, 0), transferredReportSize(8, 0xffff_ffff));
+    try @import("std").testing.expectEqual(@as(u16, 1), transferredReportSize(1024, 1023));
+    try @import("std").testing.expectEqual(@as(u16, 0), transferredReportSize(1024, 1024));
 }
 
 test "HID endpoint packet size stays within USB interrupt limits" {
