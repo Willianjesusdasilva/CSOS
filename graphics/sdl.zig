@@ -260,6 +260,10 @@ pub const Window = struct {
                 }
             }
             cursor_x +|= 8;
+            if (cursor_x >= self.width) {
+                cursor_x = x;
+                cursor_y +|= 12;
+            }
         }
     }
 
@@ -643,6 +647,14 @@ test "SDL software event queue and surface contract" {
         if (pixel != 0) lower_pixels += 1;
     }
     try @import("std").testing.expect(lower_pixels != 0);
+    var wrapped_storage = [_]u32{0} ** 256;
+    var wrapped = try createWindow(&wrapped_storage, 16, 16);
+    wrapped.drawText(0, 0, "ABC", 0xffffffff);
+    var wrapped_lower: usize = 0;
+    for (wrapped.pixels[12 * 16 ..]) |pixel| {
+        if (pixel != 0) wrapped_lower += 1;
+    }
+    try @import("std").testing.expect(wrapped_lower != 0);
     var events = EventQueue{};
     try @import("std").testing.expectEqual(@as(usize, 0), events.len());
     try @import("std").testing.expectEqual(EventQueue.capacity, events.remaining());
