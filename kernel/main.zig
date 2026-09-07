@@ -50,7 +50,8 @@ var sdl_monitor_pixels: [224 * 96]u32 = .{0} ** (224 * 96);
 var sdl_system_pixels: [224 * 96]u32 = .{0} ** (224 * 96);
 var sdl_terminal = sdl.Terminal{};
 var files_preview_back_hover = false;
-var system_surface_cache: ?struct { storage_blocks: u64, input_devices: usize, audio_endpoints: usize } = null;
+const SystemSurfaceStatus = struct { storage_blocks: u64, input_devices: usize, audio_endpoints: usize };
+var system_surface_cache: ?SystemSurfaceStatus = null;
 // Keep the compositor's fixed-capacity window table off the UEFI boot stack.
 // kernel.start already coordinates the entire bring-up and must not grow with
 // every desktop feature added late in that function.
@@ -2652,7 +2653,7 @@ fn drawSystemSurface(window: *sdl.Window, storage_blocks: u64, input_devices: us
 }
 
 fn refreshSystemSurface(window: *sdl.Window, storage_blocks: u64, input_devices: usize, audio_endpoints: usize) void {
-    const current = .{ .storage_blocks = storage_blocks, .input_devices = input_devices, .audio_endpoints = audio_endpoints };
+    const current: SystemSurfaceStatus = .{ .storage_blocks = storage_blocks, .input_devices = input_devices, .audio_endpoints = audio_endpoints };
     if (system_surface_cache) |cached| {
         if (cached.storage_blocks == current.storage_blocks and cached.input_devices == current.input_devices and cached.audio_endpoints == current.audio_endpoints) return;
     }
