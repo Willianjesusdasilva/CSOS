@@ -476,7 +476,12 @@ fn skipDnsName(message: []const u8, start: usize) !usize {
     while (offset < message.len) {
         const length = message[offset];
         if (length == 0) return offset + 1;
-        if ((length & 0xc0) == 0xc0) return if (offset + 2 <= message.len) offset + 2 else error.InvalidDnsReply;
+        if ((length & 0xc0) == 0xc0) {
+            if (offset + 2 > message.len) return error.InvalidDnsReply;
+            const pointer = (@as(usize, length & 0x3f) << 8) | message[offset + 1];
+            if (pointer >= message.len) return error.InvalidDnsReply;
+            return offset + 2;
+        }
         if (length > 63 or offset + 1 + length > message.len) return error.InvalidDnsReply;
         offset += 1 + length;
     }
@@ -486,8 +491,12 @@ fn skipDnsName(message: []const u8, start: usize) !usize {
 test "DNS name skipping rejects malformed labels and accepts compression" {
     const testing = @import("std").testing;
     try testing.expectEqual(@as(usize, 3), try skipDnsName(&[_]u8{ 1, 'a', 0 }, 0));
-    try testing.expectEqual(@as(usize, 2), try skipDnsName(&[_]u8{ 0xc0, 0x0c }, 0));
+    var compressed = [_]u8{0} ** 13;
+    compressed[0] = 0xc0;
+    compressed[1] = 0x0c;
+    try testing.expectEqual(@as(usize, 2), try skipDnsName(&compressed, 0));
     try testing.expectError(error.InvalidDnsReply, skipDnsName(&[_]u8{ 0xc0 }, 0));
+    try testing.expectError(error.InvalidDnsReply, skipDnsName(&[_]u8{ 0xc0, 0xff }, 0));
     var malformed = [_]u8{0} ** 65;
     malformed[0] = 64;
     try testing.expectError(error.InvalidDnsReply, skipDnsName(&malformed, 0));
