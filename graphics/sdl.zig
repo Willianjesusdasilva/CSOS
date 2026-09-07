@@ -637,7 +637,7 @@ test "SDL software event queue and surface contract" {
     var multiline_storage = [_]u32{0} ** 256;
     var multiline = try createWindow(&multiline_storage, 16, 16);
     multiline.drawText(0, 0, "A\nB", 0xffffffff);
-    try @import("std").testing.expect(multiline.pixels[0] != 0);
+    try @import("std").testing.expect(multiline.pixels[2] != 0);
     var lower_pixels: usize = 0;
     for (multiline.pixels[12 * 16 ..]) |pixel| {
         if (pixel != 0) lower_pixels += 1;
