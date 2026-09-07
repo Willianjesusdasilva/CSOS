@@ -3243,12 +3243,15 @@ fn getcpu(cpu: u64, node: u64) u64 {
 }
 
 fn getPriority(which: u64, who: u64) u64 {
-    if (which > 2 or (who != 0 and who != 1)) return errno(3);
+    if (which > 2) return errno(22);
+    if (who != 0 and who != 1) return errno(3);
     return 20; // Linux syscall returns the user-visible nice value + 20.
 }
 
 fn setPriority(which: u64, who: u64, priority: i64) u64 {
-    if (which > 2 or (who != 0 and who != 1) or priority < -20 or priority > 19) return errno(22);
+    if (which > 2) return errno(22);
+    if (who != 0 and who != 1) return errno(3);
+    if (priority < -20 or priority > 19) return errno(22);
     return 0;
 }
 
