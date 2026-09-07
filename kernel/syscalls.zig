@@ -2470,6 +2470,7 @@ fn drmGetEncoder(address: u64) u64 {
 
 fn drmGetConnector(address: u64) u64 {
     if (!validUserSlice(address, 80)) return errno(14);
+    if (!drmModeDimensionsFit()) return errno(22);
     const output: [*]u8 = @ptrFromInt(address);
     if (read32(output + 48) != 2) return errno(2);
     const encoder_pointer = read64(output + 0);
@@ -2491,6 +2492,7 @@ fn drmGetConnector(address: u64) u64 {
 
 fn drmGetCrtc(address: u64) u64 {
     if (!validUserSlice(address, 104)) return errno(14);
+    if (!drmModeDimensionsFit()) return errno(22);
     const output: [*]u8 = @ptrFromInt(address);
     if (read32(output + 12) != 1) return errno(2);
     put64(output + 0, 0); put32(output + 8, 0); put32(output + 12, 1);
@@ -2555,6 +2557,10 @@ fn writeDrmMode(output: [*]u8) void {
     put16(output + 18, @intCast(framebuffer.height)); put16(output + 20, @intCast(framebuffer.height));
     put32(output + 24, 60); put32(output + 28, 0); put32(output + 32, 0x48);
     writeModeName(output + 36, framebuffer.width, framebuffer.height);
+}
+
+fn drmModeDimensionsFit() bool {
+    return framebuffer.width <= std.math.maxInt(u16) and framebuffer.height <= std.math.maxInt(u16);
 }
 
 fn writeModeName(output: [*]u8, width: u32, height: u32) void {
