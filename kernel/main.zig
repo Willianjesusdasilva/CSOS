@@ -2321,6 +2321,9 @@ pub fn start(info: BootInfo) noreturn {
                     _ = window_manager.launcherSelectApplication(application_id);
                 }
             }
+            if (window_manager.launcher_open and wheel != 0) {
+                if (wheel < 0) window_manager.launcherSelectNext() else window_manager.launcherSelectPrevious();
+            }
             if (focusedWindowIs(window_manager, 4)) {
                 if (!files_preview_open and files_selection.wheel(wheel)) {
                     drawFilesSurface(&files_window, root_files[0..root_file_count], &files_selection);
