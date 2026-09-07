@@ -156,7 +156,7 @@ test "audio manager resets metrics when attaching a new device" {
     try manager.attach(.{ .channels = 2, .bits_per_sample = 16, .sample_rate = 48_000 }, 1000, 4096);
     try manager.configure();
     try manager.start();
-    try manager.submit();
+    try manager.noteSubmit();
     try std.testing.expect(manager.metrics.submitted != 0);
     try manager.attach(.{ .channels = 1, .bits_per_sample = 16, .sample_rate = 44_100 }, 1000, 4096);
     try std.testing.expectEqual(@as(u64, 0), manager.metrics.submitted);
@@ -284,7 +284,7 @@ pub const PcmRing = struct {
     pub fn enqueue(self: *PcmRing, buffer: u64) !void {
         if (self.ready == self.buffers.len) return error.QueueFull;
         self.buffers[self.write_index] = buffer;
-        self.write_index = (self.write_index + 1) % self.buffers.len;
+        self.write_index = @intCast((@as(usize, self.write_index) + 1) % self.buffers.len);
         self.ready += 1;
     }
 
@@ -292,7 +292,7 @@ pub const PcmRing = struct {
         if (self.ready == 0) return null;
         const buffer = self.buffers[self.read_index];
         self.buffers[self.read_index] = null;
-        self.read_index = (self.read_index + 1) % self.buffers.len;
+        self.read_index = @intCast((@as(usize, self.read_index) + 1) % self.buffers.len);
         self.ready -= 1;
         return buffer;
     }
@@ -367,7 +367,7 @@ pub const DeviceManager = struct {
         self.device.state = .configured;
     }
 
-    pub fn resume(self: *DeviceManager) !void {
+    pub fn resumeStream(self: *DeviceManager) !void {
         if (self.stream == null or self.device.state != .configured) return error.DeviceNotConfigured;
         // Re-arm the transport as well as the manager state. Merely marking the
         // manager streaming leaves the paused stream configured with no queued
@@ -785,8 +785,8 @@ test "device manager pauses and resumes stream" {
     try @import("std").testing.expectError(error.DeviceNotStreaming, manager.pause());
     try @import("std").testing.expectEqual(State.configured, manager.device.state);
     try @import("std").testing.expectEqual(State.configured, manager.stream.?.device.state);
-    try manager.resume();
-    try @import("std").testing.expectError(error.DeviceNotConfigured, manager.resume());
+    try manager.resumeStream();
+    try @import("std").testing.expectError(error.DeviceNotConfigured, manager.resumeStream());
     try @import("std").testing.expectEqual(State.streaming, manager.device.state);
     try @import("std").testing.expectEqual(State.streaming, manager.stream.?.device.state);
 }

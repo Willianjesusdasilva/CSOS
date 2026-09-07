@@ -225,6 +225,14 @@ pub fn build(b: *std.Build) void {
     const xhci_tests = b.addTest(.{ .root_module = xhci_test_module });
     const run_xhci_tests = b.addRunArtifact(xhci_tests);
     test_step.dependOn(&run_xhci_tests.step);
+    const audio_test_module = b.createModule(.{
+        .root_source_file = b.path("drivers/audio.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+    });
+    const audio_tests = b.addTest(.{ .root_module = audio_test_module });
+    const run_audio_tests = b.addRunArtifact(audio_tests);
+    test_step.dependOn(&run_audio_tests.step);
     const sdl_module = b.createModule(.{ .root_source_file = b.path("graphics/sdl.zig") });
     const display_module = b.createModule(.{ .root_source_file = b.path("drivers/display.zig") });
     display_module.addImport("pci", pci_module);
