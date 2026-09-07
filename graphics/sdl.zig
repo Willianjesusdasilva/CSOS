@@ -88,7 +88,21 @@ pub const EventQueue = struct {
     }
 
     pub fn pushKeyboard(self: *EventQueue, scancode: u8, pressed: bool, modifiers: u8) bool {
-        return self.push(.{ .key = .{ .scancode = scancode, .pressed = pressed, .modifiers = modifiers } });
+        const event = Event{ .key = .{ .scancode = scancode, .pressed = pressed, .modifiers = modifiers } };
+        if (!pressed and self.isFull()) {
+            // A release must not disappear behind a burst of motion/text:
+            // dropping it leaves the application believing the key is held.
+            var index = self.read;
+            while (index != self.write) : (index +%= 1) {
+                const slot = index % self.items.len;
+                if (self.items[slot] == .mouse or self.items[slot] == .text) {
+                    self.items[slot] = event;
+                    self.dropped = saturatingCount(self.dropped, 1);
+                    return true;
+                }
+            }
+        }
+        return self.push(event);
     }
 
     pub fn pushText(self: *EventQueue, byte: u8) bool {
@@ -1174,6 +1188,18 @@ test "SDL quit preservation saturates drop counter" {
     try std.testing.expect(queue.pushQuit());
     try std.testing.expectEqual(std.math.maxInt(u64), queue.droppedCount());
     try std.testing.expectEqual(Event{ .quit = {} }, queue.peek().?);
+}
+
+test "SDL keyboard release displaces discardable full-queue input" {
+    var queue = EventQueue{};
+    for (0..EventQueue.capacity) |_| try @import("std").testing.expect(queue.pushMouse(1, 0, 0, 0));
+    try @import("std").testing.expect(queue.pushKeyboard(0x04, false, 0));
+    try @import("std").testing.expectEqual(@as(u64, 1), queue.droppedCount());
+    var saw_release = false;
+    while (queue.poll()) |event| {
+        if (event == .key and event.key.scancode == 0x04 and !event.key.pressed) saw_release = true;
+    }
+    try @import("std").testing.expect(saw_release);
 }
 
 test "SDL audio queue saturates on frame overflow" {
