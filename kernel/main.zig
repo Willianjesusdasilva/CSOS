@@ -2669,7 +2669,8 @@ fn writeTerminalFile(path: []const u8, contents: []const u8, append: bool) bool 
 }
 
 fn removeTerminalFile(path: []const u8) bool {
-    return vfs.unlinkAt(-100, path) catch false;
+    vfs.unlinkAt(-100, path) catch return false;
+    return true;
 }
 
 fn copyTerminalFile(source: []const u8, destination: []const u8) bool {
@@ -2684,7 +2685,8 @@ fn copyTerminalFile(source: []const u8, destination: []const u8) bool {
 }
 
 fn moveTerminalFile(source: []const u8, destination: []const u8) bool {
-    return vfs.renameAt(-100, source, destination) catch false;
+    vfs.renameAt(-100, source, destination) catch return false;
+    return true;
 }
 
 fn drawSdlTerminal(app: *sdl.Application) void {
