@@ -85,7 +85,7 @@ pub const Allocator = struct {
         while (returned_index < self.returned_count) : (returned_index += 1) {
             const range = self.returned[returned_index];
             const address = alignedFit(range, bytes, alignment) orelse continue;
-            const end = address + bytes;
+            const end = std.math.add(u64, address, bytes) catch continue;
             if (address != range.next and end != range.end) {
                 if (self.returned_count == self.returned.len) continue;
                 var shift = self.returned_count;
@@ -118,7 +118,7 @@ pub const Allocator = struct {
                 self.returned[index] = .{ .next = range.next, .end = address };
                 self.returned_count += 1;
             }
-            range.next = address + bytes;
+            range.next = std.math.add(u64, address, bytes) catch continue;
             self.free_pages -= count;
             return address;
         }
