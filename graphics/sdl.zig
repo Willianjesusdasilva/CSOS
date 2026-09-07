@@ -928,6 +928,10 @@ test "SDL software event queue and surface contract" {
     terminal.input.replace("ECHO ready");
     try @import("std").testing.expect(terminal.submit());
     try @import("std").testing.expectEqualStrings("> ECHO ready\nready\n", terminal.outputSlice());
+    terminal.clearOutput();
+    terminal.input.replace("HiStOrY");
+    try @import("std").testing.expect(terminal.submit());
+    try @import("std").testing.expect(std.mem.startsWith(u8, terminal.outputSlice(), "> HiStOrY\nHISTORY\n"));
     terminal.input.replace("ClEaR");
     try @import("std").testing.expect(terminal.submit());
     try @import("std").testing.expectEqual(@as(usize, 0), terminal.output_len);
@@ -938,7 +942,7 @@ test "SDL software event queue and surface contract" {
     terminal.clearOutput();
     terminal.input.replace("history");
     try @import("std").testing.expect(terminal.submit());
-    try @import("std").testing.expectEqualStrings("> history\nHISTORY\n  ECHO ready\n  ClEaR\n  help\n  history\n", terminal.outputSlice());
+    try @import("std").testing.expectEqualStrings("> history\nHISTORY\n  HiStOrY\n  ClEaR\n  help\n  history\n", terminal.outputSlice());
     terminal.clearOutput();
     try @import("std").testing.expect(terminal.historyPrevious());
     try @import("std").testing.expectEqualStrings("history", terminal.input.slice());
