@@ -2722,7 +2722,8 @@ fn ppoll(address: u64, count: u64, timespec: u64, signal_mask: u64, signal_set_s
 }
 
 fn getRandom(address: u64, length: u64, flags: u64) u64 {
-    if ((flags & ~@as(u64, 3)) != 0) return errno(22);
+    // GRND_NONBLOCK, GRND_RANDOM and (since newer Linux) GRND_INSECURE.
+    if ((flags & ~@as(u64, 7)) != 0) return errno(22);
     if (length == 0) return 0;
     if (!validUserSlice(address, length)) return errno(14);
     // This is a deterministic bootstrap source until a hardware entropy
