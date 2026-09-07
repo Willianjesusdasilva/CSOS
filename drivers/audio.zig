@@ -593,6 +593,7 @@ pub const DeviceManager = struct {
     }
 
     pub fn resetStream(self: *DeviceManager) !void {
+        if (self.device.suspended) return error.DeviceSuspended;
         const stream = try Stream.init(self.device.format);
         self.stream = stream;
         self.device.state = .discovered;
@@ -1134,6 +1135,15 @@ test "device manager cannot start while suspended" {
     try manager.configure();
     manager.device.suspended = true;
     try std.testing.expect(!manager.canStart());
+}
+
+test "device manager does not reset stream while suspended" {
+    var manager = DeviceManager{};
+    try manager.attach(.{ .channels = 2, .bits_per_sample = 16, .sample_rate = 48000 }, 1000, 4096);
+    try manager.configure();
+    manager.device.suspended = true;
+    try std.testing.expectError(error.DeviceSuspended, manager.resetStream());
+    try std.testing.expectEqual(State.configured, manager.device.state);
 }
 
 test "device resume preserves non-streaming state" {
