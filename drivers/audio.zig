@@ -151,6 +151,18 @@ test "audio suspension only applies after configuration" {
     try std.testing.expect(!device.suspended);
 }
 
+test "audio manager resets metrics when attaching a new device" {
+    var manager = DeviceManager{};
+    try manager.attach(.{ .channels = 2, .bits_per_sample = 16, .sample_rate = 48_000 }, 1000, 4096);
+    try manager.configure();
+    try manager.start();
+    try manager.submit();
+    try std.testing.expect(manager.metrics.submitted != 0);
+    try manager.attach(.{ .channels = 1, .bits_per_sample = 16, .sample_rate = 44_100 }, 1000, 4096);
+    try std.testing.expectEqual(@as(u64, 0), manager.metrics.submitted);
+    try std.testing.expectEqual(@as(u64, 0), manager.metrics.completed);
+}
+
 pub const Stream = struct {
     device: Device = .{},
     buffers: [8][4096]u8 = undefined,
@@ -297,6 +309,7 @@ pub const DeviceManager = struct {
         try device.validate(periods_per_second, packet_size);
         self.device = device;
         self.stream = try Stream.init(format);
+        self.metrics = .{};
     }
 
     pub fn attachPreferred(self: *DeviceManager, formats: []const Format, preferred_rate: u32, periods_per_second: u32, packet_size: u16) !void {
