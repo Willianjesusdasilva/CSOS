@@ -877,6 +877,8 @@ O handoff PSP usa aritmética checked para a reserva e registra seus campos ante
 de validar o intervalo alinhado, evitando vazamento em falhas intermediárias.
 `amdGpuVmTableBytes` também valida explicitamente a multiplicação e o
 arredondamento do tamanho da tabela.
+A enumeração PCI agora valida ponteiros `next` de capabilities, aceitando apenas
+offsets alinhados dentro da região padrão.
 
 Mapeamentos anônimos fazem rollback transacional quando uma página falha: os
 mapeamentos parciais são removidos e a memória física é devolvida ao allocator.

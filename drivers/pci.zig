@@ -129,7 +129,9 @@ pub fn capabilityOffset(device: Device, wanted: u8) ?u8 {
     var visited: u8 = 0;
     while (offset >= 0x40 and visited < 48) : (visited += 1) {
         if (read8(device.bus, device.slot, device.function, offset) == wanted) return offset;
-        offset = read8(device.bus, device.slot, device.function, offset + 1) & 0xfc;
+        const next = read8(device.bus, device.slot, device.function, offset + 1);
+        if (next != 0 and (next < 0x40 or next > 0xfc or (next & 3) != 0)) return null;
+        offset = next;
     }
     return null;
 }
