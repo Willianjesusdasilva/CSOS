@@ -1231,6 +1231,7 @@ test "SDL software event queue and surface contract" {
     try @import("std").testing.expectEqual(@as(u64, 0), audio.availableFrames());
     try @import("std").testing.expectEqual(@as(u64, 0), audio.consume(64));
     try @import("std").testing.expectEqual(@as(u64, 192), audio.queuedFrames());
+    try @import("std").testing.expectError(error.AudioQueued, audio.reconfigure(.{ .sample_rate = 44100, .channels = 2 }));
     try @import("std").testing.expectEqual(@as(u64, 0), audio.drain());
     try @import("std").testing.expect(audio.pause(false));
     try @import("std").testing.expect(!audio.pause(false));
@@ -1249,7 +1250,6 @@ test "SDL software event queue and surface contract" {
     try @import("std").testing.expectError(error.InvalidAudioSpec, AudioDevice.init(.{ .sample_rate = 0, .channels = 2 }));
     try @import("std").testing.expectError(error.InvalidAudioSpec, AudioDevice.init(.{ .sample_rate = 48000, .channels = 0 }));
     try @import("std").testing.expectError(error.InvalidAudioSpec, AudioDevice.init(.{ .sample_rate = 48000, .channels = 9 }));
-    try @import("std").testing.expectError(error.AudioQueued, audio.reconfigure(.{ .sample_rate = 44100, .channels = 2 }));
 }
 
 test "SDL event queue survives counter wraparound" {
