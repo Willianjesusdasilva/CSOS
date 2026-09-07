@@ -125,6 +125,7 @@ clique de retorno.
 O teclado também usa `Home`, `End`, `PageUp` e `PageDown` para navegar entre
 blocos da prévia.
 `Space` avança uma página enquanto a prévia está aberta.
+`Enter` oferece o mesmo avanço por teclado.
 Na lista, `Space` abre o item selecionado como alternativa ao `Enter`.
 No ciclo de standby, páginas somente-leitura da imagem principal podem ser
 descartadas e restauradas; intérprete e bibliotecas compartilhadas permanecem
