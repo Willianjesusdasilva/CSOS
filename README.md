@@ -672,6 +672,9 @@ histórico; a saída acompanha automaticamente as seis linhas mais novas.
 Superfícies SDL são compostas dentro da camada de sua própria janela, com
 clipping pela área de conteúdo. Assim, respeitam sobreposição, foco,
 minimização e redimensionamento sem desenhar sobre janelas superiores.
+Aplicações SDL podem ser relançadas com `Application.reset()`, que restaura o
+estado de execução, descarta o último evento e invalida a superfície para um
+redesenho completo.
 O backend converte RGBA8888 para a ordem nativa do framebuffer e faz alpha
 blending por pixel; cores e transparência deixam de depender acidentalmente do
 layout de bytes do GOP/QEMU.
