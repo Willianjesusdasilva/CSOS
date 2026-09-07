@@ -117,6 +117,10 @@ pub const WindowManager = struct {
     pub fn focus(self: *WindowManager, index: usize) bool {
         if (index >= self.count or !self.windows[index].visible) return false;
         self.windows[index].minimized = false;
+        // Clicking or otherwise focusing a window dismisses the launcher
+        // overlay; leaving it open would paint the menu over the new focus.
+        self.launcher_open = false;
+        self.launcher_selection = 0;
         if (index + 1 < self.count) {
             const selected = self.windows[index];
             var i = index;
@@ -558,6 +562,17 @@ test "window manager focus alt-tab hit-test and close" {
     try std.testing.expectEqual(@as(usize, 0), manager.count);
     try std.testing.expect(!manager.launcher_open);
     try std.testing.expect(!manager.switcher_open);
+    try std.testing.expectEqual(@as(u8, 0), manager.launcher_selection);
+}
+
+test "window manager dismisses launcher when focusing a window" {
+    var manager = WindowManager{};
+    _ = try manager.create(.{ .id = 1, .x = 0, .y = 0, .width = 80, .height = 48 });
+    _ = try manager.create(.{ .id = 2, .x = 8, .y = 8, .width = 80, .height = 48 });
+    manager.launcher_open = true;
+    manager.launcher_selection = 2;
+    try std.testing.expect(manager.focus(0));
+    try std.testing.expect(!manager.launcher_open);
     try std.testing.expectEqual(@as(u8, 0), manager.launcher_selection);
 }
 
