@@ -187,13 +187,23 @@ test "hardware profile round-trips its generated signature" {
     cpu.model = 0x9a;
     cpu.threads_per_core = 2;
     cpu.logical_per_package = 8;
-    const facts = @import("std").mem.zeroes(Facts);
+    var facts = @import("std").mem.zeroes(Facts);
+    facts.logical_cpus = 8;
+    facts.memory_pages = 256;
     const profile = try build(cpu, facts);
     try @import("std").testing.expect(matchesSignature(profile.text(), profile.signature));
 }
 
+test "hardware profile rejects empty hardware facts" {
+    const cpu: Cpu = .{ .vendor = "GenuineIntel".*, .family = 6, .model = 1, .stepping = 1,
+        .tsc = true, .invariant_tsc = true, .threads_per_core = 1, .logical_per_package = 1 };
+    const facts = @import("std").mem.zeroes(Facts);
+    try @import("std").testing.expectError(error.InvalidHardwareFacts, build(cpu, facts));
+}
+
 pub fn build(cpu: Cpu, facts: Facts) !Profile {
     if (cpu.threads_per_core == 0 or cpu.logical_per_package == 0) return error.InvalidCpuTopology;
+    if (facts.logical_cpus == 0 or facts.memory_pages == 0) return error.InvalidHardwareFacts;
     var result = Profile{};
     result.signature = signature(cpu, facts);
     try append(&result, "[system]\nversion="); try appendDecimal(&result, profile_version);
