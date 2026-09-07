@@ -2347,7 +2347,11 @@ fn drmCloseHandle(handle: u32) u64 {
 fn releaseDrmObject(object: *DrmObject) void {
     if (object.allocated and object.physical_address != 0 and object.pages != 0) {
         if (object.vram_backed) {
-            if (amdgpu_vram_endpoint) |endpoint| endpoint.release(endpoint.context, .{ .cpu_address = object.physical_address, .mc_address = object.gpu_address, .bytes = object.pages * 4096 }) catch {};
+            if (amdgpu_vram_endpoint) |endpoint| {
+                if (bytesForPages(object.pages)) |bytes| {
+                    endpoint.release(endpoint.context, .{ .cpu_address = object.physical_address, .mc_address = object.gpu_address, .bytes = bytes }) catch {};
+                } else |_| {}
+            }
         } else if (drm_pages) |pages| pages.release(object.physical_address, object.pages) catch {};
         drm_releases = saturatingCount(drm_releases, 1);
     }
