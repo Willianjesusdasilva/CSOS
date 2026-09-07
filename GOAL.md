@@ -158,6 +158,8 @@ O mesmo fluxo funciona sem mouse: `Super` ou `Ctrl+Espaço` alterna o lançador,
 setas percorrem as opções, `Enter` ativa e `Esc` fecha o menu sem fechar a
 aplicação focada. O toggle possui debounce e o atalho alternativo evita captura
 da tecla Super pelo host do QEMU.
+Com o lançador aberto, as teclas `1`–`4` selecionam diretamente as quatro
+aplicações disponíveis.
 A tabela fixa do compositor saiu do frame de `kernel.start` para não consumir a
 stack limitada recebida do firmware; o boot QEMU voltou a alcançar a sessão
 gráfica depois dessa correção.

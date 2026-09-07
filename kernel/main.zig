@@ -2117,6 +2117,10 @@ pub fn start(info: BootInfo) noreturn {
                         0x2b => if ((event.b & 0x22) != 0) window_manager.launcherSelectPrevious() else window_manager.launcherSelectNext(),
                         0x4a => window_manager.launcher_selection = 0,
                         0x4d => window_manager.launcher_selection = display.launcher_item_count - 1,
+                        0x1e => window_manager.launcher_selection = 0,
+                        0x1f => window_manager.launcher_selection = 1,
+                        0x20 => window_manager.launcher_selection = 2,
+                        0x21 => window_manager.launcher_selection = 3,
                         0x29 => {
                             window_manager.dismissLauncher();
                         },
