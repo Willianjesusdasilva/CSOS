@@ -1059,7 +1059,7 @@ pub fn mapAmdGfx11CpFirmwareIntoGart(
     var total_pages: u64 = 0;
     for (firmware.areas[0..firmware.count]) |area| {
         if (area.address == 0 or area.pages == 0 or area.bytes == 0 or (area.address & 4095) != 0 or
-            area.bytes > area.pages * 4096)
+            area.pages > std.math.maxInt(u64) / 4096 or area.bytes > area.pages * 4096)
             return error.InvalidAmdCpFirmwareStaging;
         total_pages = std.math.add(u64, total_pages, area.pages) catch return error.AmdCpFirmwareExceedsGartWindow;
     }
@@ -1073,6 +1073,8 @@ pub fn mapAmdGfx11CpFirmwareIntoGart(
     };
     var next = first_page;
     for (firmware.areas[0..firmware.count], 0..) |area, area_index| {
+        if (next > std.math.maxInt(u64) / 4096 or window_start > std.math.maxInt(u64) - next * 4096)
+            return error.InvalidAmdCpFirmwareGart;
         result.areas[area_index] = .{ .kind = area.kind, .address = window_start + next * 4096, .bytes = area.bytes };
         var page: u64 = 0;
         while (page < area.pages) : (page += 1) table[next + page] = amdGttPte(area.address + page * 4096);
