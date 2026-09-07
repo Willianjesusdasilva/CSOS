@@ -519,6 +519,10 @@ fn clockNanosleep(clock: u64, flags: u64, request: u64, remaining: u64) u64 {
     else
         requested_ns != 0;
     if (should_wait) if (idle_hook) |hook| hook();
+    if ((flags & 1) == 0)
+        monotonic_time_ns +%= requested_ns
+    else if (requested_ns > monotonic_time_ns)
+        monotonic_time_ns = requested_ns;
     if (remaining != 0) @memset(@as([*]u8, @ptrFromInt(remaining))[0..16], 0);
     return 0;
 }
