@@ -717,9 +717,15 @@ fn findInterpreter(program_offset: u64, program_entry_size: u16, program_count: 
 fn findNeeded(program_offset: u64, program_entry_size: u16, program_count: u16) !NeededList {
     var dynamic_offset: ?u64 = null;
     var dynamic_size: u64 = 0;
+    const entry_size = @as(u64, program_entry_size);
+    if (entry_size < 56) return error.InvalidElf;
+    const table_bytes = std.math.mul(u64, entry_size, @as(u64, program_count)) catch return error.InvalidElf;
+    if (program_offset > image.len or table_bytes > image.len - program_offset) return error.InvalidElf;
     var header_index: usize = 0;
     while (header_index < program_count) : (header_index += 1) {
-        const header: usize = @intCast(program_offset + @as(u64, program_entry_size) * header_index);
+        const header_offset = std.math.add(u64, program_offset, std.math.mul(u64, entry_size, @as(u64, header_index)) catch return error.InvalidElf) catch return error.InvalidElf;
+        const header: usize = std.math.cast(usize, header_offset) orelse return error.InvalidElf;
+        if (header > image.len or 56 > image.len - header) return error.InvalidElf;
         if (read32At(header) != 2) continue;
         dynamic_offset = read64At(header + 8);
         dynamic_size = read64At(header + 32);
@@ -748,7 +754,8 @@ fn findNeeded(program_offset: u64, program_entry_size: u16, program_count: u16) 
     if (string_virtual == 0) return error.InvalidDynamicString;
     var result = NeededList{};
     for (needed_offsets[0..needed_count]) |name_offset| {
-        const string_file = try virtualFileOffset(string_virtual + name_offset, 1, program_offset, program_entry_size, program_count);
+        const string_virtual_address = std.math.add(u64, string_virtual, name_offset) catch return error.InvalidDynamicString;
+        const string_file = try virtualFileOffset(string_virtual_address, 1, program_offset, program_entry_size, program_count);
         result.names[result.count] = try stringFrom(image, string_file);
         result.count += 1;
     }

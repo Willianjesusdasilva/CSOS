@@ -332,6 +332,8 @@ a montagem do stack, fechando o último leitor ELF sem limite de imagem.
 O coletor de construtores e a descoberta do interpretador agora verificam
 overflow de base/offset e limites de cabeçalhos e strings antes de usar os
 endereços calculados.
+A resolução de dependências `DT_NEEDED` recebe o mesmo preflight e rejeita
+somatórios embrulhados ao localizar nomes na tabela dinâmica.
 
 Mapeamentos anônimos também possuem rollback transacional: uma falha no meio da
 criação remove as páginas já instaladas e devolve a alocação e o ownership.
