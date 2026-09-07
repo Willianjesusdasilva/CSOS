@@ -3085,7 +3085,10 @@ fn waitId(id_type: u64, id: u64, info: u64, options: u64) u64 {
 }
 
 fn madvise(address: u64, length: u64, advice: u64) u64 {
-    if (advice > 16 or length == 0 or !validUserSlice(address, length)) return errno(22);
+    const supported = advice == 0 or advice == 1 or advice == 2 or advice == 3 or
+        advice == 4 or advice == 8 or advice == 9 or advice == 10 or advice == 11 or
+        advice == 12 or advice == 13 or advice == 14 or advice == 15;
+    if (!supported or length == 0 or !validUserSlice(address, length)) return errno(22);
     // Hints are accepted, but reclaim remains controlled by the process
     // lifecycle and never trusts userspace to discard live mappings.
     return 0;
