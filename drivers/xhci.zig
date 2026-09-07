@@ -681,7 +681,8 @@ pub fn handleInterrupt() callconv(.c) void {
     if ((iman & 1) == 0) return;
     write32(interrupt_runtime + 0x20, 0, iman | 3);
     @atomicStore(u32, &last_interrupt_apic, apic.id(), .release);
-    _ = @atomicRmw(u64, &interrupts, .Add, 1, .release);
+    if (@atomicLoad(u64, &interrupts, .monotonic) != std.math.maxInt(u64))
+        _ = @atomicRmw(u64, &interrupts, .Add, 1, .release);
 }
 
 pub fn interruptCount() u64 {

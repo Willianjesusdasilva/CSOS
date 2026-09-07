@@ -8392,7 +8392,8 @@ pub fn driverFor(vendor: u16, device: u16) Driver {
 }
 
 pub fn handleInterrupt() callconv(.c) void {
-    _ = @atomicRmw(u64, &interrupt_count, .Add, 1, .monotonic);
+    if (@atomicLoad(u64, &interrupt_count, .monotonic) != std.math.maxInt(u64))
+        _ = @atomicRmw(u64, &interrupt_count, .Add, 1, .monotonic);
 }
 pub fn interrupts() u64 {
     return @atomicLoad(u64, &interrupt_count, .acquire);
