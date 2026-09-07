@@ -694,6 +694,13 @@ test "audio format normalization rejects invalid parameters" {
     try std.testing.expectEqual(@as(u8, 16), normalized.bits_per_sample);
 }
 
+test "audio PCM buffer validation enforces frame alignment" {
+    try validatePcmBuffer(8, 2, 16);
+    try std.testing.expectError(error.MisalignedPcmBuffer, validatePcmBuffer(7, 2, 16));
+    try std.testing.expectError(error.MisalignedPcmBuffer, validatePcmBuffer(0, 2, 16));
+    try std.testing.expectError(error.InvalidChannels, validatePcmBuffer(8, 0, 16));
+}
+
 pub fn normalizeFormat(channels: u16, bits_per_sample: u16, sample_rate: u64) !Format {
     if (channels == 0 or channels > 8) return error.InvalidChannels;
     if (bits_per_sample == 0 or bits_per_sample > 32 or bits_per_sample % 8 != 0) return error.InvalidSampleWidth;
