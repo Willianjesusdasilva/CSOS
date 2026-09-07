@@ -163,6 +163,15 @@ test "audio manager resets metrics when attaching a new device" {
     try std.testing.expectEqual(@as(u64, 0), manager.metrics.completed);
 }
 
+test "audio attach failure preserves the previous device" {
+    var manager = DeviceManager{};
+    const original = Format{ .channels = 2, .bits_per_sample = 16, .sample_rate = 48_000 };
+    try manager.attach(original, 1000, 4096);
+    try std.testing.expectError(error.EndpointCapacity, manager.attach(.{ .channels = 8, .bits_per_sample = 32, .sample_rate = 192_000 }, 1, 1));
+    try std.testing.expectEqual(original.sample_rate, manager.device.format.sample_rate);
+    try std.testing.expect(manager.stream != null);
+}
+
 pub const Stream = struct {
     device: Device = .{},
     buffers: [8][4096]u8 = undefined,
@@ -326,8 +335,9 @@ pub const DeviceManager = struct {
     pub fn attach(self: *DeviceManager, format: Format, periods_per_second: u32, packet_size: u16) !void {
         var device = Device{ .state = .discovered, .format = format };
         try device.validate(periods_per_second, packet_size);
+        const stream = try Stream.init(format);
         self.device = device;
-        self.stream = try Stream.init(format);
+        self.stream = stream;
         self.metrics = .{};
     }
 
