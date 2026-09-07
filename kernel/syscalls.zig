@@ -2510,7 +2510,8 @@ fn drmAddFramebuffer(address: u64) u64 {
     const height = read32(output + 8);
     const pitch = read32(output + 12);
     if (width == 0 or height == 0 or width > framebuffer.width or height > framebuffer.height) return errno(22);
-    if (pitch != width * 4 or read32(output + 16) != 32 or read32(output + 20) != 24) return errno(22);
+    const expected_pitch = std.math.mul(u32, width, 4) catch return errno(12);
+    if (pitch != expected_pitch or read32(output + 16) != 32 or read32(output + 20) != 24) return errno(22);
     const handle = read32(output + 24);
     const object = drmObjectForHandle(handle) orelse return errno(2);
     if (@as(u64, pitch) * height > object.size) return errno(22);
