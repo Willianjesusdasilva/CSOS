@@ -454,13 +454,21 @@ pub const Terminal = struct {
             self.append(command);
             self.append("\n");
             if (bytesEqual(command, "help"))
-                self.append("HELP CLEAR STATUS VERSION ECHO [TEXT]\n")
+                self.append("HELP CLEAR STATUS VERSION ECHO HISTORY [TEXT]\n")
             else if (bytesEqual(command, "status"))
                 self.append("CSOS READY\n")
             else if (bytesEqual(command, "version"))
                 self.append("CSOS 0.1\n")
             else if (bytesEqual(command, "echo"))
                 self.append("ECHO READY\n")
+            else if (bytesEqual(command, "history")) {
+                self.append("HISTORY\n");
+                for (self.history[0..self.history_len], 0..) |entry, index| {
+                    self.append("  ");
+                    self.append(entry[0..self.history_lengths[index]]);
+                    self.append("\n");
+                }
+            }
             else if (command.len > 5 and bytesEqual(command[0..5], "echo ")) {
                 self.append(command[5..]);
                 self.append("\n");
@@ -884,17 +892,21 @@ test "SDL software event queue and surface contract" {
     terminal.clearOutput();
     terminal.input.replace("help");
     try @import("std").testing.expect(terminal.submit());
-    try @import("std").testing.expectEqualStrings("> help\nHELP CLEAR STATUS VERSION ECHO [TEXT]\n", terminal.outputSlice());
+    try @import("std").testing.expectEqualStrings("> help\nHELP CLEAR STATUS VERSION ECHO HISTORY [TEXT]\n", terminal.outputSlice());
+    terminal.clearOutput();
+    terminal.input.replace("history");
+    try @import("std").testing.expect(terminal.submit());
+    try @import("std").testing.expectEqualStrings("> history\nHISTORY\n  echo hello CSOS\n  status\n  help\n  history\n", terminal.outputSlice());
     terminal.clearOutput();
     try @import("std").testing.expect(terminal.historyPrevious());
-    try @import("std").testing.expectEqualStrings("help", terminal.input.slice());
+    try @import("std").testing.expectEqualStrings("history", terminal.input.slice());
     try @import("std").testing.expect(terminal.historyNext());
     try @import("std").testing.expectEqualStrings("", terminal.input.slice());
     terminal.history_cursor = terminal.history_len + 1;
     try @import("std").testing.expect(!terminal.historyNext());
     terminal.history_cursor = terminal.history_len + 1;
     try @import("std").testing.expect(terminal.historyPrevious());
-    try @import("std").testing.expectEqualStrings("help", terminal.input.slice());
+    try @import("std").testing.expectEqualStrings("history", terminal.input.slice());
     terminal.input.clear();
     for ("clear") |byte| try @import("std").testing.expect(terminal.input.insert(byte));
     try @import("std").testing.expect(terminal.submit());
