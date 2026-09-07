@@ -814,7 +814,7 @@ pub const EventQueue = struct {
     pub fn push(self: *EventQueue, event: Event) !void {
         if (self.count == self.events.len) return error.QueueFull;
         self.events[self.tail] = event;
-        self.tail = (self.tail + 1) % self.events.len;
+        self.tail = @intCast((@as(usize, self.tail) + 1) % self.events.len);
         self.count += 1;
     }
 
@@ -822,7 +822,7 @@ pub const EventQueue = struct {
         if (self.count == 0) return null;
         const event = self.events[self.head];
         self.events[self.head] = null;
-        self.head = (self.head + 1) % self.events.len;
+        self.head = @intCast((@as(usize, self.head) + 1) % self.events.len);
         self.count -= 1;
         return event;
     }
@@ -857,6 +857,14 @@ pub const Port = struct {
         self.suspended = false;
     }
 };
+
+test "audio event queue preserves count when full" {
+    var queue = EventQueue{};
+    const event: Event = .{ .underrun = {} };
+    for (0..16) |_| try queue.push(event);
+    try std.testing.expectError(error.QueueFull, queue.push(event));
+    try std.testing.expectEqual(@as(u8, 16), queue.count);
+}
 
 test "audio port generation exhaustion fails closed" {
     var port = Port{ .generation = std.math.maxInt(u32) };
