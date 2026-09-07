@@ -141,7 +141,7 @@ pub fn spawnProcess(entry: Entry, pages: *physical.Allocator, process_id: u32, g
 pub fn backgroundGroup(group: u16) usize {
     var changed: usize = 0;
     for (threads[0..thread_count]) |*thread| {
-        if (thread.group != group or thread.state == .finished or thread.state == .frozen or thread.policy == .keep_alive) continue;
+        if (thread.group != group or thread.state == .finished or thread.state == .frozen or thread.policy == .keep_alive or thread.lifecycle == .background) continue;
         thread.lifecycle = .background;
         changed += 1;
     }
@@ -476,6 +476,7 @@ test "scheduler background group skips frozen and finished threads" {
     threads[3] = .{ .context = .{}, .entry = schedulerTestEntry, .state = .ready, .group = 23, .policy = .keep_alive, .lifecycle = .running };
     thread_count = 4;
     try std.testing.expectEqual(@as(usize, 1), backgroundGroup(23));
+    try std.testing.expectEqual(@as(usize, 0), backgroundGroup(23));
     try std.testing.expectEqual(Lifecycle.background, threads[0].lifecycle);
     try std.testing.expectEqual(Lifecycle.frozen, threads[1].lifecycle);
     try std.testing.expectEqual(Lifecycle.finished, threads[2].lifecycle);
