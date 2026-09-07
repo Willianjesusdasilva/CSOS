@@ -2703,6 +2703,14 @@ fn hidCharacter(usage: u8, modifiers: u8) ?u8 {
     };
 }
 
+test "HID character mapping covers control and shifted keys" {
+    const testing = @import("std").testing;
+    try testing.expectEqual(@as(?u8, '\t'), hidCharacter(43, 0));
+    try testing.expectEqual(@as(?u8, '\n'), hidCharacter(40, 0));
+    try testing.expectEqual(@as(?u8, 'A'), hidCharacter(4, 0x02));
+    try testing.expectEqual(@as(?u8, '!'), hidCharacter(30, 0x20));
+}
+
 fn consoleWait() callconv(.c) void {
     const usb = console_usb orelse return;
     const hid = console_hid orelse return;
