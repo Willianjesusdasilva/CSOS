@@ -1248,6 +1248,10 @@ pub fn handlePageFault(address: u64, instruction: u64, code: u64) callconv(.c) b
     const page_virtual = address & ~(page_size - 1);
     for (mappings) |*mapping| {
         if (mapping.virtual != page_virtual or mapping.resident or mapping.writable) continue;
+        // A tabela de mapeamentos pode sobreviver a reclaim/retomada; trate
+        // metadados corrompidos como page fault não resolvível, nunca como um
+        // acesso fora dos limites da lista de ownership do processo.
+        if (mapping.owner_index >= owned.len) return false;
         const physical_address = pages.allocate(1) orelse return false;
         const bytes: [*]u8 = @ptrFromInt(physical_address);
         @memset(bytes[0..page_size], 0);
