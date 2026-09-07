@@ -821,7 +821,8 @@ fn shouldReclaimMapping(writable: bool, resident: bool, reclaimable: bool) bool 
 }
 
 fn canRestoreMapping(mapping: Mapping, owned_count: usize) bool {
-    return !mapping.resident and !mapping.writable and mapping.physical == 0 and mapping.owner_index < owned_count;
+    return mapping.virtual != 0 and (mapping.virtual & (page_size - 1)) == 0 and
+        !mapping.resident and !mapping.writable and mapping.physical == 0 and mapping.owner_index < owned_count;
 }
 
 test "standby reclaim only selects clean resident main-image pages" {
@@ -838,6 +839,8 @@ test "page restore rejects stale or unsafe mapping metadata" {
     try @import("std").testing.expect(!canRestoreMapping(.{ .virtual = 0x1000, .writable = true }, 1));
     try @import("std").testing.expect(!canRestoreMapping(.{ .virtual = 0x1000, .physical = 0x9000 }, 1));
     try @import("std").testing.expect(!canRestoreMapping(.{ .virtual = 0x1000, .owner_index = 1 }, 1));
+    try @import("std").testing.expect(!canRestoreMapping(.{ .virtual = 0x1001, .owner_index = 0 }, 1));
+    try @import("std").testing.expect(!canRestoreMapping(.{ .virtual = 0, .owner_index = 0 }, 1));
 }
 
 test "standby counters saturate instead of wrapping" {
