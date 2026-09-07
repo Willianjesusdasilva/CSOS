@@ -30,6 +30,8 @@ var robust_len: u64 = 0;
 var clear_tid_address: u64 = 0;
 var process_umask: u32 = 0o022;
 var process_name: [16]u8 = .{ 'c', 's', 'o', 's', 0 } ++ .{0} ** 11;
+var process_group: u64 = 1;
+var process_session: u64 = 1;
 pub var file_mmaps: u64 = 0;
 pub var protected_mmaps: u64 = 0;
 pub var unmapped_mmaps: u64 = 0;
@@ -364,6 +366,10 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         102, 104 => 0,
         105, 106 => if (arg1 == 0) 0 else errno(1),
         110 => 0,
+        112 => setSid(),
+        109 => setPgid(arg1, arg2),
+        121 => getPgid(arg1),
+        124 => getSid(arg1),
         115 => getGroups(arg1, arg2),
         116 => setGroups(arg1, arg2),
         117 => setResUid(arg1, arg2, arg3),
@@ -2990,6 +2996,28 @@ fn prctl(option: u64, arg2: u64, _: u64) u64 {
         return 0;
     }
     return errno(22);
+}
+
+fn setPgid(pid: u64, group: u64) u64 {
+    if ((pid != 0 and pid != 1) or (group != 0 and group != 1)) return errno(3);
+    process_group = if (group == 0) 1 else group;
+    return 0;
+}
+
+fn getPgid(pid: u64) u64 {
+    if (pid != 0 and pid != 1) return errno(3);
+    return process_group;
+}
+
+fn setSid() u64 {
+    process_group = 1;
+    process_session = 1;
+    return process_session;
+}
+
+fn getSid(pid: u64) u64 {
+    if (pid != 0 and pid != 1) return errno(3);
+    return process_session;
 }
 
 fn getResGid(real: u64, effective: u64, saved: u64) u64 {
