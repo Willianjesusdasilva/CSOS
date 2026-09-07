@@ -105,7 +105,9 @@ pub const Subsystem = struct {
     pub fn submit(self: *Subsystem) !void {
         if (!self.device.ready()) return error.DeviceNotStreaming;
         if (self.device.suspended) return error.DeviceSuspended;
-        if (self.metrics.submitted - self.metrics.completed >= self.periods) {
+        if (self.metrics.submitted >= self.metrics.completed and
+            self.metrics.submitted - self.metrics.completed >= self.periods)
+        {
             self.metrics.recordOverrun();
             return error.QueueFull;
         }
