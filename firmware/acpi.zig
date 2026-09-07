@@ -1,3 +1,5 @@
+const std = @import("std");
+
 const max_cpus = 256;
 const max_ioapics = 8;
 const max_overrides = 32;
