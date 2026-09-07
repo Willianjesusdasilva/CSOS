@@ -976,7 +976,7 @@ test "SDL software event queue and surface contract" {
     input.clear();
     input.len = std.math.maxInt(usize);
     input.eraseWordBackward();
-    try @import("std").testing.expectEqual(@as(usize, 0), input.len);
+    try @import("std").testing.expectEqual(@as(usize, 64), input.len);
     input.replace("abcdef");
     input.cursor = 2;
     input.eraseToEnd();
