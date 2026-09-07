@@ -3233,6 +3233,10 @@ fn getRusage(who: u64, output: u64) u64 {
     if (who > 1 or !validUserSlice(output, 144)) return errno(22);
     const bytes: [*]u8 = @ptrFromInt(output);
     @memset(bytes[0..144], 0);
+    const seconds = monotonic_time_ns / 1_000_000_000;
+    const micros = (monotonic_time_ns % 1_000_000_000) / 1_000;
+    put64(bytes, seconds);
+    put64(bytes + 8, micros);
     return 0;
 }
 
