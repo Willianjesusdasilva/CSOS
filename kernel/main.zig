@@ -2158,7 +2158,9 @@ pub fn start(info: BootInfo) noreturn {
                 if (!launcher_consumed and !alt_tab_pressed and focusedWindowIs(window_manager, 1)) {
                     _ = sdl_events.pushKeyboard(event.a, event.a != 0, event.b);
                     if (event.a != 0) {
-                        if (event.a == 0x28) {
+                        if (event.a == 0x29) {
+                            sdl_terminal.cancel();
+                        } else if (event.a == 0x28) {
                             _ = sdl_terminal.submit();
                         } else if (event.a == 0x2a) {
                             _ = sdl_terminal.input.backspace();
