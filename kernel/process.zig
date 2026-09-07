@@ -658,14 +658,17 @@ fn collectInitializers(
         }
     }
     if (init != 0) {
-        if (!isMappedExecutable(mappings, base + init)) return error.InvalidInitializer;
-        try appendInitializer(initializers, count, base + init);
+        const initializer = std.math.add(u64, base, init) catch return error.InvalidInitializer;
+        if (!isMappedExecutable(mappings, initializer)) return error.InvalidInitializer;
+        try appendInitializer(initializers, count, initializer);
     }
     if (init_array_size == 0) return;
     if (init_array == 0 or init_array_size % 8 != 0) return error.InvalidInitArray;
     var array_offset: u64 = 0;
     while (array_offset < init_array_size) : (array_offset += 8) {
-        const initializer = try readMapped64(mappings, base + init_array + array_offset);
+        const array_address = std.math.add(u64, base, init_array) catch return error.InvalidInitArray;
+        const entry_address = std.math.add(u64, array_address, array_offset) catch return error.InvalidInitArray;
+        const initializer = try readMapped64(mappings, entry_address);
         if (initializer != 0 and initializer != ~@as(u64, 0)) {
             if (!isMappedExecutable(mappings, initializer)) return error.InvalidInitializer;
             try appendInitializer(initializers, count, initializer);
@@ -688,15 +691,24 @@ fn isMappedExecutable(mappings: []const Mapping, virtual: u64) bool {
 }
 
 fn findInterpreter(program_offset: u64, program_entry_size: u16, program_count: u16) !?[]const u8 {
+    const entry_size = @as(u64, program_entry_size);
+    if (entry_size < 56) return error.InvalidElf;
+    const table_bytes = std.math.mul(u64, entry_size, @as(u64, program_count)) catch return error.InvalidElf;
+    if (program_offset > image.len or table_bytes > image.len - program_offset) return error.InvalidElf;
     var header_index: usize = 0;
     while (header_index < program_count) : (header_index += 1) {
-        const header: usize = @intCast(program_offset + @as(u64, program_entry_size) * header_index);
+        const header_offset = std.math.add(u64, program_offset, std.math.mul(u64, entry_size, @as(u64, header_index)) catch return error.InvalidElf) catch return error.InvalidElf;
+        const header: usize = std.math.cast(usize, header_offset) orelse return error.InvalidElf;
+        if (header > image.len or 56 > image.len - header) return error.InvalidElf;
         if (read32At(header) != 3) continue;
         const offset = read64At(header + 8);
         const size = read64At(header + 32);
         if (size < 2 or offset > image.len or size > image.len - offset) return error.InvalidInterpreterPath;
-        const path = image[@intCast(offset)..@intCast(offset + size - 1)];
-        if (image[@intCast(offset + size - 1)] != 0) return error.InvalidInterpreterPath;
+        const path_end = std.math.add(u64, offset, size - 1) catch return error.InvalidInterpreterPath;
+        const path_start = std.math.cast(usize, offset) orelse return error.InvalidInterpreterPath;
+        const path_end_index = std.math.cast(usize, path_end) orelse return error.InvalidInterpreterPath;
+        const path = image[path_start..path_end_index];
+        if (image[path_end_index] != 0) return error.InvalidInterpreterPath;
         return path;
     }
     return null;

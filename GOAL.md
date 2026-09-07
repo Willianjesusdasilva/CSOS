@@ -329,6 +329,9 @@ A construção da pilha inicial ELF agora valida cada reserva e o tamanho total
 de `argv`/`auxv`, recusando overflow antes de escrever fora da pilha.
 Ela também valida a tabela `PT_LOAD` antes de consultar seus cabeçalhos durante
 a montagem do stack, fechando o último leitor ELF sem limite de imagem.
+O coletor de construtores e a descoberta do interpretador agora verificam
+overflow de base/offset e limites de cabeçalhos e strings antes de usar os
+endereços calculados.
 
 Mapeamentos anônimos também possuem rollback transacional: uma falha no meio da
 criação remove as páginas já instaladas e devolve a alocação e o ownership.
