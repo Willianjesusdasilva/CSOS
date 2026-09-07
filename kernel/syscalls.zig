@@ -2763,6 +2763,10 @@ fn write(fd: u64, address: u64, length: u64) u64 {
 const Socket = struct {
     allocated: bool = false,
     connection: ?net.TcpConnection = null,
+    reuse_address: bool = false,
+    keep_alive: bool = false,
+    linger_enabled: bool = false,
+    linger_seconds: u32 = 0,
     remote_address: [4]u8 = .{0} ** 4,
     remote_port: u16 = 0,
 };
@@ -2812,9 +2816,18 @@ fn socketName(fd: u64, address: u64, length_address: u64, peer: bool) u64 {
 }
 
 fn setSocketOption(fd: u64, level: u64, option: u64, value: u64, length: u64) u64 {
-    _ = socketIndex(fd) orelse return errno(9);
+    const index = socketIndex(fd) orelse return errno(9);
     if (level != 1 or (option != 2 and option != 9 and option != 13)) return errno(92); // SOL_SOCKET: REUSEADDR, KEEPALIVE, LINGER
-    if (length != 0 and !validUserSlice(value, length)) return errno(14);
+    if ((option == 2 or option == 9) and length != 4) return errno(22);
+    if (option == 13 and length != 8) return errno(22);
+    if (!validUserSlice(value, length)) return errno(14);
+    const bytes: [*]const u8 = @ptrFromInt(value);
+    if (option == 2) sockets[index].reuse_address = read32(bytes) != 0;
+    if (option == 9) sockets[index].keep_alive = read32(bytes) != 0;
+    if (option == 13) {
+        sockets[index].linger_enabled = read32(bytes) != 0;
+        sockets[index].linger_seconds = read32(bytes + 4);
+    }
     return 0;
 }
 
