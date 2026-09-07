@@ -1104,7 +1104,7 @@ fn requiredSymbolVersion(bytes: []const u8, symbols: DynamicSymbols, symbol_inde
         if (need_offset > bytes.len or bytes.len - need_offset < 16) return error.InvalidVersionNeed;
         const auxiliary_offset = read32From(bytes, need_offset + 8);
         const auxiliary_count = read16From(bytes, need_offset + 2);
-        var auxiliary = need_offset + auxiliary_offset;
+    var auxiliary = std.math.add(usize, need_offset, auxiliary_offset) catch return error.InvalidVersionNeed;
         var auxiliary_index: u16 = 0;
         while (auxiliary_index < auxiliary_count) : (auxiliary_index += 1) {
             if (auxiliary > bytes.len or bytes.len - auxiliary < 16) return error.InvalidVersionNeed;

@@ -350,6 +350,7 @@ antes de gravar o destino, rejeitando endereços que ultrapassem `u64`.
 `DT_VERNEED`/`DT_VERDEF` usam somas checked para avançar e resolver strings.
 Os índices `versym` agora validam multiplicação, soma, conversão e dois bytes
 disponíveis antes de ler versões exigidas ou definidas.
+O salto inicial para a lista auxiliar `DT_VERNEED` também usa adição checked.
 
 Mapeamentos anônimos também possuem rollback transacional: uma falha no meio da
 criação remove as páginas já instaladas e devolve a alocação e o ownership.
