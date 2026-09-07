@@ -21,6 +21,7 @@ pub const Device = struct {
     underruns: u64 = 0,
     overruns: u64 = 0,
     suspended: bool = false,
+    suspended_streaming: bool = false,
 
     pub fn ready(self: *const Device) bool {
         return self.state == .streaming;
@@ -44,14 +45,18 @@ pub const Device = struct {
     }
 
     pub fn suspendDevice(self: *Device) void {
+        if (self.suspended) return;
+        self.suspended_streaming = self.state == .streaming;
         self.suspended = true;
         if (self.state == .streaming) self.state = .configured;
     }
 
     pub fn resumeDevice(self: *Device) !void {
+        if (!self.suspended) return error.DeviceNotSuspended;
         if (self.state != .configured) return error.DeviceNotConfigured;
         self.suspended = false;
-        self.state = .streaming;
+        if (self.suspended_streaming) self.state = .streaming;
+        self.suspended_streaming = false;
     }
 };
 
@@ -714,4 +719,17 @@ test "device manager stop preserves absent state" {
     manager.stop();
     try @import("std").testing.expectEqual(State.absent, manager.device.state);
     try @import("std").testing.expect(manager.stream == null);
+}
+
+test "device resume preserves non-streaming state" {
+    var device = Device{ .state = .configured };
+    device.suspendDevice();
+    try device.resumeDevice();
+    try @import("std").testing.expectEqual(State.configured, device.state);
+    try @import("std").testing.expect(!device.suspended);
+}
+
+test "device resume requires suspension" {
+    var device = Device{ .state = .configured };
+    try @import("std").testing.expectError(error.DeviceNotSuspended, device.resumeDevice());
 }
