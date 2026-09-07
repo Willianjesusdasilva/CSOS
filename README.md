@@ -673,8 +673,9 @@ edições sem poluir histórico ou saída; cursores restaurados fora dos limites
 normalizados antes de qualquer acesso ao buffer.
 Essa aplicação agora funciona como terminal gráfico não bloqueante: `Enter`
 executa os comandos internos `help`, `status`, `version`, `whoami`, `pwd`, `ls`,
-`echo [texto]`, `history` e `clear`, mantendo a saída na
+`echo [texto]`, `history`, `clear` e `reset`, mantendo a saída na
 janela sem interromper mouse, compositor ou outras aplicações.
+`Ctrl+R` recupera a entrada anterior do histórico quando o terminal está focado.
 Espaços e tabulações nas bordas do comando são ignorados, permitindo, por
 exemplo, executar `  status  ` sem gerar um comando desconhecido.
 Setas para cima/baixo percorrem o histórico, Home/End movem o cursor, Delete
