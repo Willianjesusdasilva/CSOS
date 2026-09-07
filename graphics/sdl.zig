@@ -179,6 +179,39 @@ pub fn displayTextByte(byte: u8) u8 {
     return '.';
 }
 
+pub const Pager = struct {
+    total: usize = 0,
+    offset: usize = 0,
+    page_size: usize,
+
+    pub fn init(page_size: usize) Pager {
+        return .{ .page_size = @max(@as(usize, 1), page_size) };
+    }
+
+    pub fn reset(self: *Pager, total: usize) void {
+        self.total = total;
+        self.offset = 0;
+    }
+
+    pub fn next(self: *Pager) bool {
+        if (self.offset >= self.total or self.page_size >= self.total - self.offset) return false;
+        self.offset += self.page_size;
+        return true;
+    }
+
+    pub fn previous(self: *Pager) bool {
+        if (self.offset == 0) return false;
+        self.offset -|= self.page_size;
+        return true;
+    }
+
+    pub fn home(self: *Pager) bool {
+        if (self.offset == 0) return false;
+        self.offset = 0;
+        return true;
+    }
+};
+
 pub const Window = struct {
     width: usize,
     height: usize,
@@ -695,4 +728,16 @@ test "list selection keeps the selected row inside its viewport" {
     try testing.expectEqual(@as(u8, ' '), displayTextByte('\t'));
     try testing.expectEqual(@as(u8, '.'), displayTextByte(0));
     try testing.expectEqual(@as(u8, '.'), displayTextByte(0xff));
+
+    var pager = Pager.init(192);
+    pager.reset(400);
+    try testing.expect(pager.next());
+    try testing.expectEqual(@as(usize, 192), pager.offset);
+    try testing.expect(pager.next());
+    try testing.expectEqual(@as(usize, 384), pager.offset);
+    try testing.expect(!pager.next());
+    try testing.expect(pager.previous());
+    try testing.expectEqual(@as(usize, 192), pager.offset);
+    try testing.expect(pager.home());
+    try testing.expectEqual(@as(usize, 0), pager.offset);
 }

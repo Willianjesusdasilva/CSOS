@@ -247,6 +247,10 @@ Abrir/restaurar `FILES` ou pressionar F5 relê a raiz FAT16. O modelo atualiza a
 contagem preservando seleção/viewport válidos e faz clamp quando a lista diminui,
 evitando que a interface permaneça presa ao snapshot criado durante o boot.
 
+A prévia de `FILES` pagina o conteúdo em blocos fixos de 192 bytes com Page
+Up/Down, Home e roda do mouse. O offset visível é mostrado e a navegação satura
+em zero/EOF, permitindo leitura de arquivos grandes sem alocação proporcional.
+
 Esta porcentagem não é uma contagem simples de milestones. M0–M13 têm bases relevantes, mas M14 ainda não possui triângulos Vulkan validados em AMD e NVIDIA, e M15–M30 permanecem majoritariamente pendentes. Código preparatório ou teste no host não equivale a hardware funcional.
 
 Verificação mais recente em 2026-09-06: `zig build test` concluiu `17/17` etapas

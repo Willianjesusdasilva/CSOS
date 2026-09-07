@@ -1561,7 +1561,7 @@ pub fn start(info: BootInfo) noreturn {
     var files_selection = sdl.ListSelection.init(0, 7);
     var root_file_count = refreshFiles(&volume, &root_files, &files_selection, &files_window) catch panic("FAT16 root listing failed");
     var files_preview: [192]u8 = undefined;
-    var files_preview_length: usize = 0;
+    var files_preview_pager = sdl.Pager.init(files_preview.len);
     var files_preview_open = false;
     serial.write("UI files application entries: ");
     serial.writeDecimal(root_file_count);
@@ -2120,6 +2120,17 @@ pub fn start(info: BootInfo) noreturn {
                         files_preview_open = false;
                         drawFilesSurface(&files_window, root_files[0..root_file_count], &files_selection);
                         file_browser_consumed = true;
+                    } else if (files_preview_open) {
+                        const changed = switch (event.a) {
+                            0x4e => files_preview_pager.next(),
+                            0x4b => files_preview_pager.previous(),
+                            0x4a => files_preview_pager.home(),
+                            else => false,
+                        };
+                        if (changed) {
+                            _ = loadFilePreview(&volume, root_files[files_selection.selected], &files_preview_pager, &files_preview, &files_window) catch panic("UI file preview page read failed");
+                            file_browser_consumed = true;
+                        }
                     } else if (!files_preview_open) {
                         const changed = switch (event.a) {
                             0x51 => files_selection.next(),
@@ -2129,9 +2140,9 @@ pub fn start(info: BootInfo) noreturn {
                         if (changed) drawFilesSurface(&files_window, root_files[0..root_file_count], &files_selection);
                     }
                     if (!files_preview_open and event.a == 0x28 and root_file_count != 0) {
-                        files_preview_length = volume.readRootFileAt(&root_files[files_selection.selected].name, &files_preview, 0) catch panic("UI file preview read failed");
+                        files_preview_pager.reset(root_files[files_selection.selected].size);
+                        _ = loadFilePreview(&volume, root_files[files_selection.selected], &files_preview_pager, &files_preview, &files_window) catch panic("UI file preview read failed");
                         files_preview_open = true;
-                        drawFilePreview(&files_window, root_files[files_selection.selected], files_preview[0..files_preview_length]);
                         file_browser_consumed = true;
                         serial.write("UI files selected: ");
                         serial.write(&root_files[files_selection.selected].name);
@@ -2236,8 +2247,14 @@ pub fn start(info: BootInfo) noreturn {
             // previous report's coordinates.
             cursor_x = display.applyPointerDelta(cursor_x, dx, screen.framebuffer.width);
             cursor_y = display.applyPointerDelta(cursor_y, dy, screen.framebuffer.height);
-            if (focusedWindowIs(window_manager, 4) and !files_preview_open and files_selection.wheel(wheel))
-                drawFilesSurface(&files_window, root_files[0..root_file_count], &files_selection);
+            if (focusedWindowIs(window_manager, 4)) {
+                if (!files_preview_open and files_selection.wheel(wheel)) {
+                    drawFilesSurface(&files_window, root_files[0..root_file_count], &files_selection);
+                } else if (files_preview_open and wheel != 0) {
+                    const changed = if (wheel < 0) files_preview_pager.next() else files_preview_pager.previous();
+                    if (changed) _ = loadFilePreview(&volume, root_files[files_selection.selected], &files_preview_pager, &files_preview, &files_window) catch panic("UI mouse file preview page read failed");
+                }
+            }
             if (focusedWindowIs(window_manager, 1)) {
                 _ = sdl_events.pushMouseCoalesced(@intCast(dx), @intCast(dy), @intCast(wheel), event.a);
                 demo_app.pump(&sdl_events, &handleSdlDemoEvent);
@@ -2318,9 +2335,9 @@ pub fn start(info: BootInfo) noreturn {
                             } else if (window.id == 4 and !files_preview_open and root_file_count != 0) {
                                 if (window_manager.contentListRowHitTest(hit, cursor_x, cursor_y, 17, 11, 10, files_selection.visible_rows)) |row| {
                                     _ = files_selection.selectVisibleRow(row);
-                                    files_preview_length = volume.readRootFileAt(&root_files[files_selection.selected].name, &files_preview, 0) catch panic("UI mouse file preview read failed");
+                                    files_preview_pager.reset(root_files[files_selection.selected].size);
+                                    _ = loadFilePreview(&volume, root_files[files_selection.selected], &files_preview_pager, &files_preview, &files_window) catch panic("UI mouse file preview read failed");
                                     files_preview_open = true;
-                                    drawFilePreview(&files_window, root_files[files_selection.selected], files_preview[0..files_preview_length]);
                                     serial.write("UI files mouse open: ");
                                     serial.writeDecimal(files_selection.selected);
                                     serial.write("\n");
@@ -2483,10 +2500,16 @@ fn refreshFiles(volume: *fat16.Volume, entries: []fat16.Volume.DirectoryEntry, s
     return count;
 }
 
-fn drawFilePreview(window: *sdl.Window, entry: fat16.Volume.DirectoryEntry, data: []const u8) void {
+fn loadFilePreview(volume: *fat16.Volume, entry: fat16.Volume.DirectoryEntry, pager: *const sdl.Pager, buffer: []u8, window: *sdl.Window) !usize {
+    const length = try volume.readRootFileAt(&entry.name, buffer, pager.offset);
+    drawFilePreview(window, entry, pager.offset, buffer[0..length]);
+    return length;
+}
+
+fn drawFilePreview(window: *sdl.Window, entry: fat16.Volume.DirectoryEntry, offset: usize, data: []const u8) void {
     window.clear(0x181c20ff);
     window.drawText(4, 4, &entry.name, 0xf0c080ff);
-    drawSurfaceNumber(window, 108, 4, entry.size, 0x90b0d0ff);
+    drawSurfaceNumber(window, 108, 4, @intCast(offset), 0x90b0d0ff);
     window.fillRect(164, 2, 58, 12, 0x50402cff);
     window.drawText(172, 4, "BACK", 0xf0d8b0ff);
     var line: [26]u8 = undefined;
