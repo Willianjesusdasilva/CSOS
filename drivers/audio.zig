@@ -740,3 +740,16 @@ test "absent device cannot enter suspended state" {
     try @import("std").testing.expect(!device.suspended);
     try @import("std").testing.expectError(error.DeviceNotSuspended, device.resumeDevice());
 }
+
+test "power manager follows idle suspend and wake cycle" {
+    var power = PowerManager{};
+    try @import("std").testing.expectEqual(PowerState.active, power.state);
+    power.idle();
+    try @import("std").testing.expectEqual(PowerState.idle, power.state);
+    power.suspendDevice();
+    try @import("std").testing.expectEqual(PowerState.suspended, power.state);
+    power.resumeDevice();
+    try @import("std").testing.expectEqual(PowerState.active, power.state);
+    power.wake();
+    try @import("std").testing.expectEqual(PowerState.active, power.state);
+}
