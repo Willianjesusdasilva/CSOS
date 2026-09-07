@@ -3687,6 +3687,27 @@ test "syscall region checks include exact edges without wrapping" {
     try std.testing.expect(!inRegion(std.math.maxInt(u64) - 3, 8, 0, std.math.maxInt(u64)));
 }
 
+test "statfs ABI writes Linux-compatible volume fields" {
+    var output: [120]u8 = undefined;
+    const saved_base = user_base;
+    const saved_size = user_size;
+    defer {
+        user_base = saved_base;
+        user_size = saved_size;
+    }
+    user_base = @intFromPtr(&output);
+    user_size = output.len;
+    try @import("std").testing.expectEqual(@as(u64, 0), writeStatfs(@intFromPtr(&output)));
+    try @import("std").testing.expectEqual(@as(u64, 0xEF53), read64(output[0..].ptr));
+    try @import("std").testing.expectEqual(@as(u64, 4096), read64(output[8..].ptr));
+    try @import("std").testing.expectEqual(@as(u64, 1024), read64(output[16..].ptr));
+}
+
+test "file mutation syscall flags reject unsupported operations" {
+    try @import("std").testing.expectEqual(@as(u64, errno(22)), unlinkat(0, 0, 1));
+    try @import("std").testing.expectEqual(@as(u64, errno(22)), renameat(0, 0, 0, 1));
+}
+
 fn errno(value: i64) u64 {
     return @bitCast(-value);
 }
