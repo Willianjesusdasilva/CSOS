@@ -782,6 +782,8 @@ O mesmo runner aceita `-SmokeDesktopMouse`: conecta um mouse USB emulado,
 injeta movimento relativo em múltiplos passos e um ciclo esquerdo pressionar/
 soltar, exigindo os marcadores de ambos os estados no serial. O smoke combinado
 de `test-system.ps1` cobre teclado e mouse no mesmo boot e encerra o QEMU.
+Os passos são espaçados para que o dispositivo USB não coalesça toda a trajetória
+em um único relatório.
 
 O inventário do host também encontrou uma AMD Radeon(TM) Graphics (`1002:164e`)
 e uma NVIDIA GeForce RTX 4060 Ti (`10de:2803`), ambas ativas. Isso viabiliza a

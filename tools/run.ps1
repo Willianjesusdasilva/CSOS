@@ -127,7 +127,7 @@ if ($SmokeTestSeconds -gt 0) {
                         $writer.AutoFlush = $true
                         foreach ($command in @('mouse_move -120 -107', 'mouse_move -120 -107', 'mouse_move 0 -106', 'mouse_button 1', 'mouse_button 0')) {
                             $writer.WriteLine($command)
-                            Start-Sleep -Milliseconds 220
+                            Start-Sleep -Milliseconds 500
                         }
                     } finally { $writer.Dispose() }
                     $mouseInjected = $true
