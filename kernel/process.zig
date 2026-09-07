@@ -589,11 +589,13 @@ fn collectInitializers(
     }
     const table = dynamic_file orelse return;
     if (table > bytes.len or dynamic_size > bytes.len - table) return error.InvalidDynamicTable;
+    if (dynamic_size < 16) return;
+    const table_end = table + dynamic_size;
     var init: u64 = 0;
     var init_array: u64 = 0;
     var init_array_size: u64 = 0;
     var dynamic_offset = table;
-    while (dynamic_offset + 16 <= table + dynamic_size) : (dynamic_offset += 16) {
+    while (dynamic_offset <= table_end - 16) : (dynamic_offset += 16) {
         const item: usize = @intCast(dynamic_offset);
         const tag = read64From(bytes, item);
         const value = read64From(bytes, item + 8);
