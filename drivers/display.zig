@@ -623,6 +623,9 @@ test "window manager reset clears desktop session state" {
     try std.testing.expect(manager.focused == null);
     try std.testing.expect(!manager.launcher_open and !manager.switcher_open);
     try std.testing.expectEqual(@as(u8, 0), manager.launcher_selection);
+    const recreated = try manager.create(.{ .id = 2, .x = 4, .y = 4, .width = 80, .height = 48 });
+    try std.testing.expectEqual(@as(usize, 0), recreated);
+    try std.testing.expectEqual(@as(?usize, 0), manager.focused);
 }
 
 test "window manager dismisses switcher when closing non-last window" {
