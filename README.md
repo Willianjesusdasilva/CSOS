@@ -840,6 +840,9 @@ O loader ELF valida o fim do trecho de arquivo e os endereços de destino e
 origem usados na cópia de cada página PT_LOAD. Isso mantém carga e retomada de
 páginas fora dos limites como falhas explícitas, sem depender de hardware
 físico.
+
+Mapeamentos anônimos fazem rollback transacional quando uma página falha: os
+mapeamentos parciais são removidos e a memória física é devolvida ao allocator.
 Os passos são espaçados para que o dispositivo USB não coalesça toda a trajetória
 em um único relatório; cada movimento aceito registra posição e delta no serial.
 

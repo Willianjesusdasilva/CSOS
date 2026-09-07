@@ -469,12 +469,24 @@ fn mapAnonymous(address_space: *paging.AddressSpace, pages: *physical.Allocator,
         return error.InvalidMapping;
     const allocation = pages.allocate(count) orelse return error.OutOfMemory;
     try own(owned, owned_count, allocation, count);
+    const owned_index = owned_count.* - 1;
+    var mapped: u64 = 0;
+    errdefer {
+        while (mapped != 0) {
+            mapped -= 1;
+            _ = address_space.unmapUserPage(virtual + mapped * page_size);
+        }
+        pages.release(allocation, count) catch {};
+        owned[owned_index] = .{ .address = 0, .pages = 0 };
+        owned_count.* -= 1;
+    }
     var index: u64 = 0;
     while (index < count) : (index += 1) {
         const physical_page = allocation + index * page_size;
         const bytes: [*]u8 = @ptrFromInt(physical_page);
         @memset(bytes[0..page_size], 0);
         try address_space.mapUserPage(virtual + index * page_size, physical_page, true, false);
+        mapped += 1;
     }
 }
 
