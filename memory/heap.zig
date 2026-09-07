@@ -10,7 +10,11 @@ pub const Heap = struct {
 
     pub fn init(pages: *physical.Allocator, page_count: u64) !Heap {
         const address = pages.allocate(page_count) orelse return error.OutOfMemory;
-        return .{ .base = @ptrFromInt(address), .size = @intCast(page_count * page_size) };
+        const bytes = std.math.mul(usize, @intCast(page_count), page_size) catch {
+            pages.release(address, page_count) catch {};
+            return error.OutOfMemory;
+        };
+        return .{ .base = @ptrFromInt(address), .size = bytes };
     }
 
     pub fn allocate(self: *Heap, size: usize, alignment: usize) ?[]u8 {
