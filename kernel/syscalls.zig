@@ -585,7 +585,9 @@ fn sendfile(output_fd: u64, input_fd: u64, offset_address: u64, count: u64) u64 
         const read_count = if (explicit_offset) |position| blk: {
             if (position > std.math.maxInt(u64) - transferred)
                 return if (transferred == 0) errno(75) else transferred;
-            break :blk vfs.pread(@intCast(input_fd), buffer[0..wanted], @intCast(position + transferred)) catch |err| return if (transferred == 0) vfsError(err) else transferred;
+            const file_offset = std.math.cast(usize, position + transferred) orelse
+                return if (transferred == 0) errno(75) else transferred;
+            break :blk vfs.pread(@intCast(input_fd), buffer[0..wanted], file_offset) catch |err| return if (transferred == 0) vfsError(err) else transferred;
         }
         else
             vfs.read(@intCast(input_fd), buffer[0..wanted]) catch |err| return if (transferred == 0) vfsError(err) else transferred;
