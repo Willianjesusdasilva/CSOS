@@ -2794,7 +2794,7 @@ fn connect(fd: u64, address: u64, length: u64) u64 {
 fn socketName(fd: u64, address: u64, length_address: u64, peer: bool) u64 {
     const index = socketIndex(fd) orelse return errno(9);
     if (address == 0 or length_address == 0 or !validUserSlice(length_address, 4)) return errno(14);
-    if (sockets[index].connection == null) return errno(107);
+    if (peer and sockets[index].connection == null) return errno(107);
     if (!validUserSlice(address, 16)) return errno(14);
     const available = @as(*align(1) u32, @ptrFromInt(length_address)).*;
     if (available < 16) return errno(22);
