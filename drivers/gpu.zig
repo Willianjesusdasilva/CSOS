@@ -764,6 +764,8 @@ pub fn mapAmdMesFirmwareIntoGart(staging: AmdPspGttStaging, firmware: AmdMesFirm
         total_pages += area.pages;
     }
     if (total_pages > 512 - 11) return error.AmdMesFirmwareExceedsGartWindow;
+    const window_bytes = std.math.mul(u64, total_pages, 4096) catch return error.InvalidAmdMesFirmwareGart;
+    if (window_start > std.math.maxInt(u64) - window_bytes) return error.InvalidAmdMesFirmwareGart;
     const table: [*]u64 = @ptrFromInt(staging.page_table_address);
     for (11..11 + total_pages) |index| if (table[index] != 0) return error.AmdMesFirmwareGartPageAlreadyMapped;
     var next: u64 = 11;
@@ -1068,6 +1070,8 @@ pub fn mapAmdGfx11CpFirmwareIntoGart(
         total_pages = std.math.add(u64, total_pages, area.pages) catch return error.AmdCpFirmwareExceedsGartWindow;
     }
     if (first_page >= 512 or total_pages > 512 - first_page) return error.AmdCpFirmwareExceedsGartWindow;
+    const window_bytes = std.math.mul(u64, total_pages, 4096) catch return error.InvalidAmdCpFirmwareGart;
+    if (window_start > std.math.maxInt(u64) - window_bytes) return error.InvalidAmdCpFirmwareGart;
     const table: [*]u64 = @ptrFromInt(staging.page_table_address);
     for (first_page..first_page + total_pages) |index| if (table[index] != 0) return error.AmdCpFirmwareGartPageAlreadyMapped;
     var result = AmdGfx11CpFirmwareGpuLayout{
