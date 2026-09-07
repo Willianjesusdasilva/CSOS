@@ -517,6 +517,7 @@ pub const AudioDevice = struct {
     }
 
     pub fn drain(self: *AudioDevice) u64 {
+        // A paused device intentionally drains zero frames; use clearQueue to discard.
         return self.consume(self.queued_frames);
     }
 
