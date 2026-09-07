@@ -597,6 +597,15 @@ fn duplicate(old_fd: u64, new_fd: u64) u64 {
 }
 
 fn fcntl(fd: u64, command: u64, argument: u64) u64 {
+    if (socketIndex(fd)) |index| return switch (command) {
+        1 => @intFromBool(sockets[index].close_on_exec),
+        2 => blk: {
+            if ((argument & ~@as(u64, 1)) != 0) break :blk errno(22);
+            sockets[index].close_on_exec = (argument & 1) != 0;
+            break :blk 0;
+        },
+        else => errno(22),
+    };
     return switch (command) {
         0, 1030 => blk: {
             const copy = vfs.duplicateMinimum(@intCast(fd), @intCast(argument)) catch |err| break :blk vfsError(err);
@@ -2768,6 +2777,7 @@ fn write(fd: u64, address: u64, length: u64) u64 {
 
 const Socket = struct {
     allocated: bool = false,
+    close_on_exec: bool = false,
     connection: ?net.TcpConnection = null,
     reuse_address: bool = false,
     keep_alive: bool = false,
@@ -3044,7 +3054,7 @@ fn closeRange(first: u64, last: u64, flags: u64) u64 {
     var fd = first;
     while (fd <= limit) : (fd += 1) {
         if (socketIndex(fd)) |_| {
-            if ((flags & 2) == 0) _ = close(fd);
+            if ((flags & 2) == 0) _ = close(fd) else if (socketIndex(fd)) |index| sockets[index].close_on_exec = true;
         } else if (vfs.isOpen(@intCast(fd))) {
             if ((flags & 2) != 0) _ = vfs.setDescriptorFlags(@intCast(fd), 1) catch {} else _ = vfs.close(@intCast(fd)) catch {};
         }
