@@ -665,11 +665,13 @@ fn findNeeded(program_offset: u64, program_entry_size: u16, program_count: u16) 
     }
     const table = dynamic_offset orelse return .{};
     if (table > image.len or dynamic_size > image.len - table) return error.InvalidDynamicTable;
+    if (dynamic_size < 16) return .{};
+    const table_end = table + dynamic_size;
     var string_virtual: u64 = 0;
     var needed_offsets: [max_shared_objects]u64 = undefined;
     var needed_count: usize = 0;
     var offset = table;
-    while (offset + 16 <= table + dynamic_size) : (offset += 16) {
+    while (offset <= table_end - 16) : (offset += 16) {
         const tag = read64At(@intCast(offset));
         const value = read64At(@intCast(offset + 8));
         if (tag == 0) break;
@@ -789,11 +791,13 @@ fn applyRelativeRelocations(mappings: []const Mapping, load_bias: u64, program_o
     }
     const table_offset = dynamic_offset orelse return;
     if (table_offset > image.len or dynamic_size > image.len - table_offset) return error.InvalidDynamicTable;
+    if (dynamic_size < 16) return;
+    const table_end = table_offset + dynamic_size;
     var rela_virtual: u64 = 0;
     var rela_size: u64 = 0;
     var rela_entry_size: u64 = 24;
     var offset = table_offset;
-    while (offset + 16 <= table_offset + dynamic_size) : (offset += 16) {
+    while (offset <= table_end - 16) : (offset += 16) {
         const tag = read64At(@intCast(offset));
         const value = read64At(@intCast(offset + 8));
         if (tag == 0) break;
