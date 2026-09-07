@@ -259,9 +259,10 @@ pub const Firmware = struct {
             const parsed = try parseAmdgpuFirmware(entry.data);
             const psp = if (isAmdPspPackage(entry.name)) try parseAmdPspFirmware(entry.data) else null;
             const page_count: u64 = @intCast(entry.data.len / 4096 + @intFromBool(entry.data.len % 4096 != 0));
+            const staged_bytes = std.math.mul(u64, page_count, 4096) catch return error.FirmwareSelectionTooLarge;
             const address = pages.allocate(page_count) orelse return error.OutOfMemory;
             const target: [*]u8 = @ptrFromInt(address);
-            @memset(target[0 .. page_count * 4096], 0);
+            @memset(target[0..@intCast(staged_bytes)], 0);
             @memcpy(target[0..entry.data.len], entry.data);
             const payload_offset = @intFromPtr(parsed.payload.ptr) - @intFromPtr(entry.data.ptr);
             result.areas[result.count] = .{
@@ -280,7 +281,6 @@ pub const Firmware = struct {
             if (psp) |package| {
                 for (package.components[0..package.count]) |component| {
                     if (result.psp_component_count == result.psp_components.len) return error.TooManyAmdPspFirmwareComponents;
-                    const staged_bytes = page_count * 4096;
                     if (component.offset > staged_bytes or component.bytes > staged_bytes - component.offset or
                         component.offset > std.math.maxInt(u64) - address) return error.InvalidAmdPspFirmwareComponent;
                     result.psp_components[result.psp_component_count] = .{
