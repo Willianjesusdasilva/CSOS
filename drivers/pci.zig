@@ -314,12 +314,16 @@ pub fn barInfo(device: Device, index: u3, probe_size: bool) ?Bar {
         write16(device.bus, device.slot, device.function, 4, command);
         if (mask != 0) size = if (is_64_bit) (~mask) +% 1 else @as(u64, (~@as(u32, @truncate(mask))) +% 1);
     }
-    if (size != 0 and (!validBarSize(size) or address > std.math.maxInt(u64) - (size - 1))) return null;
+    if (size != 0 and (!validBarMapping(address, size) or address > std.math.maxInt(u64) - (size - 1))) return null;
     return .{ .address = address, .size = size, .is_64_bit = is_64_bit, .prefetchable = (low & 8) != 0 };
 }
 
 fn validBarSize(size: u64) bool {
     return size != 0 and (size & (size - 1)) == 0;
+}
+
+fn validBarMapping(address: u64, size: u64) bool {
+    return validBarSize(size) and (address & (size - 1)) == 0;
 }
 
 pub fn read16(bus: u8, slot: u5, function: u3, offset: u8) u16 {
@@ -355,4 +359,6 @@ test "PCI BAR sizes must be nonzero powers of two" {
     try std.testing.expect(validBarSize(0x10_0000));
     try std.testing.expect(!validBarSize(0));
     try std.testing.expect(!validBarSize(0x1800));
+    try std.testing.expect(validBarMapping(0x8000, 0x1000));
+    try std.testing.expect(!validBarMapping(0x8100, 0x1000));
 }
