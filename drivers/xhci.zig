@@ -448,10 +448,21 @@ pub const Controller = struct {
             if ((status & 2) == 0) return error.PortNotEnabled;
             const speed: u4 = @truncate(status >> 10);
             const slot = self.command(0, 0, 0, 9, 0) catch return error.EnableSlotFailed;
-            const device_context = pages.allocate(1) orelse return error.OutOfMemory;
-            const input_context = pages.allocate(1) orelse return error.OutOfMemory;
-            const transfer_ring = pages.allocate(1) orelse return error.OutOfMemory;
-            const descriptor = pages.allocate(1) orelse return error.OutOfMemory;
+            var device_context: u64 = 0;
+            var input_context: u64 = 0;
+            var transfer_ring: u64 = 0;
+            var descriptor: u64 = 0;
+            var retained = false;
+            defer if (!retained) {
+                if (device_context != 0) pages.release(device_context, 1) catch {};
+                if (input_context != 0) pages.release(input_context, 1) catch {};
+                if (transfer_ring != 0) pages.release(transfer_ring, 1) catch {};
+                if (descriptor != 0) pages.release(descriptor, 1) catch {};
+            };
+            device_context = pages.allocate(1) orelse return error.OutOfMemory;
+            input_context = pages.allocate(1) orelse return error.OutOfMemory;
+            transfer_ring = pages.allocate(1) orelse return error.OutOfMemory;
+            descriptor = pages.allocate(1) orelse return error.OutOfMemory;
             zeroPage(device_context);
             zeroPage(input_context);
             zeroPage(transfer_ring);
@@ -478,6 +489,7 @@ pub const Controller = struct {
             if (length < 18) continue;
             self.devices[self.device_count] = .{ .slot = slot, .port = port, .speed = speed, .descriptor = descriptor, .descriptor_length = length, .ring = transfer_ring };
             self.device_count += 1;
+            retained = true;
         }
     }
 
