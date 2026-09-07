@@ -682,7 +682,7 @@ SDL, sem fundir mudanças de botão ou teclado. Contadores separados expõem
 eventos coalescidos e descartes inevitáveis no log serial.
 
 Verificação atual: `zig build` recompilou o EFI em `14/14` etapas e
-`zig build test` passou `17/17` etapas e `27/27` testes. O
+`zig build test` passou `17/17` etapas e `28/28` testes. O
 boot interativo agora entrega o input diretamente à sessão gráfica, sem ficar
 bloqueado pelo shell BusyBox, e publica `CSOS graphical session ready`. O shell
 será reintegrado como uma aplicação de terminal não bloqueante; isso ainda não
@@ -716,6 +716,11 @@ O limite artificial de 32 clusters por escrita foi removido. A nova cadeia é
 alocada e preenchida incrementalmente, mantendo apenas seus extremos em estado;
 assim, a stack não cresce com o arquivo e o limite passa a ser a capacidade do
 volume FAT16 e o tamanho de arquivo de 32 bits.
+
+Entradas FAT agora são classificadas antes de abrir ou substituir conteúdo:
+LFNs, diretórios, rótulos e entradas apagadas não passam como arquivo regular.
+Arquivos vazios podem ser lidos como zero bytes, e uma colisão de nome com um
+objeto não regular é rejeitada sem alterar o diretório.
 
 O inventário do host também encontrou uma AMD Radeon(TM) Graphics (`1002:164e`)
 e uma NVIDIA GeForce RTX 4060 Ti (`10de:2803`), ambas ativas. Isso viabiliza a

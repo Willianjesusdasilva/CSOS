@@ -41,11 +41,13 @@ pub const Volume = struct {
             var offset: usize = 0;
             while (offset < 512) : (offset += 32) {
                 if (bytes[offset] == 0) return error.NotFound;
-                if (bytes[offset] == 0xe5 or (bytes[offset + 11] & 0x0f) == 0x0f) continue;
+                if (!entryIsRegularFile(bytes + offset)) continue;
                 if (!equal11(bytes + offset, name)) continue;
                 var cluster = get16(bytes + offset + 26);
                 const size = get32(bytes + offset + 28);
-                if (cluster < 2 or size > output.len) return error.UnsupportedFile;
+                if (size > output.len) return error.UnsupportedFile;
+                if (size == 0) return 0;
+                if (cluster < 2) return error.BrokenChain;
                 var copied: usize = 0;
                 while (copied < size) {
                     var cluster_sector: u32 = 0;
@@ -75,7 +77,7 @@ pub const Volume = struct {
             var offset: usize = 0;
             while (offset < 512) : (offset += 32) {
                 if (bytes[offset] == 0) return error.NotFound;
-                if (bytes[offset] != 0xe5 and (bytes[offset + 11] & 0x0f) != 0x0f and equal11(bytes + offset, name))
+                if (entryIsRegularFile(bytes + offset) and equal11(bytes + offset, name))
                     return get32(bytes + offset + 28);
             }
         }
@@ -93,7 +95,7 @@ pub const Volume = struct {
             var offset: usize = 0;
             while (offset < 512) : (offset += 32) {
                 if (bytes[offset] == 0) break;
-                if (bytes[offset] == 0xe5 or (bytes[offset + 11] & 0x0f) == 0x0f or !equal11(bytes + offset, name)) continue;
+                if (!entryIsRegularFile(bytes + offset) or !equal11(bytes + offset, name)) continue;
                 first_cluster = get16(bytes + offset + 26);
                 size = get32(bytes + offset + 28);
                 found = true;
@@ -152,13 +154,14 @@ pub const Volume = struct {
                     directory_offset = offset;
                     have_free = true;
                 }
-                if (bytes[offset] != 0 and bytes[offset] != 0xe5 and equal11(bytes + offset, name)) {
+                if (entryIsRegularFile(bytes + offset) and equal11(bytes + offset, name)) {
                     directory_sector = sector;
                     directory_offset = offset;
                     old_cluster = get16(bytes + offset + 26);
                     found = true;
                     break;
                 }
+                if (entryIsAllocated(bytes + offset) and !entryIsLongName(bytes + offset) and equal11(bytes + offset, name)) return error.NameConflict;
                 if (bytes[offset] == 0) break;
             }
         }
@@ -257,6 +260,18 @@ pub const Volume = struct {
 fn equal11(left: [*]const u8, right: *const [11]u8) bool {
     for (0..11) |index| if (left[index] != right[index]) return false;
     return true;
+}
+
+fn entryIsAllocated(entry: [*]const u8) bool {
+    return entry[0] != 0 and entry[0] != 0xe5;
+}
+
+fn entryIsLongName(entry: [*]const u8) bool {
+    return (entry[11] & 0x0f) == 0x0f;
+}
+
+fn entryIsRegularFile(entry: [*]const u8) bool {
+    return entryIsAllocated(entry) and !entryIsLongName(entry) and (entry[11] & 0x18) == 0;
 }
 
 const Layout = struct {
@@ -365,6 +380,23 @@ test "FAT16 file sizing is volume-bound instead of stack-bound" {
     if (@sizeOf(usize) > 4) {
         try std.testing.expectError(error.FileTooLarge, clustersForLength(@as(usize, std.math.maxInt(u32)) + 1, 512, 65524));
     }
+}
+
+test "FAT16 entry classification excludes deleted names directories and labels" {
+    var entry = [_]u8{0} ** 32;
+    entry[0] = 'F';
+    entry[11] = 0x20;
+    try std.testing.expect(entryIsRegularFile(&entry));
+    entry[0] = 0xe5;
+    try std.testing.expect(!entryIsRegularFile(&entry));
+    entry[0] = 'F';
+    entry[11] = 0x10;
+    try std.testing.expect(!entryIsRegularFile(&entry));
+    entry[11] = 0x08;
+    try std.testing.expect(!entryIsRegularFile(&entry));
+    entry[11] = 0x0f;
+    try std.testing.expect(entryIsLongName(&entry));
+    try std.testing.expect(!entryIsRegularFile(&entry));
 }
 
 const std = @import("std");
