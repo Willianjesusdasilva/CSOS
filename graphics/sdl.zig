@@ -828,6 +828,15 @@ test "SDL window creation rejects invalid storage dimensions" {
     try @import("std").testing.expectError(error.InvalidSurface, createWindow(&storage, 0, 4));
 }
 
+test "SDL fillRect clips extreme coordinates without wrapping" {
+    var storage = [_]u32{0} ** 4;
+    var window = try createWindow(&storage, 2, 2);
+    window.fillRect(std.math.maxInt(usize), std.math.maxInt(usize), 4, 4, 0xffffffff);
+    try @import("std").testing.expectEqual(@as(u32, 0), storage[0]);
+    window.fillRect(0, 0, std.math.maxInt(usize), std.math.maxInt(usize), 0x11223344);
+    try @import("std").testing.expectEqual(@as(u32, 0x11223344), storage[3]);
+}
+
 pub fn glyph3x5(character: u8) [5]u8 {
     const upper = if (character >= 'a' and character <= 'z') character - 32 else character;
     return switch (upper) {
