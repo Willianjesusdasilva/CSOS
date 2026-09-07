@@ -81,7 +81,7 @@ pub const Stack = struct {
         self.gateway_ip = acknowledgement.router;
         self.subnet_mask = acknowledgement.mask;
         self.dns_ip = acknowledgement.dns;
-        if (zero(&self.local_ip) or zero(&self.gateway_ip) or zero(&self.dns_ip)) return error.IncompleteDhcpLease;
+        if (zero(&self.local_ip) or zero(&self.gateway_ip) or zero(&self.subnet_mask) or zero(&self.dns_ip)) return error.IncompleteDhcpLease;
     }
 
     pub fn resolveGateway(self: *Stack) !void {
