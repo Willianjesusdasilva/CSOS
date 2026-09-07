@@ -2466,8 +2466,11 @@ fn getcwd(address: u64, size: u64) u64 {
 fn userString(address: u64, buffer: []u8) ?[]const u8 {
     var length: usize = 0;
     while (length < buffer.len) : (length += 1) {
-        if (!validUserSlice(address + length, 1)) return null;
-        const source: *const u8 = @ptrFromInt(address + length);
+        const offset: u64 = @intCast(length);
+        if (address > std.math.maxInt(u64) - offset) return null;
+        const current_address = address + offset;
+        if (!validUserSlice(current_address, 1)) return null;
+        const source: *const u8 = @ptrFromInt(current_address);
         if (source.* == 0) return buffer[0..length];
         buffer[length] = source.*;
     }
