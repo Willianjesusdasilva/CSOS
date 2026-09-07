@@ -189,6 +189,7 @@ pub const Allocator = struct {
 };
 
 fn alignedFit(range: Range, bytes: u64, alignment: u64) ?u64 {
+    if (bytes == 0 or alignment == 0 or (alignment & (alignment - 1)) != 0) return null;
     if (range.next > (~@as(u64, 0)) - (alignment - 1)) return null;
     const address = (range.next + alignment - 1) & ~(alignment - 1);
     if (address > range.end or bytes > range.end - address) return null;
