@@ -137,14 +137,18 @@ pub const ListSelection = struct {
     }
 
     pub fn next(self: *ListSelection) bool {
-        if (self.count == 0 or self.selected + 1 >= self.count) return false;
+        if (self.count == 0) return false;
+        if (self.selected >= self.count) self.selected = self.count - 1;
+        if (self.selected + 1 >= self.count) return false;
         self.selected += 1;
         self.reveal();
         return true;
     }
 
     pub fn previous(self: *ListSelection) bool {
-        if (self.count == 0 or self.selected == 0) return false;
+        if (self.count == 0) return false;
+        if (self.selected >= self.count) self.selected = self.count - 1;
+        if (self.selected == 0) return false;
         self.selected -= 1;
         self.reveal();
         return true;
@@ -1160,6 +1164,16 @@ test "SDL list selection normalizes zero visible rows" {
     selection.setCount(3);
     try @import("std").testing.expectEqual(@as(usize, 1), selection.visible_rows);
     try @import("std").testing.expect(!selection.selectVisibleRow(0));
+}
+
+test "SDL list selection recovers an out-of-range selected index" {
+    var selection = ListSelection.init(3, 2);
+    selection.selected = 99;
+    try @import("std").testing.expect(!selection.next());
+    try @import("std").testing.expectEqual(@as(usize, 2), selection.selected);
+    selection.selected = 99;
+    try @import("std").testing.expect(selection.previous());
+    try @import("std").testing.expectEqual(@as(usize, 1), selection.selected);
 }
 
 test "list selection keeps the selected row inside its viewport" {
