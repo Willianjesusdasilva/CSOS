@@ -2249,10 +2249,10 @@ pub fn start(info: BootInfo) noreturn {
                     }
                 }
                 if (window_manager.switcher_open and event.a == 0x29) {
-                    window_manager.switcher_open = false;
+                    window_manager.dismissSwitcher();
                     switcher_consumed = true;
                 }
-                if (!alt_held and !ctrl_held) window_manager.switcher_open = false;
+                if (!alt_held and !ctrl_held) window_manager.dismissSwitcher();
                 alt_tab_down = tab_switch_pressed;
                 const close_shortcut = event.c != 0 and !launcher_consumed and !switcher_consumed and !file_browser_consumed and (event.a == 0x29 or ((event.b & 0x01) != 0 and event.a == 0x1a));
                 if (close_shortcut and window_manager.focused != null) {
@@ -2353,8 +2353,7 @@ pub fn start(info: BootInfo) noreturn {
                         if (window_manager.switcherHitTest(cursor_x, cursor_y, screen.framebuffer.width, screen.framebuffer.height)) |slot| {
                             _ = window_manager.focus(slot);
                         }
-                        window_manager.switcher_open = false;
-                        window_manager.switcher_hover = null;
+                        window_manager.dismissSwitcher();
                     }
                     if (window_manager.launcherButtonHitTest(cursor_x, cursor_y, screen.framebuffer.height)) {
                         window_manager.launcher_open = !window_manager.launcher_open;
