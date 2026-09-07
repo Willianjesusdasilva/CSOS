@@ -1088,6 +1088,17 @@ test "display telemetry counters saturate" {
     try std.testing.expectEqual(@as(u64, 7), saturatingCount(5, 2));
 }
 
+test "display telemetry reset clears all counters" {
+    var context: Context = undefined;
+    context.frames_presented = 12;
+    context.pixels_examined = 345;
+    context.pixels_presented = 67;
+    context.resetTelemetry();
+    try std.testing.expectEqual(@as(u64, 0), context.frames_presented);
+    try std.testing.expectEqual(@as(u64, 0), context.pixels_examined);
+    try std.testing.expectEqual(@as(u64, 0), context.pixels_presented);
+}
+
     pub fn blitSurface(self: *Context, surface: *sdl.Window, x: usize, y: usize) void {
         self.blitSurfaceClipped(surface, x, y, surface.width, surface.height);
     }
