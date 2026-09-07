@@ -166,7 +166,9 @@ pub const WindowManager = struct {
         const window = &self.windows[index];
         if (window.maximized) return false;
         window.x = @min(x, screen_width -| window.width);
-        window.y = @min(y, screen_height -| window.height);
+        // Keep the window above the 20px taskbar, matching resize/maximize.
+        const usable_height = screen_height -| 20;
+        window.y = @min(y, usable_height -| window.height);
         return true;
     }
 
@@ -514,10 +516,10 @@ test "window manager focus alt-tab hit-test and close" {
     try std.testing.expectEqual(@as(u32, 30), manager.windows[0].id);
     try std.testing.expect(manager.move(0, 100, 100, 80, 60));
     try std.testing.expectEqual(@as(usize, 16), manager.windows[0].x);
-    try std.testing.expectEqual(@as(usize, 28), manager.windows[0].y);
+    try std.testing.expectEqual(@as(usize, 8), manager.windows[0].y);
     try std.testing.expect(manager.resize(0, 4, 200, 128, 128));
     try std.testing.expectEqual(min_window_width, manager.windows[0].width);
-    try std.testing.expectEqual(@as(usize, 80), manager.windows[0].height);
+    try std.testing.expectEqual(@as(usize, 100), manager.windows[0].height);
     try std.testing.expect(manager.toggleMaximized(0, 128, 96));
     try std.testing.expect(manager.windows[0].maximized);
     try std.testing.expectEqual(@as(usize, 128), manager.windows[0].width);
@@ -527,7 +529,7 @@ test "window manager focus alt-tab hit-test and close" {
     try std.testing.expect(manager.toggleMaximized(0, 128, 96));
     try std.testing.expect(!manager.windows[0].maximized);
     try std.testing.expectEqual(@as(usize, 16), manager.windows[0].x);
-    try std.testing.expectEqual(@as(usize, 28), manager.windows[0].y);
+    try std.testing.expectEqual(@as(usize, 8), manager.windows[0].y);
     try std.testing.expect(!manager.move(8, 0, 0, 100, 100));
     try std.testing.expect(manager.move(0, 999, 999, 0, 0));
     try std.testing.expectEqual(@as(usize, 0), manager.windows[0].x);
