@@ -775,8 +775,10 @@ test "SDL software event queue and surface contract" {
     }
     try @import("std").testing.expect(full.poll() == null);
     try @import("std").testing.expect(full.push(.{ .quit = {} }));
+    full.dropped = 7;
     full.clear();
     try @import("std").testing.expectEqual(@as(usize, 0), full.len());
+    try @import("std").testing.expectEqual(@as(u64, 7), full.droppedCount());
     var pixels: [16]u32 = .{0} ** 16;
     const window = try createWindow(&pixels, 4, 4);
     try @import("std").testing.expectEqual(@as(usize, 4), window.width);
