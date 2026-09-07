@@ -34,7 +34,7 @@ pub const EventQueue = struct {
     dropped: u64 = 0,
 
     pub fn push(self: *EventQueue, event: Event) bool {
-        if (self.write - self.read == self.items.len) {
+        if (self.write -% self.read == self.items.len) {
             self.dropped +%= 1;
             return false;
         }
@@ -56,7 +56,7 @@ pub const EventQueue = struct {
     }
 
     pub fn len(self: *const EventQueue) usize {
-        return self.write - self.read;
+        return self.write -% self.read;
     }
 
     pub fn remaining(self: *const EventQueue) usize {
@@ -101,7 +101,7 @@ pub const EventQueue = struct {
     pub fn pushMouseCoalesced(self: *EventQueue, x: i32, y: i32, wheel: i32, buttons: u8) bool {
         // Never merge across a button transition: doing so could erase a click.
         if (self.write != self.read) {
-            const slot = (self.write - 1) % self.items.len;
+            const slot = (self.write -% 1) % self.items.len;
             if (self.items[slot] == .mouse and self.items[slot].mouse.buttons == buttons) {
                 self.items[slot].mouse.x = saturatingAdd(self.items[slot].mouse.x, x);
                 self.items[slot].mouse.y = saturatingAdd(self.items[slot].mouse.y, y);
