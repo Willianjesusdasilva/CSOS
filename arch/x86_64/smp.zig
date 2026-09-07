@@ -25,8 +25,8 @@ pub fn prepare(cr3: u64) !void {
     const source: [*]const u8 = @ptrFromInt(source_address);
     const destination: [*]u8 = @ptrFromInt(trampoline_address);
     @memcpy(destination[0..length], source[0..length]);
-    patch(u64, &ap_trampoline_cr3, cr3);
-    patch(u64, &ap_trampoline_entry, @intFromPtr(&apMain));
+    try patch(u64, &ap_trampoline_cr3, cr3, length);
+    try patch(u64, &ap_trampoline_entry, @intFromPtr(&apMain), length);
 }
 
 pub fn start(apic_id: u32, pages: *physical.Allocator) !void {
@@ -35,7 +35,10 @@ pub fn start(apic_id: u32, pages: *physical.Allocator) !void {
         pages.release(stack, stack_pages) catch {};
         return error.InvalidStack;
     };
-    patch(u64, &ap_trampoline_stack, stack_end);
+    patch(u64, &ap_trampoline_stack, stack_end, 4096) catch {
+        pages.release(stack, stack_pages) catch {};
+        return error.InvalidTrampoline;
+    };
     const expected = @atomicLoad(u32, &online_aps, .acquire) + 1;
     apic.startCpu(apic_id, trampoline_address >> 12);
 
@@ -50,8 +53,11 @@ pub fn setSecondaryEntry(entry: *const fn (u32) callconv(.c) noreturn) void {
     secondary_entry = entry;
 }
 
-fn patch(comptime T: type, source_symbol: *const u8, value: T) void {
-    const offset = @intFromPtr(source_symbol) - @intFromPtr(&ap_trampoline_start);
+fn patch(comptime T: type, source_symbol: *const u8, value: T, length: usize) !void {
+    const start = @intFromPtr(&ap_trampoline_start);
+    const source = @intFromPtr(source_symbol);
+    if (source < start or source - start > length or @sizeOf(T) > length - (source - start)) return error.InvalidTrampoline;
+    const offset = source - start;
     const target: *align(1) T = @ptrFromInt(trampoline_address + offset);
     target.* = value;
 }
