@@ -1036,7 +1036,7 @@ fn applySymbolTable(consumer: []const u8, consumer_base: u64, consumer_module: u
     var offset: u64 = 0;
     while (offset < rela_size) : (offset += 24) {
         const item: usize = @intCast(rela_file + offset);
-        const target = read64From(consumer, item) + consumer_base;
+        const target = std.math.add(u64, read64From(consumer, item), consumer_base) catch return error.InvalidSymbolRelocation;
         const info = read64From(consumer, item + 8);
         const relocation_type: u32 = @truncate(info);
         if (relocation_type == 8 and (info >> 32) == 0) continue;
@@ -1067,7 +1067,7 @@ fn applySymbolTable(consumer: []const u8, consumer_base: u64, consumer_module: u
                         if (provided == null or !equal(required, provided.?)) continue;
                         versioned_symbols = saturatingAdd(versioned_symbols, 1);
                     }
-                    resolved = provider.base + read64From(provider.bytes, provider_symbol + 8);
+                    resolved = std.math.add(u64, provider.base, read64From(provider.bytes, provider_symbol + 8)) catch return error.InvalidSymbolRelocation;
                     break;
                 }
             }

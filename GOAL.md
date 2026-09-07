@@ -342,6 +342,8 @@ O carregamento de uma dependência fecha o descritor mesmo quando a leitura
 termina prematuramente, evitando vazamento de handles no loader.
 As rotas VFS para propriedades DRM com sufixo agora comparam comprimentos por
 subtração, sem somar tamanhos controlados pelo caminho antes do slicing.
+Relocações simbólicas validam a soma entre valor do símbolo e base do módulo
+antes de gravar o destino, rejeitando endereços que ultrapassem `u64`.
 
 Mapeamentos anônimos também possuem rollback transacional: uma falha no meio da
 criação remove as páginas já instaladas e devolve a alocação e o ownership.

@@ -861,6 +861,8 @@ Falhas de leitura de objetos compartilhados agora fecham o descritor antes de
 retornar, preservando recursos do processo.
 A resolução de caminhos DRM evita overflow ao comparar prefixos e sufixos
 fornecidos pelo processo antes de criar slices.
+O linker de símbolos também usa soma checked para bases de consumidor e
+provedor antes de aplicar relocations.
 
 Mapeamentos anônimos fazem rollback transacional quando uma página falha: os
 mapeamentos parciais são removidos e a memória física é devolvida ao allocator.
