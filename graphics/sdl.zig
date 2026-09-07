@@ -1330,6 +1330,26 @@ test "SDL event queue survives counter wraparound" {
     try @import("std").testing.expect(queue.isEmpty());
 }
 
+test "SDL mouse coalescing saturates motion and wheel" {
+    var queue = EventQueue{};
+    try @import("std").testing.expect(queue.pushMouseCoalesced(std.math.maxInt(i32), std.math.maxInt(i32), std.math.maxInt(i32), 0));
+    try @import("std").testing.expect(queue.pushMouseCoalesced(1, 1, 1, 0));
+    try @import("std").testing.expectEqual(Event{ .mouse = .{
+        .x = std.math.maxInt(i32),
+        .y = std.math.maxInt(i32),
+        .wheel = std.math.maxInt(i32),
+        .buttons = 0,
+    } }, queue.poll().?);
+    try @import("std").testing.expect(queue.pushMouseCoalesced(std.math.minInt(i32), std.math.minInt(i32), std.math.minInt(i32), 0));
+    try @import("std").testing.expect(queue.pushMouseCoalesced(-1, -1, -1, 0));
+    try @import("std").testing.expectEqual(Event{ .mouse = .{
+        .x = std.math.minInt(i32),
+        .y = std.math.minInt(i32),
+        .wheel = std.math.minInt(i32),
+        .buttons = 0,
+    } }, queue.poll().?);
+}
+
 test "SDL event queue clear compacts indices and preserves drops" {
     var queue = EventQueue{};
     try @import("std").testing.expect(queue.pushText('x'));
