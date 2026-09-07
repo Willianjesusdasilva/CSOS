@@ -417,6 +417,7 @@ test "window manager focus alt-tab hit-test and close" {
     const second = try manager.create(.{ .id = 20, .x = 32, .y = 24, .width = 96, .height = 56 });
     try std.testing.expectEqual(@as(usize, 1), second);
     try std.testing.expectEqual(@as(?usize, 1), manager.hitTest(40, 30));
+    try std.testing.expect(manager.hitTest(std.math.maxInt(usize), std.math.maxInt(usize)) == null);
     try std.testing.expect(manager.closeHitTest(1, 120, 24));
     try std.testing.expect(!manager.closeHitTest(1, 107, 24));
     try std.testing.expect(manager.maximizeHitTest(1, 94, 24));
