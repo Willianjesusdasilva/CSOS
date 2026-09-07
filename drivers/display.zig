@@ -768,9 +768,9 @@ pub const Context = struct {
                 if (first_frame or shadow[index] != pixel) {
                     target[index] = pixel;
                     shadow[index] = pixel;
-                    written += 1;
+                    written +|= 1;
                 }
-                examined += 1;
+                examined +|= 1;
             }
         }
         self.dirty_left = 0;
