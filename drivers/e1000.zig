@@ -82,6 +82,8 @@ pub const Controller = struct {
         while ((descriptor[12] & 1) == 0 and spins < 1_000_000_000) : (spins += 1) asm volatile ("pause");
         if (spins == 1_000_000_000) return error.ReceiveTimeout;
         const length = get16(descriptor + 8);
+        if (length < 14) return error.FrameTooSmall;
+        if (length > 1514) return error.FrameTooLarge;
         if (length > output.len) return error.BufferTooSmall;
         const source: [*]const u8 = @ptrFromInt(self.rx_buffers[self.rx_index]);
         @memcpy(output[0..length], source[0..length]);
