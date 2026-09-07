@@ -402,8 +402,11 @@ pub const WindowManager = struct {
         i = 0;
         while (i < self.count) : (i += 1) {
             const w = self.windows[i];
-            context.fillRect(64 + i * 112 + 4, taskbar_y + 3, 104, 14, if (self.focused == i and !w.minimized) 0x5070a0 else 0x303848);
-            context.drawWindowTitleLimited(64 + i * 112 + 12, taskbar_y + 5, w.title, 88);
+            const slot_x = 64 + i * 112 + 4;
+            if (slot_x >= context.framebuffer.width) break;
+            const slot_width = @min(@as(usize, 104), context.framebuffer.width - slot_x);
+            context.fillRect(slot_x, taskbar_y + 3, slot_width, 14, if (self.focused == i and !w.minimized) 0x5070a0 else 0x303848);
+            context.drawWindowTitleLimited(slot_x + 8, taskbar_y + 5, w.title, slot_width -| 16);
         }
         if (self.launcher_open and context.framebuffer.height >= launcher_menu_height + 4) {
             const menu_top = @as(usize, context.framebuffer.height) - launcher_menu_height;
