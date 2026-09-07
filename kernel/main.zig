@@ -1,3 +1,4 @@
+const std = @import("std");
 const serial = @import("serial");
 const gdt = @import("gdt");
 const idt = @import("idt");
