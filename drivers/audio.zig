@@ -677,6 +677,13 @@ test "audio format selection prefers requested supported rate" {
     try std.testing.expect(chooseFormat(&[_]Format{.{ .channels = 2, .bits_per_sample = 16, .sample_rate = 123 }}, 48_000) == null);
 }
 
+test "audio rate selection prefers valid rate and falls back" {
+    const rates = [_]u32{ 123, 48_000, 44_100 };
+    try std.testing.expectEqual(@as(?u32, 48_000), chooseRate(&rates, 48_000));
+    try std.testing.expectEqual(@as(?u32, 48_000), chooseRate(&rates, 96_000));
+    try std.testing.expectEqual(@as(?u32, null), chooseRate(&[_]u32{ 123, 456 }, 48_000));
+}
+
 pub fn normalizeFormat(channels: u16, bits_per_sample: u16, sample_rate: u64) !Format {
     if (channels == 0 or channels > 8) return error.InvalidChannels;
     if (bits_per_sample == 0 or bits_per_sample > 32 or bits_per_sample % 8 != 0) return error.InvalidSampleWidth;
