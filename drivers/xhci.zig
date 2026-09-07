@@ -18,6 +18,7 @@ pub const Controller = struct {
     dcbaa: u64,
     command_ring: u64,
     command_index: u16 = 0,
+    command_cycle: u1 = 1,
     event_ring: u64,
     event_index: u16 = 0,
     event_phase: u1 = 1,
@@ -537,9 +538,12 @@ pub const Controller = struct {
         trb[0] = @truncate(parameter);
         trb[1] = @truncate(parameter >> 32);
         trb[2] = status;
-        trb[3] = control | (@as(u32, trb_type) << 10) | 1 | (@as(u32, slot) << 24);
+        trb[3] = control | (@as(u32, trb_type) << 10) | @as(u32, self.command_cycle) | (@as(u32, slot) << 24);
         // Entry 255 is reserved for the link TRB; wrap before reusing it.
-        self.command_index = if (self.command_index == 254) 0 else self.command_index + 1;
+        if (self.command_index == 254) {
+            self.command_index = 0;
+            self.command_cycle ^= 1;
+        } else self.command_index += 1;
         write32(self.doorbells, 0, 0);
         const event = try self.waitEvent(33);
         if (event.completion != 1) return error.CommandFailed;
