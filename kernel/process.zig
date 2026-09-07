@@ -220,16 +220,22 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
             const shared_program_offset = read64(32);
             const shared_program_entry_size = read16(54);
             const shared_program_count = read16(56);
+            const shared_table_bytes = @as(u64, shared_program_entry_size) * shared_program_count;
+            if (shared_program_entry_size < 56 or shared_program_offset > std.math.maxInt(u64) - shared_table_bytes or
+                shared_program_offset + shared_table_bytes > image.len) return error.InvalidSharedObject;
             header_index = 0;
             while (header_index < shared_program_count) : (header_index += 1) {
                 const header: usize = @intCast(shared_program_offset + @as(u64, shared_program_entry_size) * header_index);
                 if (read32At(header) != 1) continue;
                 const flags = read32At(header + 4);
                 const file_offset = read64At(header + 8);
-                const virtual = read64At(header + 16) + shared_base;
+                const segment_virtual = read64At(header + 16);
+                if (segment_virtual > std.math.maxInt(u64) - shared_base) return error.InvalidSharedObject;
+                const virtual = segment_virtual + shared_base;
                 const file_size = read64At(header + 32);
                 const memory_size = read64At(header + 40);
-                if (file_size > memory_size or file_offset + file_size > image.len or memory_size == 0) return error.InvalidSharedObject;
+                if (file_size > memory_size or file_offset > std.math.maxInt(u64) - file_size or file_offset + file_size > image.len or
+                    virtual > std.math.maxInt(u64) - memory_size or memory_size == 0) return error.InvalidSharedObject;
                 try loadSegment(&address_space, pages, mappings, &mapping_count, owned, &owned_count, virtual, file_offset, file_size, memory_size, (flags & 2) != 0, (flags & 1) != 0);
             }
             header_index = 0;
