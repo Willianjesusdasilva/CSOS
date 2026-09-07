@@ -16,6 +16,7 @@ pub const Stack = struct {
     pub fn init(device: *e1000.Controller) Stack { return .{ .device = device }; }
 
     pub fn tcpConnect(self: *Stack, destination: [4]u8, destination_port: u16, source_port: u16) !TcpConnection {
+        if (!validTcpPort(destination_port) or !validTcpPort(source_port)) return error.InvalidTcpPort;
         var connection = TcpConnection{
             .destination = destination,
             .destination_port = destination_port,
@@ -193,6 +194,10 @@ pub const Stack = struct {
             }
         }
         return received_bytes;
+    }
+
+    fn validTcpPort(port: u16) bool {
+        return port != 0;
     }
 
     fn sendTcp(self: *Stack, destination: [4]u8, destination_mac: [6]u8, source_port: u16, destination_port: u16, sequence: u32, acknowledgement: u32, flags: u8, payload: []const u8) !void {
@@ -529,6 +534,12 @@ test "ARP sender validation rejects empty and broadcast MACs" {
     try @import("std").testing.expect(validArpSenderMac(&[_]u8{ 0x52, 0x54, 0, 0x12, 0x34, 0x56 }));
     try @import("std").testing.expect(!validArpSenderMac(&[_]u8{0} ** 6));
     try @import("std").testing.expect(!validArpSenderMac(&[_]u8{0xff} ** 6));
+}
+
+test "TCP port validation rejects the unspecified port" {
+    try @import("std").testing.expect(!Stack.validTcpPort(0));
+    try @import("std").testing.expect(Stack.validTcpPort(1));
+    try @import("std").testing.expect(Stack.validTcpPort(65535));
 }
 
 fn put16(output: []u8, value: u16) void { output[0] = @truncate(value >> 8); output[1] = @truncate(value); }
