@@ -40,6 +40,7 @@ pub const Device = struct {
     }
 
     pub fn validate(self: *const Device, periods_per_second: u32, packet_size: u16) !void {
+        if (!isSupportedRate(self.format.sample_rate)) return error.UnsupportedFormat;
         const bytes = self.periodBytes(periods_per_second) orelse return error.UnsupportedFormat;
         if (bytes == 0 or bytes > packet_size) return error.EndpointCapacity;
     }
@@ -129,6 +130,11 @@ test "audio subsystem rejects unsupported sample rates" {
     var subsystem = Subsystem{};
     subsystem.discover(1, 1, .{ .channels = 2, .bits_per_sample = 16, .sample_rate = 12_345 });
     try std.testing.expectError(error.UnsupportedFormat, subsystem.configure());
+}
+
+test "audio device validation rejects unsupported sample rates" {
+    const device = Device{ .format = .{ .channels = 2, .bits_per_sample = 16, .sample_rate = 12_345 } };
+    try std.testing.expectError(error.UnsupportedFormat, device.validate(1000, 4096));
 }
 
 test "audio rediscovery resets stream metrics" {
