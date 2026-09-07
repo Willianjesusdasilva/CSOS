@@ -482,6 +482,11 @@ pub fn start(info: BootInfo) noreturn {
     serial.writeDecimal(namespaces);
     serial.write("\n");
     storage.initIo(&pages) catch panic("NVMe I/O queues failed");
+    serial.write("NVMe geometry: ");
+    serial.writeDecimal(storage.block_count);
+    serial.write(" blocks x ");
+    serial.writeDecimal(storage.block_size);
+    serial.write(" bytes\n");
     const io_buffer = pages.allocate(1) orelse panic("NVMe I/O buffer failed");
     const io_bytes: [*]u8 = @ptrFromInt(io_buffer);
     var io_index: usize = 0;

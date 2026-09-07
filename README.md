@@ -682,7 +682,7 @@ SDL, sem fundir mudanças de botão ou teclado. Contadores separados expõem
 eventos coalescidos e descartes inevitáveis no log serial.
 
 Verificação atual: `zig build` recompilou o EFI em `14/14` etapas e
-`zig build test` passou `15/15` etapas e `20/20` testes. O
+`zig build test` passou `15/15` etapas e `23/23` testes. O
 boot interativo agora entrega o input diretamente à sessão gráfica, sem ficar
 bloqueado pelo shell BusyBox, e publica `CSOS graphical session ready`. O shell
 será reintegrado como uma aplicação de terminal não bloqueante; isso ainda não
@@ -694,6 +694,12 @@ fora do limite anunciado e usa o primeiro NSID descoberto nos comandos de
 Identify Namespace e leitura/escrita. No QEMU, o inventário passou de 256
 slots suportados para 1 namespace realmente ativo, preservando o FAT16 e a
 sessão gráfica.
+
+A geometria do namespace também é validada antes de abrir o volume: capacidade
+zero ou maior que `NSZE`, metadata por LBA e blocos fora de 512–4096 bytes são
+recusados. A capacidade utilizável fica registrada no controlador e todo I/O
+faz verificação de limite antes de publicar um comando na fila. O disco de smoke
+test reportou `131072 blocks x 512 bytes`.
 
 O inventário do host também encontrou uma AMD Radeon(TM) Graphics (`1002:164e`)
 e uma NVIDIA GeForce RTX 4060 Ti (`10de:2803`), ambas ativas. Isso viabiliza a

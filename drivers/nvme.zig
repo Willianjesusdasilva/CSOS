@@ -17,6 +17,7 @@ pub const Controller = struct {
     io_completion_head: u16 = 0,
     io_completion_phase: u1 = 1,
     block_size: u32 = 0,
+    block_count: u64 = 0,
     namespace_id: u32 = 0,
     namespace_count: u32 = 0,
 
@@ -115,10 +116,9 @@ pub const Controller = struct {
         self.submit();
         try self.complete();
         const data: [*]const u8 = @ptrFromInt(namespace);
-        const format = data[26] & 0x0f;
-        const exponent = data[128 + @as(usize, format) * 4 + 2];
-        if (exponent < 9 or exponent > 12) return error.UnsupportedBlockSize;
-        self.block_size = @as(u32, 1) << @as(u5, @intCast(exponent));
+        const geometry = try parseNamespaceGeometry(data);
+        self.block_size = geometry.block_size;
+        self.block_count = geometry.block_count;
     }
 
     pub fn writeBlock(self: *Controller, lba: u64, buffer: u64) !void {
@@ -154,6 +154,7 @@ pub const Controller = struct {
     }
 
     fn ioCommand(self: *Controller, opcode: u8, lba: u64, buffer: u64) !void {
+        try validateIoRange(self.namespace_id, self.block_count, lba);
         const command: [*]u8 = @ptrFromInt(self.io_submission + @as(u64, self.io_submission_tail) * 64);
         @memset(command[0..64], 0);
         command[0] = opcode;
@@ -226,6 +227,12 @@ fn put64(target: [*]u8, value: u64) void {
 fn get32(source: [*]const u8) u32 {
     return @as(u32, source[0]) | (@as(u32, source[1]) << 8) | (@as(u32, source[2]) << 16) | (@as(u32, source[3]) << 24);
 }
+fn get16(source: [*]const u8) u16 {
+    return @as(u16, source[0]) | (@as(u16, source[1]) << 8);
+}
+fn get64(source: [*]const u8) u64 {
+    return @as(u64, get32(source)) | (@as(u64, get32(source + 4)) << 32);
+}
 
 const NamespaceInventory = struct {
     count: u32,
@@ -245,6 +252,32 @@ fn parseActiveNamespaces(data: [*]const u8, maximum_namespace_id: u32) !Namespac
     return inventory;
 }
 
+const NamespaceGeometry = struct {
+    block_count: u64,
+    block_size: u32,
+};
+
+fn parseNamespaceGeometry(data: [*]const u8) !NamespaceGeometry {
+    const size = get64(data);
+    const capacity = get64(data + 8);
+    if (size == 0 or capacity == 0 or capacity > size) return error.InvalidNamespaceCapacity;
+
+    const format = data[26] & 0x0f;
+    const format_offset = 128 + @as(usize, format) * 4;
+    if (get16(data + format_offset) != 0) return error.UnsupportedMetadata;
+    const exponent = data[format_offset + 2];
+    if (exponent < 9 or exponent > 12) return error.UnsupportedBlockSize;
+    return .{
+        .block_count = capacity,
+        .block_size = @as(u32, 1) << @as(u5, @intCast(exponent)),
+    };
+}
+
+fn validateIoRange(namespace_id: u32, block_count: u64, lba: u64) !void {
+    if (namespace_id == 0 or block_count == 0) return error.NoNamespace;
+    if (lba >= block_count) return error.LbaOutOfRange;
+}
+
 test "active namespace inventory counts sparse namespace identifiers" {
     var data = [_]u8{0} ** 4096;
     put32(&data, 2);
@@ -259,6 +292,37 @@ test "active namespace inventory rejects invalid and empty lists" {
     try std.testing.expectError(error.NoNamespace, parseActiveNamespaces(&data, 256));
     put32(&data, 257);
     try std.testing.expectError(error.InvalidNamespaceId, parseActiveNamespaces(&data, 256));
+}
+
+test "namespace geometry exposes usable capacity and block size" {
+    var data = [_]u8{0} ** 4096;
+    put64(&data, 8192);
+    put64(data[8..].ptr, 8000);
+    data[26] = 1;
+    data[128 + 4 + 2] = 12;
+    const geometry = try parseNamespaceGeometry(&data);
+    try std.testing.expectEqual(@as(u64, 8000), geometry.block_count);
+    try std.testing.expectEqual(@as(u32, 4096), geometry.block_size);
+}
+
+test "namespace geometry rejects unusable capacity and metadata" {
+    var data = [_]u8{0} ** 4096;
+    try std.testing.expectError(error.InvalidNamespaceCapacity, parseNamespaceGeometry(&data));
+    put64(&data, 8);
+    put64(data[8..].ptr, 9);
+    try std.testing.expectError(error.InvalidNamespaceCapacity, parseNamespaceGeometry(&data));
+    put64(data[8..].ptr, 8);
+    put16(data[128..].ptr, 8);
+    data[130] = 9;
+    try std.testing.expectError(error.UnsupportedMetadata, parseNamespaceGeometry(&data));
+}
+
+test "NVMe I/O range accepts only blocks inside an identified namespace" {
+    try std.testing.expectError(error.NoNamespace, validateIoRange(0, 8, 0));
+    try std.testing.expectError(error.NoNamespace, validateIoRange(1, 0, 0));
+    try validateIoRange(1, 8, 0);
+    try validateIoRange(1, 8, 7);
+    try std.testing.expectError(error.LbaOutOfRange, validateIoRange(1, 8, 8));
 }
 
 const std = @import("std");
