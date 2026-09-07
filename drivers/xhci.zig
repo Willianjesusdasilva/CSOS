@@ -852,6 +852,11 @@ test "full HID queue coalesces mouse motion without losing buttons" {
     try @import("std").testing.expectEqual(@as(i8, -2), @as(i8, @bitCast(last.c)));
 }
 
+test "HID mouse coalescing clamps signed deltas" {
+    try @import("std").testing.expectEqual(@as(i8, 127), @as(i8, @bitCast(coalesceHidDelta(@as(u8, @bitCast(@as(i8, 120))), @as(u8, @bitCast(@as(i8, 20)))))));
+    try @import("std").testing.expectEqual(@as(i8, -127), @as(i8, @bitCast(coalesceHidDelta(@as(u8, @bitCast(@as(i8, -120))), @as(u8, @bitCast(@as(i8, -20)))))));
+}
+
 test "HID event total saturates" {
     var devices = HidDevices{};
     devices.events_total = std.math.maxInt(u64);
