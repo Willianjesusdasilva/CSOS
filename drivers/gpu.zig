@@ -158,8 +158,10 @@ pub const Firmware = struct {
                 _ = try parseAmdIpDiscovery(entry.data);
                 break :blk entry.data.len;
             } else if (driver == .amdgpu) (try parseAmdgpuFirmware(entry.data)).payload.len else entry.data.len;
-            result.blocks[@intFromEnum(block)].bytes += payload_bytes;
-            result.payload_bytes += payload_bytes;
+            result.blocks[@intFromEnum(block)].bytes = std.math.add(usize, result.blocks[@intFromEnum(block)].bytes, payload_bytes) catch
+                return error.FirmwareSelectionTooLarge;
+            result.payload_bytes = std.math.add(usize, result.payload_bytes, payload_bytes) catch
+                return error.FirmwareSelectionTooLarge;
         }
         if (result.entries != selection.entries) return error.FirmwareSelectionIncomplete;
         var present: u16 = 0;
