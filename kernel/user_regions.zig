@@ -7,6 +7,7 @@ pub fn append(regions: []Region, count: *usize, base: u64, size: u64) !void {
     if (size == 0 or base > std.math.maxInt(u64) - (size - 1)) return error.InvalidRegion;
     const end = base + size;
     for (regions[0..count.*]) |region| {
+        if (region.size == 0 or region.base > std.math.maxInt(u64) - (region.size - 1)) return error.InvalidRegion;
         const region_end = region.base + region.size;
         if (base < region_end and region.base < end) return error.InvalidRegion;
     }
@@ -74,4 +75,10 @@ test "mapped user regions reject overlap with any prior range" {
     try std.testing.expectError(error.InvalidRegion, append(&regions, &count, 0x1800, 0x1000));
     try std.testing.expectError(error.InvalidRegion, append(&regions, &count, 0x0fff, 2));
     try std.testing.expectEqual(@as(usize, 2), count);
+}
+
+test "mapped user regions reject corrupt prior range" {
+    var regions = [_]Region{.{ .base = std.math.maxInt(u64), .size = 2 }};
+    var count: usize = 1;
+    try std.testing.expectError(error.InvalidRegion, append(&regions, &count, 0x1000, 0x1000));
 }
