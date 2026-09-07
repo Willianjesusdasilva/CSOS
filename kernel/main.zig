@@ -245,7 +245,8 @@ pub fn start(info: BootInfo) noreturn {
     if (idt.timerTicks() == 0) panic("APIC timer failed");
     serial.write("APIC timer ready\n");
     if (info.memory_map_len == 0 or info.memory_descriptor_size < 40) panic("invalid memory map descriptors");
-    pages = physical.Allocator.init(info.memory_map, info.memory_map_len, info.memory_descriptor_size);
+    pages.initInto(info.memory_map, info.memory_map_len, info.memory_descriptor_size);
+    serial.write("physical allocator initialized\n");
     syscalls.configureDrmMemory(&pages);
     serial.write("AMDGPU PSP handoff self-test start\n");
     gpu.validateAmdPspHandoff(&pages) catch panic("AMDGPU PSP handoff self-test failed");

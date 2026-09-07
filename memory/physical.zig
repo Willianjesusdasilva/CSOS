@@ -30,8 +30,14 @@ pub const Allocator = struct {
 
     pub fn init(map: [*]align(8) const u8, descriptor_count: usize, descriptor_size: usize) Allocator {
         var self = Allocator{};
-        if (descriptor_size < @sizeOf(Descriptor)) return self;
-        if (descriptor_count > std.math.maxInt(usize) / descriptor_size) return self;
+        self.initInto(map, descriptor_count, descriptor_size);
+        return self;
+    }
+
+    pub fn initInto(self: *Allocator, map: [*]align(8) const u8, descriptor_count: usize, descriptor_size: usize) void {
+        self.* = .{};
+        if (descriptor_size < @sizeOf(Descriptor)) return;
+        if (descriptor_count > std.math.maxInt(usize) / descriptor_size) return;
         var index: usize = 0;
         while (index < descriptor_count and self.range_count < self.ranges.len) : (index += 1) {
             const descriptor: *align(1) const Descriptor = @ptrCast(map + index * descriptor_size);
@@ -64,7 +70,6 @@ pub const Allocator = struct {
             self.free_pages = free_pages;
             self.total_pages = total_pages;
         }
-        return self;
     }
 
     pub fn allocate(self: *Allocator, count: u64) ?u64 {
