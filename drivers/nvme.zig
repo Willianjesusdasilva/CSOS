@@ -290,7 +290,8 @@ fn validateIoRange(namespace_id: u32, block_count: u64, lba: u64) !void {
 }
 
 fn validateIoBuffer(buffer: u64) !void {
-    if (buffer == 0 or (buffer & 0xfff) != 0) return error.InvalidIoBuffer;
+    if (buffer == 0 or (buffer & 0xfff) != 0 or buffer > std.math.maxInt(u64) - 4095)
+        return error.InvalidIoBuffer;
 }
 
 test "active namespace inventory counts sparse namespace identifiers" {
@@ -342,6 +343,12 @@ test "NVMe I/O range accepts only blocks inside an identified namespace" {
     try validateIoRange(1, 8, 0);
     try validateIoRange(1, 8, 7);
     try std.testing.expectError(error.LbaOutOfRange, validateIoRange(1, 8, 8));
+}
+
+test "NVMe I/O buffers cannot wrap a DMA page" {
+    try validateIoBuffer(0x1000);
+    try std.testing.expectError(error.InvalidIoBuffer, validateIoBuffer(0x1001));
+    try std.testing.expectError(error.InvalidIoBuffer, validateIoBuffer(std.math.maxInt(u64) - 4095 + 1));
 }
 
 const std = @import("std");
