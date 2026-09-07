@@ -1116,6 +1116,17 @@ test "SDL event queue survives counter wraparound" {
     try @import("std").testing.expect(queue.isEmpty());
 }
 
+test "SDL event queue clear compacts indices and preserves drops" {
+    var queue = EventQueue{};
+    try @import("std").testing.expect(queue.pushText('x'));
+    queue.dropped = 3;
+    queue.clear();
+    try @import("std").testing.expect(queue.isEmpty());
+    try @import("std").testing.expectEqual(@as(usize, 0), queue.read);
+    try @import("std").testing.expectEqual(@as(usize, 0), queue.write);
+    try @import("std").testing.expectEqual(@as(u64, 3), queue.droppedCount());
+}
+
 test "SDL list selection normalizes zero visible rows" {
     var selection = ListSelection{ .visible_rows = 0 };
     selection.setCount(3);
