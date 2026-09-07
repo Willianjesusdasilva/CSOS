@@ -35,13 +35,21 @@ pub const Controller = struct {
         if ((rah & (1 << 31)) == 0) return error.NoMac;
         const mac = [6]u8{ @truncate(ral), @truncate(ral >> 8), @truncate(ral >> 16), @truncate(ral >> 24), @truncate(rah), @truncate(rah >> 8) };
         const rx_ring = pages.allocate(1) orelse return error.OutOfMemory;
+        errdefer pages.release(rx_ring, 1) catch {};
         const tx_ring = pages.allocate(1) orelse return error.OutOfMemory;
+        errdefer pages.release(tx_ring, 1) catch {};
         const tx_buffer = pages.allocate(1) orelse return error.OutOfMemory;
+        errdefer pages.release(tx_buffer, 1) catch {};
         zeroPage(rx_ring); zeroPage(tx_ring); zeroPage(tx_buffer);
         var buffers: [descriptor_count]u64 = undefined;
+        var buffer_count: usize = 0;
+        errdefer {
+            for (buffers[0..buffer_count]) |buffer| pages.release(buffer, 1) catch {};
+        }
         const rx_descriptors: [*]u64 = @ptrFromInt(rx_ring);
         for (0..descriptor_count) |index| {
             buffers[index] = pages.allocate(1) orelse return error.OutOfMemory;
+            buffer_count += 1;
             zeroPage(buffers[index]);
             rx_descriptors[index * 2] = buffers[index];
             rx_descriptors[index * 2 + 1] = 0;
