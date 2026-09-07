@@ -1,4 +1,5 @@
 const std = @import("std");
+const html = @import("html");
 
 pub const PixelFormat = enum { rgba8888 };
 pub const Rect = struct { x: usize, y: usize, width: usize, height: usize };
@@ -384,6 +385,19 @@ pub const Window = struct {
                 cursor_x = x;
                 cursor_y +|= 12;
             }
+        }
+    }
+
+    pub fn drawHtml(self: *Window, document: *const html.Document, x: usize, y: usize) void {
+        var cursor_y = y;
+        for (document.elements[0..document.count]) |element| {
+            const color: u32 = switch (element.kind) {
+                .heading => 0x70d0ffff,
+                .paragraph => 0xa0b8d0ff,
+                .button => 0xffd070ff,
+            };
+            self.drawText(x, cursor_y, element.text, color);
+            cursor_y +|= if (element.kind == .heading) 16 else 12;
         }
     }
 
@@ -1705,4 +1719,15 @@ test "SDL pager clamps page movement and zero page sizes" {
     try @import("std").testing.expect(pager.previous());
     try @import("std").testing.expect(pager.home());
     try @import("std").testing.expectEqual(@as(usize, 0), pager.offset);
+}
+
+test "SDL window renders parsed HTML elements" {
+    var pixels: [64 * 32]u32 = .{0} ** (64 * 32);
+    var window = Window{ .width = 64, .height = 32, .pixels = &pixels };
+    const document = html.Document.parse("<h1>CSOS</h1><p>Ready</p><button>Go</button>");
+    window.drawHtml(&document, 0, 0);
+    try @import("std").testing.expect(window.dirtyRect() != null);
+    var changed = false;
+    for (pixels) |pixel| if (pixel != 0) { changed = true; break; };
+    try @import("std").testing.expect(changed);
 }
