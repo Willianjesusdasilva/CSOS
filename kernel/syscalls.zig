@@ -3076,7 +3076,10 @@ fn mmap(requested: u64, length: u64, protection: u64, flags: u64, fd: u64, file_
     if ((address & 4095) != 0) return errno(22);
     if (address < mmap_next or address > mmap_limit or aligned_length > mmap_limit - address) return errno(12);
     const hook = mmap_protect_hook orelse return errno(12);
-    if (!hook(address, aligned_length, (protection & 2) != 0, (protection & 4) != 0)) return errno(12);
+    // Private mappings remain writable until copy-on-write is available. This
+    // keeps real userspace allocators functional while preserving NX when
+    // executable permission was not requested.
+    if (!hook(address, aligned_length, true, (protection & 4) != 0)) return errno(12);
     const target: [*]u8 = @ptrFromInt(address);
     @memset(target[0..@intCast(aligned_length)], 0);
     if (!anonymous) {

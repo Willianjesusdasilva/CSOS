@@ -710,6 +710,8 @@ anterior, `Ctrl+D` apaga à direita, `Ctrl+Seta` navega entre palavras e
 `Ctrl+C` cancela a edição.
 A saída acompanha
 automaticamente as seis linhas mais novas.
+Regiões privadas de `mmap` permanecem graváveis enquanto o COW não está
+disponível, permitindo que o ELF PIE conclua seu ciclo real no QEMU.
 Superfícies SDL são compostas dentro da camada de sua própria janela, com
 clipping pela área de conteúdo. Assim, respeitam sobreposição, foco,
 minimização e redimensionamento sem desenhar sobre janelas superiores.

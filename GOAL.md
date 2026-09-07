@@ -227,6 +227,9 @@ cobrindo framebuffers RGB/BGR sem copiar canais ou alpha como se fossem pixels
 nativos.
 O display mantém um frontbuffer sombra: o primeiro frame é integral, e os
 seguintes eliminam escritas MMIO de pixels idênticos dentro da região suja.
+O caminho de `mmap` userspace mantém regiões privadas graváveis até existir COW,
+destravando o ciclo real do ELF PIE (`mmap`, leitura de arquivo, `munmap` e exit)
+no boot QEMU.
 Contadores distintos medem pixels examinados e realmente apresentados.
 `MONITOR` deixou de ser decorativo e possui superfície SDL própria com frames,
 pixels examinados, escritas efetivas e percentual economizado. Isso valida duas
