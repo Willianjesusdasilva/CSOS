@@ -2404,7 +2404,7 @@ fn writeStat(address: u64, info: vfs.Info) u64 {
     put64(bytes + 40, info.rdev);
     put64(bytes + 48, info.size);
     put64(bytes + 56, 4096);
-    put64(bytes + 64, (info.size + 511) / 512);
+    put64(bytes + 64, info.size / 512 + @intFromBool(info.size % 512 != 0));
     return 0;
 }
 
