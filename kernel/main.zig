@@ -54,6 +54,7 @@ var files_preview_back_hover = false;
 const SystemSurfaceStatus = struct { storage_blocks: u64, input_devices: usize, audio_endpoints: usize };
 var system_surface_cache: ?SystemSurfaceStatus = null;
 var system_html_active: bool = false;
+var desktop_menu_open: u8 = 0;
 // Keep the compositor's fixed-capacity window table off the UEFI boot stack.
 // kernel.start already coordinates the entire bring-up and must not grow with
 // every desktop feature added late in that function.
@@ -2455,7 +2456,12 @@ pub fn start(info: BootInfo) noreturn {
                         }
                         window_manager.dismissSwitcher();
                     }
-                    if (desktopDockHitTest(cursor_x, cursor_y, screen.framebuffer.width, screen.framebuffer.height)) |dock_application| {
+                    if (desktopMenuHitTest(cursor_x, cursor_y)) |menu| {
+                        desktop_menu_open = menu;
+                        serial.write("UI menu opened: ");
+                        serial.writeDecimal(menu);
+                        serial.write("\n");
+                    } else if (desktopDockHitTest(cursor_x, cursor_y, screen.framebuffer.width, screen.framebuffer.height)) |dock_application| {
                         _ = launchDesktopWindow(window_manager, dock_application, &demo_app.window, &monitor_window, &system_window, &files_window) catch panic("desktop dock application launch failed");
                         if (dock_application == 4) {
                             files_preview_open = false;
@@ -2922,6 +2928,11 @@ fn desktopDockHitTest(x: usize, y: usize, width: usize, height: usize) ?u32 {
     return applications[slot];
 }
 
+fn desktopMenuHitTest(x: usize, y: usize) ?u8 {
+    if (y >= 28 or x < 44 or x >= 44 + 5 * 72) return null;
+    return @intCast((x - 44) / 72 + 1);
+}
+
 fn reportAudio(usb: *xhci.Controller) void {
     if (audio_reported or usb.audio.completed < 32) return;
     if (usb.audio.underruns != 0) panic("USB audio underrun");
@@ -3138,6 +3149,16 @@ fn drawDesktopChrome(framebuffer: Framebuffer) void {
         while (row < @min(framebuffer.height, dock_top + 10 + icon_size)) : (row += 1) {
             var column = left;
             while (column < @min(framebuffer.width, left + icon_size)) : (column += 1) pixels[row * framebuffer.stride + column] = color;
+        }
+    }
+    if (desktop_menu_open != 0) {
+        const menu_left = 44 + (@as(usize, desktop_menu_open) - 1) * 72;
+        const menu_right = @min(framebuffer.width, menu_left + 128);
+        const menu_bottom = @min(framebuffer.height, top_height + 92);
+        y = top_height;
+        while (y < menu_bottom) : (y += 1) {
+            var x = menu_left;
+            while (x < menu_right) : (x += 1) pixels[y * framebuffer.stride + x] = 0x283b5ee8;
         }
     }
 }
