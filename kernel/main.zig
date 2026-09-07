@@ -2839,7 +2839,7 @@ fn launchDesktopWindow(manager: *display.WindowManager, application_id: u32, app
 
 fn drawSystemSurface(window: *sdl.Window, storage_blocks: u64, input_devices: usize, audio_endpoints: usize) void {
     window.clear(0x14201cff);
-    const document = if (system_html_active) html.Document.parse("<h1>CSOS SYSTEM</h1><button>ACTIVE</button><button>RESET</button>") else html.Document.parse("<h1>CSOS SYSTEM</h1><button>READY</button><button>RESET</button>");
+    const document = if (system_html_active) html.Document.parse("<h1>CSOS SYSTEM</h1><button>ACTIVE</button><button>RESET</button><p>ONLINE</p>") else html.Document.parse("<h1>CSOS SYSTEM</h1><button>READY</button><button>RESET</button><p>ONLINE</p>");
     window.drawHtmlFocused(&document, 4, 2, 1 + system_html_focus);
     window.drawText(4, 48, "DISK BLOCKS", 0xa0b8d0ff);
     drawSurfaceNumber(window, 108, 48, storage_blocks, 0xe0e8f0ff);
