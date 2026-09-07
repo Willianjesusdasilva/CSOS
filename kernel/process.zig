@@ -1242,7 +1242,8 @@ fn writeMapped64(mappings: []const Mapping, virtual: u64, value: u64) !void {
     if (offset > page_size - 8) return error.CrossPageRelocation;
     for (mappings) |mapping| {
         if (mapping.virtual != page_virtual or !mapping.resident) continue;
-        const target: *align(1) u64 = @ptrFromInt(mapping.physical + offset);
+        const target_address = std.math.add(u64, mapping.physical, offset) catch return error.RelocationTargetMissing;
+        const target: *align(1) u64 = @ptrFromInt(target_address);
         target.* = value;
         return;
     }
@@ -1255,7 +1256,8 @@ fn readMapped64(mappings: []const Mapping, virtual: u64) !u64 {
     if (offset > page_size - 8) return error.CrossPageInitializer;
     for (mappings) |mapping| {
         if (mapping.virtual != page_virtual or !mapping.resident) continue;
-        const source: *align(1) const u64 = @ptrFromInt(mapping.physical + offset);
+        const source_address = std.math.add(u64, mapping.physical, offset) catch return error.InitializerMissing;
+        const source: *align(1) const u64 = @ptrFromInt(source_address);
         return source.*;
     }
     return error.InitializerMissing;
