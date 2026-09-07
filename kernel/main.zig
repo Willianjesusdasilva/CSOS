@@ -51,6 +51,9 @@ var sdl_terminal = sdl.Terminal{};
 // kernel.start already coordinates the entire bring-up and must not grow with
 // every desktop feature added late in that function.
 var desktop_window_manager = display.WindowManager{};
+// The physical allocator owns large fixed-capacity range tables; keep it out
+// of the small firmware entry stack for the entire kernel lifetime.
+var pages: physical.Allocator = undefined;
 var gpu_gmc11_activation_workspace = gpu.AmdGmc11ActivationWorkspace{};
 const GpuVmRuntime = struct {
     transport: ?gpu.AmdGmc11MmioTransport = null,
@@ -72,12 +75,12 @@ const GpuCsRuntime = struct {
 };
 var gpu_cs_runtime = GpuCsRuntime{};
 
-fn validateRadvProbe(root: u64, pages: *physical.Allocator) void {
-    const before = pages.free_pages;
+fn validateRadvProbe(root: u64, allocator: *physical.Allocator) void {
+    const before = allocator.free_pages;
     const objects = process.shared_objects_loaded;
     const relocations = process.symbol_relocations;
     const tls = process.tls_modules;
-    process.runRadvLoaderProbe(root, pages) catch |err| {
+    process.runRadvLoaderProbe(root, allocator) catch |err| {
         serial.write("RADV dynamic loader error: ");
         serial.write(@errorName(err));
         if (syscalls.exitStatus()) |status| {
@@ -87,7 +90,7 @@ fn validateRadvProbe(root: u64, pages: *physical.Allocator) void {
         serial.write("\n");
         panic("RADV dynamic loader probe failed");
     };
-    if (pages.free_pages != before) panic("RADV loader page reclaim mismatch");
+    if (allocator.free_pages != before) panic("RADV loader page reclaim mismatch");
     if (process.shared_objects_loaded < objects + 5) panic("RADV dependency chain incomplete");
     if (process.symbol_relocations == relocations) panic("RADV symbol relocations missing");
     if (process.tls_modules == tls) panic("RADV TLS module missing");
@@ -242,7 +245,7 @@ pub fn start(info: BootInfo) noreturn {
     if (idt.timerTicks() == 0) panic("APIC timer failed");
     serial.write("APIC timer ready\n");
     if (info.memory_map_len == 0 or info.memory_descriptor_size < 40) panic("invalid memory map descriptors");
-    var pages = physical.Allocator.init(info.memory_map, info.memory_map_len, info.memory_descriptor_size);
+    pages = physical.Allocator.init(info.memory_map, info.memory_map_len, info.memory_descriptor_size);
     syscalls.configureDrmMemory(&pages);
     serial.write("AMDGPU PSP handoff self-test start\n");
     gpu.validateAmdPspHandoff(&pages) catch panic("AMDGPU PSP handoff self-test failed");
