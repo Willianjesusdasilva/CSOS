@@ -491,7 +491,9 @@ pub const DeviceManager = struct {
 
     pub fn noteSubmit(self: *DeviceManager) !void {
         if (self.device.state != .streaming) return error.DeviceNotStreaming;
-        if (self.metrics.submitted - self.metrics.completed >= 8) {
+        if (self.metrics.submitted >= self.metrics.completed and
+            self.metrics.submitted - self.metrics.completed >= 8)
+        {
             self.metrics.recordOverrun();
             return error.QueueFull;
         }
