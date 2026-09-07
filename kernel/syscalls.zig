@@ -3327,9 +3327,9 @@ fn sysinfo(output: u64) u64 {
     const bytes: [*]u8 = @ptrFromInt(output);
     @memset(bytes[0..112], 0);
     put64(bytes, monotonic_time_ns / 1_000_000_000); // uptime
-    put64(bytes + 8, 1); // one-second load averages, fixed-point 0.0
-    put64(bytes + 16, 1);
-    put64(bytes + 24, 1);
+    put64(bytes + 8, 0); // load averages, fixed-point 0.0
+    put64(bytes + 16, 0);
+    put64(bytes + 24, 0);
     put64(bytes + 32, 256 * 1024 * 1024 / 4096); // totalram units
     put64(bytes + 40, 192 * 1024 * 1024 / 4096); // freeram units
     put64(bytes + 48, 0); // sharedram
