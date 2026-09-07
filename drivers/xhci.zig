@@ -36,9 +36,11 @@ pub const Controller = struct {
         const max_slots: u8 = @truncate(parameters);
         const max_ports: u8 = @truncate(parameters >> 24);
         if (capability_length < 0x20 or max_slots == 0 or max_ports == 0) return error.InvalidController;
-        const operational = base + capability_length;
-        const runtime = base + (read32(base, 0x18) & ~@as(u32, 0x1f));
-        const doorbells = base + (read32(base, 0x14) & ~@as(u32, 3));
+        const operational = std.math.add(u64, base, capability_length) catch return error.InvalidController;
+        const runtime_offset = read32(base, 0x18) & ~@as(u32, 0x1f);
+        const doorbell_offset = read32(base, 0x14) & ~@as(u32, 3);
+        const runtime = std.math.add(u64, base, runtime_offset) catch return error.InvalidController;
+        const doorbells = std.math.add(u64, base, doorbell_offset) catch return error.InvalidController;
 
         write32(operational, 0, read32(operational, 0) & ~@as(u32, 1));
         try waitBits(operational + 4, 1, true);
