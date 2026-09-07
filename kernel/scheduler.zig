@@ -422,6 +422,7 @@ test "scheduler freeze and resume preserve sleeping state" {
     try std.testing.expectEqual(@as(usize, 1), freezeGroup(9));
     try std.testing.expectEqual(State.frozen, threads[0].state);
     try std.testing.expectEqual(@as(usize, 1), resumeGroup(9));
+    try std.testing.expectEqual(@as(usize, 0), resumeGroup(9));
     try std.testing.expectEqual(State.sleeping, threads[0].state);
     try std.testing.expectEqual(Lifecycle.resuming, threads[0].lifecycle);
 }
