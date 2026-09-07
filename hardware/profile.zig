@@ -249,6 +249,22 @@ test "hardware profile round-trips its generated signature" {
     try @import("std").testing.expect(matchesSignature(profile.text(), profile.signature));
 }
 
+test "hardware profile signature includes timer capability" {
+    var cpu = @import("std").mem.zeroes(Cpu);
+    cpu.vendor = "GenuineIntel".*;
+    cpu.family = 6;
+    cpu.model = 1;
+    cpu.threads_per_core = 1;
+    cpu.logical_per_package = 1;
+    var facts = @import("std").mem.zeroes(Facts);
+    facts.logical_cpus = 1;
+    facts.memory_pages = 128;
+    const without_tsc = try build(cpu, facts);
+    cpu.tsc = true;
+    const with_tsc = try build(cpu, facts);
+    try @import("std").testing.expect(without_tsc.signature != with_tsc.signature);
+}
+
 test "hardware profile rejects empty hardware facts" {
     const cpu: Cpu = .{ .vendor = "GenuineIntel".*, .family = 6, .model = 1, .stepping = 1,
         .tsc = true, .invariant_tsc = true, .threads_per_core = 1, .logical_per_package = 1 };
@@ -335,6 +351,7 @@ fn signature(cpu: Cpu, facts: Facts) u64 {
     hash = hashBytes(hash, &cpu.vendor);
     hash = hashInteger(hash, cpu.family); hash = hashInteger(hash, cpu.model); hash = hashInteger(hash, cpu.stepping);
     hash = hashInteger(hash, cpu.threads_per_core); hash = hashInteger(hash, cpu.logical_per_package);
+    hash = hashInteger(hash, @intFromBool(cpu.tsc));
     hash = hashInteger(hash, @intFromBool(cpu.invariant_tsc));
     hash = hashInteger(hash, facts.logical_cpus); hash = hashInteger(hash, facts.memory_pages);
     hash = hashInteger(hash, facts.pci_devices); hash = hashInteger(hash, facts.gpu_vendor); hash = hashInteger(hash, facts.gpu_device);
