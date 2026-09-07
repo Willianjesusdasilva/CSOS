@@ -228,3 +228,12 @@ test "physical allocator accepts release inside managed range" {
     try allocator.release(0x100000, 1);
     try @import("std").testing.expectEqual(@as(usize, 1), allocator.returned_count);
 }
+
+test "physical allocator rejects counter overflow before release" {
+    var allocator = Allocator{ .managed_count = 1, .free_pages = std.math.maxInt(u64) };
+    allocator.managed[0] = .{ .next = 0x100000, .end = 0x104000 };
+    try @import("std").testing.expectError(error.CounterOverflow, allocator.release(0x100000, 1));
+    allocator.free_pages = 0;
+    allocator.reclaimed_pages = std.math.maxInt(u64);
+    try @import("std").testing.expectError(error.CounterOverflow, allocator.release(0x100000, 1));
+}
