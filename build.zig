@@ -164,6 +164,13 @@ pub fn build(b: *std.Build) void {
     const apic_module = b.createModule(.{ .root_source_file = b.path("arch/x86_64/apic.zig") });
     const ioapic_module = b.createModule(.{ .root_source_file = b.path("arch/x86_64/ioapic.zig") });
     const acpi_module = b.createModule(.{ .root_source_file = b.path("firmware/acpi.zig") });
+    const acpi_test_module = b.createModule(.{
+        .root_source_file = b.path("firmware/acpi.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+    });
+    const acpi_tests = b.addTest(.{ .root_module = acpi_test_module });
+    const run_acpi_tests = b.addRunArtifact(acpi_tests);
     const pci_module = b.createModule(.{ .root_source_file = b.path("drivers/pci.zig") });
     const physical_module = b.createModule(.{ .root_source_file = b.path("memory/physical.zig") });
     const metrics_module = b.createModule(.{ .root_source_file = b.path("gaming/metrics.zig") });
@@ -215,6 +222,7 @@ pub fn build(b: *std.Build) void {
     const gpu_tests = b.addTest(.{ .root_module = gpu_test_module });
     const run_gpu_tests = b.addRunArtifact(gpu_tests);
     const test_step = b.step("test", "Run CSOS host-side tests");
+    test_step.dependOn(&run_acpi_tests.step);
     test_step.dependOn(&run_gpu_tests.step);
     const metrics_test_module = b.createModule(.{
         .root_source_file = b.path("gaming/metrics.zig"),
