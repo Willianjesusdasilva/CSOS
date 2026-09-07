@@ -70,9 +70,11 @@ pub fn findPower(rsdp_address: u64) !Power {
         legacyGas(read32(fadt + 64), 16);
     if (pm1a.address == 0) return error.PowerControlUnsupported;
     if (pm1a.width == 0) pm1a.width = 16;
+    _ = validateGas(pm1a) catch return error.PowerControlUnsupported;
     var pm1b: ?Gas = null;
     const extended_pm1b = if (length >= 196) readGas(fadt + 184) else Gas{ .space = 0, .width = 0, .offset = 0, .access = 0, .address = 0 };
     if (extended_pm1b.address != 0) pm1b = extended_pm1b else if (read32(fadt + 68) != 0) pm1b = legacyGas(read32(fadt + 68), 16);
+    if (pm1b) |register| _ = validateGas(register) catch return error.PowerControlUnsupported;
     return .{
         .reset_register = reset_register,
         .reset_value = fadt[128],
