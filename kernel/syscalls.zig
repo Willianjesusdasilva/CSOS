@@ -372,6 +372,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         262 => stat(arg2, arg3, @bitCast(arg1)),
         267 => readlinkat(@bitCast(arg1), arg2, arg3, arg4),
         271 => ppoll(arg1, arg2, arg3, arg4),
+        273 => setRobustList(arg1, arg2),
         309 => getcpu(arg1, arg2),
         436 => closeRange(arg1, arg2, arg3),
         else => unsupported(number),
@@ -2797,6 +2798,11 @@ fn getcpu(cpu: u64, node: u64) u64 {
     if (node != 0 and !validUserSlice(node, 4)) return errno(14);
     if (cpu != 0) @as(*align(1) u32, @ptrFromInt(cpu)).* = 0;
     if (node != 0) @as(*align(1) u32, @ptrFromInt(node)).* = 0;
+    return 0;
+}
+
+fn setRobustList(head: u64, length: u64) u64 {
+    if (length != 24 or !validUserSlice(head, length)) return errno(22);
     return 0;
 }
 
