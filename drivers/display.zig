@@ -550,7 +550,11 @@ pub const WindowManager = struct {
             if (!w.visible) continue;
             const slot_x = 64 + task_slot * 112 + 4;
             if (slot_x >= context.framebuffer.width) break;
-            const slot_width = @min(@as(usize, 104), context.framebuffer.width - slot_x);
+            const slot_width = @min(@as(usize, 104), context.framebuffer.width -| slot_x);
+            if (slot_width == 0) {
+                task_slot += 1;
+                continue;
+            }
             const hovered = self.taskbar_hover == i;
             context.fillRect(slot_x, taskbar_y + 3, slot_width, 14, if (hovered) 0x406080 else if (self.focused == i and !w.minimized) 0x5070a0 else 0x303848);
             context.drawWindowTitleLimited(slot_x + 8, taskbar_y + 5, w.title, slot_width -| 16);
