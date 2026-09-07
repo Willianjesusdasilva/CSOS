@@ -328,7 +328,8 @@ O redesenho é condicionado a mudanças nos valores, evitando trabalho repetido
 quando o estado permanece estável.
 
 O volume FAT16 agora enumera arquivos regulares da raiz com limite explícito do
-buffer de saída. A quarta aplicação SDL, `FILES`, mostra nomes 8.3 e tamanhos;
+buffer de saída. A quarta aplicação SDL, `FILES`, mostra nomes 8.3 e tamanhos,
+com filtro case-insensitive editável por teclado;
 o boot QEMU enumerou sete entradas reais antes de liberar o desktop.
 
 A BSS adicional revelou um estouro preexistente da stack UEFI no autoteste GART.

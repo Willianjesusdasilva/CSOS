@@ -838,7 +838,8 @@ no FILES, o último atalho também atualiza a enumeração.
 Com MONITOR focado, `Ctrl+R` zera a telemetria para iniciar uma nova medição.
 
 O FAT16 expõe agora enumeração limitada da raiz, e o launcher inclui `FILES`,
-uma quarta aplicação SDL que apresenta nomes 8.3 e tamanhos reais. O boot QEMU
+uma quarta aplicação SDL que apresenta nomes 8.3, tamanhos reais e filtro
+case-insensitive editável por teclado. O boot QEMU
 encontrou sete arquivos no volume e publicou a superfície antes da sessão
 gráfica ficar pronta.
 
