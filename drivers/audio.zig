@@ -464,6 +464,7 @@ pub const DeviceManager = struct {
 
     pub fn start(self: *DeviceManager) !void {
         if (self.stream == null or self.device.state != .configured) return error.DeviceNotConfigured;
+        if (self.device.suspended) return error.DeviceSuspended;
         self.stream.?.start() catch return error.StreamStartFailed;
         self.device.state = .streaming;
     }
@@ -998,6 +999,14 @@ test "device manager does not configure a suspended device" {
     try manager.attach(.{ .channels = 2, .bits_per_sample = 16, .sample_rate = 48000 }, 1000, 4096);
     manager.device.suspended = true;
     try @import("std").testing.expectError(error.DeviceSuspended, manager.configure());
+}
+
+test "device manager does not start a suspended device" {
+    var manager = DeviceManager{};
+    try manager.attach(.{ .channels = 2, .bits_per_sample = 16, .sample_rate = 48000 }, 1000, 4096);
+    try manager.configure();
+    manager.device.suspended = true;
+    try @import("std").testing.expectError(error.DeviceSuspended, manager.start());
 }
 
 test "device manager stop preserves absent state" {
