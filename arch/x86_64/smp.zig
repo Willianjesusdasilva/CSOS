@@ -17,7 +17,9 @@ var secondary_entry: ?*const fn (u32) callconv(.c) noreturn = null;
 
 pub fn prepare(cr3: u64) !void {
     const source_address = @intFromPtr(&ap_trampoline_start);
-    const length = @intFromPtr(&ap_trampoline_end) - source_address;
+    const end_address = @intFromPtr(&ap_trampoline_end);
+    if (end_address < source_address) return error.InvalidTrampoline;
+    const length = end_address - source_address;
     if (length > 4096 or cr3 > 0xffffffff) return error.InvalidTrampoline;
 
     const source: [*]const u8 = @ptrFromInt(source_address);
