@@ -796,7 +796,7 @@ fn discardCleanPages(address_space: *paging.AddressSpace, pages: *physical.Alloc
         owned[mapping.owner_index] = .{ .address = 0, .pages = 0 };
         mapping.physical = 0;
         mapping.resident = false;
-        discarded += 1;
+        discarded = saturatingAdd(discarded, 1);
     }
     return discarded;
 }
