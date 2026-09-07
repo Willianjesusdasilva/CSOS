@@ -2774,7 +2774,8 @@ fn socket(domain: u64, kind: u64, protocol: u64) u64 {
 
 fn connect(fd: u64, address: u64, length: u64) u64 {
     const index = socketIndex(fd) orelse return errno(9);
-    if (length < 16 or !validUserSlice(address, 16)) return errno(14);
+    if (length < 16) return errno(22);
+    if (!validUserSlice(address, 16)) return errno(14);
     const bytes: [*]const u8 = @ptrFromInt(address);
     if (bytes[0] != 2 or bytes[1] != 0) return errno(97);
     const port = (@as(u16, bytes[2]) << 8) | bytes[3];
