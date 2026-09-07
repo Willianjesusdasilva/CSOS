@@ -3214,7 +3214,7 @@ fn futex(address: u64, operation: u64, expected: u64) u64 {
 }
 
 fn schedGetAffinity(pid: u64, size: u64, mask: u64) u64 {
-    _ = pid;
+    if (pid != 0 and pid != 1) return errno(3);
     if (size < 8 or !validUserSlice(mask, size)) return errno(22);
     const bytes: [*]u8 = @ptrFromInt(mask);
     @memset(bytes[0..@intCast(size)], 0);
