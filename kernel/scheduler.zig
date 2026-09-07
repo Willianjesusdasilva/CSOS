@@ -205,8 +205,7 @@ pub fn resumeGroup(group: u16) usize {
     var changed: usize = 0;
     for (threads[0..thread_count]) |*thread| {
         if (thread.group != group or thread.state != .frozen) continue;
-        if (thread.resume_state != .ready and thread.resume_state != .sleeping) continue;
-        if (thread.resume_state == .sleeping and thread.sleep_ticks == 0) continue;
+        if (!validResumeState(thread.resume_state, thread.sleep_ticks)) continue;
         thread.state = thread.resume_state;
         if (thread.state == .ready) thread.ready_tsc = timestamp();
         thread.lifecycle = .resuming;
@@ -222,6 +221,10 @@ pub fn sleepCurrent(ticks: u64) !void {
     threads[index].state = .sleeping;
     threads[index].resume_state = .sleeping;
     yieldNow();
+}
+
+fn validResumeState(state: State, sleep_ticks: u64) bool {
+    return state == .ready or (state == .sleeping and sleep_ticks != 0);
 }
 
 pub fn tick() void {
