@@ -409,6 +409,18 @@ test "FAT16 BPB rejects invalid geometry and device overflow" {
     try std.testing.expectError(error.FatTooSmall, parseBootSector(&boot, 32768));
 }
 
+test "FAT16 BPB rejects missing allocation structures" {
+    var boot = validBootSector();
+    boot[16] = 0;
+    try std.testing.expectError(error.InvalidBootSector, parseBootSector(&boot, 32768));
+    boot = validBootSector();
+    put16(boot[17..].ptr, 0);
+    try std.testing.expectError(error.InvalidBootSector, parseBootSector(&boot, 32768));
+    boot = validBootSector();
+    put16(boot[22..].ptr, 0);
+    try std.testing.expectError(error.InvalidBootSector, parseBootSector(&boot, 32768));
+}
+
 test "FAT16 data cluster validation excludes reserved and out-of-volume entries" {
     try std.testing.expectError(error.BrokenChain, validateDataCluster(0, 8000));
     try std.testing.expectError(error.BrokenChain, validateDataCluster(1, 8000));
