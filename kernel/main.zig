@@ -2253,6 +2253,9 @@ pub fn start(info: BootInfo) noreturn {
                         serial.write("\n");
                     }
                 }
+                if (!terminal_shortcut_pressed and !monitor_shortcut_pressed and !system_shortcut_pressed and !files_shortcut_pressed and !launcher_consumed and !tab_switch_pressed and event.c != 0 and event.a == 0x28 and focusedWindowIs(window_manager, 3)) {
+                    serial.write("UI HTML button activated: READY (keyboard)\n");
+                }
                 if (!terminal_shortcut_pressed and !monitor_shortcut_pressed and !system_shortcut_pressed and !files_shortcut_pressed and !launcher_consumed and !tab_switch_pressed and focusedWindowIs(window_manager, 1)) {
                     _ = sdl_events.pushKeyboard(event.a, event.a != 0, event.b);
                     if (event.c != 0 and event.a != 0) {
