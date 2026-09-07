@@ -367,6 +367,8 @@ Rings, relatórios HID e contexts alocados por dispositivo e pelo áudio também
 passam pela validação DMA antes de configurar endpoints.
 Contexts de slot, input, transfer ring e descriptor alocados durante a
 enumeração também são validados antes de `Address Device`.
+Buffers de sample-rate, sample, tons e períodos de áudio xHCI passam pelo gate
+DMA e são liberados imediatamente se a validação falhar.
 
 Mapeamentos anônimos também possuem rollback transacional: uma falha no meio da
 criação remove as páginas já instaladas e devolve a alocação e o ownership.

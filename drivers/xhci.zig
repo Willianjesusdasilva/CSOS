@@ -195,6 +195,10 @@ pub const Controller = struct {
                         devices.device_index = @intCast(device_index);
                         if (devices.rate_payload == null) {
                             const payload = pages.allocate(1) orelse return error.OutOfMemory;
+                            if (!validDmaPage(payload)) {
+                                pages.release(payload, 1) catch {};
+                                return error.InvalidDmaAddress;
+                            }
                             zeroPage(payload);
                             devices.rate_payload = payload;
                         }
@@ -329,6 +333,10 @@ pub const Controller = struct {
         if (!self.audio.configured or self.audio.ring == 0) return error.AudioNotConfigured;
         const sample = self.audio.sample orelse blk: {
             const allocated = pages.allocate(1) orelse return error.OutOfMemory;
+            if (!validDmaPage(allocated)) {
+                pages.release(allocated, 1) catch {};
+                return error.InvalidDmaAddress;
+            }
             zeroPage(allocated);
             self.audio.sample = allocated;
             break :blk allocated;
@@ -349,6 +357,10 @@ pub const Controller = struct {
         if (frame_size == 0 or transfer_length < frame_size) return error.UnsupportedAudioFormat;
         const sample = self.audio.sample orelse blk: {
             const allocated = pages.allocate(1) orelse return error.OutOfMemory;
+            if (!validDmaPage(allocated)) {
+                pages.release(allocated, 1) catch {};
+                return error.InvalidDmaAddress;
+            }
             const output: [*]u8 = @ptrFromInt(allocated);
             var index: usize = 0;
             while (index + frame_size <= transfer_length) : (index += frame_size) {
@@ -382,6 +394,10 @@ pub const Controller = struct {
             const buffer_index: u8 = @intCast(period % 64);
             const buffer = self.audio.buffers[buffer_index] orelse blk: {
                 const allocated = pages.allocate(1) orelse return error.OutOfMemory;
+                if (!validDmaPage(allocated)) {
+                    pages.release(allocated, 1) catch {};
+                    return error.InvalidDmaAddress;
+                }
                 self.audio.buffers[buffer_index] = allocated;
                 break :blk allocated;
             };

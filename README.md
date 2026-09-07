@@ -887,6 +887,8 @@ Os caminhos HID e áudio repetem a validação para rings, buffers de relatório
 contexts específicos de cada endpoint.
 A enumeração de dispositivos aplica o gate aos contexts de slot/input, transfer
 ring e descriptor antes de enviá-los ao controlador.
+Buffers de áudio alocados sob demanda repetem a validação DMA e não vazam a
+página quando um endereço inválido é detectado.
 
 Mapeamentos anônimos fazem rollback transacional quando uma página falha: os
 mapeamentos parciais são removidos e a memória física é devolvida ao allocator.
