@@ -271,7 +271,7 @@ os marcadores de launch, seleção, paginação e retorno antes de declarar suce
 
 Esta porcentagem não é uma contagem simples de milestones. M0–M13 têm bases relevantes, mas M14 ainda não possui triângulos Vulkan validados em AMD e NVIDIA, e M15–M30 permanecem majoritariamente pendentes. Código preparatório ou teste no host não equivale a hardware funcional.
 
-Verificação mais recente em 2026-09-06: `zig build test` concluiu `17/17` etapas
+Verificação mais recente em 2026-09-07: `zig build test` concluiu `17/17` etapas
 e `36/36` testes, e o boot QEMU chegou a `CSOS graphical session ready`. A
 sessão gráfica assume teclado e mouse sem aguardar a saída do shell BusyBox e o
 terminal já voltou como aplicação não bloqueante; isso não altera a ausência de
