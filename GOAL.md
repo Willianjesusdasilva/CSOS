@@ -164,6 +164,7 @@ Com o lançador aberto, as teclas `1`–`4` selecionam diretamente as quatro
 aplicações disponíveis.
 `Ctrl+Alt+T` abre ou focaliza diretamente o TERMINAL.
 `Ctrl+Alt+M` abre ou focaliza diretamente o MONITOR.
+`Ctrl+Alt+S` abre SYSTEM e `Ctrl+Alt+F` abre/atualiza FILES diretamente.
 A tabela fixa do compositor saiu do frame de `kernel.start` para não consumir a
 stack limitada recebida do firmware; o boot QEMU voltou a alcançar a sessão
 gráfica depois dessa correção.
