@@ -594,7 +594,8 @@ fn sendfile(output_fd: u64, input_fd: u64, offset_address: u64, count: u64) u64 
             vfs.read(@intCast(input_fd), buffer[0..wanted]) catch |err| return if (transferred == 0) vfsError(err) else transferred;
         if (read_count == 0) break;
         const written = writeKernel(output_fd, buffer[0..read_count]) catch |err| return if (transferred == 0) vfsError(err) else transferred;
-        transferred += written;
+        transferred = std.math.add(u64, transferred, written) catch
+            return if (transferred == 0) errno(75) else transferred;
         if (written != read_count) break;
     }
     if (offset_address != 0) {
