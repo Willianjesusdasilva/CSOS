@@ -1254,6 +1254,7 @@ test "SDL software event queue and surface contract" {
     audio.reset();
     try @import("std").testing.expectEqual(@as(u64, 0), audio.queuedFrames());
     try @import("std").testing.expect(!audio.paused);
+    try @import("std").testing.expectEqual(@as(u32, 48000), audio.spec.sample_rate);
     try audio.reconfigure(.{ .sample_rate = 44100, .channels = 2 });
     try @import("std").testing.expectEqual(@as(u32, 44100), audio.spec.sample_rate);
     _ = audio.pause(false);
