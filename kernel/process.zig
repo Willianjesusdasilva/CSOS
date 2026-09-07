@@ -38,6 +38,7 @@ const Mapping = struct {
     owner_index: usize,
     writable: bool,
     executable: bool,
+    reclaimable: bool = false,
     resident: bool = true,
 };
 const OwnedRange = struct { address: u64, pages: u64 };
@@ -182,7 +183,7 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
             virtual > std.math.maxInt(u64) - memory_size or memory_size == 0) return error.InvalidElf;
         image_start = @min(image_start, virtual);
         image_end = @max(image_end, virtual + memory_size);
-        try loadSegment(&address_space, pages, mappings, &mapping_count, owned, &owned_count, virtual, file_offset, file_size, memory_size, (flags & 2) != 0, (flags & 1) != 0);
+        try loadSegment(&address_space, pages, mappings, &mapping_count, owned, &owned_count, virtual, file_offset, file_size, memory_size, (flags & 2) != 0, (flags & 1) != 0, true);
     }
     if (mapping_count == 0 or entry < image_start or entry >= image_end) return error.InvalidElf;
     try applyRelativeRelocations(mappings[0..mapping_count], load_bias, program_offset, program_entry_size, program_count, interpreter_path != null);
@@ -242,7 +243,7 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
                 const memory_size = read64At(header + 40);
                 if (file_size > memory_size or file_offset > std.math.maxInt(u64) - file_size or file_offset + file_size > image.len or
                     virtual > std.math.maxInt(u64) - memory_size or memory_size == 0) return error.InvalidSharedObject;
-                try loadSegment(&address_space, pages, mappings, &mapping_count, owned, &owned_count, virtual, file_offset, file_size, memory_size, (flags & 2) != 0, (flags & 1) != 0);
+                try loadSegment(&address_space, pages, mappings, &mapping_count, owned, &owned_count, virtual, file_offset, file_size, memory_size, (flags & 2) != 0, (flags & 1) != 0, false);
             }
             header_index = 0;
             while (header_index < shared_program_count) : (header_index += 1) {
@@ -265,7 +266,7 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
                     .memory_size = memory_size,
                     .alignment = read64At(header + 48),
                 };
-                try loadSegment(&address_space, pages, mappings, &mapping_count, owned, &owned_count, module_tls, file_offset, file_size, memory_size, true, false);
+                try loadSegment(&address_space, pages, mappings, &mapping_count, owned, &owned_count, module_tls, file_offset, file_size, memory_size, true, false, false);
                 tls_modules +%= 1;
             }
             try applyRelativeRelocations(mappings[0..mapping_count], shared_base, shared_program_offset, shared_program_entry_size, shared_program_count, true);
@@ -346,7 +347,7 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
                 virtual > std.math.maxInt(u64) - memory_size or memory_size == 0) return error.InvalidInterpreter;
             image_start = @min(image_start, virtual);
             image_end = @max(image_end, virtual + memory_size);
-            try loadSegment(&address_space, pages, mappings, &mapping_count, owned, &owned_count, virtual, file_offset, file_size, memory_size, (flags & 2) != 0, (flags & 1) != 0);
+                try loadSegment(&address_space, pages, mappings, &mapping_count, owned, &owned_count, virtual, file_offset, file_size, memory_size, (flags & 2) != 0, (flags & 1) != 0, false);
         }
         try applyRelativeRelocations(mappings[0..mapping_count], interpreter_base, interpreter_program_offset, interpreter_program_entry_size, interpreter_program_count, false);
         interpreter_loads +%= 1;
@@ -725,6 +726,7 @@ fn loadSegment(
     memory_size: u64,
     writable: bool,
     executable: bool,
+    reclaimable: bool,
 ) !void {
     var page_virtual = virtual & ~(page_size - 1);
     const segment_end = virtual + memory_size;
@@ -747,6 +749,7 @@ fn loadSegment(
                 .owner_index = owner_index,
                 .writable = writable,
                 .executable = executable,
+                .reclaimable = reclaimable,
             };
             mapping_count.* += 1;
         } else if (writable) {
@@ -773,7 +776,7 @@ fn loadSegment(
 fn discardCleanPages(address_space: *paging.AddressSpace, pages: *physical.Allocator, mappings: []Mapping, owned: []OwnedRange) !u64 {
     var discarded: u64 = 0;
     for (mappings) |*mapping| {
-        if (mapping.writable or !mapping.resident) continue;
+        if (mapping.writable or !mapping.resident or !mapping.reclaimable) continue;
         const physical_address = address_space.unmapUserPage(mapping.virtual) orelse return error.MappingMissing;
         if (physical_address != mapping.physical) return error.MappingMismatch;
         try pages.release(physical_address, 1);
