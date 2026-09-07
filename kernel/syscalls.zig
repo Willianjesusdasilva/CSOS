@@ -3059,9 +3059,11 @@ fn wait4(pid: u64, status: u64, options: u64, usage: u64) u64 {
 
 fn waitId(id_type: u64, id: u64, info: u64, options: u64) u64 {
     _ = id;
-    // P_* selectors are 0..4; WNOHANG/WNOWAIT are the only flags currently
-    // accepted by the ABI shim.
-    if (id_type > 4 or (options & ~@as(u64, 0x3)) != 0) return errno(22);
+    // P_* selectors are 0..4.  Keep the Linux waitid flag layout so callers
+    // can compose WEXITED/WSTOPPED/WCONTINUED with WNOHANG/WNOWAIT.
+    const waitid_flags = @as(u64, 0x1 | 0x2 | 0x4 | 0x8 | 0x01000000);
+    if (id_type > 4 or (options & ~waitid_flags) != 0 or
+        (options & 0x0e) == 0) return errno(22);
     if (info != 0 and !validUserSlice(info, 128)) return errno(14);
     return errno(10);
 }
