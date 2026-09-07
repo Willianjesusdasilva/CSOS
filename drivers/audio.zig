@@ -231,6 +231,10 @@ pub const Stream = struct {
     }
 };
 
+test "audio stream init rejects unsupported sample rates" {
+    try std.testing.expectError(error.UnsupportedFormat, Stream.init(.{ .channels = 2, .bits_per_sample = 16, .sample_rate = 123 }));
+}
+
 pub const BufferQueue = struct {
     count: u8 = 0,
     head: u8 = 0,
