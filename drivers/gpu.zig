@@ -256,7 +256,7 @@ pub const Firmware = struct {
             if (result.count == result.areas.len) return error.TooManyAmdSecurityFirmwareEntries;
             const parsed = try parseAmdgpuFirmware(entry.data);
             const psp = if (isAmdPspPackage(entry.name)) try parseAmdPspFirmware(entry.data) else null;
-            const page_count: u64 = @intCast((entry.data.len + 4095) / 4096);
+            const page_count: u64 = @intCast(entry.data.len / 4096 + @intFromBool(entry.data.len % 4096 != 0));
             const address = pages.allocate(page_count) orelse return error.OutOfMemory;
             const target: [*]u8 = @ptrFromInt(address);
             @memset(target[0 .. page_count * 4096], 0);
@@ -501,7 +501,7 @@ pub const AmdMesFirmwareStaging = struct {
 };
 
 fn stageAmdMesPayload(payload: []const u8, pages: *physical.Allocator) !AmdMesPayloadArea {
-    const page_count: u64 = @intCast((payload.len + 4095) / 4096);
+    const page_count: u64 = @intCast(payload.len / 4096 + @intFromBool(payload.len % 4096 != 0));
     const address = pages.allocate(page_count) orelse return error.OutOfMemory;
     if (address >= (@as(u64, 1) << 44) or page_count > (((@as(u64, 1) << 44) - address) / 4096)) {
         pages.release(address, page_count) catch {};
