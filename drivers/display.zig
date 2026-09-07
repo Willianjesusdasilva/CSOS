@@ -328,7 +328,7 @@ pub const WindowManager = struct {
     }
 
     pub fn launcherItemHitTest(self: *const WindowManager, x: usize, y: usize, screen_height: usize) ?u32 {
-        if (!self.launcher_open or screen_height < launcher_menu_height + 4 or x < 4 or x >= 180) return null;
+        if (!self.launcher_open or screen_height < launcher_menu_height + 4 or y >= screen_height or x < 4 or x >= 180) return null;
         const menu_top = screen_height - launcher_menu_height;
         for (0..launcher_item_count) |index| {
             const item_top = menu_top + 4 + index * 24;
@@ -583,6 +583,8 @@ test "window manager rejects hit tests outside the screen" {
     try std.testing.expect(manager.taskbarHitTest(70, 90, 90) == null);
     try std.testing.expect(manager.launcherButtonHitTest(8, 75, 90));
     try std.testing.expect(!manager.launcherButtonHitTest(8, 90, 90));
+    manager.launcher_open = true;
+    try std.testing.expect(manager.launcherItemHitTest(8, 90, 90) == null);
 }
 
 test "window manager dismisses switcher when closing non-last window" {
