@@ -82,6 +82,7 @@ pub const WindowManager = struct {
 
     pub fn close(self: *WindowManager, index: usize) void {
         if (index >= self.count) return;
+        self.switcher_open = false;
         const old_focused = self.focused;
         var i = index;
         while (i + 1 < self.count) : (i += 1) self.windows[i] = self.windows[i + 1];
