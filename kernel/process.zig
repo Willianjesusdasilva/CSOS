@@ -966,6 +966,8 @@ fn dynamicSymbols(bytes: []const u8, program_offset: u64, program_entry_size: u1
         break;
     }
     const table = dynamic_file orelse return error.DynamicTableMissing;
+    if (dynamic_size < 16 or table > std.math.maxInt(u64) - dynamic_size) return error.InvalidDynamicSymbols;
+    const table_end = table + dynamic_size;
     var symbol_virtual: u64 = 0;
     var string_virtual: u64 = 0;
     var hash_virtual: u64 = 0;
@@ -980,7 +982,7 @@ fn dynamicSymbols(bytes: []const u8, program_offset: u64, program_entry_size: u1
     var version_definition_virtual: u64 = 0;
     var version_definition_count: u64 = 0;
     var offset = table;
-    while (offset + 16 <= table + dynamic_size) : (offset += 16) {
+    while (offset <= table_end - 16) : (offset += 16) {
         const tag = read64From(bytes, @intCast(offset));
         const value = read64From(bytes, @intCast(offset + 8));
         if (tag == 0) break;
