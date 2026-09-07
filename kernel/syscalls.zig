@@ -2655,6 +2655,9 @@ fn poll(address: u64, count: u64, timeout: i64) u64 {
             revents = 0;
         } else if (fd == 0) {
             if (stdin_hook != null and (events & 1) != 0) revents |= 1;
+        } else if (socketIndex(fd)) |socket_index| {
+            if ((events & 1) != 0 and sockets[socket_index].connection != null) revents |= 1;
+            if ((events & 4) != 0 and sockets[socket_index].connection != null) revents |= 4;
         } else if (!vfs.isOpen(fd)) {
             revents = 0x20; // POLLNVAL
         } else {
