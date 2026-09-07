@@ -437,6 +437,9 @@ fn validMappedUserSlice(address: u64, length: u64) callconv(.c) bool {
 fn protectMmap(address: u64, length: u64, writable: bool, executable: bool) callconv(.c) bool {
     const address_space = active_address_space orelse return false;
     if (length > std.math.maxInt(u64) - address) return false;
+    var check: u64 = 0;
+    while (check < length) : (check += @min(@as(u64, page_size), length - check))
+        if (address_space.userPermissions(address + check) == null) return false;
     var offset: u64 = 0;
     while (offset < length) : (offset += @min(@as(u64, page_size), length - offset)) {
         if (!address_space.protectUserPage(address + offset, writable, executable)) return false;
@@ -447,6 +450,9 @@ fn protectMmap(address: u64, length: u64, writable: bool, executable: bool) call
 fn unmapMmap(address: u64, length: u64) callconv(.c) bool {
     const address_space = active_address_space orelse return false;
     if (length > std.math.maxInt(u64) - address) return false;
+    var check: u64 = 0;
+    while (check < length) : (check += @min(@as(u64, page_size), length - check))
+        if (address_space.userPermissions(address + check) == null) return false;
     var offset: u64 = 0;
     while (offset < length) : (offset += @min(@as(u64, page_size), length - offset)) {
         if (address_space.unmapUserPage(address + offset) == null) return false;

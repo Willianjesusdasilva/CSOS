@@ -845,6 +845,8 @@ Mapeamentos anônimos fazem rollback transacional quando uma página falha: os
 mapeamentos parciais são removidos e a memória física é devolvida ao allocator.
 O caminho de MMIO (`mapDevice`) também desfaz mapeamentos anteriores se uma
 página posterior não puder ser instalada.
+`protectMmap` e `unmapMmap` pré-validam toda a região antes da primeira mudança,
+evitando permissões ou desmontagens aplicadas apenas a um prefixo.
 Os passos são espaçados para que o dispositivo USB não coalesça toda a trajetória
 em um único relatório; cada movimento aceito registra posição e delta no serial.
 

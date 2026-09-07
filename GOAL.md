@@ -327,6 +327,8 @@ Mapeamentos anônimos também possuem rollback transacional: uma falha no meio d
 criação remove as páginas já instaladas e devolve a alocação e o ownership.
 Mapeamentos de dispositivo seguem a mesma regra, desfazendo páginas MMIO
 parciais quando uma instalação posterior falha.
+Proteção e desmontagem de regiões fazem pré-validação de todas as páginas antes
+de alterar a primeira, mantendo `mprotect`/`munmap` atômicos perante buracos.
 
 Inventário do host Windows no mesmo snapshot detectou uma AMD Radeon(TM)
 Graphics (`1002:164e`) e uma NVIDIA GeForce RTX 4060 Ti (`10de:2803`), ambas
