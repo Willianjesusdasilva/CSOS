@@ -932,7 +932,7 @@ test "display telemetry counters saturate" {
                 var bit: usize = 0;
                 while (bit < 5) : (bit += 1)
                     if ((column & (@as(u8, 1) << @intCast(4 - bit))) != 0)
-                        self.fillRect(x + index * 14 + bit * 2, y + row * 2, 2, 2, 0x70d0ff);
+                        self.fillRect(x +| index * 14 +| bit * 2, y +| row * 2, 2, 2, 0x70d0ff);
             }
         }
     }
@@ -950,7 +950,7 @@ test "display telemetry counters saturate" {
                 var bit: usize = 0;
                 while (bit < 5) : (bit += 1)
                     if ((column & (@as(u8, 1) << @intCast(4 - bit))) != 0)
-                        self.fillRect(x + index * 12 + bit * 2, y + row * 2, 2, 2, 0xa0b8d0);
+                        self.fillRect(x +| index * 12 +| bit * 2, y +| row * 2, 2, 2, 0xa0b8d0);
             }
         }
     }
