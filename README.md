@@ -881,6 +881,8 @@ A enumeração PCI agora valida ponteiros `next` de capabilities, aceitando apen
 offsets alinhados dentro da região padrão.
 Na inicialização E1000, anéis RX/TX e buffers individuais passam por validação
 de endereço DMA antes de qualquer programação MMIO.
+A inicialização xHCI aplica o mesmo gate aos quatro blocos DMA fundamentais
+antes de configurar os registradores de rings.
 
 Mapeamentos anônimos fazem rollback transacional quando uma página falha: os
 mapeamentos parciais são removidos e a memória física é devolvida ao allocator.

@@ -57,6 +57,8 @@ pub const Controller = struct {
         errdefer pages.release(event_ring, 1) catch {};
         const erst = pages.allocate(1) orelse return error.OutOfMemory;
         errdefer pages.release(erst, 1) catch {};
+        if (!validDmaPage(dcbaa) or !validDmaPage(command_ring) or
+            !validDmaPage(event_ring) or !validDmaPage(erst)) return error.InvalidDmaAddress;
         zeroPage(dcbaa);
         zeroPage(command_ring);
         zeroPage(event_ring);
@@ -997,6 +999,10 @@ fn waitBits(address: u64, mask: u32, set: bool) !void {
 fn zeroPage(address: u64) void {
     const bytes: [*]u8 = @ptrFromInt(address);
     @memset(bytes[0..4096], 0);
+}
+
+fn validDmaPage(address: u64) bool {
+    return address != 0 and address <= std.math.maxInt(u64) - 4095;
 }
 fn timestamp() u64 {
     var low: u32 = undefined;

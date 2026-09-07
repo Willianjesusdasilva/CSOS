@@ -361,6 +361,8 @@ O caminhamento de capabilities PCI rejeita ponteiros não nulos desalinhados ou
 fora do intervalo antes de seguir para o próximo registro.
 O E1000 valida anéis e todos os buffers DMA antes de programar seus registradores,
 recusando endereços fora da máscara do dispositivo.
+O xHCI valida DCBAA, command ring, event ring e ERST antes de escrever seus
+ponteiros nos registradores do controlador.
 
 Mapeamentos anônimos também possuem rollback transacional: uma falha no meio da
 criação remove as páginas já instaladas e devolve a alocação e o ownership.
