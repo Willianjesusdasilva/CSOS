@@ -47,7 +47,7 @@ pub const Device = struct {
     }
 
     pub fn suspendDevice(self: *Device) void {
-        if (self.state == .absent or self.suspended) return;
+        if (self.state == .absent or self.state == .discovered or self.suspended) return;
         self.suspended_streaming = self.state == .streaming;
         self.suspended = true;
         if (self.state == .streaming) self.state = .configured;
@@ -138,6 +138,17 @@ test "audio rediscovery resets stream metrics" {
     try std.testing.expectEqual(@as(u64, 0), subsystem.metrics.submitted);
     try std.testing.expectEqual(@as(u64, 0), subsystem.metrics.completed);
     try std.testing.expectEqual(@as(u8, 0), subsystem.period_index);
+}
+
+test "audio suspension only applies after configuration" {
+    var device = Device{ .state = .discovered, .format = .{ .channels = 2, .bits_per_sample = 16, .sample_rate = 48_000 } };
+    device.suspendDevice();
+    try std.testing.expect(!device.suspended);
+    device.state = .configured;
+    device.suspendDevice();
+    try std.testing.expect(device.suspended);
+    try device.resumeDevice();
+    try std.testing.expect(!device.suspended);
 }
 
 pub const Stream = struct {
