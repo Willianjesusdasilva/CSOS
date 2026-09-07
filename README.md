@@ -844,6 +844,9 @@ físico.
 O scheduler contabiliza o sono de um grupo apenas para threads realmente
 `sleeping`; timers preservados em threads congeladas não aparecem como tempo
 restante falso.
+A pilha inicial ELF valida reservas de strings, bootstrap e vetores
+`argv`/`auxv` antes de escrever, retornando `InitialStackOverflow` quando o
+espaço não é suficiente.
 
 Mapeamentos anônimos fazem rollback transacional quando uma página falha: os
 mapeamentos parciais são removidos e a memória física é devolvida ao allocator.

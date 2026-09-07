@@ -325,6 +325,8 @@ da imagem durante carga ou retomada de página.
 
 O scheduler não reporta mais `sleep_ticks` residuais de threads congeladas;
 somente threads no estado `sleeping` contam para o tempo de sono do grupo.
+A construção da pilha inicial ELF agora valida cada reserva e o tamanho total
+de `argv`/`auxv`, recusando overflow antes de escrever fora da pilha.
 
 Mapeamentos anônimos também possuem rollback transacional: uma falha no meio da
 criação remove as páginas já instaladas e devolve a alocação e o ownership.

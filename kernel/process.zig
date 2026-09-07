@@ -524,11 +524,14 @@ fn buildInitialStack(
     while (reverse > 0) {
         reverse -= 1;
         const argument = arguments[reverse];
-        offset -= argument.len + 1;
+        const argument_bytes = std.math.add(usize, argument.len, 1) catch return error.InitialStackOverflow;
+        if (argument_bytes > offset) return error.InitialStackOverflow;
+        offset -= argument_bytes;
         @memcpy(bytes[offset .. offset + argument.len], argument);
         bytes[offset + argument.len] = 0;
         argument_pointers[reverse] = stack_address + offset;
     }
+    if (offset < 16) return error.InitialStackOverflow;
     offset -= 16;
     const random_pointer = stack_address + offset;
     var random_index: usize = 0;
@@ -542,6 +545,7 @@ fn buildInitialStack(
         const target: *align(1) u64 = @ptrCast(bytes + offset + initializer_index * 8);
         target.* = initializer;
     }
+    if (@sizeOf(MuslBootstrap) > offset) return error.InitialStackOverflow;
     offset -= @sizeOf(MuslBootstrap);
     const bootstrap_pointer = stack_address + offset;
     const bootstrap_target: *align(1) MuslBootstrap = @ptrCast(bytes + offset);
@@ -580,9 +584,15 @@ fn buildInitialStack(
         .{ 0x6002, bootstrap_pointer },
         .{ 0, 0 },
     };
-    const word_count = 1 + arguments.len + 1 + 1 + auxv.len * 2;
+    const word_count = std.math.add(usize, 1 + arguments.len + 1 + 1, auxv.len * 2) catch return error.InitialStackOverflow;
+    const vector_bytes = std.math.mul(usize, word_count, 8) catch return error.InitialStackOverflow;
     offset &= ~@as(usize, 15);
-    if (((offset - word_count * 8) & 15) != 0) offset -= 8;
+    if (vector_bytes > offset) return error.InitialStackOverflow;
+    if (((offset - vector_bytes) & 15) != 0) {
+        if (offset < vector_bytes + 8) return error.InitialStackOverflow;
+        offset -= 8;
+    }
+    if (vector_bytes > offset) return error.InitialStackOverflow;
     var aux_index = auxv.len;
     while (aux_index > 0) {
         aux_index -= 1;
