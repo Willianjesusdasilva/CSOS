@@ -211,6 +211,8 @@ buffer visível do terminal SDL (e preservada no serial), fechando o ciclo de
 execução e feedback visual de aplicações reais.
 O callback agora propaga o status de saída Linux do processo e o terminal exibe
 o valor real em `PROGRAM EXITED N`, distinguindo-o de falha de carregamento.
+O parser de `run` também preserva argumentos agrupados por aspas, permitindo
+invocar applets com texto contendo espaços.
 `echo texto > arquivo` agora cria/trunca e grava no arquivo FAT via callback VFS,
 permitindo alterar dados pela sessão gráfica sem sair do SO.
 `echo texto >> arquivo` também usa o modo append do descritor, permitindo logs

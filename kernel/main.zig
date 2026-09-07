@@ -2702,18 +2702,23 @@ fn runTerminalProgram(command: []const u8) ?u8 {
     var arguments: [8][]const u8 = undefined;
     var count: usize = 1;
     arguments[0] = "/bin/busybox";
-    var rest = command;
-    while (rest.len != 0 and count < arguments.len) {
-        const trimmed = std.mem.trim(u8, rest, " \t");
-        if (trimmed.len == 0) break;
-        const separator = std.mem.indexOfAny(u8, trimmed, " \t") orelse {
-            arguments[count] = trimmed;
-            count += 1;
-            break;
-        };
-        arguments[count] = trimmed[0..separator];
+    var index: usize = 0;
+    while (index < command.len and count < arguments.len) {
+        while (index < command.len and (command[index] == ' ' or command[index] == '\t')) index += 1;
+        if (index >= command.len) break;
+        if (command[index] == '\'' or command[index] == '"') {
+            const quote = command[index];
+            const token_start = index + 1;
+            index = token_start;
+            while (index < command.len and command[index] != quote) index += 1;
+            arguments[count] = command[token_start..index];
+            if (index < command.len) index += 1;
+        } else {
+            const token_start = index;
+            while (index < command.len and command[index] != ' ' and command[index] != '\t') index += 1;
+            arguments[count] = command[token_start..index];
+        }
         count += 1;
-        rest = trimmed[separator..];
     }
     syscalls.console_write_hook = &appendTerminalProgramOutput;
     defer syscalls.console_write_hook = null;
