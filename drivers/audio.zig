@@ -144,12 +144,12 @@ pub const Stream = struct {
     pub fn complete(self: *Stream) !void {
         if (!self.device.ready()) return error.InvalidState;
         if (self.queued == 0) {
-            self.device.underruns += 1;
+            self.device.underruns +%= 1;
             return error.Underrun;
         }
         self.queued -= 1;
         self.queued += 1;
-        self.completed += 1;
+        self.completed +%= 1;
     }
 };
 
@@ -178,19 +178,19 @@ pub const Metrics = struct {
     overruns: u64 = 0,
 
     pub fn recordSubmit(self: *Metrics) void {
-        self.submitted += 1;
+        self.submitted +%= 1;
     }
 
     pub fn recordComplete(self: *Metrics) void {
-        self.completed += 1;
+        self.completed +%= 1;
     }
 
     pub fn recordUnderrun(self: *Metrics) void {
-        self.underruns += 1;
+        self.underruns +%= 1;
     }
 
     pub fn recordOverrun(self: *Metrics) void {
-        self.overruns += 1;
+        self.overruns +%= 1;
     }
 };
 
