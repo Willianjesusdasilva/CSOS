@@ -24,6 +24,7 @@ var mmap_unmap_hook: ?*const fn (u64, u64) callconv(.c) bool = null;
 var device_mmap_hook: ?*const fn (u64, u64, u64, bool) callconv(.c) bool = null;
 var user_slice_hook: ?*const fn (u64, u64) callconv(.c) bool = null;
 var stdin_hook: ?*const fn ([*]u8, usize) callconv(.c) usize = null;
+pub var console_write_hook: ?*const fn ([]const u8) void = null;
 var idle_hook: ?*const fn () callconv(.c) void = null;
 var robust_head: u64 = 0;
 var robust_len: u64 = 0;
@@ -652,6 +653,7 @@ fn writeKernel(fd: u64, bytes: []const u8) !usize {
     if (vfs.isDiskFile(@intCast(fd))) return vfs.write(@intCast(fd), bytes);
     if (!vfs.isConsole(@intCast(fd))) return error.BadFd;
     serial.write(bytes);
+    if (console_write_hook) |hook| hook(bytes);
     if (writes != std.math.maxInt(usize)) writes += 1;
     return bytes.len;
 }
@@ -2884,6 +2886,7 @@ fn write(fd: u64, address: u64, length: u64) u64 {
     if (vfs.isDiskFile(@intCast(fd))) return vfs.write(@intCast(fd), text[0..length_usize]) catch |err| vfsError(err);
     if (!vfs.isConsole(@intCast(fd))) return errno(9);
     serial.write(text[0..length_usize]);
+    if (console_write_hook) |hook| hook(text[0..length_usize]);
     if (writes != std.math.maxInt(usize)) writes += 1;
     return length;
 }

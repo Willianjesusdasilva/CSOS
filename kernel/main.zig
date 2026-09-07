@@ -2715,8 +2715,14 @@ fn runTerminalProgram(command: []const u8) bool {
         count += 1;
         rest = trimmed[separator..];
     }
+    syscalls.console_write_hook = &appendTerminalProgramOutput;
+    defer syscalls.console_write_hook = null;
     process.runBusyBox(desktop_kernel_root, &pages, arguments[0..count]) catch return false;
     return true;
+}
+
+fn appendTerminalProgramOutput(bytes: []const u8) void {
+    sdl_terminal.appendProgramOutput(bytes);
 }
 
 fn drawSdlTerminal(app: *sdl.Application) void {

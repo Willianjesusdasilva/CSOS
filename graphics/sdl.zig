@@ -799,6 +799,10 @@ pub const Terminal = struct {
             self.output_len += 1;
         }
     }
+
+    pub fn appendProgramOutput(self: *Terminal, bytes: []const u8) void {
+        self.append(bytes);
+    }
 };
 
 fn trimCommand(bytes: []const u8) []const u8 {
