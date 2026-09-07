@@ -660,6 +660,9 @@ foco. Isso valida roteamento de input e renderização em QEMU.
 `APP1` também possui entrada de texto ASCII editável: caracteres são exibidos
 com fonte bitmap completa, Backspace remove e setas esquerda/direita movem o
 cursor lógico.
+O campo também oferece `TextInput.clear()` e `Terminal.cancel()` para cancelar
+edições sem poluir histórico ou saída; cursores restaurados fora dos limites são
+normalizados antes de qualquer acesso ao buffer.
 Essa aplicação agora funciona como terminal gráfico não bloqueante: `Enter`
 executa os comandos internos `help`, `status` e `clear`, mantendo a saída na
 janela sem interromper mouse, compositor ou outras aplicações.
