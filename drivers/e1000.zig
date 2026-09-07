@@ -88,6 +88,10 @@ pub const Controller = struct {
         var spins: usize = 0;
         while ((descriptor[12] & 1) == 0 and spins < 1_000_000_000) : (spins += 1) asm volatile ("pause");
         if (spins == 1_000_000_000) return error.ReceiveTimeout;
+        if (!validRxStatus(descriptor[12], descriptor[13])) {
+            self.recycleRx(descriptor);
+            return error.ReceiveError;
+        }
         const length = get16(descriptor + 8);
         if (!validFrameLength(length)) {
             self.recycleRx(descriptor);
@@ -146,11 +150,21 @@ fn validFrameLength(length: usize) bool {
     return length >= 14 and length <= 1514;
 }
 
+fn validRxStatus(status: u8, errors: u8) bool {
+    return (status & 0x03) == 0x03 and errors == 0;
+}
+
 test "e1000 Ethernet frame length stays within hardware limits" {
     try @import("std").testing.expect(!validFrameLength(13));
     try @import("std").testing.expect(validFrameLength(14));
     try @import("std").testing.expect(validFrameLength(1514));
     try @import("std").testing.expect(!validFrameLength(1515));
+}
+
+test "e1000 receive requires complete error-free descriptors" {
+    try @import("std").testing.expect(validRxStatus(0x03, 0));
+    try @import("std").testing.expect(!validRxStatus(0x01, 0));
+    try @import("std").testing.expect(!validRxStatus(0x03, 0x10));
 }
 fn get16(source: [*]volatile u8) u16 { return @as(u16, source[0]) | (@as(u16, source[1]) << 8); }
 
