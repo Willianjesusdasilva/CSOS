@@ -2989,6 +2989,7 @@ fn mmap(requested: u64, length: u64, protection: u64, flags: u64, fd: u64, file_
     const framebuffer_device = !anonymous and vfs.isFramebuffer(@intCast(fd));
     const drm_device = !anonymous and vfs.isDrm(@intCast(fd));
     if (framebuffer_device or drm_device) {
+        if (requested != 0 and (requested & 4095) != 0) return errno(22);
         const drm_object = if (drm_device) drmObjectForMap(file_offset, length) else null;
         if ((flags & 1) == 0 or (protection & 4) != 0 or (drm_device and drm_object == null) or (!drm_device and (file_offset > framebuffer.size or length > framebuffer.size - file_offset))) return errno(22);
         const aligned_length = (length + 4095) & ~@as(u64, 4095);
