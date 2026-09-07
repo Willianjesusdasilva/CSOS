@@ -375,6 +375,8 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         109 => setPgid(arg1, arg2),
         121 => getPgid(arg1),
         124 => getSid(arg1),
+        125 => capGet(arg1, arg2),
+        126 => capSet(arg1, arg2),
         115 => getGroups(arg1, arg2),
         116 => setGroups(arg1, arg2),
         117 => setResUid(arg1, arg2, arg3),
@@ -3073,6 +3075,18 @@ fn setSid() u64 {
 fn getSid(pid: u64) u64 {
     if (pid != 0 and pid != 1) return errno(3);
     return process_session;
+}
+
+fn capGet(header: u64, data: u64) u64 {
+    if (!validUserSlice(header, 8) or !validUserSlice(data, 12)) return errno(14);
+    const output: [*]u8 = @ptrFromInt(data);
+    @memset(output[0..12], 0);
+    return 0;
+}
+
+fn capSet(header: u64, data: u64) u64 {
+    if (!validUserSlice(header, 8) or !validUserSlice(data, 12)) return errno(14);
+    return 0;
 }
 
 fn getResGid(real: u64, effective: u64, saved: u64) u64 {
