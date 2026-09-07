@@ -141,7 +141,7 @@ pub fn spawnProcess(entry: Entry, pages: *physical.Allocator, process_id: u32, g
 pub fn backgroundGroup(group: u16) usize {
     var changed: usize = 0;
     for (threads[0..thread_count]) |*thread| {
-        if (thread.group != group or thread.state == .finished or thread.state == .frozen) continue;
+        if (thread.group != group or thread.state == .finished or thread.state == .frozen or thread.policy == .keep_alive) continue;
         thread.lifecycle = .background;
         changed += 1;
     }
@@ -465,19 +465,21 @@ test "scheduler match mode preserves keep alive threads" {
 
 test "scheduler background group skips frozen and finished threads" {
     const saved_count = thread_count;
-    const saved_threads = threads[0..3].*;
+    const saved_threads = threads[0..4].*;
     defer {
         thread_count = saved_count;
-        threads[0..3].* = saved_threads;
+        threads[0..4].* = saved_threads;
     }
     threads[0] = .{ .context = .{}, .entry = schedulerTestEntry, .state = .ready, .group = 23, .lifecycle = .running };
     threads[1] = .{ .context = .{}, .entry = schedulerTestEntry, .state = .frozen, .group = 23, .lifecycle = .frozen };
     threads[2] = .{ .context = .{}, .entry = schedulerTestEntry, .state = .finished, .group = 23, .lifecycle = .finished };
-    thread_count = 3;
+    threads[3] = .{ .context = .{}, .entry = schedulerTestEntry, .state = .ready, .group = 23, .policy = .keep_alive, .lifecycle = .running };
+    thread_count = 4;
     try std.testing.expectEqual(@as(usize, 1), backgroundGroup(23));
     try std.testing.expectEqual(Lifecycle.background, threads[0].lifecycle);
     try std.testing.expectEqual(Lifecycle.frozen, threads[1].lifecycle);
     try std.testing.expectEqual(Lifecycle.finished, threads[2].lifecycle);
+    try std.testing.expectEqual(Lifecycle.running, threads[3].lifecycle);
 }
 
 test "scheduler game mode freezes without standby" {
