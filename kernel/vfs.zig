@@ -496,7 +496,7 @@ fn toFatName(path: []const u8) ?[11]u8 {
     var extension_index: usize = 8;
     var extension = false;
     for (path[start..]) |character| {
-        if (character == '/') return null;
+        if (character == '/' or character == '\\') return null;
         if (character == '.') { if (extension) return null; extension = true; continue; }
         if ((!extension and name_index == 8) or (extension and extension_index == 11)) return null;
         const upper = if (character >= 'a' and character <= 'z') character - 32 else character;
@@ -512,6 +512,7 @@ test "FAT path conversion rejects extended characters" {
     try std.testing.expect(toFatName("café.txt") == null);
     try std.testing.expect(toFatName("valid.txt") != null);
     try std.testing.expect(toFatName("valid.") == null);
+    try std.testing.expect(toFatName("dir\\file.txt") == null);
 }
 
 fn runtimeLibraryFatAlias(path: []const u8) ?[11]u8 {
