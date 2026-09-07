@@ -542,9 +542,17 @@ pub const Controller = struct {
                 if (endpoint.slot == devices.keyboard.slot) {
                     const pressed = keyboardReportPressed(report[0..size]);
                     const usage = keyboardReportUsage(report[0..size]);
-                    const event_usage = keyboardEventUsage(devices.keyboard_usage, report[0..size]);
-                    const event_pressed = pressed and (usage != 0 or devices.keyboard_usage == 0);
-                    devices.push(.{ .kind = .keyboard, .a = event_usage, .b = if (size > 0) report[0] else 0, .c = @intFromBool(event_pressed) });
+                    const previous_usage = devices.keyboard_usage;
+                    const event_usage = keyboardEventUsage(previous_usage, report[0..size]);
+                    const modifier = if (size > 0) report[0] else 0;
+                    // A boot report can replace one non-modifier key with another
+                    // between polls. Emit the release first so consumers never keep
+                    // the old key logically pressed.
+                    if (pressed and previous_usage != 0 and usage != 0 and usage != previous_usage) {
+                        devices.push(.{ .kind = .keyboard, .a = previous_usage, .b = modifier, .c = 0 });
+                    }
+                    const event_pressed = pressed and (usage != 0 or previous_usage == 0);
+                    devices.push(.{ .kind = .keyboard, .a = event_usage, .b = modifier, .c = @intFromBool(event_pressed) });
                     if (pressed and usage != 0) devices.keyboard_usage = usage else if (!pressed) devices.keyboard_usage = 0;
                 } else {
                     devices.push(.{ .kind = .mouse, .a = if (size > 0) report[0] else 0, .b = if (size > 1) report[1] else 0, .c = if (size > 2) report[2] else 0, .d = if (size > 3) report[3] else 0 });
@@ -866,6 +874,11 @@ test "HID modifier-only reports count as pressed" {
 test "HID keyboard usage skips empty rollover slots" {
     try @import("std").testing.expectEqual(@as(u8, 5), keyboardReportUsage(&[_]u8{ 0, 0, 0, 5, 0, 0, 0, 0 }));
     try @import("std").testing.expectEqual(@as(u8, 0), keyboardReportUsage(&[_]u8{ 0, 0 }));
+}
+
+test "HID keyboard replacement selects the new usage" {
+    const testing = @import("std").testing;
+    try testing.expectEqual(@as(u8, 5), keyboardEventUsage(4, &[_]u8{ 0, 0, 0, 5, 0, 0, 0, 0 }));
 }
 
 test "HID release keeps the usage from the preceding press" {
