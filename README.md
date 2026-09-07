@@ -1657,8 +1657,9 @@ não inicialização Vulkan nem execução na GPU.
 O incremento seguinte adicionou a ordem real de construtores ELF
 (`DT_INIT`/`DT_INIT_ARRAY`). A musl 1.2.5 compartilhada real, compilada com PIC
 e auditada, agora fornece o runtime executável; bootstrap TLS, construtores do
-RADV, descoberta libdrm e `vkCreateInstance` passam no probe de boot limitado.
-Filas, dispositivo e triângulo Vulkan ainda dependem de uma Radeon física.
+RADV e descoberta DRM/KMS passam no probe de boot limitado. O QEMU expõe zero
+dispositivos Vulkan, então filas, dispositivo e triângulo ainda dependem de
+uma Radeon física.
 
 O grande próximo desafio continua sendo a stack gráfica:
 

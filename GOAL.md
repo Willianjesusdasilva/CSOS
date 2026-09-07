@@ -943,9 +943,9 @@ tratado sem enfraquecer a validação dos construtores reais, mas
 boots QEMU limitados reproduziram o fault em `libc.so + 0x15360` e foram
 encerrados automaticamente. A musl 1.2.5 compartilhada real, compilada com PIC
 a partir das fontes e auditada, agora substitui a DSO de stubs; bootstrap TLS,
-construtores do RADV, descoberta libdrm e criação da instância Vulkan passam no
-boot limitado. Ainda faltam dispositivo, filas e command submission numa
-Radeon física.
+construtores do RADV e descoberta DRM/KMS passam no boot limitado. O backend
+Vulkan do dispositivo ainda não aparece no QEMU (device count zero), portanto
+instância, filas e command submission continuam aguardando Radeon física.
 
 1. Inventariar e implementar no loader/ABI do CSOS os requisitos restantes observados pelo `libvulkan_radeon.so` até executar libdrm_amdgpu/RADV real e validar command submission no caminho AMD GFX11 em hardware real.
 2. Validar o primeiro triângulo AMD/RADV em Radeon real suportada.
