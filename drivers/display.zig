@@ -777,11 +777,15 @@ pub const Context = struct {
         self.dirty_top = 0;
         self.dirty_right = 0;
         self.dirty_bottom = 0;
-        self.frames_presented +%= 1;
-        self.pixels_examined +%= examined;
-        self.pixels_presented +%= written;
+        self.frames_presented = saturatingCount(self.frames_presented, 1);
+        self.pixels_examined = saturatingCount(self.pixels_examined, examined);
+        self.pixels_presented = saturatingCount(self.pixels_presented, written);
         return examined;
-    }
+}
+
+fn saturatingCount(value: u64, increment: u64) u64 {
+    return std.math.add(u64, value, increment) catch std.math.maxInt(u64);
+}
 
     pub fn blitSurface(self: *Context, surface: *sdl.Window, x: usize, y: usize) void {
         self.blitSurfaceClipped(surface, x, y, surface.width, surface.height);
