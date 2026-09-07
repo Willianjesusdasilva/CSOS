@@ -335,6 +335,14 @@ test "PCM ring reports full capacity before rejecting enqueue" {
     try std.testing.expectEqual(@as(?u64, 9), ring.dequeue());
 }
 
+test "PCM ring preserves FIFO order across index wrap" {
+    var ring = PcmRing{};
+    for (0..8) |index| try ring.enqueue(@intCast(index));
+    for (0..8) |index| try std.testing.expectEqual(@as(?u64, @intCast(index)), ring.dequeue());
+    for (8..16) |index| try ring.enqueue(@intCast(index));
+    for (8..16) |index| try std.testing.expectEqual(@as(?u64, @intCast(index)), ring.dequeue());
+}
+
 pub const DeviceManager = struct {
     device: Device = .{},
     stream: ?Stream = null,
