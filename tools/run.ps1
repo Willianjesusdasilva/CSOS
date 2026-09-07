@@ -111,7 +111,10 @@ if ($SmokeTestSeconds -gt 0) {
                         $writer.AutoFlush = $true
                         foreach ($key in @('meta_l', 'down', 'down', 'down', 'ret', 'down', 'ret', 'pgdn', 'pgup', 'esc')) {
                             $writer.WriteLine("sendkey $key")
-                            Start-Sleep -Milliseconds 180
+                            # QEMU's PS/2-to-HID path can coalesce adjacent
+                            # key transitions; leave enough time for the
+                            # guest loop to consume each launcher selection.
+                            Start-Sleep -Milliseconds 350
                         }
                     } finally { $writer.Dispose() }
                     $uiInjected = $true

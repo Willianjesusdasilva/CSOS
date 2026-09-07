@@ -2110,7 +2110,8 @@ pub fn start(info: BootInfo) noreturn {
                 launcher_key_down = launcher_shortcut_pressed;
                 if (window_manager.launcher_open) {
                     launcher_consumed = true;
-                    switch (event.a) {
+                    if (event.c != 0) {
+                        switch (event.a) {
                         0x51 => window_manager.launcherSelectNext(),
                         0x52 => window_manager.launcherSelectPrevious(),
                         0x29 => window_manager.launcher_open = false,
@@ -2132,9 +2133,10 @@ pub fn start(info: BootInfo) noreturn {
                             serial.write("\n");
                         },
                         else => {},
+                        }
                     }
                 }
-                if (!launcher_consumed and !tab_switch_pressed and focusedWindowIs(window_manager, 4) and event.a != 0) {
+                if (!launcher_consumed and !tab_switch_pressed and event.c != 0 and focusedWindowIs(window_manager, 4) and event.a != 0) {
                     if (event.a == 0x3e) {
                         root_file_count = refreshFiles(&volume, &root_files, &files_selection, &files_window) catch panic("UI files F5 refresh failed");
                         files_preview_open = false;
@@ -2181,7 +2183,7 @@ pub fn start(info: BootInfo) noreturn {
                 }
                 if (!launcher_consumed and !tab_switch_pressed and focusedWindowIs(window_manager, 1)) {
                     _ = sdl_events.pushKeyboard(event.a, event.a != 0, event.b);
-                    if (event.a != 0) {
+                    if (event.c != 0 and event.a != 0) {
                         if (event.a == 0x0f and (event.b & 0x01) != 0) {
                             sdl_terminal.clearOutput();
                         } else if (event.a == 0x29) {
@@ -2249,7 +2251,7 @@ pub fn start(info: BootInfo) noreturn {
                 }
                 if (!alt_held and !ctrl_held) window_manager.switcher_open = false;
                 alt_tab_down = tab_switch_pressed;
-                const close_shortcut = !launcher_consumed and !switcher_consumed and !file_browser_consumed and (event.a == 0x29 or ((event.b & 0x01) != 0 and event.a == 0x1a));
+                const close_shortcut = event.c != 0 and !launcher_consumed and !switcher_consumed and !file_browser_consumed and (event.a == 0x29 or ((event.b & 0x01) != 0 and event.a == 0x1a));
                 if (close_shortcut and window_manager.focused != null) {
                     const closing = window_manager.focused.?;
                     const closed_id = window_manager.windows[closing].id;
@@ -2260,7 +2262,7 @@ pub fn start(info: BootInfo) noreturn {
                     serial.writeDecimal(closed_id);
                     serial.write("\n");
                 }
-                if (!launcher_consumed and (event.b & 0x01) != 0 and event.a == 0x10 and window_manager.focused != null) {
+                if (event.c != 0 and !launcher_consumed and (event.b & 0x01) != 0 and event.a == 0x10 and window_manager.focused != null) {
                     const toggled = window_manager.focused.?;
                     const window_id = window_manager.windows[toggled].id;
                     const minimized = !window_manager.windows[toggled].minimized;
@@ -2270,7 +2272,7 @@ pub fn start(info: BootInfo) noreturn {
                     serial.writeDecimal(window_id);
                     serial.write("\n");
                 }
-                if (!launcher_consumed and (event.b & 0x01) != 0 and event.a == 0x52 and window_manager.focused != null) {
+                if (event.c != 0 and !launcher_consumed and (event.b & 0x01) != 0 and event.a == 0x52 and window_manager.focused != null) {
                     const toggled = window_manager.focused.?;
                     _ = window_manager.toggleMaximized(toggled, screen.framebuffer.width, screen.framebuffer.height);
                     serial.write(if (window_manager.windows[toggled].maximized) "UI maximize window: " else "UI restore window size: ");
