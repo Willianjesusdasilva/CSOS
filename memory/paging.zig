@@ -1,3 +1,4 @@
+const std = @import("std");
 const physical = @import("physical");
 
 const page_size: u64 = 4096;
@@ -58,6 +59,8 @@ pub const Mapper = struct {
 
     fn identityMapRange(self: *Mapper, start: u64, size: u64) !void {
         if (size == 0) return;
+        if (start > std.math.maxInt(u64) - size or size > std.math.maxInt(u64) - huge_page_size + 1)
+            return error.InvalidPhysicalRange;
         var address = start & ~(huge_page_size - 1);
         const end = (start + size + huge_page_size - 1) & ~(huge_page_size - 1);
         while (address < end) : (address += huge_page_size) try self.mapHuge(address);
