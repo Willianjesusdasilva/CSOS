@@ -329,7 +329,7 @@ pub const WindowManager = struct {
 
     pub fn launcherSelectedApplication(self: *const WindowManager) ?u32 {
         if (!self.launcher_open) return null;
-        return @as(u32, self.launcher_selection) + 1;
+        return @as(u32, self.launcher_selection % launcher_item_count) + 1;
     }
 
     pub fn compose(self: *const WindowManager, context: *Context) void {
@@ -463,6 +463,9 @@ test "window manager focus alt-tab hit-test and close" {
     try std.testing.expect(manager.launcherItemHitTest(20, 62, 128) == null);
     manager.launcher_open = true;
     try std.testing.expectEqual(@as(?u32, 1), manager.launcherSelectedApplication());
+    manager.launcher_selection = 255;
+    try std.testing.expectEqual(@as(?u32, 4), manager.launcherSelectedApplication());
+    manager.launcher_selection = 0;
     manager.launcherSelectNext();
     try std.testing.expectEqual(@as(?u32, 2), manager.launcherSelectedApplication());
     manager.launcherSelectNext();
