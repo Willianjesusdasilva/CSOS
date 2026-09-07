@@ -602,6 +602,7 @@ pub const Controller = struct {
     }
 
     fn getDescriptor(self: *Controller, slot: u8, ring: u64, buffer: u64, value: u16, length: u16) !usize {
+        if (ring == 0) return error.TransferRingMissing;
         if (buffer == 0 or length == 0) return error.DescriptorBufferMissing;
         const trbs: [*]volatile u32 = @ptrFromInt(ring);
         trbs[0] = 0x80 | (6 << 8) | (@as(u32, value) << 16);
@@ -623,6 +624,7 @@ pub const Controller = struct {
     }
 
     fn controlTransfer(self: *Controller, slot: u8, ring: u64, setup: u32, value: u32, length: u16, payload: ?u64) !void {
+        if (ring == 0) return error.TransferRingMissing;
         if (length != 0 and payload == null) return error.ControlTransferBufferMissing;
         const trbs: [*]volatile u32 = @ptrFromInt(ring + @as(u64, self.audio.control_enqueue) * 16);
         trbs[0] = setup;
