@@ -1127,6 +1127,13 @@ test "SDL event queue clear compacts indices and preserves drops" {
     try @import("std").testing.expectEqual(@as(u64, 3), queue.droppedCount());
 }
 
+test "SDL audio queue saturates on frame overflow" {
+    var audio = try AudioDevice.init(.{ .sample_rate = 48_000, .channels = 2 });
+    try @import("std").testing.expectEqual(std.math.maxInt(u64), audio.queue(std.math.maxInt(u64)));
+    try @import("std").testing.expectEqual(std.math.maxInt(u64), audio.queue(1));
+    try @import("std").testing.expectEqual(std.math.maxInt(u64), audio.queuedFrames());
+}
+
 test "SDL list selection normalizes zero visible rows" {
     var selection = ListSelection{ .visible_rows = 0 };
     selection.setCount(3);
