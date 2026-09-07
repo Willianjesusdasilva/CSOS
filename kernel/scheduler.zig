@@ -426,6 +426,22 @@ test "scheduler freeze and resume preserve sleeping state" {
     try std.testing.expectEqual(Lifecycle.resuming, threads[0].lifecycle);
 }
 
+test "scheduler queue rejects the entry beyond capacity" {
+    const saved_cpu_count = cpu_count;
+    const saved_queue = cpu_queues[0];
+    const saved_id = cpu_ids[0];
+    defer {
+        cpu_count = saved_cpu_count;
+        cpu_queues[0] = saved_queue;
+        cpu_ids[0] = saved_id;
+    }
+    cpu_count = 1;
+    cpu_ids[0] = 7;
+    cpu_queues[0] = .{};
+    for (0..queue_capacity) |_| try enqueue(7, schedulerTestEntry);
+    try std.testing.expectError(error.QueueFull, enqueue(7, schedulerTestEntry));
+}
+
 fn saveFxState(state: *[512]u8) void {
     asm volatile ("fxsave64 (%[state])"
         :
