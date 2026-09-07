@@ -1093,9 +1093,12 @@ fn applySymbolTable(consumer: []const u8, consumer_base: u64, consumer_module: u
 
 fn requiredSymbolVersion(bytes: []const u8, symbols: DynamicSymbols, symbol_index: u32) !?[]const u8 {
     if (symbols.version_file == 0 or symbols.version_need_file == 0) return null;
-    const version_index = read16From(bytes, @intCast(symbols.version_file + @as(u64, symbol_index) * 2)) & 0x7fff;
+    const version_address = std.math.add(u64, symbols.version_file, std.math.mul(u64, symbol_index, 2) catch return error.InvalidVersionNeed) catch return error.InvalidVersionNeed;
+    const version_offset = std.math.cast(usize, version_address) orelse return error.InvalidVersionNeed;
+    if (version_offset > bytes.len or bytes.len - version_offset < 2) return error.InvalidVersionNeed;
+    const version_index = read16From(bytes, version_offset) & 0x7fff;
     if (version_index <= 1) return null;
-    var need_offset: usize = @intCast(symbols.version_need_file);
+    var need_offset: usize = std.math.cast(usize, symbols.version_need_file) orelse return error.InvalidVersionNeed;
     var need_index: u64 = 0;
     while (need_index < symbols.version_need_count) : (need_index += 1) {
         if (need_offset > bytes.len or bytes.len - need_offset < 16) return error.InvalidVersionNeed;
@@ -1122,9 +1125,12 @@ fn requiredSymbolVersion(bytes: []const u8, symbols: DynamicSymbols, symbol_inde
 
 fn definedSymbolVersion(bytes: []const u8, symbols: DynamicSymbols, symbol_index: u32) !?[]const u8 {
     if (symbols.version_file == 0 or symbols.version_definition_file == 0) return null;
-    const version_index = read16From(bytes, @intCast(symbols.version_file + @as(u64, symbol_index) * 2)) & 0x7fff;
+    const version_address = std.math.add(u64, symbols.version_file, std.math.mul(u64, symbol_index, 2) catch return error.InvalidVersionDefinition) catch return error.InvalidVersionDefinition;
+    const version_offset = std.math.cast(usize, version_address) orelse return error.InvalidVersionDefinition;
+    if (version_offset > bytes.len or bytes.len - version_offset < 2) return error.InvalidVersionDefinition;
+    const version_index = read16From(bytes, version_offset) & 0x7fff;
     if (version_index <= 1) return null;
-    var definition: usize = @intCast(symbols.version_definition_file);
+    var definition: usize = std.math.cast(usize, symbols.version_definition_file) orelse return error.InvalidVersionDefinition;
     var definition_index: u64 = 0;
     while (definition_index < symbols.version_definition_count) : (definition_index += 1) {
         if (definition > bytes.len or bytes.len - definition < 20) return error.InvalidVersionDefinition;

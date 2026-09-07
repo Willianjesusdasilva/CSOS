@@ -867,6 +867,8 @@ Relocations com índice fora da tabela são rejeitadas antes de ler entradas de
 24 bytes, incluindo overflow na conversão do offset para `usize`.
 O parser dinâmico também valida o tamanho da tabela contra o buffer e protege
 os saltos e offsets das tabelas de versões.
+As leituras de `versym` passaram a validar o endereço completo e o tamanho
+restante do buffer antes de acessar o índice de versão.
 
 Mapeamentos anônimos fazem rollback transacional quando uma página falha: os
 mapeamentos parciais são removidos e a memória física é devolvida ao allocator.

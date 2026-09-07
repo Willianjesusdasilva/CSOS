@@ -348,6 +348,8 @@ antes de gravar o destino, rejeitando endereços que ultrapassem `u64`.
 `symbol_count`, com offsets de entradas convertidos de forma checked.
 `dynamicSymbols` exige que a tabela dinâmica caiba no objeto e os caminhos
 `DT_VERNEED`/`DT_VERDEF` usam somas checked para avançar e resolver strings.
+Os índices `versym` agora validam multiplicação, soma, conversão e dois bytes
+disponíveis antes de ler versões exigidas ou definidas.
 
 Mapeamentos anônimos também possuem rollback transacional: uma falha no meio da
 criação remove as páginas já instaladas e devolve a alocação e o ownership.
