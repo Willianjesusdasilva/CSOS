@@ -3611,6 +3611,13 @@ fn inRegion(address: u64, length: u64, base: u64, size: u64) bool {
     return address - base <= size - length;
 }
 
+test "syscall region checks include exact edges without wrapping" {
+    try std.testing.expect(inRegion(0x1000, 0x1000, 0x1000, 0x2000));
+    try std.testing.expect(inRegion(0x2000, 0x1000, 0x1000, 0x2000));
+    try std.testing.expect(!inRegion(0x2001, 0x1000, 0x1000, 0x2000));
+    try std.testing.expect(!inRegion(std.math.maxInt(u64) - 3, 8, 0, std.math.maxInt(u64)));
+}
+
 fn errno(value: i64) u64 {
     return @bitCast(-value);
 }
