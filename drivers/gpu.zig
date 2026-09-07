@@ -7279,20 +7279,26 @@ pub fn prepareAmdPspHandoff(images: AmdPspBootImages, profile: AmdPspMailboxProf
         return error.InvalidAmdPspHandoffOrder;
     var maximum_bytes: u64 = 0;
     for (result.steps[0..result.count]) |step| maximum_bytes = @max(maximum_bytes, step.bytes);
-    const transfer_pages = (maximum_bytes + 4095) / 4096;
+    const rounded_bytes = std.math.add(u64, maximum_bytes, 4095) catch return error.InvalidAmdPspTransferReservation;
+    const transfer_pages = rounded_bytes / 4096;
     const alignment_pages: u64 = 256;
-    const reservation_pages = transfer_pages + alignment_pages - 1;
+    const reservation_pages = std.math.add(u64, transfer_pages, alignment_pages - 1) catch return error.InvalidAmdPspTransferReservation;
     const reservation = pages.allocate(reservation_pages) orelse return error.OutOfMemory;
-    const transfer = (reservation + 1024 * 1024 - 1) & ~@as(u64, 1024 * 1024 - 1);
     result.reservation_address = reservation;
     result.reservation_pages = reservation_pages;
-    if (transfer < reservation or transfer + transfer_pages * 4096 > reservation + reservation_pages * 4096)
+    const aligned_reservation = std.math.add(u64, reservation, 1024 * 1024 - 1) catch return error.InvalidAmdPspTransferReservation;
+    const transfer = aligned_reservation & ~@as(u64, 1024 * 1024 - 1);
+    const transfer_bytes = std.math.mul(u64, transfer_pages, 4096) catch return error.InvalidAmdPspTransferReservation;
+    const transfer_end = std.math.add(u64, transfer, transfer_bytes) catch return error.InvalidAmdPspTransferReservation;
+    const reservation_bytes = std.math.mul(u64, reservation_pages, 4096) catch return error.InvalidAmdPspTransferReservation;
+    const reservation_end = std.math.add(u64, reservation, reservation_bytes) catch return error.InvalidAmdPspTransferReservation;
+    if (transfer < reservation or transfer_end > reservation_end)
         return error.InvalidAmdPspTransferReservation;
     result.transfer_address = transfer;
     result.transfer_pages = transfer_pages;
     result.state = .ready;
     const target: [*]u8 = @ptrFromInt(transfer);
-    @memset(target[0 .. transfer_pages * 4096], 0);
+    @memset(target[0 .. @intCast(transfer_bytes)], 0);
     return result;
 }
 
