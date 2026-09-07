@@ -556,7 +556,8 @@ fn skipDnsName(message: []const u8, start: usize) !usize {
 
 fn validDnsResponse(response: []const u8, transaction: u16) bool {
     return response.len >= 12 and get16(response[0..]) == transaction and
-        (get16(response[2..]) & 0x800f) == 0x8000 and get16(response[6..]) != 0;
+        (get16(response[2..]) & 0x780f) == 0x0000 and (get16(response[2..]) & 0x8000) != 0 and
+        get16(response[6..]) != 0;
 }
 
 // TCP sequence arithmetic is modulo 2^32. Values in the forward half of the
@@ -579,6 +580,14 @@ test "DNS name skipping rejects malformed labels and accepts compression" {
     var malformed = [_]u8{0} ** 65;
     malformed[0] = 64;
     try testing.expectError(error.InvalidDnsReply, skipDnsName(&malformed, 0));
+}
+
+test "DNS response validation rejects non-query opcodes" {
+    var response = [_]u8{0} ** 12;
+    put16(response[0..], 0x4353);
+    put16(response[2..], 0x8800);
+    put16(response[6..], 1);
+    try @import("std").testing.expect(!validDnsResponse(&response, 0x4353));
 }
 
 test "DNS wire names enforce encoded length and label limits" {
