@@ -60,6 +60,7 @@ var migrations: u64 = 0;
 
 pub fn addCpu(apic_id: u32) !void {
     if (cpu_count == max_cpus) return error.CpuLimit;
+    for (cpu_ids[0..cpu_count]) |known| if (known == apic_id) return error.DuplicateCpu;
     cpu_ids[cpu_count] = apic_id;
     cpu_queues[cpu_count] = .{};
     cpu_count += 1;
