@@ -82,6 +82,7 @@ pub const EventQueue = struct {
     }
 
     pub fn clear(self: *EventQueue) void {
+        // Discard pending input but preserve the drop counter for diagnostics.
         self.read = self.write;
     }
 
