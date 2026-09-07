@@ -2347,7 +2347,7 @@ pub fn start(info: BootInfo) noreturn {
                     const hovered = window_manager.contentRectHitTest(window_manager.focused.?, cursor_x, cursor_y, 164, 2, 58, 12);
                     if (hovered != files_preview_back_hover) {
                         files_preview_back_hover = hovered;
-                        _ = loadFilePreview(&volume, root_files[files_selection.selected], &files_preview_pager, &files_preview, &files_window) catch panic("UI file preview hover redraw failed");
+                        drawFilePreviewBackButton(&files_window, hovered);
                     }
                 }
                 if (!files_preview_open and pointer_state_changed and root_file_count != 0) {
@@ -2629,8 +2629,7 @@ fn drawFilePreview(window: *sdl.Window, entry: fat16.Volume.DirectoryEntry, offs
     window.clear(0x181c20ff);
     window.drawText(4, 4, &entry.name, 0xf0c080ff);
     drawSurfaceNumber(window, 108, 4, @intCast(offset), 0x90b0d0ff);
-    window.fillRect(164, 2, 58, 12, if (files_preview_back_hover) 0x806040ff else 0x50402cff);
-    window.drawText(172, 4, "BACK", 0xf0d8b0ff);
+    drawFilePreviewBackButton(window, files_preview_back_hover);
     var line: [26]u8 = undefined;
     var line_length: usize = 0;
     var row: usize = 0;
@@ -2646,6 +2645,11 @@ fn drawFilePreview(window: *sdl.Window, entry: fat16.Volume.DirectoryEntry, offs
         line_length += 1;
     }
     if (row < 6 and line_length != 0) window.drawText(4, 20 + row * 12, line[0..line_length], 0xd8e0e8ff);
+}
+
+fn drawFilePreviewBackButton(window: *sdl.Window, hovered: bool) void {
+    window.fillRect(164, 2, 58, 12, if (hovered) 0x806040ff else 0x50402cff);
+    window.drawText(172, 4, "BACK", 0xf0d8b0ff);
 }
 
 fn drawMonitorSurface(window: *sdl.Window, screen: *const display.Context) void {
