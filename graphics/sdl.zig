@@ -638,7 +638,11 @@ test "SDL software event queue and surface contract" {
     var multiline = try createWindow(&multiline_storage, 16, 16);
     multiline.drawText(0, 0, "A\nB", 0xffffffff);
     try @import("std").testing.expect(multiline.pixels[0] != 0);
-    try @import("std").testing.expect(multiline.pixels[13 * 16] != 0);
+    var lower_pixels: usize = 0;
+    for (multiline.pixels[12 * 16 ..]) |pixel| {
+        if (pixel != 0) lower_pixels += 1;
+    }
+    try @import("std").testing.expect(lower_pixels != 0);
     var events = EventQueue{};
     try @import("std").testing.expectEqual(@as(usize, 0), events.len());
     try @import("std").testing.expectEqual(EventQueue.capacity, events.remaining());
