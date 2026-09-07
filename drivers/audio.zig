@@ -468,7 +468,8 @@ pub const DeviceManager = struct {
 
     pub fn recover(self: *DeviceManager) !void {
         if (!self.needsRecovery()) return;
-        self.stream = null;
+        const stream = try Stream.init(self.device.format);
+        self.stream = stream;
         self.metrics = .{};
         self.device.state = .configured;
     }
@@ -866,6 +867,19 @@ test "device manager reset clears stream mixer and metrics" {
     try std.testing.expectEqual(@as(u8, 100), manager.mixer.volume);
     try std.testing.expect(!manager.mixer.muted);
     try std.testing.expectEqual(@as(u64, 0), manager.metrics.submitted);
+}
+
+test "device manager rebuilds stream during recovery" {
+    var manager = DeviceManager{};
+    try manager.attach(.{ .channels = 2, .bits_per_sample = 16, .sample_rate = 48_000 }, 1000, 4096);
+    try manager.configure();
+    try manager.start();
+    try std.testing.expectError(error.QueueEmpty, manager.noteComplete());
+    try std.testing.expect(manager.needsRecovery());
+    try manager.restart();
+    try std.testing.expect(manager.device.state == .streaming);
+    try std.testing.expect(manager.stream != null);
+    try std.testing.expectEqual(@as(u64, 0), manager.metrics.underruns);
 }
 
 test "device resume preserves non-streaming state" {
