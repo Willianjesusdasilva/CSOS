@@ -42,3 +42,14 @@ fn appendHex(record: *Record, value: u64) void {
     }
     append(record, digits[index..]);
 }
+
+test "installer completion record matches only exact current signature" {
+    const record = completed(0xabcdef);
+    try @import("std").testing.expect(matches(record.text(), 0xabcdef));
+    try @import("std").testing.expect(!matches(record.text(), 0xabcdee));
+    try @import("std").testing.expect(!matches(record.text()[0 .. record.length - 1], 0xabcdef));
+    var extended: [65]u8 = undefined;
+    @memcpy(extended[0..record.length], record.text());
+    extended[record.length] = 0;
+    try @import("std").testing.expect(!matches(extended[0 .. record.length + 1], 0xabcdef));
+}

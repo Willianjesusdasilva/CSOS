@@ -275,6 +275,14 @@ pub fn build(b: *std.Build) void {
     const run_hardware_profile_tests = b.addRunArtifact(hardware_profile_tests);
     test_step.dependOn(&run_hardware_profile_tests.step);
     const installer_state_module = b.createModule(.{ .root_source_file = b.path("installer/state.zig") });
+    const installer_state_test_module = b.createModule(.{
+        .root_source_file = b.path("installer/state.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+    });
+    const installer_state_tests = b.addTest(.{ .root_module = installer_state_test_module });
+    const run_installer_state_tests = b.addRunArtifact(installer_state_tests);
+    test_step.dependOn(&run_installer_state_tests.step);
     const e1000_module = b.createModule(.{ .root_source_file = b.path("drivers/e1000.zig") });
     e1000_module.addImport("pci", pci_module);
     e1000_module.addImport("physical", physical_module);
