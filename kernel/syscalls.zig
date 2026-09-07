@@ -3225,7 +3225,8 @@ fn schedGetAffinity(pid: u64, size: u64, mask: u64) u64 {
 }
 
 fn schedSetAffinity(pid: u64, size: u64, mask: u64) u64 {
-    if (pid != 0 and pid != 1 or size < 8 or !validUserSlice(mask, size)) return errno(22);
+    if (pid != 0 and pid != 1) return errno(3);
+    if (size < 8 or !validUserSlice(mask, size)) return errno(22);
     const bytes: [*]const u8 = @ptrFromInt(mask);
     if ((bytes[0] & 1) == 0) return errno(22);
     var index: u64 = 1;
