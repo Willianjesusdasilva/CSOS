@@ -83,6 +83,7 @@ pub const WindowManager = struct {
     pub fn close(self: *WindowManager, index: usize) void {
         if (index >= self.count) return;
         self.launcher_open = false;
+        self.launcher_selection = 0;
         self.switcher_open = false;
         const old_focused = self.focused;
         var i = index;
@@ -544,9 +545,11 @@ test "window manager dismisses switcher when closing non-last window" {
     _ = try manager.create(.{ .id = 2, .x = 4, .y = 4, .width = 64, .height = 48 });
     manager.switcher_open = true;
     manager.launcher_open = true;
+    manager.launcher_selection = 3;
     manager.close(0);
     try std.testing.expect(!manager.switcher_open);
     try std.testing.expect(!manager.launcher_open);
+    try std.testing.expectEqual(@as(u8, 0), manager.launcher_selection);
     try std.testing.expectEqual(@as(usize, 1), manager.count);
 }
 
