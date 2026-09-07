@@ -3259,8 +3259,13 @@ fn sysinfo(output: u64) u64 {
 
 fn times(output: u64) u64 {
     if (output != 0 and !validUserSlice(output, 32)) return errno(14);
-    if (output != 0) @memset(@as([*]u8, @ptrFromInt(output))[0..32], 0);
-    return 0;
+    const ticks = monotonic_time_ns / 10_000_000; // USER_HZ=100
+    if (output != 0) {
+        const bytes: [*]u8 = @ptrFromInt(output);
+        @memset(bytes[0..32], 0);
+        put64(bytes, ticks);
+    }
+    return ticks;
 }
 
 fn setRlimit(resource: u64, address: u64) u64 {
