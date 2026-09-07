@@ -159,7 +159,7 @@ fn amdgpuAbiTestSubmit(_: *anyopaque, vmid: u4, ibs: []const gpu.AmdGfx11Indirec
     if (vmid != 1 or ibs.len == 0 or ibs.len > 2) return error.InvalidAmdGpuAbiTestSubmission;
     for (ibs, 0..) |ib, index| if (ib.address != 0x4000 + index * 16 or ib.dwords != 4)
         return error.InvalidAmdGpuAbiTestSubmission;
-    amdgpu_abi_test_dispatches +%= 1;
+    if (amdgpu_abi_test_dispatches != std.math.maxInt(u32)) amdgpu_abi_test_dispatches += 1;
     return 0x100 + amdgpu_abi_test_dispatches;
 }
 
@@ -613,7 +613,7 @@ fn writeKernel(fd: u64, bytes: []const u8) !usize {
     if (vfs.isDiskFile(@intCast(fd))) return vfs.write(@intCast(fd), bytes);
     if (!vfs.isConsole(@intCast(fd))) return error.BadFd;
     serial.write(bytes);
-    writes +%= 1;
+    if (writes != std.math.maxInt(usize)) writes += 1;
     return bytes.len;
 }
 
@@ -2822,7 +2822,7 @@ fn write(fd: u64, address: u64, length: u64) u64 {
     if (vfs.isDiskFile(@intCast(fd))) return vfs.write(@intCast(fd), text[0..@intCast(length)]) catch |err| vfsError(err);
     if (!vfs.isConsole(@intCast(fd))) return errno(9);
     serial.write(text[0..@intCast(length)]);
-    writes +%= 1;
+    if (writes != std.math.maxInt(usize)) writes += 1;
     return length;
 }
 

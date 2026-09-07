@@ -2070,7 +2070,7 @@ pub fn start(info: BootInfo) noreturn {
     var cursor_x: usize = @as(usize, screen.framebuffer.width) / 2;
     var cursor_y: usize = @as(usize, screen.framebuffer.height) / 2;
     while (true) {
-        display_ticks +%= 1;
+        if (display_ticks != std.math.maxInt(u64)) display_ticks += 1;
         if ((display_ticks & 0xfffff) == 0) {
             screen.heartbeat(@intCast(display_ticks >> 20));
             if (screen.present() == 0) panic("display heartbeat presentation failed");
