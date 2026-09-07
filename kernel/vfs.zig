@@ -423,7 +423,7 @@ pub fn getDents(fd: usize, output: []u8) !usize {
     while (descriptors[fd].offset < entries.len) {
         const name = entries[descriptors[fd].offset];
         const record_length = (19 + name.len + 1 + 7) & ~@as(usize, 7);
-        if (record_length > output.len - written) break;
+        if (written > output.len or record_length > output.len - written) break;
         @memset(output[written .. written + record_length], 0);
         write64(output[written..], descriptors[fd].offset + 1);
         write64(output[written + 8 ..], descriptors[fd].offset + 1);
