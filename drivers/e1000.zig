@@ -62,7 +62,7 @@ pub const Controller = struct {
     }
 
     pub fn send(self: *Controller, frame: []const u8) !void {
-        if (frame.len == 0) return error.FrameTooSmall;
+        if (frame.len < 14) return error.FrameTooSmall;
         if (frame.len > 1514) return error.FrameTooLarge;
         const buffer: [*]u8 = @ptrFromInt(self.tx_buffer);
         @memcpy(buffer[0..frame.len], frame);
