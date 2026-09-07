@@ -210,7 +210,8 @@ pub const Controller = struct {
     }
 
     pub fn audioFormatFits(self: *const Controller) bool {
-        if (self.audio.sample_rate == 0 or self.audio.channels == 0 or self.audio.bits_per_sample == 0) return false;
+        if (self.audio.sample_rate == 0 or self.audio.channels == 0 or self.audio.bits_per_sample == 0 or
+            self.audio.bits_per_sample % 8 != 0) return false;
         const bytes_per_second = @as(u64, self.audio.sample_rate) *
             @as(u64, self.audio.channels) *
             (@as(u64, self.audio.bits_per_sample) / 8);
