@@ -565,6 +565,23 @@ test "scheduler sleep accounting ignores finished threads" {
     try std.testing.expectEqual(@as(u64, 3), groupSleepTicks(12));
 }
 
+test "scheduler tick wakes expired sleepers but preserves frozen state" {
+    const saved_count = thread_count;
+    const saved_threads = threads[0..2].*;
+    defer {
+        thread_count = saved_count;
+        threads[0..2].* = saved_threads;
+    }
+    threads[0] = .{ .context = .{}, .entry = schedulerTestEntry, .state = .sleeping, .group = 13, .sleep_ticks = 1 };
+    threads[1] = .{ .context = .{}, .entry = schedulerTestEntry, .state = .frozen, .group = 13, .sleep_ticks = 4 };
+    thread_count = 2;
+    tick();
+    try std.testing.expectEqual(State.ready, threads[0].state);
+    try std.testing.expectEqual(@as(u64, 0), threads[0].sleep_ticks);
+    try std.testing.expectEqual(State.frozen, threads[1].state);
+    try std.testing.expectEqual(@as(u64, 4), threads[1].sleep_ticks);
+}
+
 test "scheduler queue rejects the entry beyond capacity" {
     const saved_cpu_count = cpu_count;
     const saved_queue = cpu_queues[0];
