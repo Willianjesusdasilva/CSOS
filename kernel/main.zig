@@ -2246,6 +2246,11 @@ pub fn start(info: BootInfo) noreturn {
             const dx: i8 = @bitCast(event.b);
             const dy: i8 = @bitCast(event.c);
             const wheel: i8 = @bitCast(event.d);
+            if (wheel != 0) {
+                serial.write("UI mouse wheel: ");
+                serial.writeDecimal(@as(i16, wheel));
+                serial.write("\n");
+            }
             // A HID report may carry movement and a button transition together.
             // Hit-test at the position represented by that report, not at the
             // previous report's coordinates.
