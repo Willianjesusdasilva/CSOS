@@ -692,6 +692,8 @@ terminal.
 real, tornando o terminal capaz de persistir dados durante a sessão.
 O formato `echo texto >> arquivo` preserva o conteúdo existente e acrescenta uma
 nova linha, usando o modo append do VFS.
+`rm arquivo` remove um arquivo regular do diretório FAT raiz e devolve seus
+clusters ao espaço livre.
 Espaços e tabulações nas bordas do comando são ignorados, permitindo, por
 exemplo, executar `  status  ` sem gerar um comando desconhecido.
 Setas para cima/baixo percorrem o histórico, Home/End movem o cursor, Delete

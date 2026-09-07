@@ -363,6 +363,15 @@ pub fn write(fd: usize, input: []const u8) !usize {
     return input.len;
 }
 
+pub fn unlinkAt(directory_fd: i64, path: []const u8) !void {
+    if (toFatName(path)) |fat_name| if (disk) |volume| {
+        try volume.deleteRootFile(&fat_name);
+        return;
+    };
+    _ = try resolve(directory_fd, path);
+    return error.ReadOnly;
+}
+
 pub fn seek(fd: usize, offset: i64, whence: u64) !usize {
     if (fd >= descriptors.len or descriptors[fd].kind != .file) return error.BadFd;
     const size = std.math.cast(i64, descriptors[fd].size) orelse return error.Invalid;

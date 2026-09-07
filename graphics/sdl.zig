@@ -581,12 +581,14 @@ pub const Terminal = struct {
     pub const DirectoryReader = *const fn (output: []u8) ?[]const u8;
     pub const StatReader = *const fn (path: []const u8, output: []u8) ?[]const u8;
     pub const FileWriter = *const fn (path: []const u8, contents: []const u8, append: bool) bool;
+    pub const FileRemover = *const fn (path: []const u8) bool;
     input: TextInput = .{},
     output: [256]u8 = undefined,
     file_reader: ?FileReader = null,
     directory_reader: ?DirectoryReader = null,
     stat_reader: ?StatReader = null,
     file_writer: ?FileWriter = null,
+    file_remover: ?FileRemover = null,
     file_scratch: [128]u8 = undefined,
     output_len: usize = 0,
     history: [4][64]u8 = undefined,
@@ -609,7 +611,7 @@ pub const Terminal = struct {
             self.append(command);
             self.append("\n");
             if (bytesEqualIgnoreCase(command, "help"))
-                self.append("HELP CLEAR RESET STATUS VERSION WHOAMI PWD LS CAT STAT ECHO HISTORY [TEXT] ECHO > FILE\n")
+                self.append("HELP CLEAR RESET STATUS VERSION WHOAMI PWD LS CAT STAT RM ECHO HISTORY [TEXT] ECHO > FILE\n")
             else if (bytesEqualIgnoreCase(command, "status"))
                 self.append("CSOS READY\n")
             else if (bytesEqualIgnoreCase(command, "version"))
@@ -641,6 +643,12 @@ pub const Terminal = struct {
                 } else if (bytesEqualIgnoreCase(path, "hello.txt") or bytesEqualIgnoreCase(path, "/hello.txt")) {
                     self.append("Hello from initramfs\n");
                 } else self.append("cat: FILE NOT FOUND\n");
+            }
+            else if (command.len >= 3 and bytesEqualIgnoreCase(command[0..3], "rm ")) {
+                const path = trimCommand(command[3..]);
+                if (path.len == 0) self.append("rm: MISSING FILE\n") else if (self.file_remover) |remover| {
+                    if (remover(path)) self.append("OK\n") else self.append("rm: FILE NOT FOUND\n");
+                } else self.append("rm: VFS UNAVAILABLE\n");
             }
             else if (bytesEqualIgnoreCase(command, "echo"))
                 self.append("ECHO READY\n")
@@ -977,6 +985,10 @@ fn testFileWriter(path: []const u8, contents: []const u8, append: bool) bool {
     return bytesEqual(path, "notes.txt") and bytesEqual(contents, if (append) "again" else "hello") and append;
 }
 
+fn testFileRemover(path: []const u8) bool {
+    return bytesEqual(path, "notes.txt");
+}
+
 test "SDL software event queue and surface contract" {
     try @import("std").testing.expectEqual(std.math.maxInt(i32), saturatingAdd(std.math.maxInt(i32), 1));
     try @import("std").testing.expectEqual(std.math.minInt(i32), saturatingAdd(std.math.minInt(i32), -1));
@@ -1259,7 +1271,7 @@ test "SDL software event queue and surface contract" {
     terminal.clearOutput();
     terminal.input.replace("help");
     try @import("std").testing.expect(terminal.submit());
-    try @import("std").testing.expectEqualStrings("> help\nHELP CLEAR RESET STATUS VERSION WHOAMI PWD LS CAT STAT ECHO HISTORY [TEXT] ECHO > FILE\n", terminal.outputSlice());
+    try @import("std").testing.expectEqualStrings("> help\nHELP CLEAR RESET STATUS VERSION WHOAMI PWD LS CAT STAT RM ECHO HISTORY [TEXT] ECHO > FILE\n", terminal.outputSlice());
     terminal.clearOutput();
     terminal.file_writer = &testFileWriter;
     terminal.input.replace("echo hello > notes.txt");
@@ -1269,6 +1281,11 @@ test "SDL software event queue and surface contract" {
     terminal.input.replace("echo again >> notes.txt");
     try @import("std").testing.expect(terminal.submit());
     try @import("std").testing.expectEqualStrings("> echo again >> notes.txt\nOK\n", terminal.outputSlice());
+    terminal.clearOutput();
+    terminal.file_remover = &testFileRemover;
+    terminal.input.replace("rm notes.txt");
+    try @import("std").testing.expect(terminal.submit());
+    try @import("std").testing.expectEqualStrings("> rm notes.txt\nOK\n", terminal.outputSlice());
     terminal.clearOutput();
     terminal.input.replace("cat /hello.txt");
     try @import("std").testing.expect(terminal.submit());
