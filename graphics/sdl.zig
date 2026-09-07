@@ -503,6 +503,7 @@ pub const AudioDevice = struct {
     }
 
     pub fn queue(self: *AudioDevice, frames: u64) u64 {
+        // Return the post-operation depth so callers can apply backpressure.
         const result = @addWithOverflow(self.queued_frames, frames);
         self.queued_frames = if (result[1] != 0) ~@as(u64, 0) else result[0];
         return self.queued_frames;
