@@ -753,13 +753,21 @@ fn loadSegment(
                 .reclaimable = reclaimable,
             };
             mapping_count.* += 1;
-        } else if (writable) {
+        } else {
+            var merged_writable = false;
+            var merged_executable = false;
             for (mappings[0..mapping_count.*]) |*mapping| {
-                if (mapping.virtual == page_virtual) mapping.writable = true;
+                if (mapping.virtual != page_virtual) continue;
+                if (writable) mapping.writable = true;
+                if (executable) mapping.executable = true;
+                merged_writable = mapping.writable;
+                merged_executable = mapping.executable;
             }
-        } else if (executable) {
-            for (mappings[0..mapping_count.*]) |*mapping| {
-                if (mapping.virtual == page_virtual) mapping.executable = true;
+            // PT_LOAD ranges may share their first/last page. Keep the page
+            // table flags in sync with the merged mapping metadata.
+            if (writable or executable) {
+                if (!address_space.protectUserPage(page_virtual, merged_writable, merged_executable))
+                    return error.MappingMissing;
             }
         }
 
