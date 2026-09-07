@@ -498,6 +498,7 @@ fn clockNanosleep(clock: u64, flags: u64, request: u64, remaining: u64) u64 {
     if (nanoseconds >= 1_000_000_000) return errno(22);
     if (remaining != 0 and !validUserSlice(remaining, 16)) return errno(14);
     if (seconds != 0 or nanoseconds != 0) if (idle_hook) |hook| hook();
+    if (remaining != 0) @memset(@as([*]u8, @ptrFromInt(remaining))[0..16], 0);
     return 0;
 }
 
