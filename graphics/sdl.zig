@@ -158,6 +158,7 @@ pub const ListSelection = struct {
     }
 
     pub fn setCount(self: *ListSelection, count: usize) void {
+        self.visible_rows = @max(@as(usize, 1), self.visible_rows);
         self.count = count;
         if (count == 0) {
             self.selected = 0;
