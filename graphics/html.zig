@@ -1,6 +1,6 @@
 const std = @import("std");
 
-pub const Kind = enum { heading, paragraph, button };
+pub const Kind = enum { heading, paragraph, button, link };
 pub const Element = struct { kind: Kind, text: []const u8, accent: bool = false, muted: bool = false, danger: bool = false };
 pub const DrawText = *const fn (x: usize, y: usize, text: []const u8, color: u32) void;
 
@@ -20,9 +20,9 @@ pub const Document = struct {
             const tag = source[open + 1 .. close];
             const name_end = std.mem.indexOfScalar(u8, tag, ' ') orelse tag.len;
             const name = tag[0..name_end];
-            const kind: ?Kind = if (std.mem.eql(u8, name, "h1")) .heading else if (std.mem.eql(u8, name, "p")) .paragraph else if (std.mem.eql(u8, name, "button")) .button else null;
+            const kind: ?Kind = if (std.mem.eql(u8, name, "h1")) .heading else if (std.mem.eql(u8, name, "p")) .paragraph else if (std.mem.eql(u8, name, "button")) .button else if (std.mem.eql(u8, name, "a")) .link else null;
             if (kind) |value| {
-                const end_tag = switch (value) { .heading => "</h1>", .paragraph => "</p>", .button => "</button>" };
+                const end_tag = switch (value) { .heading => "</h1>", .paragraph => "</p>", .button => "</button>", .link => "</a>" };
                 if (std.mem.indexOfPos(u8, source, close + 1, end_tag)) |end| {
                     document.elements[document.count] = .{ .kind = value, .text = std.mem.trim(u8, source[close + 1 .. end], " \t\r\n"), .accent = std.mem.indexOf(u8, tag, "accent") != null, .muted = std.mem.indexOf(u8, tag, "muted") != null, .danger = std.mem.indexOf(u8, tag, "danger") != null };
                     document.count += 1;
@@ -43,6 +43,7 @@ pub const Document = struct {
                 .heading => 0x70d0ffff,
                 .paragraph => 0xa0b8d0ff,
                 .button => 0xffd070ff,
+                .link => 0x70b8ffff,
             };
             draw(origin_x, y, element.text, color);
             y += if (element.kind == .heading) 16 else 12;
@@ -53,7 +54,7 @@ pub const Document = struct {
         var cursor_y = origin_y;
         for (self.elements[0..self.count], 0..) |element, index| {
             const height: usize = if (element.kind == .heading) 16 else 12;
-            if (element.kind == .button and x >= origin_x and x < origin_x +| element.text.len * 8 and y >= cursor_y and y < cursor_y + height) return index;
+            if ((element.kind == .button or element.kind == .link) and x >= origin_x and x < origin_x +| element.text.len * 8 and y >= cursor_y and y < cursor_y + height) return index;
             cursor_y +|= height;
         }
         return null;
@@ -69,14 +70,14 @@ pub const Document = struct {
         var offset: usize = if (current) |value| if (forward) (value + 1) % self.count else if (value == 0) self.count - 1 else value - 1 else if (forward) 0 else self.count - 1;
         var checked: usize = 0;
         while (checked < self.count) : (checked += 1) {
-            if (self.elements[offset].kind == .button) return offset;
+            if (self.elements[offset].kind == .button or self.elements[offset].kind == .link) return offset;
             offset = if (forward) (offset + 1) % self.count else if (offset == 0) self.count - 1 else offset - 1;
         }
         return null;
     }
 
     pub fn activateIndex(self: *const Document, index: usize) ?[]const u8 {
-        if (index >= self.count or self.elements[index].kind != .button) return null;
+        if (index >= self.count or (self.elements[index].kind != .button and self.elements[index].kind != .link)) return null;
         return self.elements[index].text;
     }
 };
@@ -126,6 +127,14 @@ test "HTML muted class is preserved for status text" {
 test "HTML danger class is preserved for destructive actions" {
     const document = Document.parse("<button class=danger>RESET</button>");
     try std.testing.expect(document.elements[0].danger);
+}
+
+test "HTML links are actionable and participate in focus" {
+    const document = Document.parse("<p>Menu</p><a href=/system>System</a>");
+    try std.testing.expectEqual(Kind.link, document.elements[1].kind);
+    try std.testing.expectEqualStrings("System", document.activateAt(12, 20, 4, 4).?);
+    try std.testing.expectEqual(@as(usize, 1), document.nextButton(null, true).?);
+    try std.testing.expectEqualStrings("System", document.activateIndex(1).?);
 }
 
 test "HTML button focus cycles with keyboard direction" {

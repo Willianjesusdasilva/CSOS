@@ -717,7 +717,8 @@ teclado e verificar o marcador serial do lançamento.
 real, tornando o terminal capaz de persistir dados durante a sessão.
 O formato `echo texto >> arquivo` preserva o conteúdo existente e acrescenta uma
 nova linha, usando o modo append do VFS.
-O runtime HTML inicial em `graphics/html.zig` já converte `h1`, `p` e `button`
+O runtime HTML inicial em `graphics/html.zig` já converte `h1`, `p`, `button` e
+links `a` acionáveis
 em elementos ordenados, sem alocação dinâmica, formando a base testável para
 a futura UI HTML/CSS do desktop.
 O renderer SDL reconhece as classes visuais `accent`, `muted` e `danger`;

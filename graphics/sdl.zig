@@ -399,8 +399,9 @@ pub const Window = struct {
                 .heading => 0x70d0ffff,
                 .paragraph => 0xa0b8d0ff,
                 .button => if (element.accent) 0x70e0a0ff else 0xffd070ff,
+                .link => 0x70b8ffff,
             };
-            if (focused != null and focused.? == index and element.kind == .button) {
+            if (focused != null and focused.? == index and (element.kind == .button or element.kind == .link)) {
                 self.fillRect(x -| 2, cursor_y -| 2, element.text.len * 8 + 4, 14, 0x304860ff);
             }
             self.drawText(x, cursor_y, element.text, color);
