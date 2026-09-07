@@ -720,6 +720,9 @@ nova linha, usando o modo append do VFS.
 O runtime HTML inicial em `graphics/html.zig` já converte `h1`, `p` e `button`
 em elementos ordenados, sem alocação dinâmica, formando a base testável para
 a futura UI HTML/CSS do desktop.
+O renderer SDL reconhece as classes visuais `accent`, `muted` e `danger`;
+`SYSTEM` usa essas classes no launcher de `TERMINAL`, `MONITOR`, `FILES` e
+no botão `RESET`, mantendo foco, hit-test e ativação pelo compositor.
 `rm arquivo` remove um arquivo regular do diretório FAT raiz e devolve seus
 clusters ao espaço livre.
 `cp origem destino` copia arquivos regulares entre entradas do FAT usando as
