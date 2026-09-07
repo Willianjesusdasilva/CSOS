@@ -14,6 +14,7 @@ const Node = enum {
 
 const Descriptor = struct {
     close_on_exec: bool = false,
+    append: bool = false,
     kind: Kind = .unused,
     node: Node = .root,
     offset: usize = 0,
@@ -172,12 +173,14 @@ pub fn openAt(directory_fd: i64, path: []const u8, flags: u64) !usize {
         }
         descriptors[fd] = .{ .kind = .file, .node = .disk, .size = size, .fat_name = fat_name };
         descriptors[fd].close_on_exec = (flags & 0x80000) != 0;
+        descriptors[fd].append = (flags & 0x400) != 0;
         return fd;
     };
     const node = try resolve(directory_fd, path);
     const info = nodeInfo(node);
     descriptors[fd] = .{ .kind = if (info.directory) .directory else if (node == .framebuffer or node == .drm or node == .render) .device else .file, .node = node, .size = @intCast(info.size) };
     descriptors[fd].close_on_exec = (flags & 0x80000) != 0;
+    descriptors[fd].append = false;
     return fd;
 }
 
@@ -272,6 +275,7 @@ pub fn write(fd: usize, input: []const u8) !usize {
     const volume = disk orelse return error.NotFound;
     var contents: [8192]u8 = undefined;
     const descriptor = &descriptors[fd];
+    if (descriptor.append) descriptor.offset = descriptor.size;
     if (descriptor.offset > contents.len or input.len > contents.len - descriptor.offset or descriptor.size > contents.len) return error.FileTooLarge;
     if (descriptor.size != 0) _ = try volume.readRootFile(&descriptor.fat_name, contents[0..descriptor.size]);
     if (descriptor.offset > descriptor.size) @memset(contents[descriptor.size..descriptor.offset], 0);
