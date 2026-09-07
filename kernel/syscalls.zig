@@ -498,7 +498,7 @@ fn getTimeOfDay(address: u64, timezone: u64) u64 {
     _ = timezone; // Linux retains this obsolete pointer for ABI compatibility.
     if (address == 0) return 0;
     if (!validUserSlice(address, 16)) return errno(14);
-    monotonic_time_ns +%= 1_000;
+    monotonic_time_ns = saturatingCount(monotonic_time_ns, 1_000);
     const bytes: [*]u8 = @ptrFromInt(address);
     put64(bytes, monotonic_time_ns / 1_000_000_000);
     put64(bytes + 8, (monotonic_time_ns % 1_000_000_000) / 1_000);
@@ -511,7 +511,7 @@ fn clockGetTime(clock: u64, address: u64) u64 {
     if (!supportedClock(clock) or !validUserSlice(address, 16)) return errno(22);
     // The firmware timer is not wired into this early userspace ABI yet; keep
     // a monotonic software clock so libc does not observe time going backward.
-    monotonic_time_ns +%= 1_000_000;
+    monotonic_time_ns = saturatingCount(monotonic_time_ns, 1_000_000);
     const bytes: [*]u8 = @ptrFromInt(address);
     put64(bytes, monotonic_time_ns / 1_000_000_000);
     put64(bytes + 8, monotonic_time_ns % 1_000_000_000);
@@ -535,7 +535,7 @@ fn clockNanosleep(clock: u64, flags: u64, request: u64, remaining: u64) u64 {
         requested_ns != 0;
     if (should_wait) if (idle_hook) |hook| hook();
     if ((flags & 1) == 0)
-        monotonic_time_ns +%= requested_ns
+        monotonic_time_ns = saturatingCount(monotonic_time_ns, requested_ns)
     else if (requested_ns > monotonic_time_ns)
         monotonic_time_ns = requested_ns;
     if (remaining != 0) @memset(@as([*]u8, @ptrFromInt(remaining))[0..16], 0);
