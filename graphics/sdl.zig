@@ -680,7 +680,9 @@ pub const AudioDevice = struct {
 };
 
 pub fn createWindow(storage: []u32, width: usize, height: usize) !Window {
-    if (width == 0 or height == 0 or width * height != storage.len) return error.InvalidSurface;
+    if (width == 0 or height == 0) return error.InvalidSurface;
+    const pixels = std.math.mul(usize, width, height) catch return error.InvalidSurface;
+    if (pixels != storage.len) return error.InvalidSurface;
     return .{ .width = width, .height = height, .pixels = storage };
 }
 
