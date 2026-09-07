@@ -834,10 +834,10 @@ test "SDL software event queue and surface contract" {
     for ("status") |byte| try @import("std").testing.expect(terminal.input.insert(byte));
     try @import("std").testing.expect(terminal.submit());
     try @import("std").testing.expectEqualStrings("> status\nCSOS READY\n", terminal.outputSlice());
+    try @import("std").testing.expectEqualStrings("CSOS READY\n", terminal.outputTailLines(1));
     terminal.clearOutput();
     try @import("std").testing.expectEqual(@as(usize, 0), terminal.output_len);
     terminal.input.replace("status");
-    try @import("std").testing.expectEqualStrings("CSOS READY\n", terminal.outputTailLines(1));
     try @import("std").testing.expect(terminal.historyPrevious());
     try @import("std").testing.expectEqualStrings("status", terminal.input.slice());
     try @import("std").testing.expect(terminal.historyNext());
