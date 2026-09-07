@@ -463,6 +463,23 @@ test "scheduler match mode preserves keep alive threads" {
     try std.testing.expectEqual(Lifecycle.running, threads[0].lifecycle);
 }
 
+test "scheduler background group skips frozen and finished threads" {
+    const saved_count = thread_count;
+    const saved_threads = threads[0..3].*;
+    defer {
+        thread_count = saved_count;
+        threads[0..3].* = saved_threads;
+    }
+    threads[0] = .{ .context = .{}, .entry = schedulerTestEntry, .state = .ready, .group = 23, .lifecycle = .running };
+    threads[1] = .{ .context = .{}, .entry = schedulerTestEntry, .state = .frozen, .group = 23, .lifecycle = .frozen };
+    threads[2] = .{ .context = .{}, .entry = schedulerTestEntry, .state = .finished, .group = 23, .lifecycle = .finished };
+    thread_count = 3;
+    try std.testing.expectEqual(@as(usize, 1), backgroundGroup(23));
+    try std.testing.expectEqual(Lifecycle.background, threads[0].lifecycle);
+    try std.testing.expectEqual(Lifecycle.frozen, threads[1].lifecycle);
+    try std.testing.expectEqual(Lifecycle.finished, threads[2].lifecycle);
+}
+
 test "scheduler sleep accounting ignores finished threads" {
     const saved_count = thread_count;
     const saved_threads = threads[0..2].*;
