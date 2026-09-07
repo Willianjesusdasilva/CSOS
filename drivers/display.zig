@@ -133,6 +133,7 @@ pub const WindowManager = struct {
             self.launcher_selection = 0;
         }
         self.focused = if (self.count == 0) null else if (old_focused) |focused| blk: {
+            if (focused >= self.count) break :blk self.topVisible();
             if (focused > index) break :blk focused - 1;
             if (focused == index) break :blk self.topVisible();
             break :blk focused;
