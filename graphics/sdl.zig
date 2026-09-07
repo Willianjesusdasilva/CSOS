@@ -600,7 +600,7 @@ pub const Terminal = struct {
             self.append(command);
             self.append("\n");
             if (bytesEqualIgnoreCase(command, "help"))
-                self.append("HELP CLEAR RESET STATUS VERSION WHOAMI PWD LS ECHO HISTORY [TEXT]\n")
+                self.append("HELP CLEAR RESET STATUS VERSION WHOAMI PWD LS CAT ECHO HISTORY [TEXT]\n")
             else if (bytesEqualIgnoreCase(command, "status"))
                 self.append("CSOS READY\n")
             else if (bytesEqualIgnoreCase(command, "version"))
@@ -611,6 +611,10 @@ pub const Terminal = struct {
                 self.append("/\n")
             else if (bytesEqualIgnoreCase(command, "ls"))
                 self.append("SYSTEM.TXT  BOOT.CFG  CONFIG/\n")
+            else if (bytesEqualIgnoreCase(command, "cat hello.txt") or bytesEqualIgnoreCase(command, "cat /hello.txt"))
+                self.append("Hello from initramfs\n")
+            else if (command.len >= 4 and bytesEqualIgnoreCase(command[0..4], "cat "))
+                self.append("cat: FILE NOT FOUND\n")
             else if (bytesEqualIgnoreCase(command, "echo"))
                 self.append("ECHO READY\n")
             else if (bytesEqualIgnoreCase(command, "history")) {
@@ -1196,7 +1200,15 @@ test "SDL software event queue and surface contract" {
     terminal.clearOutput();
     terminal.input.replace("help");
     try @import("std").testing.expect(terminal.submit());
-    try @import("std").testing.expectEqualStrings("> help\nHELP CLEAR RESET STATUS VERSION WHOAMI PWD LS ECHO HISTORY [TEXT]\n", terminal.outputSlice());
+    try @import("std").testing.expectEqualStrings("> help\nHELP CLEAR RESET STATUS VERSION WHOAMI PWD LS CAT ECHO HISTORY [TEXT]\n", terminal.outputSlice());
+    terminal.clearOutput();
+    terminal.input.replace("cat /hello.txt");
+    try @import("std").testing.expect(terminal.submit());
+    try @import("std").testing.expectEqualStrings("> cat /hello.txt\nHello from initramfs\n", terminal.outputSlice());
+    terminal.clearOutput();
+    terminal.input.replace("cat missing.txt");
+    try @import("std").testing.expect(terminal.submit());
+    try @import("std").testing.expectEqualStrings("> cat missing.txt\ncat: FILE NOT FOUND\n", terminal.outputSlice());
     terminal.clearOutput();
     terminal.input.replace("whoami");
     try @import("std").testing.expect(terminal.submit());

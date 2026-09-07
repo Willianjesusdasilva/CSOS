@@ -1025,6 +1025,12 @@ fn zeroPage(address: u64) void {
 fn validDmaPage(address: u64) bool {
     return address != 0 and address <= std.math.maxInt(u64) - 4095;
 }
+
+test "xHCI DMA page validation rejects zero and end overflow" {
+    try std.testing.expect(!validDmaPage(0));
+    try std.testing.expect(validDmaPage(0x1000));
+    try std.testing.expect(!validDmaPage(std.math.maxInt(u64) - 4094));
+}
 fn timestamp() u64 {
     var low: u32 = undefined;
     var high: u32 = undefined;

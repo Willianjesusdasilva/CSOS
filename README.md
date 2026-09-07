@@ -680,6 +680,8 @@ executa os comandos internos `help`, `status`, `version`, `whoami`, `pwd`, `ls`,
 `echo [texto]`, `history`, `clear` e `reset`, mantendo a saída na
 janela sem interromper mouse, compositor ou outras aplicações.
 `Ctrl+R` recupera a entrada anterior do histórico quando o terminal está focado.
+O comando `cat /hello.txt` lê o arquivo virtual do initramfs e caminhos
+desconhecidos retornam erro explícito; `CAT` também aparece no help.
 Espaços e tabulações nas bordas do comando são ignorados, permitindo, por
 exemplo, executar `  status  ` sem gerar um comando desconhecido.
 Setas para cima/baixo percorrem o histórico, Home/End movem o cursor, Delete
@@ -720,7 +722,7 @@ O caminho de rede correlaciona IDs DNS e sequências ICMP e descarta respostas A
 com MAC de emissor inválido.
 
 Verificação atual: `zig build` recompilou o EFI em `14/14` etapas e
-`zig build test` passou `41/41` etapas e `196/196` testes. O
+`zig build test` passou `41/41` etapas e `197/197` testes. O
 boot interativo agora entrega o input diretamente à sessão gráfica, sem ficar
 bloqueado pelo shell BusyBox, e publica `CSOS graphical session ready`. O shell
 será reintegrado como uma aplicação de terminal não bloqueante; isso ainda não
