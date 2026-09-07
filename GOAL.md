@@ -162,6 +162,7 @@ aplicação focada. O toggle possui debounce e o atalho alternativo evita captur
 da tecla Super pelo host do QEMU.
 Com o lançador aberto, as teclas `1`–`4` selecionam diretamente as quatro
 aplicações disponíveis.
+`Space` também confirma a aplicação selecionada no launcher.
 `Ctrl+Alt+T` abre ou focaliza diretamente o TERMINAL.
 `Ctrl+Alt+M` abre ou focaliza diretamente o MONITOR.
 `Ctrl+Alt+S` abre SYSTEM e `Ctrl+Alt+F` abre/atualiza FILES diretamente.

@@ -2152,7 +2152,7 @@ pub fn start(info: BootInfo) noreturn {
                         0x29 => {
                             window_manager.dismissLauncher();
                         },
-                        0x28 => if (window_manager.launcherSelectedApplication()) |application_id| {
+                        0x28, 0x2c => if (window_manager.launcherSelectedApplication()) |application_id| {
                             const was_open = window_manager.findById(application_id) != null;
                             if (application_id == 1 and !demo_app.running) {
                                 demo_app.reset();
@@ -2166,7 +2166,7 @@ pub fn start(info: BootInfo) noreturn {
                                 root_file_count = refreshFiles(&volume, &root_files, &files_selection, &files_window) catch panic("UI files keyboard refresh failed");
                             }
                             window_manager.dismissLauncher();
-                            serial.write("UI launch application (keyboard): ");
+                            serial.write(if (event.a == 0x28) "UI launch application (keyboard): " else "UI launch application (Space): ");
                             serial.writeDecimal(application_id);
                             serial.write("\n");
                         },
