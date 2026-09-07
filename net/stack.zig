@@ -215,7 +215,7 @@ pub const Stack = struct {
         var attempts: u8 = 0;
         while (attempts < 64) : (attempts += 1) {
             const length = try self.device.receive(&frame);
-            if (length < 54 or get16(frame[12..]) != 0x0800 or frame[23] != 6) continue;
+            if (length < 54 or get16(frame[12..]) != 0x0800 or frame[23] != 6 or frame[14] >> 4 != 4) continue;
             const ip_header = @as(usize, frame[14] & 0x0f) * 4;
             const total_length = get16(frame[16..]);
             if (ip_header < 20 or total_length < ip_header + 20 or length < 14 + total_length) continue;
