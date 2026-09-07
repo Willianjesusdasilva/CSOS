@@ -166,6 +166,8 @@ pub const Controller = struct {
     }
 
     pub fn enumerateAudio(self: *Controller, pages: *physical.Allocator) !AudioDevices {
+        self.releaseAudioBuffers(pages);
+        self.audio = .{};
         var devices = AudioDevices{};
         try self.enumerateDevices(pages);
         for (self.devices[0..self.device_count], 0..) |device, device_index| {
@@ -210,6 +212,13 @@ pub const Controller = struct {
         }
         self.audio = devices;
         return devices;
+    }
+
+    fn releaseAudioBuffers(self: *Controller, pages: *physical.Allocator) void {
+        if (self.audio.ring != 0) pages.release(self.audio.ring, 1) catch {};
+        if (self.audio.rate_payload) |address| pages.release(address, 1) catch {};
+        if (self.audio.sample) |address| pages.release(address, 1) catch {};
+        for (self.audio.buffers) |buffer| if (buffer) |address| pages.release(address, 1) catch {};
     }
 
     pub fn audioReady(self: *const Controller) bool {
