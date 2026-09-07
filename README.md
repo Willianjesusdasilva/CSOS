@@ -727,6 +727,12 @@ cursor antes do hit-test. Isso elimina o clique calculado na coordenada do
 pacote anterior; a movimentação compartilhada satura corretamente nas quatro
 bordas e possui cobertura de host.
 
+O launcher gráfico agora identifica corretamente `TERMINAL`, mantém `MONITOR`
+e inclui uma terceira aplicação SDL, `SYSTEM`. Ela mostra estado READY,
+capacidade em blocos do NVMe, quantidade de dispositivos USB de input e
+endpoints de áudio, podendo ser aberta/restaurada tanto por mouse quanto por
+teclado e fechada pelo mesmo lifecycle das outras janelas.
+
 O inventário do host também encontrou uma AMD Radeon(TM) Graphics (`1002:164e`)
 e uma NVIDIA GeForce RTX 4060 Ti (`10de:2803`), ambas ativas. Isso viabiliza a
 próxima validação física, mas detecção no host não é evidência de suporte do

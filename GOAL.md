@@ -212,6 +212,11 @@ O loop gráfico aplica o deslocamento do pacote HID antes de despachar a
 transição de botão do mesmo pacote. Hit-tests deixam de usar a coordenada
 anterior em movimento+clique, e a saturação do ponteiro nas bordas é testada.
 
+O launcher passou de duas entradas genéricas para três aplicações nomeadas:
+`TERMINAL`, `MONITOR` e `SYSTEM`. A nova janela SYSTEM possui superfície SDL
+própria e apresenta estado do SO, capacidade NVMe, dispositivos USB de input e
+endpoints de áudio; mouse e teclado percorrem o mesmo caminho de launch/restore.
+
 Esta porcentagem não é uma contagem simples de milestones. M0–M13 têm bases relevantes, mas M14 ainda não possui triângulos Vulkan validados em AMD e NVIDIA, e M15–M30 permanecem majoritariamente pendentes. Código preparatório ou teste no host não equivale a hardware funcional.
 
 Verificação mais recente em 2026-09-06: `zig build test` concluiu `17/17` etapas

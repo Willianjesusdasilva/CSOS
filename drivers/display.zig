@@ -24,6 +24,9 @@ pub const Adapter = struct {
 pub const max_windows = 16;
 pub const min_window_width = 64;
 pub const min_window_height = 48;
+pub const launcher_item_count = 3;
+const launcher_menu_height = launcher_item_count * 24 + 24;
+const launcher_labels = [_][]const u8{ "TERMINAL", "MONITOR", "SYSTEM" };
 
 pub fn applyPointerDelta(position: usize, delta: i8, extent: usize) usize {
     if (extent == 0) return 0;
@@ -261,19 +264,21 @@ pub const WindowManager = struct {
     }
 
     pub fn launcherItemHitTest(self: *const WindowManager, x: usize, y: usize, screen_height: usize) ?u32 {
-        if (!self.launcher_open or screen_height < 76 or x < 4 or x >= 180) return null;
-        const menu_top = screen_height - 72;
-        if (y >= menu_top + 4 and y < menu_top + 24) return 1;
-        if (y >= menu_top + 28 and y < menu_top + 48) return 2;
+        if (!self.launcher_open or screen_height < launcher_menu_height + 4 or x < 4 or x >= 180) return null;
+        const menu_top = screen_height - launcher_menu_height;
+        for (0..launcher_item_count) |index| {
+            const item_top = menu_top + 4 + index * 24;
+            if (y >= item_top and y < item_top + 20) return @intCast(index + 1);
+        }
         return null;
     }
 
     pub fn launcherSelectNext(self: *WindowManager) void {
-        self.launcher_selection = (self.launcher_selection + 1) % 2;
+        self.launcher_selection = (self.launcher_selection + 1) % launcher_item_count;
     }
 
     pub fn launcherSelectPrevious(self: *WindowManager) void {
-        self.launcher_selection = if (self.launcher_selection == 0) 1 else 0;
+        self.launcher_selection = if (self.launcher_selection == 0) launcher_item_count - 1 else self.launcher_selection - 1;
     }
 
     pub fn launcherSelectedApplication(self: *const WindowManager) ?u32 {
@@ -340,13 +345,13 @@ pub const WindowManager = struct {
             context.fillRect(64 + i * 112 + 4, taskbar_y + 3, 104, 14, if (self.focused == i and !w.minimized) 0x5070a0 else 0x303848);
             context.drawWindowTitle(64 + i * 112 + 12, taskbar_y + 5, w.title);
         }
-        if (self.launcher_open and context.framebuffer.height >= 76) {
-            const menu_top = @as(usize, context.framebuffer.height) - 72;
-            context.fillRect(4, menu_top, 176, 52, 0x182430);
-            context.fillRect(8, menu_top + 4, 168, 20, if (self.launcher_selection == 0) 0x5070a0 else 0x304860);
-            context.fillRect(8, menu_top + 28, 168, 20, if (self.launcher_selection == 1) 0x5070a0 else 0x304860);
-            context.drawWindowTitle(16, menu_top + 9, "APP1");
-            context.drawWindowTitle(16, menu_top + 33, "MONITOR");
+        if (self.launcher_open and context.framebuffer.height >= launcher_menu_height + 4) {
+            const menu_top = @as(usize, context.framebuffer.height) - launcher_menu_height;
+            context.fillRect(4, menu_top, 176, launcher_item_count * 24 + 4, 0x182430);
+            for (launcher_labels, 0..) |label, index| {
+                context.fillRect(8, menu_top + 4 + index * 24, 168, 20, if (self.launcher_selection == index) 0x5070a0 else 0x304860);
+                context.drawWindowTitle(16, menu_top + 9 + index * 24, label);
+            }
         }
         if (self.switcher_open and self.count != 0 and context.framebuffer.width >= 144 and context.framebuffer.height >= 96) {
             const visible_slots = @min(self.count, (@as(usize, context.framebuffer.width) - 32) / 112);
@@ -406,13 +411,16 @@ test "window manager focus alt-tab hit-test and close" {
     manager.launcherSelectNext();
     try std.testing.expectEqual(@as(?u32, 2), manager.launcherSelectedApplication());
     manager.launcherSelectNext();
+    try std.testing.expectEqual(@as(?u32, 3), manager.launcherSelectedApplication());
+    manager.launcherSelectNext();
     try std.testing.expectEqual(@as(?u32, 1), manager.launcherSelectedApplication());
     manager.launcherSelectPrevious();
-    try std.testing.expectEqual(@as(?u32, 2), manager.launcherSelectedApplication());
+    try std.testing.expectEqual(@as(?u32, 3), manager.launcherSelectedApplication());
     manager.launcher_selection = 0;
-    try std.testing.expectEqual(@as(?u32, 1), manager.launcherItemHitTest(20, 62, 128));
-    try std.testing.expectEqual(@as(?u32, 2), manager.launcherItemHitTest(20, 86, 128));
-    try std.testing.expect(manager.launcherItemHitTest(200, 62, 128) == null);
+    try std.testing.expectEqual(@as(?u32, 1), manager.launcherItemHitTest(20, 38, 128));
+    try std.testing.expectEqual(@as(?u32, 2), manager.launcherItemHitTest(20, 62, 128));
+    try std.testing.expectEqual(@as(?u32, 3), manager.launcherItemHitTest(20, 86, 128));
+    try std.testing.expect(manager.launcherItemHitTest(200, 38, 128) == null);
     manager.launcher_open = false;
     try std.testing.expect(manager.launcherSelectedApplication() == null);
     manager.switcher_open = true;

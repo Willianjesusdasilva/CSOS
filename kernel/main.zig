@@ -45,6 +45,7 @@ var console_input_irq_apic: u32 = 0;
 var audio_reported = false;
 var sdl_demo_pixels: [224 * 96]u32 = .{0} ** (224 * 96);
 var sdl_monitor_pixels: [224 * 96]u32 = .{0} ** (224 * 96);
+var sdl_system_pixels: [224 * 96]u32 = .{0} ** (224 * 96);
 var sdl_terminal = sdl.Terminal{};
 // Keep the compositor's fixed-capacity window table off the UEFI boot stack.
 // kernel.start already coordinates the entire bring-up and must not grow with
@@ -1544,9 +1545,11 @@ pub fn start(info: BootInfo) noreturn {
     var demo_app = sdl.Application{ .window = demo_window };
     var monitor_window = sdl.createWindow(&sdl_monitor_pixels, 224, 96) catch panic("SDL monitor surface creation failed");
     drawMonitorSurface(&monitor_window, &screen);
+    var system_window = sdl.createWindow(&sdl_system_pixels, 224, 96) catch panic("SDL system surface creation failed");
+    drawSystemSurface(&system_window, storage.block_count, @as(usize, hid.keyboards) + hid.mice, audio_info.playback_endpoints);
     const window_manager = &desktop_window_manager;
     window_manager.* = .{};
-    _ = window_manager.create(.{ .id = 1, .title = "APP1", .x = 32, .y = 220, .width = 260, .height = 140, .title_color = 0x405070, .body_color = 0x18202c, .surface = &demo_app.window }) catch panic("desktop window creation failed");
+    _ = window_manager.create(.{ .id = 1, .title = "TERMINAL", .x = 32, .y = 220, .width = 260, .height = 140, .title_color = 0x405070, .body_color = 0x18202c, .surface = &demo_app.window }) catch panic("desktop window creation failed");
     _ = window_manager.create(.{ .id = 2, .title = "MONITOR", .x = 180, .y = 280, .width = 260, .height = 140, .title_color = 0x604070, .body_color = 0x241828, .surface = &monitor_window }) catch panic("desktop window creation failed");
     screen.drawBaseline(@as(usize, hid.keyboards) + hid.mice, audio_info.playback_endpoints);
     window_manager.compose(&screen);
@@ -2073,7 +2076,7 @@ pub fn start(info: BootInfo) noreturn {
                         0x29 => window_manager.launcher_open = false,
                         0x28 => if (window_manager.launcherSelectedApplication()) |application_id| {
                             const was_open = window_manager.findById(application_id) != null;
-                            _ = launchDesktopWindow(window_manager, application_id, &demo_app.window, &monitor_window) catch panic("desktop keyboard application launch failed");
+                            _ = launchDesktopWindow(window_manager, application_id, &demo_app.window, &monitor_window, &system_window) catch panic("desktop keyboard application launch failed");
                             if (application_id == 1 and !was_open) resetSdlDemoApplication(&demo_app);
                             window_manager.launcher_open = false;
                             serial.write("UI launch application (keyboard): ");
@@ -2199,7 +2202,7 @@ pub fn start(info: BootInfo) noreturn {
                         serial.write(if (window_manager.launcher_open) "UI launcher open\n" else "UI launcher closed\n");
                     } else if (window_manager.launcherItemHitTest(cursor_x, cursor_y, screen.framebuffer.height)) |application_id| {
                         const was_open = window_manager.findById(application_id) != null;
-                        _ = launchDesktopWindow(window_manager, application_id, &demo_app.window, &monitor_window) catch panic("desktop application launch failed");
+                        _ = launchDesktopWindow(window_manager, application_id, &demo_app.window, &monitor_window, &system_window) catch panic("desktop application launch failed");
                         if (application_id == 1 and !was_open) resetSdlDemoApplication(&demo_app);
                         window_manager.launcher_open = false;
                         serial.write("UI launch application: ");
@@ -2352,16 +2355,30 @@ fn drawSdlTerminal(app: *sdl.Application) void {
     app.window.fillRect(12 + cursor_column * 8, 92, 6, 2, 0xe0e8f0ff);
 }
 
-fn launchDesktopWindow(manager: *display.WindowManager, application_id: u32, app_surface: *sdl.Window, monitor_surface: *sdl.Window) !usize {
+fn launchDesktopWindow(manager: *display.WindowManager, application_id: u32, app_surface: *sdl.Window, monitor_surface: *sdl.Window, system_surface: *sdl.Window) !usize {
     if (manager.findById(application_id)) |existing| {
         _ = manager.restore(existing);
         return manager.focused.?;
     }
     return switch (application_id) {
-        1 => manager.create(.{ .id = 1, .title = "APP1", .x = 32, .y = 220, .width = 260, .height = 140, .title_color = 0x405070, .body_color = 0x18202c, .surface = app_surface }),
+        1 => manager.create(.{ .id = 1, .title = "TERMINAL", .x = 32, .y = 220, .width = 260, .height = 140, .title_color = 0x405070, .body_color = 0x18202c, .surface = app_surface }),
         2 => manager.create(.{ .id = 2, .title = "MONITOR", .x = 180, .y = 280, .width = 260, .height = 140, .title_color = 0x604070, .body_color = 0x241828, .surface = monitor_surface }),
+        3 => manager.create(.{ .id = 3, .title = "SYSTEM", .x = 328, .y = 220, .width = 260, .height = 140, .title_color = 0x406858, .body_color = 0x182820, .surface = system_surface }),
         else => error.UnknownDesktopApplication,
     };
+}
+
+fn drawSystemSurface(window: *sdl.Window, storage_blocks: u64, input_devices: usize, audio_endpoints: usize) void {
+    window.clear(0x14201cff);
+    window.drawText(4, 4, "CSOS SYSTEM", 0x70d0a0ff);
+    window.drawText(4, 22, "STATUS", 0xa0b8d0ff);
+    window.drawText(92, 22, "READY", 0x70d0a0ff);
+    window.drawText(4, 40, "DISK BLOCKS", 0xa0b8d0ff);
+    drawSurfaceNumber(window, 108, 40, storage_blocks, 0xe0e8f0ff);
+    window.drawText(4, 58, "USB INPUT", 0xa0b8d0ff);
+    drawSurfaceNumber(window, 108, 58, @intCast(input_devices), 0xe0e8f0ff);
+    window.drawText(4, 76, "AUDIO", 0xa0b8d0ff);
+    drawSurfaceNumber(window, 108, 76, @intCast(audio_endpoints), 0xe0e8f0ff);
 }
 
 fn drawMonitorSurface(window: *sdl.Window, screen: *const display.Context) void {
