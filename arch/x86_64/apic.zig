@@ -11,7 +11,7 @@ const icr_high = 0x310;
 
 pub fn init() !void {
     var base = readMsr(apic_base_msr);
-    if ((base & 0xfffff000) != expected_base) return error.UnsupportedBase;
+    if (!validApicBase(base)) return error.UnsupportedBase;
     base |= 1 << 11;
     writeMsr(apic_base_msr, base);
 
@@ -96,4 +96,15 @@ fn out(port: u16, value: u8) void {
         :
         : [value] "{al}" (value),
           [port] "{dx}" (port));
+}
+
+fn validApicBase(base: u64) bool {
+    return (base & 0xfffff000) == expected_base;
+}
+
+test "APIC accepts only the expected physical base" {
+    try @import("std").testing.expect(validApicBase(expected_base));
+    try @import("std").testing.expect(validApicBase(expected_base | (1 << 11)));
+    try @import("std").testing.expect(!validApicBase(0));
+    try @import("std").testing.expect(!validApicBase(0xfec00000));
 }
