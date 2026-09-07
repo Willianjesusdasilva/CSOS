@@ -2102,9 +2102,7 @@ pub fn start(info: BootInfo) noreturn {
                 const gui_pressed = (event.b & 0x88) != 0;
                 const launcher_shortcut_pressed = event.c != 0 and (gui_pressed or ((event.b & 0x11) != 0 and event.a == 0x2c));
                 if (launcher_shortcut_pressed and !launcher_key_down) {
-                    window_manager.launcher_open = !window_manager.launcher_open;
-                    if (window_manager.launcher_open) window_manager.launcher_selection = 0;
-                    window_manager.taskbar_hover = null;
+                    window_manager.toggleLauncher();
                     launcher_consumed = true;
                     serial.write(if (window_manager.launcher_open) "UI launcher open (keyboard)\n" else "UI launcher closed (keyboard)\n");
                 }
@@ -2119,8 +2117,7 @@ pub fn start(info: BootInfo) noreturn {
                         0x4a => window_manager.launcher_selection = 0,
                         0x4d => window_manager.launcher_selection = display.launcher_item_count - 1,
                         0x29 => {
-                            window_manager.launcher_open = false;
-                            window_manager.taskbar_hover = null;
+                            window_manager.dismissLauncher();
                         },
                         0x28 => if (window_manager.launcherSelectedApplication()) |application_id| {
                             const was_open = window_manager.findById(application_id) != null;
@@ -2134,8 +2131,7 @@ pub fn start(info: BootInfo) noreturn {
                                 files_preview_open = false;
                                 root_file_count = refreshFiles(&volume, &root_files, &files_selection, &files_window) catch panic("UI files keyboard refresh failed");
                             }
-                            window_manager.launcher_open = false;
-                            window_manager.taskbar_hover = null;
+                            window_manager.dismissLauncher();
                             serial.write("UI launch application (keyboard): ");
                             serial.writeDecimal(application_id);
                             serial.write("\n");
@@ -2242,8 +2238,7 @@ pub fn start(info: BootInfo) noreturn {
                     }
                 }
                 if (tab_switch_pressed and !alt_tab_down) {
-                    window_manager.launcher_open = false;
-                    window_manager.taskbar_hover = null;
+                    window_manager.dismissLauncher();
                     window_manager.openSwitcher();
                     switcher_consumed = true;
                     const reverse = (event.b & 0x02) != 0;
@@ -2362,9 +2357,7 @@ pub fn start(info: BootInfo) noreturn {
                         window_manager.dismissSwitcher();
                     }
                     if (window_manager.launcherButtonHitTest(cursor_x, cursor_y, screen.framebuffer.height)) {
-                        window_manager.launcher_open = !window_manager.launcher_open;
-                        if (window_manager.launcher_open) window_manager.launcher_selection = 0;
-                        window_manager.taskbar_hover = null;
+                        window_manager.toggleLauncher();
                         drag_window = null;
                         resize_window = null;
                         serial.write(if (window_manager.launcher_open) "UI launcher open\n" else "UI launcher closed\n");
@@ -2380,12 +2373,12 @@ pub fn start(info: BootInfo) noreturn {
                             files_preview_open = false;
                             root_file_count = refreshFiles(&volume, &root_files, &files_selection, &files_window) catch panic("UI files mouse refresh failed");
                         }
-                        window_manager.launcher_open = false;
+                        window_manager.dismissLauncher();
                         serial.write("UI launch application: ");
                         serial.writeDecimal(application_id);
                         serial.write("\n");
                     } else if (window_manager.taskbarHitTest(cursor_x, cursor_y, screen.framebuffer.height)) |task| {
-                        window_manager.launcher_open = false;
+                        window_manager.dismissLauncher();
                         _ = window_manager.restore(task);
                         serial.write("UI taskbar focus window: ");
                         serial.writeDecimal(window_manager.windows[window_manager.focused.?].id);
@@ -2425,7 +2418,7 @@ pub fn start(info: BootInfo) noreturn {
                             serial.writeDecimal(window_manager.windows[resize_window.?].id);
                             serial.write("\n");
                         } else {
-                            window_manager.launcher_open = false;
+                            window_manager.dismissLauncher();
                             if (window.id == 4 and files_preview_open and window_manager.contentRectHitTest(hit, cursor_x, cursor_y, 164, 2, 58, 12)) {
                                 files_preview_open = false;
                                 drawFilesSurface(&files_window, root_files[0..root_file_count], &files_selection);

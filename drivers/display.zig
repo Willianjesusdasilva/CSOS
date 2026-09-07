@@ -418,6 +418,22 @@ pub const WindowManager = struct {
         self.switcher_hover = null;
     }
 
+    pub fn dismissLauncher(self: *WindowManager) void {
+        self.launcher_open = false;
+        self.launcher_selection = 0;
+        self.taskbar_hover = null;
+    }
+
+    pub fn toggleLauncher(self: *WindowManager) void {
+        if (self.launcher_open) {
+            self.dismissLauncher();
+        } else {
+            self.launcher_open = true;
+            self.launcher_selection = 0;
+            self.taskbar_hover = null;
+        }
+    }
+
     pub fn openSwitcher(self: *WindowManager) void {
         self.switcher_open = true;
         self.switcher_hover = null;
@@ -800,6 +816,22 @@ test "launcher hover selects the matching application" {
     try std.testing.expect(!manager.launcherSelectApplication(99));
     manager.launcher_open = false;
     try std.testing.expect(!manager.launcherSelectApplication(1));
+}
+
+test "launcher transitions clear selection and hover" {
+    var manager = WindowManager{};
+    manager.taskbar_hover = 2;
+    manager.launcher_selection = 3;
+    manager.toggleLauncher();
+    try std.testing.expect(manager.launcher_open);
+    try std.testing.expectEqual(@as(u8, 0), manager.launcher_selection);
+    try std.testing.expect(manager.taskbar_hover == null);
+    manager.launcher_selection = 2;
+    manager.taskbar_hover = 1;
+    manager.toggleLauncher();
+    try std.testing.expect(!manager.launcher_open);
+    try std.testing.expectEqual(@as(u8, 0), manager.launcher_selection);
+    try std.testing.expect(manager.taskbar_hover == null);
 }
 
 test "launcher wheel navigation wraps selection" {
