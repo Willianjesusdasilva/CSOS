@@ -218,3 +218,11 @@ test "physical allocator rejects release outside managed range" {
     allocator.managed[0] = .{ .next = 0x100000, .end = 0x104000 };
     try @import("std").testing.expectError(error.InvalidRelease, allocator.release(0x200000, 1));
 }
+
+test "physical allocator accepts release inside managed range" {
+    var allocator = Allocator{ .range_count = 1, .managed_count = 1, .free_pages = 3 };
+    allocator.ranges[0] = .{ .next = 0x104000, .end = 0x104000 };
+    allocator.managed[0] = .{ .next = 0x100000, .end = 0x104000 };
+    try allocator.release(0x100000, 1);
+    try @import("std").testing.expectEqual(@as(usize, 1), allocator.returned_count);
+}
