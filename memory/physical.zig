@@ -73,7 +73,8 @@ pub const Allocator = struct {
 
     pub fn allocateAligned(self: *Allocator, count: u64, alignment: u64) ?u64 {
         if (count == 0 or count > (~@as(u64, 0)) / page_size or
-            alignment < page_size or (alignment & (alignment - 1)) != 0) return null;
+            alignment < page_size or (alignment & (alignment - 1)) != 0 or
+            count > self.free_pages) return null;
         const bytes = count * page_size;
         var returned_index: usize = 0;
         while (returned_index < self.returned_count) : (returned_index += 1) {
