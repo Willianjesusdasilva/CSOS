@@ -663,6 +663,9 @@ pub const Application = struct {
                             } else if (dispatchReferenceShortcut(@intCast(@max(mouse.x, 0)), @intCast(@max(mouse.y, 0)))) |target| {
                                 self.last_html_activation = target;
                                 _ = self.dispatchReferenceAction(target);
+                            } else if (dispatchReferenceLauncher(self.window.height, @intCast(@max(mouse.x, 0)), @intCast(@max(mouse.y, 0)))) |target| {
+                                self.last_html_activation = target;
+                                _ = self.dispatchReferenceAction(target);
                             },
                         }
                     }
@@ -791,6 +794,25 @@ pub const Application = struct {
             1 => "settings",
             2 => "steam",
             3 => "files",
+            else => null,
+        };
+    }
+
+    fn dispatchReferenceLauncher(height: usize, x: usize, y: usize) ?[]const u8 {
+        const launcher_x: usize = 24;
+        const launcher_y = height -| 330;
+        if (x < launcher_x + 24 or x >= launcher_x + 24 + 4 * 64 or y < launcher_y + 88 or y >= launcher_y + 88 + 2 * 54) return null;
+        const column = (x - (launcher_x + 24)) / 64;
+        const row = (y - (launcher_y + 88)) / 54;
+        return switch (row * 4 + column) {
+            0 => "files",
+            1 => "terminal",
+            2 => "browser",
+            3 => "settings",
+            4 => "steam",
+            5 => "music",
+            6 => "monitor",
+            7 => "store",
             else => null,
         };
     }
@@ -2305,6 +2327,7 @@ test "reference desktop dispatches launcher actions into HTML apps" {
     try @import("std").testing.expect(!application.dispatchReferenceAction("unknown"));
     try @import("std").testing.expectEqualStrings("terminal", application.dispatchReferenceDock(20 + 18 + 3 * 72 + 4, 200 - 82 + 20).?);
     try @import("std").testing.expectEqualStrings("settings", Application.dispatchReferenceShortcut(30, 72 + 74 + 8).?);
+    try @import("std").testing.expectEqualStrings("monitor", Application.dispatchReferenceLauncher(200, 24 + 24 + 2 * 64 + 4, 88 + 54 + 8).?);
     try @import("std").testing.expect(application.dispatchReferenceAction("terminal"));
     try @import("std").testing.expect(application.dispatchReferenceAction("monitor"));
     try @import("std").testing.expectEqualStrings("Monitor", application.html_session.?.document.elements[0].text);
