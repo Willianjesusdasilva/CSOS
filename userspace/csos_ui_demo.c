@@ -5,6 +5,7 @@
 struct demo_server {
     struct csos_ui_ring events;
     uint8_t present_count;
+    uint8_t displayed;
     uint32_t surface_id;
     uint64_t generation;
     uint16_t width, height;
@@ -28,7 +29,10 @@ static int demo_send(void *userdata, const void *message, uint8_t length) {
                                              server->width, CSOS_UI_RGBA8888, server->generation };
           response_length = csos_ui_encode_surface_created(response, sizeof(response), surface); }
         break;
-    case CSOS_UI_PRESENT: server->present_count++; return 0;
+    case CSOS_UI_PRESENT:
+        if (csos_ui_get32(request + 2) != server->surface_id || csos_ui_get64(request + 6) != server->generation ||
+            csos_ui_get16(request + 18) == 0 || csos_ui_get16(request + 20) == 0) return -1;
+        server->present_count++; server->displayed = 1; return 0;
     case CSOS_UI_RESIZE:
         server->width = csos_ui_get16(request + 2); server->height = csos_ui_get16(request + 4); server->generation++;
         { struct csos_ui_surface surface = { 1, 0x100, server->width, server->height,
@@ -63,7 +67,7 @@ int main(void) {
     for (unsigned y = 12; y < 36; ++y) for (unsigned x = 16; x < 48; ++x) pixels[y * 64 + x] = 0xff40a0e0;
     if (csos_ui_client_present(&client, client.surface.id, client.surface.generation,
                                (struct csos_ui_damage){ 0, 0, 64, 48 }) != 0) return 3;
-    if (server.present_count != 1) return 4;
+    if (server.present_count != 1 || !server.displayed) return 4;
 
     uint8_t focus[] = { CSOS_UI_FOCUS, 3, 1 };
     if (csos_ui_ring_send(&server.events, focus, sizeof(focus)) != 0 ||
