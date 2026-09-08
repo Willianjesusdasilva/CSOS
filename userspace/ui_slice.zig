@@ -238,6 +238,12 @@ pub fn main() !void {
     paintSurface(pixels, 1920, 1080, render_document[0..render_len]);
     var backend = ui.Backend.init(.{ .id = 1, .buffer_handle = 1, .width = 1920, .height = 1080, .stride = 1920, .pixels = pixels });
     if (!backend.start() or !backend.negotiate(ui.protocol_version, ui.Capability.surface | ui.Capability.input)) return error.BackendStartup;
+    var wire: [64]u8 = undefined;
+    const hello_len = (try backend.nextRequestWire(&wire)) orelse return error.MissingWireHello;
+    switch (try ui.decodeRequest(wire[0..hello_len])) { .hello => |hello| if (hello.version != ui.protocol_version) return error.WireVersionMismatch, else => return error.WireHelloMismatch }
+    const ack_len = try ui.encodeResponse(.{ .hello_ack = .{ .version = ui.protocol_version, .capabilities = ui.Capability.surface | ui.Capability.input } }, &wire);
+    if (!try backend.submitResponseWire(wire[0..ack_len])) return error.WireResponseQueueFailed;
+    _ = (try backend.nextResponseWire(&wire)) orelse return error.MissingWireAck;
     if (pixels[24 * 1920 + 16] != 0x70d0ffff) return error.SurfaceNotPainted;
     if (!backend.enqueueEvent(.{ .pointer = .{ .x = 24, .y = 20, .buttons = 1 } })) return error.InputQueueFailed;
     const pointer = backend.nextEvent() orelse return error.MissingPointerEvent;
