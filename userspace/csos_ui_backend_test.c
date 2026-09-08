@@ -28,6 +28,11 @@ static int receive_focus(void *userdata, void *message, uint8_t capacity) {
     (void)userdata; if (capacity < 3) return -1;
     ((uint8_t *)message)[0] = CSOS_UI_FOCUS; ((uint8_t *)message)[1] = 3; ((uint8_t *)message)[2] = 1; return 3;
 }
+static int receive_surface_destroyed(void *userdata, void *message, uint8_t capacity) {
+    (void)userdata; if (capacity < 6) return -1;
+    ((uint8_t *)message)[0] = CSOS_UI_SURFACE_DESTROYED; ((uint8_t *)message)[1] = 6;
+    csos_ui_put32((uint8_t *)message + 2, 4); return 6;
+}
 
 int main(void) {
     uint8_t message[32];
@@ -95,6 +100,13 @@ int main(void) {
         csos_ui_client_present(&surface_client, 4, 9, (struct csos_ui_damage){ 0, 0, 1, 1 }) != 0)
         return 9;
     if (csos_ui_client_present(&client, 4, 9, (struct csos_ui_damage){ 0, 0, 0, 1 }) != -1)
+        return 9;
+    struct csos_ui_client destroyed_client;
+    struct csos_ui_transport destroyed_transport = { &transport_state, send_message, receive_surface_destroyed };
+    csos_ui_client_init(&destroyed_client, destroyed_transport); destroyed_client.ready = 1;
+    destroyed_client.surface = surface; destroyed_client.surface_valid = 1;
+    if (csos_ui_client_process_response(&destroyed_client, message, sizeof(message), 0) != 6 ||
+        destroyed_client.surface_valid)
         return 9;
     if (csos_ui_client_present(&client, 4, 9, (struct csos_ui_damage){ 0, 0, 8, 8 }) != 0)
         return 10;
