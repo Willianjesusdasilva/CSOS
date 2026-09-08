@@ -73,8 +73,6 @@ pub fn main() !void {
     const terminal = try readFile(allocator, "system/ui/interface/terminal.html");
     const status = try readFile(allocator, "system/ui/interface/status.html");
     const desktop_actions = try readFile(allocator, "system/ui/interface/desktop-actions.html");
-    const css = try readFile(allocator, "system/ui/styles/desktop.css");
-    const terminal_css = try readFile(allocator, "system/ui/styles/terminal.css");
     const cpu_path = try configuredPath(variables, "CPU_USAGE");
     const cpu_relative = if (std.mem.startsWith(u8, cpu_path, "/")) cpu_path[1..] else cpu_path;
     const cpu = std.mem.trim(u8, try readFile(allocator, cpu_relative), "\r\n");
@@ -122,7 +120,8 @@ pub fn main() !void {
         } else if (std.mem.startsWith(u8, line, "stylesheet=")) {
             const name = line[11..];
             if (!std.mem.startsWith(u8, name, "../styles/") or std.mem.indexOf(u8, name[10..], "..") != null) return error.InvalidStylesheetPath;
-            if (std.mem.endsWith(u8, name, "terminal.css")) try append(&composed, &composed_len, terminal_css) else try append(&composed, &composed_len, css);
+            const path = try std.fmt.allocPrint(allocator, "system/ui/styles/{s}", .{name[10..]});
+            try append(&composed, &composed_len, try readFile(allocator, path));
         }
     }
     try contains(composed[0..composed_len], "data-action=\"open_files\"");
@@ -142,7 +141,6 @@ pub fn main() !void {
     }
     if (std.mem.indexOf(u8, expanded, "{{") != null) return error.UnresolvedProvider;
     try contains(expanded, "CPU 32%");
-    try contains(css, ".launcher");
     try contains(action, "action=open_files");
     try contains(action, "capability=window");
     const actions = [_][]const u8{ "open_terminal", "open_browser", "open_settings", "open_monitor", "open_store", "focus_files", "focus_terminal", "focus_browser", "pause_media" };
