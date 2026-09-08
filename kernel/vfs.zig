@@ -7,10 +7,32 @@ const max_fds = 32;
 
 const Kind = enum { unused, console, file, directory, device, epoll };
 const Node = enum {
-    root, bin, dev, dri, sys, sys_dev, sys_char, drm_char_primary, drm_char_render,
-    drm_device, drm_device_drm, drm_subsystem, drm_pci_uevent, drm_vendor,
-    drm_device_id, drm_subsystem_vendor, drm_subsystem_device,
-    drm_primary_uevent, drm_render_uevent, busybox, hello, framebuffer, drm, render, disk, fat_directory,
+    root,
+    bin,
+    dev,
+    dri,
+    sys,
+    sys_dev,
+    sys_char,
+    drm_char_primary,
+    drm_char_render,
+    drm_device,
+    drm_device_drm,
+    drm_subsystem,
+    drm_pci_uevent,
+    drm_vendor,
+    drm_device_id,
+    drm_subsystem_vendor,
+    drm_subsystem_device,
+    drm_primary_uevent,
+    drm_render_uevent,
+    busybox,
+    hello,
+    framebuffer,
+    drm,
+    render,
+    disk,
+    fat_directory,
 };
 
 const Descriptor = struct {
@@ -78,9 +100,13 @@ pub fn configureDrmPci(identity: DrmPciIdentity) void {
 pub fn validateDrmPciIdentitySelfTest() !void {
     reset();
     configureDrmPci(.{
-        .bus = 4, .slot = 2, .function = 1,
-        .vendor = 0x1002, .device = 0x744c,
-        .subsystem_vendor = 0x1da2, .subsystem_device = 0xe471,
+        .bus = 4,
+        .slot = 2,
+        .function = 1,
+        .vendor = 0x1002,
+        .device = 0x744c,
+        .subsystem_vendor = 0x1da2,
+        .subsystem_device = 0xe471,
     });
     const primary = try infoAt(-100, "/dev/dri/card0");
     const render = try infoAt(-100, "/dev/dri/renderD128");
@@ -106,8 +132,7 @@ pub fn validateDrmPciIdentitySelfTest() !void {
     if (reused_fd != duplicate_fd) return error.DrmDuplicateSlotNotReused;
     try close(reused_fd);
     try close(render_fd);
-    if (descriptorFlags(render_fd)) |_| return error.ClosedDescriptorFlagsAccepted else |err|
-        if (err != error.BadFd) return err;
+    if (descriptorFlags(render_fd)) |_| return error.ClosedDescriptorFlagsAccepted else |err| if (err != error.BadFd) return err;
     const vendor_fd = try openAt(-100, "/sys/dev/char/226:128/device/vendor", 0);
     var vendor: [7]u8 = undefined;
     if (try read(vendor_fd, &vendor) != vendor.len or !equal(&vendor, "0x1002\n")) return error.DrmPciVendorMismatch;
@@ -156,7 +181,9 @@ pub fn validateRuntimeLibrariesSelfTest() !void {
     }
 }
 
-pub fn mount(volume: *fat16.Volume) void { disk = volume; }
+pub fn mount(volume: *fat16.Volume) void {
+    disk = volume;
+}
 
 pub fn reset() void {
     descriptors = .{Descriptor{}} ** max_fds;
@@ -274,7 +301,10 @@ pub fn openAt(directory_fd: i64, path: []const u8, flags: u64) !usize {
                 return fd;
             }
         } else |err| {
-            switch (err) { error.NotFound => {}, else => return err }
+            switch (err) {
+                error.NotFound => {},
+                else => return err,
+            }
         }
         var existed = true;
         var size = volume.fileSize(&fat_name) catch |err| switch (err) {
@@ -314,7 +344,9 @@ pub fn openEpoll() !usize {
     return fd;
 }
 
-pub fn isEpoll(fd: usize) bool { return fd < descriptors.len and descriptors[fd].kind == .epoll; }
+pub fn isEpoll(fd: usize) bool {
+    return fd < descriptors.len and descriptors[fd].kind == .epoll;
+}
 
 pub fn close(fd: usize) !void {
     if (fd >= descriptors.len or descriptors[fd].kind == .unused) return error.BadFd;
@@ -362,8 +394,12 @@ pub fn isDrm(fd: usize) bool {
     return isDrmPrimary(fd) or isDrmRender(fd);
 }
 
-pub fn isDrmPrimary(fd: usize) bool { return fd < descriptors.len and descriptors[fd].kind == .device and descriptors[fd].node == .drm; }
-pub fn isDrmRender(fd: usize) bool { return fd < descriptors.len and descriptors[fd].kind == .device and descriptors[fd].node == .render; }
+pub fn isDrmPrimary(fd: usize) bool {
+    return fd < descriptors.len and descriptors[fd].kind == .device and descriptors[fd].node == .drm;
+}
+pub fn isDrmRender(fd: usize) bool {
+    return fd < descriptors.len and descriptors[fd].kind == .device and descriptors[fd].node == .render;
+}
 
 pub fn duplicateMinimum(old_fd: usize, minimum: usize) !usize {
     if (old_fd >= descriptors.len or descriptors[old_fd].kind == .unused or minimum >= descriptors.len) return error.BadFd;
@@ -483,7 +519,12 @@ pub fn seek(fd: usize, offset: i64, whence: u64) !usize {
     if (fd >= descriptors.len or descriptors[fd].kind != .file) return error.BadFd;
     const size = std.math.cast(i64, descriptors[fd].size) orelse return error.Invalid;
     const current = std.math.cast(i64, descriptors[fd].offset) orelse return error.Invalid;
-    const base: i64 = switch (whence) { 0 => 0, 1 => current, 2 => size, else => return error.Invalid };
+    const base: i64 = switch (whence) {
+        0 => 0,
+        1 => current,
+        2 => size,
+        else => return error.Invalid,
+    };
     const result = @addWithOverflow(base, offset);
     if (result[1] != 0 or result[0] < 0) return error.Invalid;
     descriptors[fd].offset = @intCast(result[0]);
@@ -681,7 +722,7 @@ fn resolve(directory_fd: i64, path: []const u8) !Node {
     if (equal(path, "/bin/busybox") or equal(path, "/bin/sh") or equal(path, "/bin/ls") or
         equal(path, "/bin/cat") or equal(path, "/bin/echo") or
         ((directory_fd >= 3 and @as(usize, @intCast(directory_fd)) < descriptors.len and descriptors[@intCast(directory_fd)].node == .bin) and
-        (equal(path, "busybox") or equal(path, "sh") or equal(path, "ls") or equal(path, "cat") or equal(path, "echo")))) return .busybox;
+            (equal(path, "busybox") or equal(path, "sh") or equal(path, "ls") or equal(path, "cat") or equal(path, "echo")))) return .busybox;
     return error.NotFound;
 }
 
@@ -713,12 +754,21 @@ fn toFatName(path: []const u8) ?[11]u8 {
     var extension = false;
     for (path[start..]) |character| {
         if (character == '/' or character == '\\') return null;
-        if (character == '.') { if (extension) return null; extension = true; continue; }
+        if (character == '.') {
+            if (extension) return null;
+            extension = true;
+            continue;
+        }
         if ((!extension and name_index == 8) or (extension and extension_index == 11)) return null;
         const upper = if (character >= 'a' and character <= 'z') character - 32 else character;
         if (upper <= ' ' or upper >= 0x7f) return null;
-        if (extension) { result[extension_index] = upper; extension_index += 1; }
-        else { result[name_index] = upper; name_index += 1; }
+        if (extension) {
+            result[extension_index] = upper;
+            extension_index += 1;
+        } else {
+            result[name_index] = upper;
+            name_index += 1;
+        }
     }
     if (name_index == 0 or (extension and extension_index == 8)) return null;
     return result;
@@ -749,9 +799,11 @@ fn expectFatAlias(path: []const u8, expected: *const [11]u8) !void {
 
 fn nodeData(node: Node) []const u8 {
     return switch (node) {
-        .busybox => busybox, .hello => hello,
+        .busybox => busybox,
+        .hello => hello,
         .drm_pci_uevent => drm_pci_uevent[0..drm_pci_uevent_len],
-        .drm_vendor => &drm_vendor_data, .drm_device_id => &drm_device_data,
+        .drm_vendor => &drm_vendor_data,
+        .drm_device_id => &drm_device_data,
         .drm_subsystem_vendor => &drm_subsystem_vendor_data,
         .drm_subsystem_device => &drm_subsystem_device_data,
         .drm_primary_uevent => "DEVNAME=dri/card0\n",
@@ -760,7 +812,9 @@ fn nodeData(node: Node) []const u8 {
     };
 }
 
-fn requireDrmPci(node: Node) error{NotFound}!Node { return if (drm_pci_configured) node else error.NotFound; }
+fn requireDrmPci(node: Node) error{NotFound}!Node {
+    return if (drm_pci_configured) node else error.NotFound;
+}
 
 fn endsWithDrmDevice(path: []const u8, suffix: []const u8) bool {
     const primary = "/sys/dev/char/226:0/device";
@@ -787,7 +841,8 @@ fn entryType(parent: Node, name: []const u8) u8 {
 }
 
 fn formatPciId(output: *[7]u8, value: u16) void {
-    output[0] = '0'; output[1] = 'x';
+    output[0] = '0';
+    output[1] = 'x';
     var length: usize = 2;
     appendHex(output, &length, value, 4);
     output[6] = '\n';
