@@ -194,7 +194,7 @@ pub const Backend = struct {
     }
 
     pub fn resize(self: *Backend, width: u16, height: u16, pixels: []u32) bool {
-        if (width == 0 or height == 0 or pixels.len < @as(usize, width) * height) return false;
+        if (!self.surface_alive or width == 0 or height == 0 or pixels.len < @as(usize, width) * height) return false;
         self.surface.width = width;
         self.surface.height = height;
         self.surface.stride = width;
@@ -259,6 +259,7 @@ pub const Backend = struct {
     }
 
     pub fn present(self: *Backend, damage: Damage) bool {
+        if (!self.surface_alive) return false;
         const clipped = self.clipDamage(damage) orelse return false;
         return self.enqueueRequest(.{ .present = .{ .surface_id = self.surface.id, .generation = self.surface.generation, .damage = clipped } });
     }
@@ -363,4 +364,12 @@ test "backend dispatches requests without knowing the window manager" {
     dispatched_requests = 0;
     try std.testing.expectEqual(@as(usize, 2), backend.dispatchRequests(&countDispatchedRequest));
     try std.testing.expectEqual(@as(usize, 2), dispatched_requests);
+}
+
+test "destroyed surface rejects later resize and present" {
+    var pixels = [_]u32{0} ** 4;
+    var backend = Backend.init(.{ .id = 9, .width = 2, .height = 2, .stride = 2, .pixels = &pixels });
+    try std.testing.expect(backend.destroySurface());
+    try std.testing.expect(!backend.resize(2, 2, &pixels));
+    try std.testing.expect(!backend.present(.{ .x = 0, .y = 0, .width = 1, .height = 1 }));
 }
