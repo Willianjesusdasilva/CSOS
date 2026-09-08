@@ -344,6 +344,11 @@ pub const Volume = struct {
     /// Create a FAT16 subdirectory and initialize its dot entries. A parent
     /// cluster of zero denotes the fixed root directory.
     pub fn createDirectory(self: *Volume, parent_cluster: u16, name: *const [11]u8) !u16 {
+        if (parent_cluster == 0) {
+            if (self.findRootEntry(name)) |_| return error.AlreadyExists else |err| if (err != error.NotFound) return err;
+        } else {
+            if (self.findDirectoryEntry(parent_cluster, name)) |_| return error.AlreadyExists else |err| if (err != error.NotFound) return err;
+        }
         const cluster = try self.findFree(2);
         try self.setFatEntry(cluster, 0xffff);
         errdefer self.setFatEntry(cluster, 0) catch {};
