@@ -584,6 +584,7 @@ pub fn start(info: BootInfo) noreturn {
         state_offset += state_size;
     }
     serial.write("FAT16 write ready\n");
+    seedUiFilesystem(&volume) catch panic("file-backed UI filesystem seed failed");
     vfs.validateRuntimeLibraryAliasesSelfTest() catch panic("VFS runtime library alias self-test failed");
     vfs.mount(&volume);
     vfs.reset();
@@ -2709,6 +2710,33 @@ pub fn start(info: BootInfo) noreturn {
         reportAudio(&usb);
         asm volatile ("pause");
     }
+}
+
+fn seedUiFilesystem(volume: *fat16.Volume) !void {
+    const system_name: [11]u8 = "SYSTEM     ".*;
+    const ui_name: [11]u8 = "UI         ".*;
+    const interface_name: [11]u8 = "INTERFAC   ".*;
+    const styles_name: [11]u8 = "STYLES     ".*;
+    const providers_name: [11]u8 = "PROVIDERS  ".*;
+    const variables_name: [11]u8 = "VARIABLESCF".*;
+    const manifest_name: [11]u8 = "DESKTOP UI ".*;
+    const desktop_name: [11]u8 = "DESKTOP HTM".*;
+    const css_name: [11]u8 = "DESKTOP CSS".*;
+    const system_cluster = volume.createDirectory(0, &system_name) catch |err| if (err == error.AlreadyExists) (try volume.findRootEntry(&system_name)).first_cluster else return err;
+    const ui_cluster = volume.createDirectory(system_cluster, &ui_name) catch |err| if (err == error.AlreadyExists) (try volume.findDirectoryEntry(system_cluster, &ui_name)).first_cluster else return err;
+    const interface_cluster = volume.createDirectory(ui_cluster, &interface_name) catch |err| if (err == error.AlreadyExists) (try volume.findDirectoryEntry(ui_cluster, &interface_name)).first_cluster else return err;
+    const styles_cluster = volume.createDirectory(ui_cluster, &styles_name) catch |err| if (err == error.AlreadyExists) (try volume.findDirectoryEntry(ui_cluster, &styles_name)).first_cluster else return err;
+    const providers_cluster = volume.createDirectory(ui_cluster, &providers_name) catch |err| if (err == error.AlreadyExists) (try volume.findDirectoryEntry(ui_cluster, &providers_name)).first_cluster else return err;
+    try volume.writeDirectoryFile(ui_cluster, &variables_name, @embedFile("ui_variables"));
+    try volume.writeDirectoryFile(interface_cluster, &manifest_name, @embedFile("ui_manifest"));
+    try volume.writeDirectoryFile(interface_cluster, &desktop_name, @embedFile("ui_desktop"));
+    try volume.writeDirectoryFile(styles_cluster, &css_name, @embedFile("ui_desktop_css"));
+    try volume.writeDirectoryFile(providers_cluster, "CPU_USAGE  ", "32\n");
+    try volume.writeDirectoryFile(providers_cluster, "RAM_USAGE  ", "48\n");
+    try volume.writeDirectoryFile(providers_cluster, "GPU_USAGE  ", "unavailable\n");
+    try volume.writeDirectoryFile(providers_cluster, "NETWORK_IP ", "127.0.0.1\n");
+    try volume.writeDirectoryFile(providers_cluster, "CURRENTFPS ", "60\n");
+    try volume.writeDirectoryFile(providers_cluster, "FRAMETIME  ", "16.6\n");
 }
 
 fn handleSdlDemoEvent(app: *sdl.Application, event: sdl.Event) void {

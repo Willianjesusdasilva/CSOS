@@ -464,6 +464,10 @@ pub fn build(b: *std.Build) void {
     const ui_ipc_module = b.createModule(.{ .root_source_file = b.path("kernel/ui_ipc.zig") });
     syscalls_module.addImport("ui_ipc", ui_ipc_module);
     kernel_module.addImport("ui_ipc", ui_ipc_module);
+    kernel_module.addAnonymousImport("ui_variables", .{ .root_source_file = b.path("system/ui/variables.conf") });
+    kernel_module.addAnonymousImport("ui_manifest", .{ .root_source_file = b.path("system/ui/interface/desktop.manifest") });
+    kernel_module.addAnonymousImport("ui_desktop", .{ .root_source_file = b.path("system/ui/interface/desktop.html") });
+    kernel_module.addAnonymousImport("ui_desktop_css", .{ .root_source_file = b.path("system/ui/styles/desktop.css") });
     kernel_module.addImport("serial", serial_module);
     kernel_module.addImport("gdt", gdt_module);
     kernel_module.addImport("idt", idt_module);
