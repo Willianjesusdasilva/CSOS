@@ -255,11 +255,12 @@ pub const Backend = struct {
 
     pub fn attachBuffer(self: *Backend, buffer_handle: u32, pixels: []u32, stride: u32) bool {
         if (!self.surface_alive or buffer_handle == 0 or stride < self.surface.width or pixels.len < @as(usize, stride) * self.surface.height) return false;
+        if (self.response_write - self.response_read >= self.responses.len) return false;
         self.surface.buffer_handle = buffer_handle;
         self.surface.stride = stride;
         self.surface.pixels = pixels;
         self.surface.generation +|= 1;
-        return true;
+        return self.enqueueResponse(.{ .surface_created = self.surfaceInfo() });
     }
 
     pub fn setFormat(self: *Backend, format: PixelFormat) bool {
@@ -512,6 +513,10 @@ test "backend attaches an opaque shared buffer handle" {
     var backend = Backend.init(.{ .id = 10, .width = 4, .height = 4, .stride = 4, .pixels = &pixels });
     try std.testing.expect(backend.attachBuffer(0x44, &pixels, 4));
     try std.testing.expectEqual(@as(u32, 0x44), backend.surface.buffer_handle);
+    switch (backend.nextResponse().?) {
+        .surface_created => |info| try std.testing.expectEqual(@as(u32, 0x44), info.buffer_handle),
+        else => return error.UnexpectedBackendResponse,
+    }
     try std.testing.expect(!backend.attachBuffer(0, &pixels, 4));
     try std.testing.expect(!backend.attachBuffer(0x45, pixels[0..4], 4));
 }
