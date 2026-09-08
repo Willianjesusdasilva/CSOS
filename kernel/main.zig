@@ -3290,6 +3290,11 @@ fn drawDesktopWallpaper(framebuffer: Framebuffer) void {
             if (y > horizon and y < horizon + framebuffer.height / 5 and
                 x > (y - horizon) * 3 and x + (y - horizon) * 2 < framebuffer.width + 40)
                 color = 0x18253f;
+            if (y >= framebuffer.height * 4 / 5) {
+                const reflection = @as(u32, @intCast(((y - framebuffer.height * 4 / 5) * 24) / @max(framebuffer.height / 5, 1)));
+                color = ((35 + reflection) << 16) | ((38 + reflection) << 8) | (58 + reflection);
+                if ((y % 7 == 0) and x % 13 < 7) color += 0x080000;
+            }
             pixels[y * framebuffer.stride + x] = color;
         }
     }
