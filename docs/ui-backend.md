@@ -38,7 +38,7 @@ The public C client in `userspace/csos_ui_backend.h` provides the canonical
 sequence:
 
 ```text
-client_init → hello → create/resize → present → receive events/responses → close
+client_init → hello → hello_ack/confirm → create/resize → present → receive events/responses → close
 ```
 
 Its transport is callback-based, so a port may use a CSOS socket, an IPC
