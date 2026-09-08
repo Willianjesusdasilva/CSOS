@@ -204,7 +204,10 @@ pub const Session = struct {
         const index = self.document.hitTest(x, y, origin_x, origin_y) orelse return .none;
         self.focused = index;
         return if (self.document.elements[index].kind == .input)
-            .{ .focus_input = index }
+            if (self.document.isCheckbox(index)) blk: {
+                _ = self.document.toggleChecked(index);
+                break :blk .{ .focus_input = index };
+            } else .{ .focus_input = index }
         else if (self.document.activateIndex(index)) |target|
             .{ .action = target }
         else
@@ -219,6 +222,11 @@ pub const Session = struct {
     /// Handles keyboard activation commands for the currently focused control.
     pub fn activateKey(self: *const Session, key: u8) ?[]const u8 {
         if (key != 13 and key != 32) return null;
+        if (self.focused) |index| if (self.document.isCheckbox(index)) {
+            // Activation is handled by the mutable event path; this const
+            // helper intentionally reports no action for a checkbox.
+            return null;
+        };
         return self.activateFocused();
     }
 };
