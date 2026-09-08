@@ -2765,6 +2765,7 @@ fn seedUiFilesystem(volume: *fat16.Volume) !void {
     const status_name: [11]u8 = "STATUS  HTM".*;
     const dock_name: [11]u8 = "DOCK    HTM".*;
     const alt_tab_name: [11]u8 = "ALTTAB  HTM".*;
+    const desktop_actions_name: [11]u8 = "DESKTOPAHTM".*;
     const system_cluster = volume.createDirectory(0, &system_name) catch |err| if (err == error.AlreadyExists) (try volume.findRootEntry(&system_name)).first_cluster else return err;
     serial.write("ui seed system\n");
     const ui_cluster = volume.createDirectory(system_cluster, &ui_name) catch |err| if (err == error.AlreadyExists) (try volume.findDirectoryEntry(system_cluster, &ui_name)).first_cluster else return err;
@@ -2792,6 +2793,7 @@ fn seedUiFilesystem(volume: *fat16.Volume) !void {
     try volume.createDirectoryFile(interface_cluster, &status_name); try volume.writeDirectoryFile(interface_cluster, &status_name, @embedFile("ui_status"));
     try volume.createDirectoryFile(interface_cluster, &dock_name); try volume.writeDirectoryFile(interface_cluster, &dock_name, @embedFile("ui_dock"));
     try volume.createDirectoryFile(interface_cluster, &alt_tab_name); try volume.writeDirectoryFile(interface_cluster, &alt_tab_name, @embedFile("ui_alt_tab"));
+    try volume.createDirectoryFile(interface_cluster, &desktop_actions_name); try volume.writeDirectoryFile(interface_cluster, &desktop_actions_name, @embedFile("ui_desktop_actions"));
     if (volume.findDirectoryEntry(interface_cluster, &topbar_name)) |_| serial.write("ui seed topbar ready\n") else |_| serial.write("ui seed topbar lookup failed\n");
     if (volume.findDirectoryEntry(interface_cluster, &sidebar_name)) |_| serial.write("ui seed sidebar ready\n") else |_| serial.write("ui seed sidebar lookup failed\n");
     try volume.createDirectoryFile(styles_cluster, &css_name); try volume.writeDirectoryFile(styles_cluster, &css_name, @embedFile("ui_desktop_css"));

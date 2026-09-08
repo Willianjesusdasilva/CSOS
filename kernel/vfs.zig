@@ -931,6 +931,7 @@ fn toFatName(path: []const u8) ?[11]u8 {
     if (std.mem.eql(u8, path, "status.html")) return "STATUS  HTM".*;
     if (std.mem.eql(u8, path, "dock.html")) return "DOCK    HTM".*;
     if (std.mem.eql(u8, path, "alt-tab.html")) return "ALTTAB  HTM".*;
+    if (std.mem.eql(u8, path, "desktop-actions.html")) return "DESKTOPAHTM".*;
     if (std.mem.eql(u8, path, "CPU_USAGE")) return "CPUUSAGETXT".*;
     if (std.mem.eql(u8, path, "open_files")) return "OPENFILESH ".*;
     if (std.mem.eql(u8, path, "/system/ui/variables.conf") or std.mem.eql(u8, path, "system/ui/variables.conf") or std.mem.eql(u8, path, "variables.conf")) return "VARIABLESCF".*;
