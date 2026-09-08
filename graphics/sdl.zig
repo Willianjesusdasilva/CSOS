@@ -699,6 +699,13 @@ pub const Application = struct {
         self.window.fillRect(self.html_origin_x -| 14, self.html_origin_y -| 14, 470, 232, 0x14243bd9);
         self.window.drawHtmlFocused(&session.document, self.html_origin_x, self.html_origin_y, session.focused);
         }
+        const dock_width = @min(@as(usize, 620), self.window.width -| 40);
+        const dock_x = (self.window.width -| dock_width) / 2;
+        const dock_y = self.window.height -| 82;
+        if (self.pointer_x >= dock_x +| 18 and self.pointer_x < dock_x +| 18 +| 8 * 72 and self.pointer_y >= dock_y and self.pointer_y < dock_y +| 58) {
+            const item = (self.pointer_x - (dock_x + 18)) / 72;
+            self.window.fillRect(dock_x + 12 + item * 72, dock_y + 8, 52, 38, 0x70d0ff38);
+        }
         self.window.fillRect(self.pointer_x, self.pointer_y, 2, 12, 0xf1f6ffff);
         self.window.fillRect(self.pointer_x, self.pointer_y, 8, 2, 0xf1f6ffff);
         if (self.backend) |*backend| _ = backend.present(.{ .x = 0, .y = 0, .width = @intCast(self.window.width), .height = @intCast(self.window.height) });
