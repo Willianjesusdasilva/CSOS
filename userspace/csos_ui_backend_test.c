@@ -8,6 +8,11 @@ static int receive_message(void *userdata, void *message, uint8_t capacity) {
     ((uint8_t *)message)[0] = CSOS_UI_CLOSE; ((uint8_t *)message)[1] = 2;
     return *(uint8_t *)userdata = 2;
 }
+static int receive_failure(void *userdata, void *message, uint8_t capacity) {
+    (void)userdata; if (capacity < 4) return -1;
+    ((uint8_t *)message)[0] = CSOS_UI_FAILURE; ((uint8_t *)message)[1] = 4;
+    csos_ui_put16((uint8_t *)message + 2, 0x1234); return 4;
+}
 
 int main(void) {
     uint8_t message[32];
@@ -69,6 +74,13 @@ int main(void) {
         return 16;
     if (csos_ui_client_receive_event(&client, message, sizeof(message)) != -1)
         return 21;
+    struct csos_ui_client failed_client;
+    struct csos_ui_transport failure_transport = { 0, send_message, receive_failure };
+    csos_ui_client_init(&failed_client, failure_transport); failed_client.ready = 1;
+    uint8_t response_kind = 0;
+    if (csos_ui_client_process_response(&failed_client, message, sizeof(message), &response_kind) != 4 ||
+        response_kind != CSOS_UI_FAILURE || failed_client.ready)
+        return 22;
     struct csos_ui_pointer pointer;
     uint8_t pointer_message[11] = { CSOS_UI_POINTER, 11, 0xfc, 0xff, 0xff, 0xff, 9, 0, 0, 0, 1 };
     if (!csos_ui_decode_pointer(pointer_message, sizeof(pointer_message), &pointer) || pointer.x != -4 || pointer.buttons != 1)

@@ -394,6 +394,19 @@ static inline int csos_ui_client_receive_response(struct csos_ui_client *client,
     return length >= 2 && csos_ui_response_valid((const uint8_t *)message, (uint8_t)length) ? length : -1;
 }
 
+/* Receive one validated response and apply transport-level lifecycle effects.
+ * Payload-specific decoding remains explicit through the typed decoder helpers. */
+static inline int csos_ui_client_process_response(struct csos_ui_client *client,
+                                                  void *message, uint8_t capacity,
+                                                  uint8_t *kind) {
+    const int length = csos_ui_client_receive_response(client, message, capacity);
+    if (length < 0) return -1;
+    const uint8_t response_kind = ((const uint8_t *)message)[0];
+    if (kind) *kind = response_kind;
+    if (response_kind == CSOS_UI_FAILURE) client->ready = 0;
+    return length;
+}
+
 static inline int csos_ui_client_receive_event(struct csos_ui_client *client,
                                                void *message, uint8_t capacity) {
     if (!client || !client->ready) return -1;
