@@ -669,9 +669,14 @@ pub const Application = struct {
 
     /// Paints the reference shell and overlays the interactive HTML surface.
     pub fn renderReferenceDesktop(self: *Application) bool {
-        if (!self.running) return false;
-        drawReferenceDesktop(&self.window);
-        if (self.html_session) |*session| self.window.drawHtmlFocused(&session.document, self.html_origin_x, self.html_origin_y, session.focused);
+    if (!self.running) return false;
+    drawReferenceDesktop(&self.window);
+    if (self.html_session) |*session| {
+        // The HTML surface owns the controls, while the native shell supplies
+        // the translucent card behind them until a GPU compositor is active.
+        self.window.fillRect(self.html_origin_x -| 14, self.html_origin_y -| 14, 470, 232, 0x14243bd9);
+        self.window.drawHtmlFocused(&session.document, self.html_origin_x, self.html_origin_y, session.focused);
+    }
         if (self.backend) |*backend| _ = backend.present(.{ .x = 0, .y = 0, .width = @intCast(self.window.width), .height = @intCast(self.window.height) });
         return true;
     }
