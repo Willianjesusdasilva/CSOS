@@ -301,6 +301,9 @@ struct csos_ui_client {
     struct csos_ui_surface surface;
     int surface_valid;
     int focused;
+    struct csos_ui_pointer pointer;
+    struct csos_ui_key key;
+    int32_t wheel_delta;
 };
 
 static inline int csos_ui_transport_send(const struct csos_ui_transport *transport,
@@ -318,7 +321,7 @@ static inline int csos_ui_transport_receive(const struct csos_ui_transport *tran
 static inline void csos_ui_client_init(struct csos_ui_client *client,
                                        struct csos_ui_transport transport) {
     if (!client) return;
-    client->transport = transport; client->version = 0; client->capabilities = 0; client->ready = 0; client->hello_pending = 0; client->surface_valid = 0; client->focused = 0;
+    client->transport = transport; client->version = 0; client->capabilities = 0; client->ready = 0; client->hello_pending = 0; client->surface_valid = 0; client->focused = 0; client->wheel_delta = 0;
 }
 
 static inline int csos_ui_client_hello(struct csos_ui_client *client,
@@ -462,6 +465,12 @@ static inline int csos_ui_client_process_event(struct csos_ui_client *client,
     if (event_kind == CSOS_UI_FOCUS) {
         int focused = 0;
         if (csos_ui_decode_focus((const uint8_t *)message, (uint8_t)length, &focused)) client->focused = focused;
+    } else if (event_kind == CSOS_UI_POINTER) {
+        (void)csos_ui_decode_pointer((const uint8_t *)message, (uint8_t)length, &client->pointer);
+    } else if (event_kind == CSOS_UI_KEY) {
+        (void)csos_ui_decode_key((const uint8_t *)message, (uint8_t)length, &client->key);
+    } else if (event_kind == CSOS_UI_WHEEL) {
+        (void)csos_ui_decode_wheel((const uint8_t *)message, (uint8_t)length, &client->wheel_delta);
     } else if (event_kind == CSOS_UI_EVENT_CLOSE) { client->ready = 0; client->hello_pending = 0; client->surface_valid = 0; client->focused = 0; }
     return length;
 }
