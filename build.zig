@@ -76,6 +76,13 @@ pub fn build(b: *std.Build) void {
     hello.entry = .{ .symbol_name = "_start" };
     hello.pie = true;
 
+    const ui_runtime = b.addExecutable(.{
+        .name = "ui-runtime",
+        .root_module = b.createModule(.{ .root_source_file = b.path("userspace/ui_runtime.zig"), .target = user_target, .optimize = .ReleaseSmall }),
+    });
+    ui_runtime.entry = .{ .symbol_name = "_start" };
+    ui_runtime.pie = true;
+
     const interpreter = b.addExecutable(.{
         .name = "ld-csos",
         .root_module = b.createModule(.{
@@ -449,6 +456,7 @@ pub fn build(b: *std.Build) void {
     process_module.addImport("vfs", vfs_module);
     process_module.addImport("serial", serial_module);
     process_module.addAnonymousImport("hello_elf", .{ .root_source_file = hello.getEmittedBin() });
+    process_module.addAnonymousImport("ui_runtime_elf", .{ .root_source_file = ui_runtime.getEmittedBin() });
     process_module.addAnonymousImport("interpreter_elf", .{ .root_source_file = interpreter.getEmittedBin() });
     process_module.addAnonymousImport("dynamic_elf", .{ .root_source_file = dynamic_hello.getEmittedBin() });
     process_module.addAnonymousImport("nettest_elf", .{ .root_source_file = nettest.getEmittedBin() });

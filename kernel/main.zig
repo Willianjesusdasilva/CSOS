@@ -588,6 +588,8 @@ pub fn start(info: BootInfo) noreturn {
     vfs.validateRuntimeLibraryAliasesSelfTest() catch panic("VFS runtime library alias self-test failed");
     vfs.mount(&volume);
     vfs.reset();
+    process.runUiRuntime(mapper.root, &pages) catch panic("userspace UI runtime failed");
+    serial.write("userspace file-backed UI runtime ready\n");
     if (build_options.radv_runtime) {
         vfs.validateRuntimeLibrariesSelfTest() catch panic("VFS RADV runtime files self-test failed");
         serial.write("RADV runtime files ready\n");

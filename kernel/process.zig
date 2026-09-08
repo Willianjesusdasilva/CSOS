@@ -10,6 +10,7 @@ const nettest_image = @embedFile("nettest_elf");
 const fbtest_image = @embedFile("fbtest_elf");
 const drmtest_image = @embedFile("drmtest_elf");
 const hello_image = @embedFile("hello_elf");
+const ui_runtime_image = @embedFile("ui_runtime_elf");
 const interpreter_image = @embedFile("interpreter_elf");
 const dynamic_image = @embedFile("dynamic_elf");
 var image: []const u8 = busybox_image;
@@ -116,6 +117,12 @@ pub fn runHelloPie(kernel_root: u64, pages: *physical.Allocator) !void {
     image = hello_image;
     if (read16(16) != 3) return error.NotPie;
     const arguments = [_][]const u8{"/bin/hello-pie"};
+    return runImage(kernel_root, pages, &arguments);
+}
+
+pub fn runUiRuntime(kernel_root: u64, pages: *physical.Allocator) !void {
+    image = ui_runtime_image;
+    const arguments = [_][]const u8{"/bin/ui-runtime"};
     return runImage(kernel_root, pages, &arguments);
 }
 
