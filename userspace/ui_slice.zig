@@ -91,7 +91,13 @@ pub fn main() !void {
     var apps_lines = std.mem.splitScalar(u8, apps_manifest, '\n');
     while (apps_lines.next()) |raw| {
         const line = std.mem.trim(u8, raw, " \r\t");
-        if (line.len == 0 or std.mem.startsWith(u8, line, "stylesheet=")) continue;
+        if (line.len == 0) continue;
+        if (std.mem.startsWith(u8, line, "stylesheet=")) {
+            const stylesheet = line[11..];
+            if (!std.mem.eql(u8, stylesheet, "../styles/apps.css")) return error.InvalidAppsStylesheet;
+            try append(&apps_composed, &apps_len, try readFile(allocator, "system/ui/styles/apps.css"));
+            continue;
+        }
         if (!std.mem.startsWith(u8, line, "fragment=apps/")) return error.InvalidAppsManifest;
         const name = line[9..];
         if (std.mem.indexOf(u8, name, "..") != null) return error.InvalidAppsPath;
@@ -147,6 +153,7 @@ pub fn main() !void {
     try contains(monitor_app, "{{ GPU_USAGE }}");
     try validateActions(monitor_app);
     try validateActions(apps_composed[0..apps_len]);
+    try contains(apps_composed[0..apps_len], ".app-window");
     try contains(status, "{{ CPU_USAGE }}");
     try contains(status, "class=\"status-card\"");
     try validateActions(system_app);
