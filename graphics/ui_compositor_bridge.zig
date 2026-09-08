@@ -44,6 +44,10 @@ pub const Bridge = struct {
         }
         return processed;
     }
+
+    pub fn pushEvent(self: *Bridge, event: ui.Event) bool {
+        return self.backend.enqueueEvent(event);
+    }
 };
 
 test "bridge forwards present and resize without DOM knowledge" {
@@ -80,4 +84,10 @@ test "bridge forwards present and resize without DOM knowledge" {
     bridge.sink.userdata = &resizes;
     try std.testing.expect(bridge.dispatch(.{ .resize = .{ .width = 2, .height = 2 } }));
     try std.testing.expectEqual(@as(usize, 1), resizes);
+    while (backend.nextEvent()) |_| {}
+    try std.testing.expect(bridge.pushEvent(.{ .pointer = .{ .x = 12, .y = 8, .buttons = 1 } }));
+    switch (backend.nextEvent().?) {
+        .pointer => |pointer| { try std.testing.expectEqual(@as(i32, 12), pointer.x); try std.testing.expectEqual(@as(u8, 1), pointer.buttons); },
+        else => return error.UnexpectedBridgeEvent,
+    }
 }
