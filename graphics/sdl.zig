@@ -476,6 +476,18 @@ pub fn drawReferenceDesktop(window: *Window) void {
         const blue: u32 = 48 + @as(u32, @intCast(band * 8));
         window.fillRect(0, y, width, band_height, (red << 24) | (32 << 16) | (blue << 8) | 0xff);
     }
+    // Layered stepped silhouettes keep the PNG's mountain-at-dusk character
+    // without requiring an image decoder in the early boot compositor.
+    const horizon = height * 3 / 5;
+    const mountain_color = 0x172443b8;
+    for (0..8) |step| {
+        const inset = step * (width / 16 + 1);
+        window.fillRect(inset, horizon -| step * 10, width -| inset * 2, step * 10 + 1, mountain_color);
+    }
+    for (0..6) |step| {
+        const inset = width / 3 + step * (width / 24 + 1);
+        window.fillRect(inset, horizon + 18 -| step * 8, width -| inset, step * 8 + 1, 0x0f1b35d0);
+    }
     window.fillRect(0, 0, width, @min(height, 38), 0x17294fff);
     window.drawText(18, 12, "CSOS", 0xf0f6ffff);
     window.drawText(78, 12, "Arquivo   Editar   Visualizar   Janela   Ajuda", 0xc4d5f0ff);
