@@ -88,6 +88,8 @@ pub fn main() !void {
     const monitor_app = try readFile(allocator, "system/ui/interface/apps/monitor.html");
     var apps_composed: [8192]u8 = undefined;
     var apps_len: usize = 0;
+    var app_fragment_count: usize = 0;
+    var app_stylesheet_count: usize = 0;
     var apps_lines = std.mem.splitScalar(u8, apps_manifest, '\n');
     while (apps_lines.next()) |raw| {
         const line = std.mem.trim(u8, raw, " \r\t");
@@ -95,15 +97,18 @@ pub fn main() !void {
         if (std.mem.startsWith(u8, line, "stylesheet=")) {
             const stylesheet = line[11..];
             if (!std.mem.eql(u8, stylesheet, "../styles/apps.css")) return error.InvalidAppsStylesheet;
+            app_stylesheet_count += 1;
             try append(&apps_composed, &apps_len, try readFile(allocator, "system/ui/styles/apps.css"));
             continue;
         }
         if (!std.mem.startsWith(u8, line, "fragment=apps/")) return error.InvalidAppsManifest;
         const name = line[9..];
         if (std.mem.indexOf(u8, name, "..") != null) return error.InvalidAppsPath;
+        app_fragment_count += 1;
         const path = try std.fmt.allocPrint(allocator, "system/ui/interface/{s}", .{name});
         try append(&apps_composed, &apps_len, try readFile(allocator, path));
     }
+    if (app_fragment_count != 3 or app_stylesheet_count != 1) return error.IncompleteAppsManifest;
     const status = try readFile(allocator, "system/ui/interface/status.html");
     const desktop_actions = try readFile(allocator, "system/ui/interface/desktop-actions.html");
     const cpu_path = try configuredPath(variables, "CPU_USAGE");
