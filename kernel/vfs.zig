@@ -217,6 +217,23 @@ pub fn openAt(directory_fd: i64, path: []const u8, flags: u64) !usize {
     var fd: usize = 3;
     while (fd < descriptors.len and descriptors[fd].kind != .unused) : (fd += 1) {}
     if (fd == descriptors.len) return error.TooManyFiles;
+    if (disk) |volume| if ((flags & 0x40) != 0) if (resolveFatPath(volume, path)) |_| {} else |_| if (nestedParentPath(path)) |parent_path| {
+        const child_name = toFatName(lastPathComponent(path)) orelse return error.Invalid;
+        var parent_cluster: u16 = undefined;
+        if (toFatName(parent_path)) |root_name| {
+            const parent = try volume.findRootEntry(&root_name);
+            if (!parent.directory) return error.NotDirectory;
+            parent_cluster = parent.first_cluster;
+        } else if (resolveFatPath(volume, parent_path)) |parent| {
+            if (!parent.entry.directory) return error.NotDirectory;
+            parent_cluster = parent.entry.first_cluster;
+        } else |_| return error.NotFound;
+        try volume.createDirectoryFile(parent_cluster, &child_name);
+        const created = try volume.findDirectoryEntry(parent_cluster, &child_name);
+        descriptors[fd] = .{ .generation = try newGeneration(), .kind = .file, .node = .disk, .size = created.size, .fat_name = created.name, .fat_parent_cluster = parent_cluster };
+        descriptors[fd].close_on_exec = (flags & 0x80000) != 0;
+        return fd;
+    };
     if (disk) |volume| if (resolveFatPath(volume, path)) |resolved| {
         if (resolved.entry.directory) {
             if ((flags & 0x3) != 0 or (flags & 0x200) != 0) return error.IsDirectory;
@@ -440,6 +457,14 @@ fn lastPathComponent(path: []const u8) []const u8 {
     var start = end;
     while (start != 0 and path[start - 1] != '/') : (start -= 1) {}
     return path[start..end];
+}
+
+fn nestedParentPath(path: []const u8) ?[]const u8 {
+    const child = lastPathComponent(path);
+    if (child.len == 0 or path.len <= child.len) return null;
+    const separator = path.len - child.len - 1;
+    if (path[separator] != '/') return null;
+    return path[0..separator];
 }
 
 pub fn seek(fd: usize, offset: i64, whence: u64) !usize {
