@@ -252,7 +252,7 @@ pub fn openAt(directory_fd: i64, path: []const u8, flags: u64) !usize {
             if (parent == 0) {
                 descriptors[fd] = .{ .generation = try newGeneration(), .kind = .directory, .node = .root };
             } else {
-                descriptors[fd] = .{ .generation = try newGeneration(), .kind = .directory, .node = .fat_directory, .fat_cluster = parent };
+                descriptors[fd] = .{ .generation = try newGeneration(), .kind = .directory, .node = .fat_directory, .fat_cluster = parent, .fat_parent_cluster = volume.parentDirectoryCluster(parent) catch 0 };
             }
             descriptors[fd].close_on_exec = (flags & 0x80000) != 0;
             return fd;

@@ -442,6 +442,18 @@ pub const Volume = struct {
         }
     }
 
+    pub fn parentDirectoryCluster(self: *Volume, first_cluster: u16) !u16 {
+        try validateDataCluster(first_cluster, self.cluster_count);
+        try self.storage.readBlock(self.clusterLba(first_cluster), self.buffer);
+        const bytes: [*]const u8 = @ptrFromInt(self.buffer);
+        var offset: usize = 0;
+        while (offset < 512) : (offset += 32) {
+            if (bytes[offset] == 0) return error.NotFound;
+            if (bytes[offset] == '.' and bytes[offset + 1] == '.') return get16(bytes + offset + 26);
+        }
+        return error.NotFound;
+    }
+
     pub fn writeDirectoryFile(self: *Volume, directory_cluster: u16, name: *const [11]u8, data: []const u8) !void {
         const cluster_bytes = @as(usize, self.sectors_per_cluster) * 512;
         const needed = try clustersForLength(data.len, cluster_bytes, self.cluster_count);
