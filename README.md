@@ -368,7 +368,11 @@ Os arquivos ficam em:
 ├── variables.conf
 ├── providers/
 ├── scripts/
-└── interface/
+├── interface/
+│   ├── desktop.manifest
+│   ├── apps.manifest
+│   └── apps/
+└── styles/
 ```
 
 Isso permite alterar completamente a interface sem recompilar o kernel.
