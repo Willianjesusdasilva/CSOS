@@ -512,6 +512,11 @@ pub const Application = struct {
         return null;
     }
 
+    pub fn activateFocusedHtml(self: *const Application) ?[]const u8 {
+        if (self.html_session) |session| return session.activateFocused();
+        return null;
+    }
+
     pub fn focusHtmlNext(self: *Application, forward: bool) ?usize {
         if (self.html_session) |*session| return session.focusNext(forward);
         return null;

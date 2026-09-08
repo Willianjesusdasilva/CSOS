@@ -151,6 +151,11 @@ pub const Session = struct {
         self.focused = index;
         return self.document.activateIndex(index);
     }
+
+    pub fn activateFocused(self: *const Session) ?[]const u8 {
+        const index = self.focused orelse return null;
+        return self.document.activateIndex(index);
+    }
 };
 
 var rendered_count: usize = 0;
@@ -232,6 +237,12 @@ test "HTML session activates mouse targets and focuses inputs" {
     try std.testing.expectEqual(@as(usize, 1), session.focused.?);
     try std.testing.expectEqualStrings("Go", session.activateAt(12, 32, 4, 4).?);
     try std.testing.expectEqual(@as(usize, 2), session.focused.?);
+}
+
+test "HTML session activates focused controls from keyboard navigation" {
+    var session = Session.init("<p>Menu</p><button>Launch</button>");
+    _ = session.focusNext(true);
+    try std.testing.expectEqualStrings("Launch", session.activateFocused().?);
 }
 
 test "HTML input values are mutable independently of source markup" {
