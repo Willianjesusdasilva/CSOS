@@ -553,15 +553,22 @@ pub fn drawReferenceDesktop(window: *Window) void {
     }
     const launcher_x: usize = 24;
     const launcher_y = height -| 330;
-    window.fillRect(launcher_x, launcher_y, 300, 286, 0x273958ee);
+    window.fillRect(launcher_x, launcher_y, 300, 320, 0x273958ee);
     window.fillRect(launcher_x + 16, launcher_y + 16, 268, 30, 0x17253fee);
     window.drawText(launcher_x + 28, launcher_y + 26, "Buscar aplicações, arquivos...", 0xb7c9e7ff);
     window.drawText(launcher_x + 20, launcher_y + 70, "Favoritos", 0xf1f6ffff);
-    window.drawText(launcher_x + 24, launcher_y + 102, "Arquivos    Terminal    Browser", 0xe1eaffff);
-    window.drawText(launcher_x + 20, launcher_y + 140, "Recentes", 0xf1f6ffff);
-    window.drawText(launcher_x + 24, launcher_y + 172, "GOAL.md    dashboard.html", 0xb9c9e5ff);
-    window.drawText(launcher_x + 24, launcher_y + 198, "wallpaper.png", 0xb9c9e5ff);
-    window.drawText(launcher_x + 20, launcher_y + 246, "Willian                         ⏻", 0xe1eaffff);
+    const favorite_colors = [_]u32{ 0x43b5f0ff, 0x202c45ff, 0x65b9ffff, 0x9c9ca8ff, 0x2d5a9cff, 0xef6ea8ff, 0x45cee0ff, 0x9b6dffff };
+    const favorite_labels = [_][]const u8{ "Arquivos", "Terminal", "Browser", "Config", "Steam", "Música", "Monitor", "Loja" };
+    for (favorite_colors, 0..) |color, index| {
+        const icon_x = launcher_x + 24 + (index % 4) * 64;
+        const icon_y = launcher_y + 88 + (index / 4) * 54;
+        window.fillRect(icon_x, icon_y, 34, 30, color);
+        window.drawText(icon_x -| 4, icon_y + 38, favorite_labels[index], 0xe1eaffff);
+    }
+    window.drawText(launcher_x + 20, launcher_y + 218, "Recentes", 0xf1f6ffff);
+    window.drawText(launcher_x + 24, launcher_y + 250, "GOAL.md    dashboard.html", 0xb9c9e5ff);
+    window.drawText(launcher_x + 24, launcher_y + 276, "wallpaper.png", 0xb9c9e5ff);
+    window.drawText(launcher_x + 20, launcher_y + 308, "Willian                         ⏻", 0xe1eaffff);
     const term_y = height / 2 + 18;
     window.fillRect(360, term_y, @min(@as(usize, 600), width -| 380), 178, 0x101827ee);
     window.fillRect(360, term_y, @min(@as(usize, 600), width -| 380), 28, 0x17253fee);
