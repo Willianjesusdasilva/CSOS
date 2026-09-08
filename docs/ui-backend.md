@@ -50,6 +50,8 @@ them.
 The Zig backend exposes the same seam through `WireTransport` and
 `Backend.pumpTransport`: one bounded request and response can be moved through
 the caller-supplied endpoint while framing and validation remain centralized.
+On the kernel side, `kernel/ui_ipc.zig` supplies the bounded mailbox used by
+that future endpoint; it transports frames only and has no visual policy.
 
 The `hello` request negotiates protocol version 1 and capability bits for
 surfaces, damage, input, clipboard, timers, IPC, windows, and audio. Unsupported
