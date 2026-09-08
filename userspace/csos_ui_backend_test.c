@@ -13,6 +13,12 @@ static int receive_failure(void *userdata, void *message, uint8_t capacity) {
     ((uint8_t *)message)[0] = CSOS_UI_FAILURE; ((uint8_t *)message)[1] = 4;
     csos_ui_put16((uint8_t *)message + 2, 0x1234); return 4;
 }
+static int receive_hello_ack(void *userdata, void *message, uint8_t capacity) {
+    (void)userdata; if (capacity < 12) return -1;
+    ((uint8_t *)message)[0] = CSOS_UI_HELLO_ACK; ((uint8_t *)message)[1] = 12;
+    csos_ui_put16((uint8_t *)message + 2, CSOS_UI_PROTOCOL_VERSION);
+    csos_ui_put64((uint8_t *)message + 4, CSOS_UI_CAP_SURFACE); return 12;
+}
 
 int main(void) {
     uint8_t message[32];
@@ -59,6 +65,13 @@ int main(void) {
         return 9;
     message[0] = CSOS_UI_HELLO_ACK; message[1] = 12; csos_ui_put16(message + 2, 1); csos_ui_put64(message + 4, CSOS_UI_CAP_SURFACE);
     if (csos_ui_client_confirm_hello(&client, message, 12) != 0 || !client.ready || client.hello_pending)
+        return 9;
+    struct csos_ui_client receiving_client;
+    struct csos_ui_transport ack_transport = { 0, send_message, receive_hello_ack };
+    csos_ui_client_init(&receiving_client, ack_transport);
+    if (csos_ui_client_hello(&receiving_client, CSOS_UI_PROTOCOL_VERSION, CSOS_UI_CAP_SURFACE) != 0 ||
+        csos_ui_client_receive_hello_ack(&receiving_client, message, sizeof(message)) != 12 ||
+        !receiving_client.ready)
         return 9;
     if (csos_ui_client_present(&client, 4, 9, (struct csos_ui_damage){ 0, 0, 8, 8 }) != 0)
         return 10;
