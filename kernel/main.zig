@@ -594,6 +594,8 @@ pub fn start(info: BootInfo) noreturn {
     if (ui_boot_frame_len < 2 or ui_boot_frame[0] != 1) panic("userspace UI IPC hello invalid");
     const ui_create_len = syscalls.receiveUiBootFrame(&ui_boot_frame) orelse panic("userspace UI create request missing");
     if (ui_create_len < 7 or ui_boot_frame[0] != 2) panic("userspace UI create request invalid");
+    const ui_present_len = syscalls.receiveUiBootFrame(&ui_boot_frame) orelse panic("userspace UI present request missing");
+    if (ui_present_len != 22 or ui_boot_frame[0] != 1) panic("userspace UI present request invalid");
     serial.write("userspace file-backed UI runtime ready\n");
     if (build_options.radv_runtime) {
         vfs.validateRuntimeLibrariesSelfTest() catch panic("VFS RADV runtime files self-test failed");
