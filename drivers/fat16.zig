@@ -172,6 +172,36 @@ pub const Volume = struct {
         return error.NotFound;
     }
 
+    pub fn findDirectoryEntry(self: *Volume, first_cluster: u16, name: *const [11]u8) !DirectoryEntry {
+        try validateDataCluster(first_cluster, self.cluster_count);
+        var cluster = first_cluster;
+        var traversed: u32 = 0;
+        while (true) {
+            if (!chainTraversalAllowed(traversed, self.cluster_count)) return error.BrokenChain;
+            traversed += 1;
+            var sector: u8 = 0;
+            while (sector < self.sectors_per_cluster) : (sector += 1) {
+                try self.storage.readBlock(self.clusterLba(cluster) + sector, self.buffer);
+                const bytes: [*]const u8 = @ptrFromInt(self.buffer);
+                var offset: usize = 0;
+                while (offset < 512) : (offset += 32) {
+                    if (bytes[offset] == 0) return error.NotFound;
+                    if ((!entryIsRegularFile(bytes + offset) and !entryIsDirectory(bytes + offset)) or
+                        !equal11(bytes + offset, name)) continue;
+                    var result = DirectoryEntry{ .name = undefined, .size = get32(bytes + offset + 28) };
+                    @memcpy(&result.name, bytes[offset .. offset + 11]);
+                    result.first_cluster = get16(bytes + offset + 26);
+                    result.directory = entryIsDirectory(bytes + offset);
+                    return result;
+                }
+            }
+            const next = try self.fatEntry(cluster);
+            if (next >= 0xfff8) return error.NotFound;
+            try validateDataCluster(next, self.cluster_count);
+            cluster = next;
+        }
+    }
+
     pub fn readRootFileAt(self: *Volume, name: *const [11]u8, output: []u8, file_offset: usize) !usize {
         var first_cluster: u16 = 0;
         var size: usize = 0;
