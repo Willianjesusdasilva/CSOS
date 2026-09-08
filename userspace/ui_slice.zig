@@ -72,6 +72,7 @@ pub fn main() !void {
     const media = try readFile(allocator, "system/ui/interface/media.html");
     const terminal = try readFile(allocator, "system/ui/interface/terminal.html");
     const status = try readFile(allocator, "system/ui/interface/status.html");
+    const desktop_actions = try readFile(allocator, "system/ui/interface/desktop-actions.html");
     const css = try readFile(allocator, "system/ui/styles/desktop.css");
     const terminal_css = try readFile(allocator, "system/ui/styles/terminal.css");
     const cpu_path = try configuredPath(variables, "CPU_USAGE");
@@ -93,8 +94,9 @@ pub fn main() !void {
     try contains(manifest, "fragment=media.html");
     try contains(manifest, "fragment=terminal.html");
     try contains(manifest, "fragment=status.html");
+    try contains(manifest, "fragment=desktop-actions.html");
     try contains(manifest, "stylesheet=../styles/terminal.css");
-    try contains(desktop, "data-action=\"open_files\"");
+    try contains(desktop_actions, "data-action=\"open_files\"");
     try contains(topbar, "{{ NETWORK_IP }}");
     try contains(dock, "data-action=\"open_files\"");
     try contains(launcher, "Buscar aplicações");

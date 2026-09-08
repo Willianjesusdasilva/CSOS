@@ -74,7 +74,7 @@ static int authorized_action(const char *name) {
 int main(void) {
     struct server server = { 0 }; struct csos_ui_transport transport;
     struct csos_ui_client client; uint8_t message[64]; uint8_t kind = 0;
-    char desktop[4096], topbar[1024], dock[1024], status[1024], manifest[1024], provider[64], rendered[8192], next[8192]; size_t used = 0;
+    char desktop[4096], topbar[1024], dock[1024], status[1024], actions[1024], manifest[1024], provider[64], rendered[8192], next[8192]; size_t used = 0;
     csos_ui_ring_init(&server.events);
     if (!file_contains("system/ui/variables.conf", "CPU_USAGE=\"/system/ui/providers/cpu_usage\"") ||
         !file_contains("system/ui/variables.conf", "CURRENT_FPS=\"/system/ui/providers/current_fps\"") ||
@@ -82,7 +82,7 @@ int main(void) {
         !file_contains("system/ui/providers/frame_time", "16.6") ||
         !file_contains("system/ui/interface/status.html", "{{ CPU_USAGE }}") ||
         !file_contains("system/ui/interface/topbar.html", "{{ NETWORK_IP }}") ||
-        !file_contains("system/ui/interface/dock.html", "data-action=\"open_files\"") ||
+        !file_contains("system/ui/interface/desktop-actions.html", "data-action=\"open_files\"") ||
         !file_contains("system/ui/interface/launcher.html", "Buscar aplicações") ||
         !file_contains("system/ui/interface/alt-tab.html", "focus_files") ||
         !file_contains("system/ui/styles/desktop.css", ".launcher") ||
@@ -96,11 +96,13 @@ int main(void) {
         !read_text("system/ui/interface/desktop.html", desktop, sizeof(desktop)) ||
         !read_text("system/ui/interface/topbar.html", topbar, sizeof(topbar)) ||
         !read_text("system/ui/interface/dock.html", dock, sizeof(dock)) ||
+        !read_text("system/ui/interface/desktop-actions.html", actions, sizeof(actions)) ||
         !read_text("system/ui/interface/status.html", status, sizeof(status))) return 1;
     used = append_text(rendered, 0, sizeof(rendered), desktop);
     used = append_text(rendered, used, sizeof(rendered), topbar);
     used = append_text(rendered, used, sizeof(rendered), dock);
     used = append_text(rendered, used, sizeof(rendered), status);
+    used = append_text(rendered, used, sizeof(rendered), actions);
     if (!read_text("system/ui/providers/cpu_usage", provider, sizeof(provider))) return 1;
     provider[strcspn(provider, "\r\n")] = 0;
     used = render_token(rendered, "{{ CPU_USAGE }}", provider, next, sizeof(next)); memcpy(rendered, next, used + 1);
