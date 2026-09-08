@@ -99,7 +99,7 @@ pub fn encodeEvent(event: Event, output: []u8) WireError!usize {
     if (output.len < 2) return error.BufferTooSmall;
     output[0] = switch (event) { .pointer => 1, .wheel => 2, .key => 3, .focus => 4, .timer => 5, .close => 6 };
     switch (event) {
-        .pointer => |v| { if (output.len < 12) return error.BufferTooSmall; writeU32(output[2..], @bitCast(v.x)); writeU32(output[6..], @bitCast(v.y)); output[10] = v.buttons; output[1] = 11; return 11; },
+        .pointer => |v| { if (output.len < 11) return error.BufferTooSmall; writeU32(output[2..], @bitCast(v.x)); writeU32(output[6..], @bitCast(v.y)); output[10] = v.buttons; output[1] = 11; return 11; },
         .wheel => |v| { if (output.len < 6) return error.BufferTooSmall; writeU32(output[2..], @bitCast(v.delta)); output[1] = 6; return 6; },
         .key => |v| { if (output.len < 8) return error.BufferTooSmall; writeU32(output[2..], v.code); output[6] = @intFromBool(v.pressed); output[7] = v.modifiers; output[1] = 8; return 8; },
         .focus => |v| { output[2] = @intFromBool(v); output[1] = 3; return 3; },
@@ -316,6 +316,8 @@ test "backend event wire encoding round-trips input" {
         else => return error.UnexpectedBackendEvent,
     }
     try std.testing.expectError(error.InvalidMessage, decodeEvent(wire[0..length - 1]));
+    var exact: [11]u8 = undefined;
+    try std.testing.expectEqual(@as(usize, 11), try encodeEvent(.{ .pointer = .{ .x = 1, .y = 2, .buttons = 0 } }, &exact));
 }
 
 test "backend consumes and emits wire messages through its queues" {
