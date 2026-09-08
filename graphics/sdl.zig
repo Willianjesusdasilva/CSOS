@@ -592,12 +592,14 @@ pub const Application = struct {
 pub const WindowManager = struct {
     pub const capacity: usize = 16;
     windows: [capacity]*Window = undefined,
+    positions: [capacity]struct { x: i32, y: i32 } = undefined,
     count: usize = 0,
     focused: usize = 0,
 
     pub fn add(self: *WindowManager, window: *Window) !void {
         if (self.count == capacity) return error.TooManyWindows;
         self.windows[self.count] = window;
+        self.positions[self.count] = .{ .x = 0, .y = 0 };
         self.count += 1;
         self.focused = self.count - 1;
     }
@@ -606,6 +608,7 @@ pub const WindowManager = struct {
         for (self.windows[0..self.count], 0..) |candidate, index| {
             if (candidate != window) continue;
             for (index + 1..self.count) |move| self.windows[move - 1] = self.windows[move];
+            for (index + 1..self.count) |move| self.positions[move - 1] = self.positions[move];
             self.count -= 1;
             if (self.count == 0) self.focused = 0 else if (self.focused >= self.count) self.focused = self.count - 1;
             return true;
@@ -616,6 +619,12 @@ pub const WindowManager = struct {
     pub fn focus(self: *WindowManager, index: usize) bool {
         if (index >= self.count) return false;
         self.focused = index;
+        return true;
+    }
+
+    pub fn move(self: *WindowManager, index: usize, x: i32, y: i32) bool {
+        if (index >= self.count) return false;
+        self.positions[index] = .{ .x = x, .y = y };
         return true;
     }
 
@@ -632,8 +641,11 @@ pub const WindowManager = struct {
     pub fn raise(self: *WindowManager, index: usize) bool {
         if (index >= self.count) return false;
         const selected = self.windows[index];
+        const selected_position = self.positions[index];
         for (index + 1..self.count) |move| self.windows[move - 1] = self.windows[move];
+        for (index + 1..self.count) |move| self.positions[move - 1] = self.positions[move];
         self.windows[self.count - 1] = selected;
+        self.positions[self.count - 1] = selected_position;
         self.focused = self.count - 1;
         return true;
     }
@@ -642,11 +654,13 @@ pub const WindowManager = struct {
     /// All windows are clipped to the destination; alpha is blended in RGB.
     pub fn compose(self: *const WindowManager, destination: *Window) void {
         destination.clear(0);
-        for (self.windows[0..self.count]) |source| {
-            const width = @min(source.width, destination.width);
-            const height = @min(source.height, destination.height);
-            for (0..height) |row| for (0..width) |column| {
-                const index = row * destination.width + column;
+        for (self.windows[0..self.count], 0..) |source, window_index| {
+            const position = self.positions[window_index];
+            for (0..source.height) |row| for (0..source.width) |column| {
+                const target_x = @as(i64, position.x) + @as(i64, @intCast(column));
+                const target_y = @as(i64, position.y) + @as(i64, @intCast(row));
+                if (target_x < 0 or target_y < 0 or target_x >= destination.width or target_y >= destination.height) continue;
+                const index = @as(usize, @intCast(target_y)) * destination.width + @as(usize, @intCast(target_x));
                 destination.pixels[index] = blendRgbaOverRgb(source.pixels[row * source.width + column], destination.pixels[index]);
             };
         }
