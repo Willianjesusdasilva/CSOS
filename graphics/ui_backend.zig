@@ -13,7 +13,7 @@ pub const Surface = struct {
 
 pub const PixelFormat = enum(u8) { rgba8888 = 1, bgra8888 = 2, argb8888 = 3 };
 pub const SurfaceInfo = struct { id: u32, buffer_handle: u32, width: u16, height: u16, stride: u32, format: PixelFormat, generation: u64 };
-pub const Response = union(enum) { surface_created: SurfaceInfo, surface_destroyed: u32, failure: u16 };
+pub const Response = union(enum) { hello_ack: struct { version: u16, capabilities: u64 }, surface_created: SurfaceInfo, surface_destroyed: u32, failure: u16 };
 
 pub const Damage = struct { x: u16, y: u16, width: u16, height: u16 };
 
@@ -58,6 +58,7 @@ pub const WireError = error{BufferTooSmall, InvalidMessage, UnsupportedRequest};
 pub fn encodeResponse(response: Response, output: []u8) WireError!usize {
     if (output.len < 2) return error.BufferTooSmall;
     switch (response) {
+        .hello_ack => |ack| { if (output.len < 12) return error.BufferTooSmall; output[0] = 4; output[1] = 12; writeU16(output[2..], ack.version); writeU64(output[4..], ack.capabilities); return 12; },
         .surface_created => |info| {
             if (output.len < 27) return error.BufferTooSmall;
             output[0] = 1; output[1] = 27;
@@ -74,6 +75,7 @@ pub fn encodeResponse(response: Response, output: []u8) WireError!usize {
 pub fn decodeResponse(input: []const u8) WireError!Response {
     if (input.len < 2 or input[1] != input.len) return error.InvalidMessage;
     return switch (input[0]) {
+        4 => if (input.len == 12) .{ .hello_ack = .{ .version = readU16(input[2..]), .capabilities = readU64(input[4..]) } } else error.InvalidMessage,
         1 => if (input.len == 27 and input[18] >= 1 and input[18] <= 3) .{ .surface_created = .{ .id = readU32(input[2..]), .buffer_handle = readU32(input[6..]), .width = readU16(input[10..]), .height = readU16(input[12..]), .stride = readU32(input[14..]), .format = @enumFromInt(input[18]), .generation = readU64(input[19..]) } } else error.InvalidMessage,
         2 => if (input.len == 6) .{ .surface_destroyed = readU32(input[2..]) } else error.InvalidMessage,
         3 => if (input.len == 4) .{ .failure = readU16(input[2..]) } else error.InvalidMessage,
@@ -504,4 +506,14 @@ test "surface lifecycle response round-trips through wire" {
     try std.testing.expectError(error.InvalidMessage, decodeResponse(wire[0..length - 1]));
     try std.testing.expect(try backend.submitResponseWire(wire[0..length]));
     try std.testing.expectEqual(@as(?usize, length), try backend.nextResponseWire(&wire));
+}
+
+test "hello acknowledgement round-trips through wire" {
+    var wire: [16]u8 = undefined;
+    const length = try encodeResponse(.{ .hello_ack = .{ .version = protocol_version, .capabilities = supported_capabilities } }, &wire);
+    try std.testing.expectEqual(@as(usize, 12), length);
+    switch (try decodeResponse(wire[0..length])) {
+        .hello_ack => |ack| { try std.testing.expectEqual(protocol_version, ack.version); try std.testing.expectEqual(supported_capabilities, ack.capabilities); },
+        else => return error.UnexpectedBackendResponse,
+    }
 }

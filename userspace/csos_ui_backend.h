@@ -42,6 +42,7 @@ enum csos_ui_response_kind {
     CSOS_UI_SURFACE_CREATED = 1,
     CSOS_UI_SURFACE_DESTROYED = 2,
     CSOS_UI_FAILURE = 3,
+    CSOS_UI_HELLO_ACK = 4,
 };
 
 enum csos_ui_pixel_format {
@@ -129,8 +130,15 @@ static inline int csos_ui_response_valid(const uint8_t *message, uint8_t length)
         return length == 27 && message[18] >= CSOS_UI_RGBA8888 && message[18] <= CSOS_UI_ARGB8888;
     case CSOS_UI_SURFACE_DESTROYED: return length == 6;
     case CSOS_UI_FAILURE: return length == 4;
+    case CSOS_UI_HELLO_ACK: return length == 12;
     default: return 0;
     }
+}
+
+static inline int csos_ui_decode_hello_ack(const uint8_t *message, uint8_t length,
+                                           struct csos_ui_hello *out) {
+    if (!out || !csos_ui_response_valid(message, length) || message[0] != CSOS_UI_HELLO_ACK) return 0;
+    out->version = csos_ui_get16(message + 2); out->capabilities = csos_ui_get64(message + 4); return 1;
 }
 
 static inline int csos_ui_decode_surface_created(const uint8_t *message, uint8_t length,

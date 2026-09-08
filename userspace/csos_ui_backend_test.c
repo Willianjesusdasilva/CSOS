@@ -35,6 +35,10 @@ int main(void) {
     struct csos_ui_surface decoded_surface;
     if (!csos_ui_decode_surface_created(message, 27, &decoded_surface) || decoded_surface.width != 640 || decoded_surface.format != CSOS_UI_BGRA8888)
         return 7;
+    message[0] = CSOS_UI_HELLO_ACK; message[1] = 12; csos_ui_put16(message + 2, 1); csos_ui_put64(message + 4, CSOS_UI_CAP_SURFACE);
+    struct csos_ui_hello hello_ack;
+    if (!csos_ui_decode_hello_ack(message, 12, &hello_ack) || hello_ack.version != 1 || hello_ack.capabilities != CSOS_UI_CAP_SURFACE)
+        return 7;
     message[0] = CSOS_UI_SURFACE_DESTROYED; message[1] = 6; csos_ui_put32(message + 2, 4);
     uint32_t destroyed_id = 0;
     if (!csos_ui_decode_surface_destroyed(message, 6, &destroyed_id) || destroyed_id != 4)
