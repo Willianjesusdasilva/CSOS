@@ -53,6 +53,32 @@ pub const supported_capabilities = Capability.surface | Capability.damage | Capa
 
 pub const WireError = error{BufferTooSmall, InvalidMessage, UnsupportedRequest};
 
+pub fn encodeResponse(response: Response, output: []u8) WireError!usize {
+    if (output.len < 2) return error.BufferTooSmall;
+    switch (response) {
+        .surface_created => |info| {
+            if (output.len < 31) return error.BufferTooSmall;
+            output[0] = 1; output[1] = 31;
+            writeU32(output[2..], info.id); writeU32(output[6..], info.buffer_handle);
+            writeU16(output[10..], info.width); writeU16(output[12..], info.height);
+            writeU32(output[14..], info.stride); output[18] = @intFromEnum(info.format); writeU64(output[19..], info.generation);
+            return 31;
+        },
+        .surface_destroyed => |id| { if (output.len < 6) return error.BufferTooSmall; output[0] = 2; output[1] = 6; writeU32(output[2..], id); return 6; },
+        .failure => |code| { if (output.len < 4) return error.BufferTooSmall; output[0] = 3; output[1] = 4; writeU16(output[2..], code); return 4; },
+    }
+}
+
+pub fn decodeResponse(input: []const u8) WireError!Response {
+    if (input.len < 2 or input[1] != input.len) return error.InvalidMessage;
+    return switch (input[0]) {
+        1 => if (input.len == 31 and input[18] >= 1 and input[18] <= 3) .{ .surface_created = .{ .id = readU32(input[2..]), .buffer_handle = readU32(input[6..]), .width = readU16(input[10..]), .height = readU16(input[12..]), .stride = readU32(input[14..]), .format = @enumFromInt(input[18]), .generation = readU64(input[19..]) } } else error.InvalidMessage,
+        2 => if (input.len == 6) .{ .surface_destroyed = readU32(input[2..]) } else error.InvalidMessage,
+        3 => if (input.len == 4) .{ .failure = readU16(input[2..]) } else error.InvalidMessage,
+        else => error.UnsupportedRequest,
+    };
+}
+
 /// Little-endian, pointer-free wire envelope for a userspace IPC transport.
 /// The transport can later be a socket, channel or shared ring without
 /// exposing kernel or renderer data structures.
@@ -449,4 +475,14 @@ test "backend returns opaque surface lifecycle responses" {
         .surface_destroyed => |id| try std.testing.expectEqual(@as(u32, 12), id),
         else => return error.UnexpectedBackendResponse,
     }
+}
+
+test "surface lifecycle response round-trips through wire" {
+    var wire: [40]u8 = undefined;
+    const length = try encodeResponse(.{ .surface_created = .{ .id = 5, .buffer_handle = 0x77, .width = 640, .height = 480, .stride = 640, .format = .bgra8888, .generation = 9 } }, &wire);
+    switch (try decodeResponse(wire[0..length])) {
+        .surface_created => |info| { try std.testing.expectEqual(@as(u32, 0x77), info.buffer_handle); try std.testing.expectEqual(PixelFormat.bgra8888, info.format); },
+        else => return error.UnexpectedBackendResponse,
+    }
+    try std.testing.expectError(error.InvalidMessage, decodeResponse(wire[0..length - 1]));
 }
