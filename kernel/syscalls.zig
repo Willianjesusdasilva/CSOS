@@ -2650,6 +2650,10 @@ fn unlinkat(directory_fd: u64, path_address: u64, flags: u64) u64 {
     if ((flags & ~@as(u64, 0x200)) != 0) return errno(22);
     var path_buffer: [256]u8 = undefined;
     const path = userString(path_address, &path_buffer) orelse return errno(14);
+    if ((flags & 0x200) != 0) {
+        vfs.rmdirAt(@bitCast(directory_fd), path) catch |err| return vfsError(err);
+        return 0;
+    }
     vfs.unlinkAt(@bitCast(directory_fd), path) catch |err| return vfsError(err);
     return 0;
 }

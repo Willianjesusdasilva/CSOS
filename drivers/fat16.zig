@@ -405,6 +405,38 @@ pub const Volume = struct {
         return cluster;
     }
 
+    pub fn deleteDirectory(self: *Volume, parent_cluster: u16, name: *const [11]u8) !void {
+        if (parent_cluster == 0) return error.Invalid;
+        var parent = parent_cluster;
+        while (true) {
+            var sector: u8 = 0;
+            while (sector < self.sectors_per_cluster) : (sector += 1) {
+                const lba = self.clusterLba(parent) + sector;
+                try self.storage.readBlock(lba, self.buffer);
+                const bytes: [*]u8 = @ptrFromInt(self.buffer);
+                var offset: usize = 0;
+                while (offset < 512) : (offset += 32) {
+                    if (bytes[offset] == 0) return error.NotFound;
+                    if (!entryIsAllocated(bytes + offset) or !equal11(bytes + offset, name)) continue;
+                    if ((bytes[offset + 11] & 0x10) == 0) return error.NotDirectory;
+                    const cluster = get16(bytes + offset + 26);
+                    var entries: [64]DirectoryEntry = undefined;
+                    const count = try self.listDirectory(cluster, &entries);
+                    for (entries[0..count]) |entry| {
+                        if (entry.name[0] != '.') return error.DirectoryNotEmpty;
+                    }
+                    bytes[offset] = 0xe5;
+                    try self.storage.writeBlock(lba, self.buffer);
+                    if (cluster >= 2) try self.freeChain(cluster);
+                    return;
+                }
+            }
+            const next = try self.fatEntry(parent);
+            if (next >= 0xfff8) return error.NotFound;
+            parent = next;
+        }
+    }
+
     pub fn writeDirectoryFile(self: *Volume, directory_cluster: u16, name: *const [11]u8, data: []const u8) !void {
         const cluster_bytes = @as(usize, self.sectors_per_cluster) * 512;
         const needed = try clustersForLength(data.len, cluster_bytes, self.cluster_count);

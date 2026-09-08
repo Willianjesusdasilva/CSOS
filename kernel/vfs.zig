@@ -508,6 +508,16 @@ pub fn mkdirAt(directory_fd: i64, path: []const u8, mode: u64) !void {
     return error.ReadOnly;
 }
 
+pub fn rmdirAt(directory_fd: i64, path: []const u8) !void {
+    if (disk) |volume| {
+        const resolved = try resolveFatPath(volume, path);
+        if (!resolved.entry.directory) return error.NotDirectory;
+        return volume.deleteDirectory(resolved.parent_cluster, &resolved.entry.name);
+    }
+    _ = directory_fd;
+    return error.ReadOnly;
+}
+
 pub fn renameAt(directory_fd: i64, old_path: []const u8, new_path: []const u8) !void {
     if (disk) |volume| if (resolveFatPath(volume, old_path)) |old_resolved| {
         if (old_resolved.parent_cluster == 0 or old_resolved.entry.directory) return error.ReadOnly;
