@@ -92,6 +92,7 @@ int main(void) {
         !strstr(manifest, "template=desktop.html") || !strstr(manifest, "fragment=topbar.html") ||
         !strstr(manifest, "fragment=dock.html") || !strstr(manifest, "fragment=launcher.html") ||
         !strstr(manifest, "fragment=alt-tab.html") || !strstr(manifest, "stylesheet=../styles/desktop.css") ||
+        strstr(manifest, "fragment=../") || strstr(manifest, "stylesheet=../../") ||
         !read_text("system/ui/interface/desktop.html", desktop, sizeof(desktop)) ||
         !read_text("system/ui/interface/topbar.html", topbar, sizeof(topbar)) ||
         !read_text("system/ui/interface/dock.html", dock, sizeof(dock))) return 1;
