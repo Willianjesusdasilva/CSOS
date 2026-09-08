@@ -296,6 +296,15 @@ pub const Backend = struct {
         return response;
     }
 
+    pub fn submitResponseWire(self: *Backend, message: []const u8) WireError!bool {
+        return self.enqueueResponse(try decodeResponse(message));
+    }
+
+    pub fn nextResponseWire(self: *Backend, output: []u8) WireError!?usize {
+        const response = self.nextResponse() orelse return null;
+        return try encodeResponse(response, output);
+    }
+
     pub fn surfaceInfo(self: *const Backend) SurfaceInfo {
         return .{ .id = self.surface.id, .buffer_handle = self.surface.buffer_handle, .width = self.surface.width, .height = self.surface.height, .stride = self.surface.stride, .format = self.surface.format, .generation = self.surface.generation };
     }
@@ -479,10 +488,14 @@ test "backend returns opaque surface lifecycle responses" {
 
 test "surface lifecycle response round-trips through wire" {
     var wire: [40]u8 = undefined;
+    var pixels = [_]u32{0} ** 4;
+    var backend = Backend.init(.{ .id = 13, .width = 2, .height = 2, .stride = 2, .pixels = &pixels });
     const length = try encodeResponse(.{ .surface_created = .{ .id = 5, .buffer_handle = 0x77, .width = 640, .height = 480, .stride = 640, .format = .bgra8888, .generation = 9 } }, &wire);
     switch (try decodeResponse(wire[0..length])) {
         .surface_created => |info| { try std.testing.expectEqual(@as(u32, 0x77), info.buffer_handle); try std.testing.expectEqual(PixelFormat.bgra8888, info.format); },
         else => return error.UnexpectedBackendResponse,
     }
     try std.testing.expectError(error.InvalidMessage, decodeResponse(wire[0..length - 1]));
+    try std.testing.expect(backend.submitResponseWire(wire[0..length]));
+    try std.testing.expectEqual(@as(?usize, length), try backend.nextResponseWire(&wire));
 }
