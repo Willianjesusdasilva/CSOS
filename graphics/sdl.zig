@@ -461,6 +461,7 @@ pub const Window = struct {
 
 pub const Application = struct {
     window: Window,
+    html_session: ?html.Session = null,
     running: bool = true,
     last_event: ?Event = null,
     processed_events: u64 = 0,
@@ -489,9 +490,25 @@ pub const Application = struct {
 
     pub fn reset(self: *Application) void {
         self.running = true;
+        self.html_session = null;
         self.last_event = null;
         self.processed_events = 0;
         self.window.clear(0);
+    }
+
+    pub fn startHtml(self: *Application, source: []const u8) void {
+        self.html_session = html.Session.init(source);
+        self.window.invalidate();
+    }
+
+    pub fn handleHtmlKey(self: *Application, key: u8) bool {
+        if (self.html_session) |*session| return session.handleKey(key);
+        return false;
+    }
+
+    pub fn focusHtmlNext(self: *Application, forward: bool) ?usize {
+        if (self.html_session) |*session| return session.focusNext(forward);
+        return null;
     }
 
     pub fn render(self: *Application, draw: *const fn (*Window) void) bool {
