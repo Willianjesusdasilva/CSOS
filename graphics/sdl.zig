@@ -571,6 +571,8 @@ pub const Application = struct {
     last_html_activation: ?[]const u8 = null,
     html_origin_x: usize = 0,
     html_origin_y: usize = 0,
+    pointer_x: usize = 0,
+    pointer_y: usize = 0,
 
     pub const reference_desktop_source = "<style>.accent{color:#70d0ff}.muted{color:#8de0a8}</style><h1 class=accent>CSOS</h1><input value=\"Buscar aplicações, arquivos...\"><p class=muted>● Sistema Online</p><p>Recentes   Home   Documentos   Downloads   Imagens   Música</p><p>Pastas</p><a href=\"projetos\">Projetos</a><a href=\"csos\">CSOS</a><a href=\"downloads\">Downloads</a><a href=\"imagens\">Imagens</a><p>Arquivos</p><a href=\"GOAL.md\">GOAL.md</a><a href=\"README.md\">README.md</a><a href=\"config.sys\">config.sys</a><p>CPU 32%   RAM 48%   GPU 12%   Rede 125 MB/s</p><a href=\"files\">Arquivos</a><a href=\"terminal\">Terminal</a><a href=\"browser\">Browser</a>";
 
@@ -612,6 +614,8 @@ pub const Application = struct {
                     }
                 },
                 .mouse => |mouse| {
+                    self.pointer_x = @intCast(@max(mouse.x, 0));
+                    self.pointer_y = @intCast(@max(mouse.y, 0));
                     if (self.backend) |*backend| {
                         _ = backend.enqueueEvent(if (mouse.wheel != 0) .{ .wheel = .{ .delta = mouse.wheel } } else .{ .pointer = .{ .x = mouse.x, .y = mouse.y, .buttons = mouse.buttons } });
                     }
@@ -694,7 +698,9 @@ pub const Application = struct {
         // the translucent card behind them until a GPU compositor is active.
         self.window.fillRect(self.html_origin_x -| 14, self.html_origin_y -| 14, 470, 232, 0x14243bd9);
         self.window.drawHtmlFocused(&session.document, self.html_origin_x, self.html_origin_y, session.focused);
-    }
+        }
+        self.window.fillRect(self.pointer_x, self.pointer_y, 2, 12, 0xf1f6ffff);
+        self.window.fillRect(self.pointer_x, self.pointer_y, 8, 2, 0xf1f6ffff);
         if (self.backend) |*backend| _ = backend.present(.{ .x = 0, .y = 0, .width = @intCast(self.window.width), .height = @intCast(self.window.height) });
         return true;
     }
