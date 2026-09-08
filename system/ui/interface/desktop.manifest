@@ -1,4 +1,5 @@
 template=desktop.html
+fragment=wallpaper.html
 fragment=topbar.html
 fragment=dock.html
 fragment=launcher.html

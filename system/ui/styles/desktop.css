@@ -1,5 +1,6 @@
 :root { --surface: #273958dd; --text: #e5efff; --accent: #70d0ff; }
 body { color: var(--text); background: #101a38; font-family: CSOS; }
+.wallpaper { background: #101a38; }
 .desktop { background: #101a38; }
 .status { color: #8de0a8; }
 .launcher { background: var(--surface); }
