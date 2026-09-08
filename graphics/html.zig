@@ -126,6 +126,25 @@ pub const Document = struct {
     }
 };
 
+pub const Session = struct {
+    document: Document,
+    focused: ?usize = null,
+
+    pub fn init(source: []const u8) Session {
+        return .{ .document = Document.parse(source) };
+    }
+
+    pub fn focusNext(self: *Session, forward: bool) ?usize {
+        self.focused = self.document.nextButton(self.focused, forward);
+        return self.focused;
+    }
+
+    pub fn handleKey(self: *Session, key: u8) bool {
+        const index = self.focused orelse return false;
+        return self.document.inputKey(index, key);
+    }
+};
+
 var rendered_count: usize = 0;
 fn countDraw(_: usize, _: usize, _: []const u8, _: u32) void { rendered_count += 1; }
 
@@ -213,4 +232,13 @@ test "HTML input key handler accepts printable bytes and delete" {
     try std.testing.expect(document.inputKey(0, 'x'));
     try std.testing.expect(document.inputKey(0, 8));
     try std.testing.expectEqualStrings("", document.inputText(0));
+}
+
+test "HTML session preserves focus and input state" {
+    var session = Session.init("<p>Label</p><input></input><button>Go</button>");
+    try std.testing.expectEqual(@as(usize, 1), session.focusNext(true).?);
+    try std.testing.expect(session.handleKey('a'));
+    try std.testing.expectEqualStrings("a", session.document.inputText(1));
+    try std.testing.expect(session.handleKey(8));
+    try std.testing.expectEqualStrings("", session.document.inputText(1));
 }
