@@ -13,7 +13,7 @@ pub export fn _start() callconv(.naked) noreturn {
         \\syscall
         \\movl %%eax, %%r12d
         \\mov $257, %%eax
-        \\mov $-100, %%edi
+        \\movq $-100, %%rdi
         \\lea manifest_path(%%rip), %%rsi
         \\xor %%edx, %%edx
         \\syscall
@@ -23,7 +23,7 @@ pub export fn _start() callconv(.naked) noreturn {
         \\mov $3, %%eax
         \\syscall
         \\mov $257, %%eax
-        \\mov $-100, %%edi
+        \\movq $-100, %%rdi
         \\lea html_path(%%rip), %%rsi
         \\xor %%edx, %%edx
         \\syscall
@@ -33,7 +33,7 @@ pub export fn _start() callconv(.naked) noreturn {
         \\mov $3, %%eax
         \\syscall
         \\mov $257, %%eax
-        \\mov $-100, %%edi
+        \\movq $-100, %%rdi
         \\lea css_path(%%rip), %%rsi
         \\xor %%edx, %%edx
         \\syscall
