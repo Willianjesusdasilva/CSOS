@@ -57,6 +57,42 @@ _Static_assert(sizeof(struct csos_ui_hello) == 10, "CSOS UI hello layout mismatc
 _Static_assert(sizeof(struct csos_ui_present) == 20, "CSOS UI present layout mismatch");
 #endif
 
+static inline void csos_ui_put16(uint8_t *p, uint16_t v) {
+    p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8);
+}
+static inline void csos_ui_put32(uint8_t *p, uint32_t v) {
+    p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8);
+    p[2] = (uint8_t)(v >> 16); p[3] = (uint8_t)(v >> 24);
+}
+static inline void csos_ui_put64(uint8_t *p, uint64_t v) {
+    for (unsigned i = 0; i != 8; ++i) p[i] = (uint8_t)(v >> (i * 8));
+}
+
+/* Return the encoded byte count, or zero when capacity is insufficient. */
+static inline uint8_t csos_ui_encode_hello(uint8_t *out, uint8_t capacity,
+                                           uint16_t version, uint64_t capabilities) {
+    if (!out || capacity < 12) return 0;
+    out[0] = CSOS_UI_HELLO; out[1] = 12;
+    csos_ui_put16(out + 2, version); csos_ui_put64(out + 4, capabilities);
+    return 12;
+}
+
+static inline uint8_t csos_ui_encode_close(uint8_t *out, uint8_t capacity) {
+    if (!out || capacity < 2) return 0;
+    out[0] = CSOS_UI_CLOSE; out[1] = 2; return 2;
+}
+
+static inline uint8_t csos_ui_encode_present(uint8_t *out, uint8_t capacity,
+                                              uint32_t surface_id, uint64_t generation,
+                                              struct csos_ui_damage damage) {
+    if (!out || capacity < 22) return 0;
+    out[0] = CSOS_UI_PRESENT; out[1] = 22;
+    csos_ui_put32(out + 2, surface_id); csos_ui_put64(out + 6, generation);
+    csos_ui_put16(out + 14, damage.x); csos_ui_put16(out + 16, damage.y);
+    csos_ui_put16(out + 18, damage.width); csos_ui_put16(out + 20, damage.height);
+    return 22;
+}
+
 /* Transport is supplied by the CSOS userspace runtime, not by this header. */
 int csos_ui_send(const void *message, uint8_t length);
 int csos_ui_receive(void *message, uint8_t capacity);
