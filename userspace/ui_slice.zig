@@ -240,6 +240,9 @@ pub fn main() !void {
     paintSurface(app_pixels, 800, 600, apps_expanded);
     var app_backend = ui.Backend.init(.{ .id = 2, .buffer_handle = 2, .width = 800, .height = 600, .stride = 800, .pixels = app_pixels });
     if (!app_backend.start() or !app_backend.negotiate(ui.protocol_version, ui.Capability.surface | ui.Capability.input)) return error.AppBackendStartup;
+    if (!app_backend.enqueueEvent(.{ .pointer = .{ .x = 18, .y = 18, .buttons = 1 } })) return error.AppInputQueueFailed;
+    const app_pointer = app_backend.nextEvent() orelse return error.AppPointerMissing;
+    if (app_pointer != .pointer or app_pointer.pointer.buttons != 1) return error.AppPointerRoutingFailed;
     if (!app_backend.present(.{ .x = 0, .y = 0, .width = 800, .height = 600 })) return error.AppPresentFailed;
     std.debug.print("Zig HTML UI slice passed (provider CPU={s}, surfaces=desktop+apps)\n", .{ cpu });
 }
