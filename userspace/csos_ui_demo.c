@@ -85,6 +85,8 @@ int main(void) {
     if (csos_ui_client_resize(&client, 80, 60) != 0 ||
         csos_ui_client_process_response(&client, message, sizeof(message), &kind) != 27 ||
         client.surface.width != 80 || client.surface.height != 60 || client.surface.generation != 1) return 6;
+    if (csos_ui_client_present(&client, client.surface.id, client.surface.generation,
+                               (struct csos_ui_damage){ 0, 0, 80, 60 }) != 0 || server.present_count != 2) return 6;
     if (csos_ui_client_close(&client) != 0 || client.ready) return 7;
     return 0;
 }
