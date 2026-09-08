@@ -572,7 +572,7 @@ pub fn start(info: BootInfo) noreturn {
     }
     volume.writeRootFile(&boot_state_name, boot_starting) catch panic("boot recovery state write failed");
     var file_data: [128]u8 = undefined;
-    const file_size = volume.readRootFile("SYSTEM  TXT", &file_data) catch panic("FAT16 read failed");
+    const file_size = volume.readRootFile("BOOT    TXT", &file_data) catch panic("FAT16 read failed");
     serial.write(file_data[0..file_size]);
     const state = "persistent CSOS state\n" ** 600;
     volume.writeRootFile("STATE   TXT", state) catch panic("FAT16 write failed");
@@ -584,7 +584,12 @@ pub fn start(info: BootInfo) noreturn {
         state_offset += state_size;
     }
     serial.write("FAT16 write ready\n");
-    seedUiFilesystem(&volume) catch panic("file-backed UI filesystem seed failed");
+    seedUiFilesystem(&volume) catch |err| {
+        serial.write("file-backed UI seed error: ");
+        serial.write(@errorName(err));
+        serial.write("\n");
+        panic("file-backed UI filesystem seed failed");
+    };
     vfs.validateRuntimeLibraryAliasesSelfTest() catch panic("VFS runtime library alias self-test failed");
     vfs.mount(&volume);
     vfs.reset();
@@ -2724,6 +2729,7 @@ pub fn start(info: BootInfo) noreturn {
 }
 
 fn seedUiFilesystem(volume: *fat16.Volume) !void {
+    serial.write("ui seed begin\n");
     const system_name: [11]u8 = "SYSTEM     ".*;
     const ui_name: [11]u8 = "UI         ".*;
     const interface_name: [11]u8 = "INTERFAC   ".*;
@@ -2734,9 +2740,13 @@ fn seedUiFilesystem(volume: *fat16.Volume) !void {
     const desktop_name: [11]u8 = "DESKTOP HTM".*;
     const css_name: [11]u8 = "DESKTOP CSS".*;
     const system_cluster = volume.createDirectory(0, &system_name) catch |err| if (err == error.AlreadyExists) (try volume.findRootEntry(&system_name)).first_cluster else return err;
+    serial.write("ui seed system\n");
     const ui_cluster = volume.createDirectory(system_cluster, &ui_name) catch |err| if (err == error.AlreadyExists) (try volume.findDirectoryEntry(system_cluster, &ui_name)).first_cluster else return err;
+    serial.write("ui seed ui\n");
     const interface_cluster = volume.createDirectory(ui_cluster, &interface_name) catch |err| if (err == error.AlreadyExists) (try volume.findDirectoryEntry(ui_cluster, &interface_name)).first_cluster else return err;
+    serial.write("ui seed interface\n");
     const styles_cluster = volume.createDirectory(ui_cluster, &styles_name) catch |err| if (err == error.AlreadyExists) (try volume.findDirectoryEntry(ui_cluster, &styles_name)).first_cluster else return err;
+    serial.write("ui seed styles\n");
     const providers_cluster = volume.createDirectory(ui_cluster, &providers_name) catch |err| if (err == error.AlreadyExists) (try volume.findDirectoryEntry(ui_cluster, &providers_name)).first_cluster else return err;
     try volume.writeDirectoryFile(ui_cluster, &variables_name, @embedFile("ui_variables"));
     try volume.writeDirectoryFile(interface_cluster, &manifest_name, @embedFile("ui_manifest"));

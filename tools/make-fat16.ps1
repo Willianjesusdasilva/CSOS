@@ -42,7 +42,7 @@ try {
     }
     $rootStart = 1 + 2 * $fatSectors
     $stream.Position = $rootStart * $sectorSize
-    $writer.Write([Text.Encoding]::ASCII.GetBytes('SYSTEM  TXT'))
+    $writer.Write([Text.Encoding]::ASCII.GetBytes('BOOT    TXT'))
     $writer.Write([byte]0x20)
     $writer.Write([byte[]]::new(14))
     $writer.Write([uint16]2)
