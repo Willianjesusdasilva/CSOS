@@ -77,7 +77,11 @@ int main(void) {
     char desktop[4096], topbar[1024], dock[1024], status[1024], actions[1024], manifest[1024], provider[64], rendered[8192], next[8192]; size_t used = 0;
     csos_ui_ring_init(&server.events);
     if (!file_contains("system/ui/variables.conf", "CPU_USAGE=\"/system/ui/providers/cpu_usage\"") ||
+        !file_contains("system/ui/variables.conf", "RAM_USAGE=\"/system/ui/providers/ram_usage\"") ||
+        !file_contains("system/ui/variables.conf", "GPU_USAGE=\"/system/ui/providers/gpu_usage\"") ||
+        !file_contains("system/ui/variables.conf", "NETWORK_IP=\"/system/ui/providers/network_ip\"") ||
         !file_contains("system/ui/variables.conf", "CURRENT_FPS=\"/system/ui/providers/current_fps\"") ||
+        !file_contains("system/ui/variables.conf", "FRAME_TIME=\"/system/ui/providers/frame_time\"") ||
         !file_contains("system/ui/providers/current_fps", "60") ||
         !file_contains("system/ui/providers/frame_time", "16.6") ||
         !file_contains("system/ui/interface/status.html", "{{ CPU_USAGE }}") ||
