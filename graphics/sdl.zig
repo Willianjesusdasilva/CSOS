@@ -2247,6 +2247,10 @@ test "reference desktop renders shell with interactive HTML overlay" {
     application.startReferenceDesktop();
     try @import("std").testing.expect(application.renderReferenceDesktop());
     try @import("std").testing.expectEqual(@as(u32, 0x17294fff), pixels[10]);
+    application.pointer_x = 12;
+    application.pointer_y = 44;
+    try @import("std").testing.expect(application.renderReferenceDesktop());
+    try @import("std").testing.expectEqual(@as(u32, 0xf1f6ffff), pixels[44 * 320 + 12]);
 }
 
 test "reference desktop dispatches launcher actions into HTML apps" {
