@@ -445,6 +445,9 @@ test "file offsets reject arithmetic overflow" {
 }
 
 pub fn infoAt(directory_fd: i64, path: []const u8) !Info {
+    if (disk) |volume| if (resolveFatPath(volume, path)) |resolved| {
+        return if (resolved.entry.directory) .{ .mode = 0o040755, .size = 0, .directory = true } else .{ .mode = 0o100644, .size = resolved.entry.size, .directory = false };
+    } else |_| {};
     if (disk) |volume| if (splitNestedPath(path)) |parts| {
         if (toFatName(parts.parent)) |parent_name| {
             if (volume.findRootEntry(&parent_name)) |parent| if (parent.directory) {
