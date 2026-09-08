@@ -9,6 +9,8 @@ pub export const css_path: [30:0]u8 = "/system/ui/styles/desktop.css\x00".*;
 pub export const wallpaper_path: [36:0]u8 = "/system/ui/interface/wallpaper.html\x00".*;
 pub export const topbar_path: [33:0]u8 = "/system/ui/interface/topbar.html\x00".*;
 pub export const sidebar_path: [34:0]u8 = "/system/ui/interface/sidebar.html\x00".*;
+pub export const media_path: [32:0]u8 = "/system/ui/interface/media.html\x00".*;
+pub export const widgets_path: [34:0]u8 = "/system/ui/interface/widgets.html\x00".*;
 
 pub export fn _start() callconv(.naked) noreturn {
     asm volatile (
@@ -72,6 +74,26 @@ pub export fn _start() callconv(.naked) noreturn {
         \\syscall
         \\test %%rax, %%rax
         \\js 16f
+        \\movl %%eax, %%edi
+        \\mov $3, %%eax
+        \\syscall
+        \\mov $257, %%eax
+        \\movq $-100, %%rdi
+        \\lea media_path(%%rip), %%rsi
+        \\xor %%edx, %%edx
+        \\syscall
+        \\test %%rax, %%rax
+        \\js 17f
+        \\movl %%eax, %%edi
+        \\mov $3, %%eax
+        \\syscall
+        \\mov $257, %%eax
+        \\movq $-100, %%rdi
+        \\lea widgets_path(%%rip), %%rsi
+        \\xor %%edx, %%edx
+        \\syscall
+        \\test %%rax, %%rax
+        \\js 18f
         \\movl %%eax, %%edi
         \\mov $3, %%eax
         \\syscall
@@ -145,6 +167,14 @@ pub export fn _start() callconv(.naked) noreturn {
         \\16:
         \\mov $60, %%eax
         \\mov $16, %%edi
+        \\syscall
+        \\17:
+        \\mov $60, %%eax
+        \\mov $17, %%edi
+        \\syscall
+        \\18:
+        \\mov $60, %%eax
+        \\mov $18, %%edi
         \\syscall
         \\1:
         \\mov $60, %%eax

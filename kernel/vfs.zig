@@ -923,6 +923,8 @@ fn toFatName(path: []const u8) ?[11]u8 {
     if (std.mem.eql(u8, path, "wallpaper.html")) return "WALLPAP HTM".*;
     if (std.mem.eql(u8, path, "topbar.html")) return "TOPBAR  HTM".*;
     if (std.mem.eql(u8, path, "sidebar.html")) return "SIDEBAR HTM".*;
+    if (std.mem.eql(u8, path, "media.html")) return "MEDIA   HTM".*;
+    if (std.mem.eql(u8, path, "widgets.html")) return "WIDGETS HTM".*;
     if (std.mem.eql(u8, path, "/system/ui/variables.conf") or std.mem.eql(u8, path, "system/ui/variables.conf") or std.mem.eql(u8, path, "variables.conf")) return "VARIABLESCF".*;
     var start: usize = 0;
     if (path.len != 0 and path[0] == '/') start = 1;

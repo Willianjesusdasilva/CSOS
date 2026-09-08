@@ -483,6 +483,8 @@ pub fn build(b: *std.Build) void {
     kernel_module.addAnonymousImport("ui_wallpaper", .{ .root_source_file = b.path("system/ui/interface/wallpaper.html") });
     kernel_module.addAnonymousImport("ui_topbar", .{ .root_source_file = b.path("system/ui/interface/topbar.html") });
     kernel_module.addAnonymousImport("ui_sidebar", .{ .root_source_file = b.path("system/ui/interface/sidebar.html") });
+    kernel_module.addAnonymousImport("ui_media", .{ .root_source_file = b.path("system/ui/interface/media.html") });
+    kernel_module.addAnonymousImport("ui_widgets", .{ .root_source_file = b.path("system/ui/interface/widgets.html") });
     kernel_module.addImport("serial", serial_module);
     kernel_module.addImport("gdt", gdt_module);
     kernel_module.addImport("idt", idt_module);
