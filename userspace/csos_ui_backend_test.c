@@ -83,11 +83,14 @@ int main(void) {
         !receiving_client.ready)
         return 9;
     struct csos_ui_client surface_client;
-    struct csos_ui_transport surface_transport = { 0, send_message, receive_surface_created };
+    struct csos_ui_transport surface_transport = { &transport_state, send_message, receive_surface_created };
     csos_ui_client_init(&surface_client, surface_transport); surface_client.ready = 1;
     if (csos_ui_client_process_response(&surface_client, message, sizeof(message), 0) != 27 ||
         !surface_client.surface_valid || surface_client.surface.buffer_handle != 0x55 ||
         surface_client.surface.generation != 9)
+        return 9;
+    if (csos_ui_client_present(&surface_client, 4, 8, (struct csos_ui_damage){ 0, 0, 1, 1 }) != -1 ||
+        csos_ui_client_present(&surface_client, 4, 9, (struct csos_ui_damage){ 0, 0, 1, 1 }) != 0)
         return 9;
     if (csos_ui_client_present(&client, 4, 9, (struct csos_ui_damage){ 0, 0, 8, 8 }) != 0)
         return 10;

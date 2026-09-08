@@ -359,7 +359,9 @@ static inline int csos_ui_client_receive_hello_ack(struct csos_ui_client *client
 static inline int csos_ui_client_present(struct csos_ui_client *client, uint32_t surface_id,
                                          uint64_t generation, struct csos_ui_damage damage) {
     uint8_t message[22];
-    if (!client || !client->ready || csos_ui_encode_present(message, sizeof(message), surface_id, generation, damage) == 0) return -1;
+    if (!client || !client->ready ||
+        (client->surface_valid && (surface_id != client->surface.id || generation != client->surface.generation)) ||
+        csos_ui_encode_present(message, sizeof(message), surface_id, generation, damage) == 0) return -1;
     return csos_ui_transport_send(&client->transport, message, sizeof(message));
 }
 
