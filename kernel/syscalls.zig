@@ -413,6 +413,9 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         74 => syncFile(arg1),
         75 => syncFile(arg1),
         79 => getcwd(arg1, arg2),
+        83 => mkdirLegacy(arg1, arg2),
+        84 => rmdirLegacy(arg1),
+        87 => unlinkLegacy(arg1),
         89 => readlinkat(@bitCast(@as(i64, -100)), arg1, arg2, arg3),
         96 => getTimeOfDay(arg1, arg2),
         95 => umask(arg1),
@@ -2663,6 +2666,18 @@ fn mkdirat(directory_fd: u64, path_address: u64, mode: u64) u64 {
     const path = userString(path_address, &path_buffer) orelse return errno(14);
     vfs.mkdirAt(@bitCast(directory_fd), path, mode) catch |err| return vfsError(err);
     return 0;
+}
+
+fn mkdirLegacy(path_address: u64, mode: u64) u64 {
+    return mkdirat(@bitCast(@as(i64, -100)), path_address, mode);
+}
+
+fn rmdirLegacy(path_address: u64) u64 {
+    return unlinkat(@bitCast(@as(i64, -100)), path_address, 0x200);
+}
+
+fn unlinkLegacy(path_address: u64) u64 {
+    return unlinkat(@bitCast(@as(i64, -100)), path_address, 0);
 }
 
 fn renameat(old_directory_fd: u64, old_path_address: u64, new_path_address: u64, flags: u64) u64 {
