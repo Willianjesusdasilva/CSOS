@@ -277,6 +277,8 @@ pub fn build(b: *std.Build) void {
     const sdl_module = b.createModule(.{ .root_source_file = b.path("graphics/sdl.zig") });
     sdl_module.addImport("html", html_module);
     sdl_module.addImport("ui_backend", ui_backend_module);
+    sdl_module.addAnonymousImport("ui_desktop", .{ .root_source_file = b.path("system/ui/interface/desktop.html") });
+    sdl_module.addAnonymousImport("ui_desktop_render", .{ .root_source_file = b.path("system/ui/interface/desktop.render.html") });
     const display_module = b.createModule(.{ .root_source_file = b.path("drivers/display.zig") });
     display_module.addImport("pci", pci_module);
     display_module.addImport("physical", physical_module);
@@ -299,6 +301,8 @@ pub fn build(b: *std.Build) void {
     });
     sdl_test_module.addImport("html", html_module);
     sdl_test_module.addImport("ui_backend", ui_backend_module);
+    sdl_test_module.addAnonymousImport("ui_desktop", .{ .root_source_file = b.path("system/ui/interface/desktop.html") });
+    sdl_test_module.addAnonymousImport("ui_desktop_render", .{ .root_source_file = b.path("system/ui/interface/desktop.render.html") });
     const sdl_tests = b.addTest(.{ .root_module = sdl_test_module });
     const run_sdl_tests = b.addRunArtifact(sdl_tests);
     test_step.dependOn(&run_sdl_tests.step);

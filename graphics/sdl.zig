@@ -606,7 +606,10 @@ pub const Application = struct {
     pointer_x: usize = 0,
     pointer_y: usize = 0,
 
-    pub const reference_desktop_source = "<style>.accent{color:#70d0ff}.muted{color:#8de0a8}</style><h1 class=accent>CSOS</h1><input value=\"Buscar aplicações, arquivos...\"><p class=muted>● Sistema Online</p><p>Recentes   Home   Documentos   Downloads   Imagens   Música</p><p>Pastas</p><a href=\"projetos\">Projetos</a><a href=\"csos\">CSOS</a><a href=\"downloads\">Downloads</a><a href=\"imagens\">Imagens</a><p>Arquivos</p><a href=\"GOAL.md\">GOAL.md</a><a href=\"README.md\">README.md</a><a href=\"config.sys\">config.sys</a><p>CPU 32%   RAM 48%   GPU 12%   Rede 125 MB/s</p><a href=\"files\">Arquivos</a><a href=\"terminal\">Terminal</a><a href=\"browser\">Browser</a>";
+    /// The compositor consumes the same file-backed document seeded into FAT.
+    /// Jinja providers are resolved by the userspace runtime; the early HTML
+    /// parser simply ignores the template expressions it cannot substitute.
+    pub const reference_desktop_source = @embedFile("ui_desktop_render");
 
     pub fn pump(self: *Application, events: *EventQueue, on_event: *const fn (*Application, Event) void) void {
         while (events.poll()) |event| {
