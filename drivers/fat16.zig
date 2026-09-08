@@ -126,6 +126,32 @@ pub const Volume = struct {
         return count;
     }
 
+    /// Enumerate entries from a subdirectory cluster chain.
+    /// FAT16 directories use the same 32-byte entry format as the root, but
+    /// occupy normal data clusters and therefore may span multiple clusters.
+    pub fn listDirectory(self: *Volume, first_cluster: u16, output: []DirectoryEntry) !usize {
+        try validateDataCluster(first_cluster, self.cluster_count);
+        var cluster = first_cluster;
+        var traversed: u32 = 0;
+        var count: usize = 0;
+        while (true) {
+            if (!chainTraversalAllowed(traversed, self.cluster_count)) return error.BrokenChain;
+            traversed += 1;
+            var sector: u8 = 0;
+            while (sector < self.sectors_per_cluster) : (sector += 1) {
+                try self.storage.readBlock(self.clusterLba(cluster) + sector, self.buffer);
+                const bytes: [*]const u8 = @ptrFromInt(self.buffer);
+                const result = collectRootEntriesAll(bytes, output, count);
+                count = result.count;
+                if (result.end_of_directory or count == output.len) return count;
+            }
+            const next = try self.fatEntry(cluster);
+            if (next >= 0xfff8) return count;
+            try validateDataCluster(next, self.cluster_count);
+            cluster = next;
+        }
+    }
+
     pub fn readRootFileAt(self: *Volume, name: *const [11]u8, output: []u8, file_offset: usize) !usize {
         var first_cluster: u16 = 0;
         var size: usize = 0;
