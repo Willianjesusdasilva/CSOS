@@ -86,6 +86,12 @@ fn resetSystemHtmlState() void {
 fn advanceSystemHtmlFocus() void {
     system_html_focus = (system_html_focus + 1) % 5;
 }
+
+fn setSystemHtmlActive(active: bool) void {
+    system_html_active = active;
+    system_html_document_ready = false;
+    system_surface_cache = null;
+}
 const GpuCsRuntime = struct {
     mmio: ?gpu.AmdGmc11MmioTransport = null,
     doorbell: ?gpu.AmdGfx11DoorbellTransport = null,
@@ -2310,7 +2316,7 @@ pub fn start(info: BootInfo) noreturn {
                         serial.write(route);
                         serial.write(" (keyboard)\n");
                     } else {
-                        if (system_html_focus == 1) system_html_active = false else system_html_active = !system_html_active;
+                        if (system_html_focus == 1) setSystemHtmlActive(false) else setSystemHtmlActive(!system_html_active);
                         drawSystemSurface(&system_window, storage.block_count, @as(usize, hid.keyboards) + hid.mice, audio_info.playback_endpoints);
                         serial.write("UI HTML button: ");
                         serial.write(if (system_html_focus == 1) "RESET (keyboard)\n" else if (system_html_active) "ACTIVE (keyboard)\n" else "READY (keyboard)\n");
@@ -2617,12 +2623,12 @@ pub fn start(info: BootInfo) noreturn {
                                 }
                             } else if (window.id == 3 and window_manager.contentRectHitTest(hit, cursor_x, cursor_y, 4, 30, 44, 14)) {
                                 system_html_focus = 1;
-                                system_html_active = false;
+                                setSystemHtmlActive(false);
                                 drawSystemSurface(&system_window, storage.block_count, @as(usize, hid.keyboards) + hid.mice, audio_info.playback_endpoints);
                                 serial.write("UI HTML button: RESET\n");
                             } else if (window.id == 3 and window_manager.contentRectHitTest(hit, cursor_x, cursor_y, 4, 18, 48, 14)) {
                                 system_html_focus = 0;
-                                system_html_active = !system_html_active;
+                                setSystemHtmlActive(!system_html_active);
                                 drawSystemSurface(&system_window, storage.block_count, @as(usize, hid.keyboards) + hid.mice, audio_info.playback_endpoints);
                                 serial.write("UI HTML button: ");
                                 serial.write(if (system_html_active) "ACTIVE\n" else "READY\n");
