@@ -248,5 +248,7 @@ pub fn main() !void {
     paintSurface(resized_pixels, 640, 480, apps_expanded);
     if (!app_backend.resize(640, 480, resized_pixels)) return error.AppResizeFailed;
     if (app_backend.surface.width != 640 or app_backend.surface.height != 480) return error.AppResizeMismatch;
+    const resize_focus = app_backend.nextEvent() orelse return error.AppResizeFocusMissing;
+    if (resize_focus != .focus) return error.AppResizeFocusRoutingFailed;
     std.debug.print("Zig HTML UI slice passed (provider CPU={s}, surfaces=desktop+apps)\n", .{ cpu });
 }
