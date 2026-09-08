@@ -1649,7 +1649,7 @@ pub fn start(info: BootInfo) noreturn {
     serial.write("\n");
     const window_manager = &desktop_window_manager;
     window_manager.reset();
-    _ = window_manager.create(.{ .id = 100, .title = "DESKTOP HTML", .x = 0, .y = 0, .width = screen.framebuffer.width, .height = screen.framebuffer.height, .title_color = 0x405070, .body_color = 0x18202c, .surface = &demo_app.window }) catch panic("desktop window creation failed");
+    _ = window_manager.create(.{ .id = 100, .title = "DESKTOP HTML", .x = 0, .y = 0, .width = screen.framebuffer.width, .height = screen.framebuffer.height, .title_color = 0x405070, .body_color = 0x18202c, .surface = &demo_app.window, .chrome = false }) catch panic("desktop window creation failed");
     _ = window_manager.create(.{ .id = 2, .title = "MONITOR", .x = 180, .y = 280, .width = 260, .height = 140, .title_color = 0x604070, .body_color = 0x241828, .surface = &monitor_window }) catch panic("desktop window creation failed");
     screen.drawBaseline(@as(usize, hid.keyboards) + hid.mice, audio_info.playback_endpoints);
     window_manager.compose(&screen);

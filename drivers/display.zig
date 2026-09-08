@@ -104,6 +104,7 @@ pub const Window = struct {
     restore_width: usize = 0,
     restore_height: usize = 0,
     surface: ?*sdl.Window = null,
+    chrome: bool = true,
 };
 
 /// Software window/compositor state. It deliberately renders into Context's
@@ -507,6 +508,13 @@ pub const WindowManager = struct {
         while (i < self.count) : (i += 1) {
             const w = self.windows[i];
             if (!w.visible or w.minimized) continue;
+            if (!w.chrome) {
+                if (w.surface) |surface| {
+                    surface.invalidate();
+                    context.blitSurfaceClipped(surface, w.x, w.y, w.width, w.height);
+                }
+                continue;
+            }
             context.fillRect(w.x, w.y, w.width, w.height, w.body_color);
             context.fillRect(w.x, w.y, w.width, @min(@as(usize, 20), w.height), if (self.focused == i) 0x5090d0 else w.title_color);
             context.drawWindowTitleLimited(w.x + 6, w.y + 5, w.title, w.width -| 34);
@@ -559,7 +567,7 @@ pub const WindowManager = struct {
         var task_slot: usize = 0;
         while (i < self.count) : (i += 1) {
             const w = self.windows[i];
-            if (!w.visible) continue;
+            if (!w.visible or !w.chrome) continue;
             const slot_x = 64 + task_slot * 112 + 4;
             if (slot_x >= context.framebuffer.width) break;
             const slot_width = @min(@as(usize, 104), context.framebuffer.width -| slot_x);
