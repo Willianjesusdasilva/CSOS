@@ -2759,6 +2759,8 @@ fn seedUiFilesystem(volume: *fat16.Volume) !void {
     const sidebar_name: [11]u8 = "SIDEBAR HTM".*;
     const media_name: [11]u8 = "MEDIA   HTM".*;
     const widgets_name: [11]u8 = "WIDGETS HTM".*;
+    const notifications_name: [11]u8 = "NOTIFICAHTM".*;
+    const launcher_name: [11]u8 = "LAUNCHERHTM".*;
     const system_cluster = volume.createDirectory(0, &system_name) catch |err| if (err == error.AlreadyExists) (try volume.findRootEntry(&system_name)).first_cluster else return err;
     serial.write("ui seed system\n");
     const ui_cluster = volume.createDirectory(system_cluster, &ui_name) catch |err| if (err == error.AlreadyExists) (try volume.findDirectoryEntry(system_cluster, &ui_name)).first_cluster else return err;
@@ -2780,6 +2782,8 @@ fn seedUiFilesystem(volume: *fat16.Volume) !void {
     try volume.createDirectoryFile(interface_cluster, &sidebar_name); try volume.writeDirectoryFile(interface_cluster, &sidebar_name, @embedFile("ui_sidebar"));
     try volume.createDirectoryFile(interface_cluster, &media_name); try volume.writeDirectoryFile(interface_cluster, &media_name, @embedFile("ui_media"));
     try volume.createDirectoryFile(interface_cluster, &widgets_name); try volume.writeDirectoryFile(interface_cluster, &widgets_name, @embedFile("ui_widgets"));
+    try volume.createDirectoryFile(interface_cluster, &notifications_name); try volume.writeDirectoryFile(interface_cluster, &notifications_name, @embedFile("ui_notifications"));
+    try volume.createDirectoryFile(interface_cluster, &launcher_name); try volume.writeDirectoryFile(interface_cluster, &launcher_name, @embedFile("ui_launcher"));
     if (volume.findDirectoryEntry(interface_cluster, &topbar_name)) |_| serial.write("ui seed topbar ready\n") else |_| serial.write("ui seed topbar lookup failed\n");
     if (volume.findDirectoryEntry(interface_cluster, &sidebar_name)) |_| serial.write("ui seed sidebar ready\n") else |_| serial.write("ui seed sidebar lookup failed\n");
     try volume.createDirectoryFile(styles_cluster, &css_name); try volume.writeDirectoryFile(styles_cluster, &css_name, @embedFile("ui_desktop_css"));
