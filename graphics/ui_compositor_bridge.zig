@@ -28,6 +28,15 @@ pub const Bridge = struct {
             else => true,
         };
     }
+
+    pub fn pump(self: *Bridge) usize {
+        var processed: usize = 0;
+        while (self.backend.nextRequest()) |request| {
+            if (!self.dispatch(request)) break;
+            processed += 1;
+        }
+        return processed;
+    }
 };
 
 test "bridge forwards present and resize without DOM knowledge" {
@@ -45,7 +54,8 @@ test "bridge forwards present and resize without DOM knowledge" {
         fn close(_: ?*anyopaque, _: u32) void {}
     };
     var bridge = Bridge.init(&backend, .{ .userdata = &presents, .present = Hooks.present, .resize = Hooks.resize, .close = Hooks.close });
-    try std.testing.expect(bridge.dispatch(.{ .present = .{ .surface_id = 3, .generation = 0, .damage = .{ .x = 0, .y = 0, .width = 2, .height = 2 } } }));
+    try std.testing.expect(backend.enqueueRequest(.{ .present = .{ .surface_id = 3, .generation = 0, .damage = .{ .x = 0, .y = 0, .width = 2, .height = 2 } } }));
+    try std.testing.expectEqual(@as(usize, 1), bridge.pump());
     try std.testing.expectEqual(@as(usize, 1), presents);
     bridge.sink.userdata = &resizes;
     try std.testing.expect(bridge.dispatch(.{ .resize = .{ .width = 2, .height = 2 } }));
