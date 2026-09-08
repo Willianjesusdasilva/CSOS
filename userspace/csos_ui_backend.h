@@ -180,6 +180,11 @@ static inline int csos_ui_decode_wheel(const uint8_t *message, uint8_t length, i
     *delta = (int32_t)csos_ui_get32(message + 2); return 1;
 }
 
+static inline int csos_ui_decode_timer(const uint8_t *message, uint8_t length, uint32_t *timer_id) {
+    if (!timer_id || !csos_ui_event_valid(message, length) || message[0] != CSOS_UI_TIMER) return 0;
+    *timer_id = csos_ui_get32(message + 2); return 1;
+}
+
 static inline int csos_ui_decode_focus(const uint8_t *message, uint8_t length, int *focused) {
     if (!focused || !csos_ui_event_valid(message, length) || message[0] != CSOS_UI_FOCUS) return 0;
     *focused = message[2] != 0; return 1;
@@ -473,7 +478,7 @@ static inline int csos_ui_client_process_event(struct csos_ui_client *client,
     } else if (event_kind == CSOS_UI_WHEEL) {
         (void)csos_ui_decode_wheel((const uint8_t *)message, (uint8_t)length, &client->wheel_delta);
     } else if (event_kind == CSOS_UI_TIMER) {
-        if (csos_ui_event_valid((const uint8_t *)message, (uint8_t)length)) client->timer_id = csos_ui_get32((const uint8_t *)message + 2);
+        (void)csos_ui_decode_timer((const uint8_t *)message, (uint8_t)length, &client->timer_id);
     } else if (event_kind == CSOS_UI_EVENT_CLOSE) { client->ready = 0; client->hello_pending = 0; client->surface_valid = 0; client->focused = 0; }
     return length;
 }

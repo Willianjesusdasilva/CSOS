@@ -127,6 +127,9 @@ int main(void) {
     if (csos_ui_client_process_event(&event_client, message, sizeof(message), &response_kind) != 3 ||
         response_kind != CSOS_UI_FOCUS || !event_client.focused)
         return 23;
+    uint32_t timer_id = 0;
+    if (!csos_ui_decode_timer((uint8_t[]){ CSOS_UI_TIMER, 6, 0x2a, 0, 0, 0 }, 6, &timer_id) || timer_id != 42)
+        return 24;
     struct csos_ui_pointer pointer;
     uint8_t pointer_message[11] = { CSOS_UI_POINTER, 11, 0xfc, 0xff, 0xff, 0xff, 9, 0, 0, 0, 1 };
     if (!csos_ui_decode_pointer(pointer_message, sizeof(pointer_message), &pointer) || pointer.x != -4 || pointer.buttons != 1)
