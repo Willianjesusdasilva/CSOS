@@ -1,5 +1,6 @@
 const std = @import("std");
 const html = @import("html");
+const ui_backend = @import("ui_backend");
 
 pub const PixelFormat = enum { rgba8888 };
 pub const Rect = struct { x: usize, y: usize, width: usize, height: usize };
@@ -463,6 +464,7 @@ pub const Window = struct {
 pub const Application = struct {
     window: Window,
     html_session: ?html.Session = null,
+    backend: ?ui_backend.Backend = null,
     running: bool = true,
     last_event: ?Event = null,
     processed_events: u64 = 0,
@@ -486,19 +488,28 @@ pub const Application = struct {
             self.processed_events +|= 1;
             switch (event) {
                 .quit => self.running = false,
-                .text => |byte| _ = self.handleHtmlKey(byte),
+                .text => |byte| {
+                    if (self.backend) |*backend| _ = backend.enqueueEvent(.{ .key = .{ .code = byte, .pressed = true, .modifiers = 0 } });
+                    _ = self.handleHtmlKey(byte);
+                },
                 .key => |key| if (key.pressed) {
+                    if (self.backend) |*backend| _ = backend.enqueueEvent(.{ .key = .{ .code = key.scancode, .pressed = key.pressed, .modifiers = key.modifiers } });
                     if (key.scancode == 0x2b) _ = self.focusHtmlNext((key.modifiers & 0x01) == 0);
                     if (self.activateHtmlEventKey(key.scancode)) |activation| switch (activation) {
                         .action => |target| self.last_html_activation = target,
                         else => {},
                     };
                 },
-                .mouse => |mouse| if ((mouse.buttons & 1) != 0) switch (self.activateHtmlEvent(
-                    @intCast(@max(mouse.x, 0)), @intCast(@max(mouse.y, 0)), 0, 0,
-                )) {
-                    .action => |target| self.last_html_activation = target,
-                    else => {},
+                .mouse => |mouse| {
+                    if (self.backend) |*backend| {
+                        _ = backend.enqueueEvent(if (mouse.wheel != 0) .{ .wheel = .{ .delta = mouse.wheel } } else .{ .pointer = .{ .x = mouse.x, .y = mouse.y, .buttons = mouse.buttons } });
+                    }
+                    if ((mouse.buttons & 1) != 0) switch (self.activateHtmlEvent(
+                        @intCast(@max(mouse.x, 0)), @intCast(@max(mouse.y, 0)), 0, 0,
+                    )) {
+                        .action => |target| self.last_html_activation = target,
+                        else => {},
+                    };
                 },
             }
             if (!self.running) break;
@@ -527,6 +538,8 @@ pub const Application = struct {
     pub fn reset(self: *Application) void {
         self.running = true;
         self.html_session = null;
+        if (self.backend) |*backend| _ = backend.stop();
+        self.backend = null;
         self.last_event = null;
         self.processed_events = 0;
         self.window.clear(0);
@@ -534,6 +547,8 @@ pub const Application = struct {
 
     pub fn startHtml(self: *Application, source: []const u8) void {
         self.html_session = html.Session.init(source);
+        self.backend = ui_backend.Backend.init(.{ .id = 1, .width = @intCast(self.window.width), .height = @intCast(self.window.height), .stride = @intCast(self.window.width), .pixels = self.window.pixels });
+        _ = self.backend.?.start();
         self.window.invalidate();
     }
 
@@ -578,7 +593,11 @@ pub const Application = struct {
     pub fn render(self: *Application, draw: *const fn (*Window) void) bool {
         if (!self.running) return false;
         draw(&self.window);
-        return self.window.dirtyRect() != null;
+        if (self.window.dirtyRect()) |rect| {
+            if (self.backend) |*backend| _ = backend.present(.{ .x = @intCast(rect.x), .y = @intCast(rect.y), .width = @intCast(rect.width), .height = @intCast(rect.height) });
+            return true;
+        }
+        return false;
     }
 
     pub fn frame(self: *Application, events: *EventQueue, on_event: *const fn (*Application, Event) void, draw: *const fn (*Window) void) bool {

@@ -266,8 +266,10 @@ pub fn build(b: *std.Build) void {
     const run_audio_tests = b.addRunArtifact(audio_tests);
     test_step.dependOn(&run_audio_tests.step);
     const html_module = b.createModule(.{ .root_source_file = b.path("graphics/html.zig") });
+    const ui_backend_module = b.createModule(.{ .root_source_file = b.path("graphics/ui_backend.zig") });
     const sdl_module = b.createModule(.{ .root_source_file = b.path("graphics/sdl.zig") });
     sdl_module.addImport("html", html_module);
+    sdl_module.addImport("ui_backend", ui_backend_module);
     const display_module = b.createModule(.{ .root_source_file = b.path("drivers/display.zig") });
     display_module.addImport("pci", pci_module);
     display_module.addImport("physical", physical_module);
@@ -289,6 +291,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     sdl_test_module.addImport("html", html_module);
+    sdl_test_module.addImport("ui_backend", ui_backend_module);
     const sdl_tests = b.addTest(.{ .root_module = sdl_test_module });
     const run_sdl_tests = b.addRunArtifact(sdl_tests);
     test_step.dependOn(&run_sdl_tests.step);
@@ -300,6 +303,14 @@ pub fn build(b: *std.Build) void {
     const html_tests = b.addTest(.{ .root_module = html_test_module });
     const run_html_tests = b.addRunArtifact(html_tests);
     test_step.dependOn(&run_html_tests.step);
+    const ui_backend_test_module = b.createModule(.{
+        .root_source_file = b.path("graphics/ui_backend.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+    });
+    const ui_backend_tests = b.addTest(.{ .root_module = ui_backend_test_module });
+    const run_ui_backend_tests = b.addRunArtifact(ui_backend_tests);
+    test_step.dependOn(&run_ui_backend_tests.step);
     const hardware_profile_module = b.createModule(.{ .root_source_file = b.path("hardware/profile.zig") });
     const hardware_profile_test_module = b.createModule(.{
         .root_source_file = b.path("hardware/profile.zig"),
