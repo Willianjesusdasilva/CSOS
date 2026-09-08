@@ -699,7 +699,7 @@ pub const WindowManager = struct {
         return if (self.count == 0) null else self.focused;
     }
 
-    pub fn position(self: *const WindowManager, index: usize) ?struct { x: i32, y: i32 } {
+    pub fn windowPosition(self: *const WindowManager, index: usize) ?struct { x: i32, y: i32 } {
         return if (index < self.count) self.positions[index] else null;
     }
 
