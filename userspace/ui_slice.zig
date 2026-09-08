@@ -184,6 +184,7 @@ pub fn main() !void {
     try validateActions(composed[0..composed_len]);
     const variable_names = [_][]const u8{ "CPU_USAGE", "RAM_USAGE", "GPU_USAGE", "NETWORK_IP", "CURRENT_FPS", "FRAME_TIME" };
     var expanded: []const u8 = composed[0..composed_len];
+    var apps_expanded: []const u8 = apps_composed[0..apps_len];
     for (variable_names) |name| {
         const configured = try configuredPath(variables, name);
         if (!std.mem.startsWith(u8, configured, "/system/ui/providers/")) return error.ProviderOutsideReadOnlyTree;
@@ -192,8 +193,10 @@ pub fn main() !void {
         if (std.mem.indexOf(u8, value, "action=") != null or std.mem.indexOf(u8, value, "exec=") != null)
             return error.ProviderContainsAction;
         expanded = try std.mem.replaceOwned(u8, allocator, expanded, try std.fmt.allocPrint(allocator, "{{{{ {s} }}}}", .{name}), value);
+        apps_expanded = try std.mem.replaceOwned(u8, allocator, apps_expanded, try std.fmt.allocPrint(allocator, "{{{{ {s} }}}}", .{name}), value);
     }
     if (std.mem.indexOf(u8, expanded, "{{") != null) return error.UnresolvedProvider;
+    if (std.mem.indexOf(u8, apps_expanded, "{{") != null) return error.UnresolvedAppProvider;
     try contains(expanded, "CPU 32%");
     try contains(action, "action=open_files");
     try contains(action, "capability=window");
