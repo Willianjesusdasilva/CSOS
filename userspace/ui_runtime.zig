@@ -3,9 +3,9 @@ pub export const hello_frame = [_]u8{ 1, 21 } ++ "UI_HELLO file-backed\n";
 pub export const create_frame = [_]u8{ 2, 19, 0x80, 0x02, 0xe0, 0x01, 12 } ++ "HTML DESKTOP";
 pub export const present_frame = [_]u8{ 1, 22, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x80, 0x02, 0xe0, 0x01 };
 pub export const pixel_frame = [_]u8{ 12, 10, 1, 0, 0, 0, 0x20, 0x40, 0x80, 0xff };
-pub export const manifest_path = "/system/ui/interface/desktop.manifest\x00";
-pub export const html_path = "/system/ui/interface/desktop.html\x00";
-pub export const css_path = "/system/ui/styles/desktop.css\x00";
+pub export const manifest_path: [38:0]u8 = "/system/ui/interface/desktop.manifest\x00".*;
+pub export const html_path: [34:0]u8 = "/system/ui/interface/desktop.html\x00".*;
+pub export const css_path: [30:0]u8 = "/system/ui/styles/desktop.css\x00".*;
 
 pub export fn _start() callconv(.naked) noreturn {
     asm volatile (
