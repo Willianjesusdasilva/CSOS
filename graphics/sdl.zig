@@ -406,6 +406,7 @@ pub const Window = struct {
                 .paragraph => 0xa0b8d0ff,
                 .button => if (element.accent) 0x70e0a0ff else 0xffd070ff,
                 .link => 0x70b8ffff,
+                .input => 0xd0d0d0ff,
             };
             if (focused != null and focused.? == index and (element.kind == .button or element.kind == .link)) {
                 const text_width: usize = element.text.len * (if (element.kind == .heading) @as(usize, 12) else 8) + 4;

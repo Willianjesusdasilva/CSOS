@@ -1,6 +1,6 @@
 const std = @import("std");
 
-pub const Kind = enum { heading, paragraph, button, link };
+pub const Kind = enum { heading, paragraph, button, link, input };
 pub const Element = struct { kind: Kind, text: []const u8, target: []const u8 = "", accent: bool = false, muted: bool = false, danger: bool = false };
 pub const DrawText = *const fn (x: usize, y: usize, text: []const u8, color: u32) void;
 
@@ -20,9 +20,9 @@ pub const Document = struct {
             const tag = source[open + 1 .. close];
             const name_end = std.mem.indexOfScalar(u8, tag, ' ') orelse tag.len;
             const name = tag[0..name_end];
-            const kind: ?Kind = if (std.mem.eql(u8, name, "h1")) .heading else if (std.mem.eql(u8, name, "p")) .paragraph else if (std.mem.eql(u8, name, "button")) .button else if (std.mem.eql(u8, name, "a")) .link else null;
+            const kind: ?Kind = if (std.mem.eql(u8, name, "h1")) .heading else if (std.mem.eql(u8, name, "p")) .paragraph else if (std.mem.eql(u8, name, "button")) .button else if (std.mem.eql(u8, name, "a")) .link else if (std.mem.eql(u8, name, "input")) .input else null;
             if (kind) |value| {
-                const end_tag = switch (value) { .heading => "</h1>", .paragraph => "</p>", .button => "</button>", .link => "</a>" };
+                const end_tag = switch (value) { .heading => "</h1>", .paragraph => "</p>", .button => "</button>", .link => "</a>", .input => "</input>" };
                 if (std.mem.indexOfPos(u8, source, close + 1, end_tag)) |end| {
                     var target: []const u8 = "";
                     if (value == .link) {
@@ -54,6 +54,7 @@ pub const Document = struct {
                 .paragraph => 0xa0b8d0ff,
                 .button => 0xffd070ff,
                 .link => 0x70b8ffff,
+                .input => 0xd0d0d0ff,
             };
             draw(origin_x, y, element.text, color);
             y += if (element.kind == .heading) 16 else 12;
@@ -64,7 +65,8 @@ pub const Document = struct {
         var cursor_y = origin_y;
         for (self.elements[0..self.count], 0..) |element, index| {
             const height: usize = if (element.kind == .heading) 16 else 12;
-            if ((element.kind == .button or element.kind == .link) and x >= origin_x and x < origin_x +| element.text.len * 8 and y >= cursor_y and y < cursor_y + height) return index;
+            const width = if (element.kind == .input) @max(element.text.len, 8) * 8 else element.text.len * 8;
+            if ((element.kind == .button or element.kind == .link or element.kind == .input) and x >= origin_x and x < origin_x +| width and y >= cursor_y and y < cursor_y + height) return index;
             cursor_y +|= height;
         }
         return null;
@@ -80,7 +82,7 @@ pub const Document = struct {
         var offset: usize = if (current) |value| if (forward) (value + 1) % self.count else if (value == 0) self.count - 1 else value - 1 else if (forward) 0 else self.count - 1;
         var checked: usize = 0;
         while (checked < self.count) : (checked += 1) {
-            if (self.elements[offset].kind == .button or self.elements[offset].kind == .link) return offset;
+            if (self.elements[offset].kind == .button or self.elements[offset].kind == .link or self.elements[offset].kind == .input) return offset;
             offset = if (forward) (offset + 1) % self.count else if (offset == 0) self.count - 1 else offset - 1;
         }
         return null;
@@ -155,4 +157,12 @@ test "HTML button focus cycles with keyboard direction" {
     try std.testing.expectEqualStrings("Two", document.activateIndex(second).?);
     try std.testing.expectEqual(first, document.nextButton(second, true).?);
     try std.testing.expectEqualStrings("Two", document.activateIndex(document.nextButton(null, false).?).?);
+}
+
+test "HTML inputs participate in focus and hit testing" {
+    const document = Document.parse("<p>Name</p><input>enter</input><button>Go</button>");
+    try std.testing.expectEqual(Kind.input, document.elements[1].kind);
+    try std.testing.expectEqual(@as(usize, 1), document.nextButton(null, true).?);
+    try std.testing.expectEqual(@as(usize, 1), document.hitTest(12, 20, 4, 4).?);
+    try std.testing.expect(document.activateIndex(1) == null);
 }
