@@ -19,6 +19,11 @@ static int receive_hello_ack(void *userdata, void *message, uint8_t capacity) {
     csos_ui_put16((uint8_t *)message + 2, CSOS_UI_PROTOCOL_VERSION);
     csos_ui_put64((uint8_t *)message + 4, CSOS_UI_CAP_SURFACE); return 12;
 }
+static int receive_surface_created(void *userdata, void *message, uint8_t capacity) {
+    (void)userdata; if (capacity < 27) return -1;
+    struct csos_ui_surface surface = { 4, 0x55, 640, 480, 640, CSOS_UI_BGRA8888, 9 };
+    return csos_ui_encode_surface_created((uint8_t *)message, capacity, surface);
+}
 
 int main(void) {
     uint8_t message[32];
@@ -72,6 +77,13 @@ int main(void) {
     if (csos_ui_client_hello(&receiving_client, CSOS_UI_PROTOCOL_VERSION, CSOS_UI_CAP_SURFACE) != 0 ||
         csos_ui_client_receive_hello_ack(&receiving_client, message, sizeof(message)) != 12 ||
         !receiving_client.ready)
+        return 9;
+    struct csos_ui_client surface_client;
+    struct csos_ui_transport surface_transport = { 0, send_message, receive_surface_created };
+    csos_ui_client_init(&surface_client, surface_transport); surface_client.ready = 1;
+    if (csos_ui_client_process_response(&surface_client, message, sizeof(message), 0) != 27 ||
+        !surface_client.surface_valid || surface_client.surface.buffer_handle != 0x55 ||
+        surface_client.surface.generation != 9)
         return 9;
     if (csos_ui_client_present(&client, 4, 9, (struct csos_ui_damage){ 0, 0, 8, 8 }) != 0)
         return 10;

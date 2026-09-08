@@ -298,6 +298,8 @@ struct csos_ui_client {
     uint64_t capabilities;
     int ready;
     int hello_pending;
+    struct csos_ui_surface surface;
+    int surface_valid;
 };
 
 static inline int csos_ui_transport_send(const struct csos_ui_transport *transport,
@@ -315,7 +317,7 @@ static inline int csos_ui_transport_receive(const struct csos_ui_transport *tran
 static inline void csos_ui_client_init(struct csos_ui_client *client,
                                        struct csos_ui_transport transport) {
     if (!client) return;
-    client->transport = transport; client->version = 0; client->capabilities = 0; client->ready = 0; client->hello_pending = 0;
+    client->transport = transport; client->version = 0; client->capabilities = 0; client->ready = 0; client->hello_pending = 0; client->surface_valid = 0;
 }
 
 static inline int csos_ui_client_hello(struct csos_ui_client *client,
@@ -430,6 +432,14 @@ static inline int csos_ui_client_process_response(struct csos_ui_client *client,
     if (length < 0) return -1;
     const uint8_t response_kind = ((const uint8_t *)message)[0];
     if (kind) *kind = response_kind;
+    if (response_kind == CSOS_UI_SURFACE_CREATED &&
+        csos_ui_decode_surface_created((const uint8_t *)message, (uint8_t)length, &client->surface))
+        client->surface_valid = 1;
+    else if (response_kind == CSOS_UI_SURFACE_DESTROYED) {
+        uint32_t destroyed_id = 0;
+        if (csos_ui_decode_surface_destroyed((const uint8_t *)message, (uint8_t)length, &destroyed_id) &&
+            client->surface_valid && client->surface.id == destroyed_id) client->surface_valid = 0;
+    }
     if (response_kind == CSOS_UI_FAILURE) { client->ready = 0; client->hello_pending = 0; }
     return length;
 }
