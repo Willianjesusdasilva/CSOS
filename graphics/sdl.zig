@@ -404,7 +404,7 @@ pub const Window = struct {
             const text = if (element.kind == .input) document.inputText(index) else element.text;
             const color: u32 = if (element.muted) 0x7890a0ff else if (element.danger) 0xff8060ff else switch (element.kind) {
                 .heading => 0x70d0ffff,
-                .paragraph, .container => 0xa0b8d0ff,
+                .paragraph, .container, .line_break => 0xa0b8d0ff,
                 .button => if (element.accent) 0x70e0a0ff else 0xffd070ff,
                 .link => 0x70b8ffff,
                 .input => 0xd0d0d0ff,
