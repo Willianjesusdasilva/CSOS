@@ -560,6 +560,14 @@ fn formatFatName(fat_name: *const [11]u8, output: *[12]u8) usize {
     return length;
 }
 
+test "VFS formats FAT 8.3 names for directory records" {
+    var output: [12]u8 = undefined;
+    try std.testing.expectEqual(@as(usize, 9), formatFatName("README  TXT", &output));
+    try std.testing.expectEqualSlices(u8, "README.TXT", output[0..9]);
+    try std.testing.expectEqual(@as(usize, 3), formatFatName("BIN        ", &output));
+    try std.testing.expectEqualSlices(u8, "BIN", output[0..3]);
+}
+
 fn resolve(directory_fd: i64, path: []const u8) !Node {
     if (equal(path, "/") or equal(path, ".")) return .root;
     if (equal(path, "/bin") or equal(path, "bin")) return .bin;
