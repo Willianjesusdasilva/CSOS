@@ -681,6 +681,25 @@ pub const Application = struct {
         return true;
     }
 
+    /// Routes desktop launcher targets into the existing HTML application
+    /// surface. The compositor stays unchanged; each target gets a new
+    /// document in the same backend session.
+    pub fn dispatchReferenceAction(self: *Application, target: []const u8) bool {
+        const source = if (std.mem.eql(u8, target, "files"))
+            "<h1>FILES</h1><p class=muted>/home/willian</p><a href=\"GOAL.md\">GOAL.md</a><a href=\"README.md\">README.md</a><a href=\"config.sys\">config.sys</a>"
+        else if (std.mem.eql(u8, target, "terminal"))
+            "<h1>Terminal</h1><p class=muted>willian@csos:~$</p><input value=\"\">"
+        else if (std.mem.eql(u8, target, "browser"))
+            "<h1>Browser</h1><input value=\"https://csos.local\"><p>CSOS Web</p>"
+        else if (std.mem.eql(u8, target, "settings"))
+            "<h1>Configurações</h1><p>Display   Audio   Rede   Energia</p>"
+        else if (std.mem.eql(u8, target, "music"))
+            "<h1>Música</h1><p>Midnight City — M83</p><a href=\"pause\">||</a>"
+        else return false;
+        self.startHtml(source);
+        return true;
+    }
+
     pub fn handleHtmlKey(self: *Application, key: u8) bool {
         if (self.html_session) |*session| return session.handleKey(key);
         return false;
@@ -2167,6 +2186,15 @@ test "reference desktop renders shell with interactive HTML overlay" {
     application.startReferenceDesktop();
     try @import("std").testing.expect(application.renderReferenceDesktop());
     try @import("std").testing.expectEqual(@as(u32, 0x17294fff), pixels[10]);
+}
+
+test "reference desktop dispatches launcher actions into HTML apps" {
+    var pixels = [_]u32{0} ** (320 * 200);
+    var application = Application{ .window = .{ .width = 320, .height = 200, .pixels = &pixels } };
+    application.startReferenceDesktop();
+    try @import("std").testing.expect(application.dispatchReferenceAction("files"));
+    try @import("std").testing.expectEqualStrings("FILES", application.html_session.?.document.elements[0].text);
+    try @import("std").testing.expect(!application.dispatchReferenceAction("unknown"));
 }
 
 test "SDL application persists and edits HTML session" {
