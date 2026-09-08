@@ -244,7 +244,8 @@ pub const Backend = struct {
         self.surface.stride = width;
         self.surface.pixels = pixels;
         self.surface.generation +|= 1;
-        return self.enqueueEvent(.{ .focus = self.focused });
+        if (!self.enqueueEvent(.{ .focus = self.focused })) return false;
+        return self.enqueueResponse(.{ .surface_created = self.surfaceInfo() });
     }
 
     pub fn attachBuffer(self: *Backend, buffer_handle: u32, pixels: []u32, stride: u32) bool {
@@ -469,6 +470,16 @@ test "destroyed surface rejects later resize and present" {
     try std.testing.expect(backend.destroySurface());
     try std.testing.expect(!backend.resize(2, 2, &pixels));
     try std.testing.expect(!backend.present(.{ .x = 0, .y = 0, .width = 1, .height = 1 }));
+}
+
+test "resize publishes updated shared surface metadata" {
+    var pixels = [_]u32{0} ** 16;
+    var backend = Backend.init(.{ .id = 15, .width = 2, .height = 2, .stride = 2, .pixels = pixels[0..4] });
+    try std.testing.expect(backend.resize(4, 4, &pixels));
+    switch (backend.nextResponse().?) {
+        .surface_created => |info| { try std.testing.expectEqual(@as(u16, 4), info.width); try std.testing.expectEqual(@as(u64, 1), info.generation); },
+        else => return error.UnexpectedBackendResponse,
+    }
 }
 
 test "backend attaches an opaque shared buffer handle" {
