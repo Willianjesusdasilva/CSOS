@@ -406,6 +406,11 @@ pub fn write(fd: usize, input: []const u8) !usize {
 }
 
 pub fn unlinkAt(directory_fd: i64, path: []const u8) !void {
+    if (disk) |volume| if (resolveFatPath(volume, path)) |resolved| {
+        if (resolved.entry.directory) return error.IsDirectory;
+        if (resolved.parent_cluster == 0) return error.Invalid;
+        return volume.deleteDirectoryFile(resolved.parent_cluster, &resolved.entry.name);
+    } else |_| {};
     if (toFatName(path)) |fat_name| if (disk) |volume| {
         try volume.deleteRootFile(&fat_name);
         return;

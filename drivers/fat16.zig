@@ -245,6 +245,37 @@ pub const Volume = struct {
         return copied;
     }
 
+    pub fn deleteDirectoryFile(self: *Volume, directory_cluster: u16, name: *const [11]u8) !void {
+        try validateDataCluster(directory_cluster, self.cluster_count);
+        var cluster = directory_cluster;
+        var traversed: u32 = 0;
+        while (true) {
+            if (!chainTraversalAllowed(traversed, self.cluster_count)) return error.BrokenChain;
+            traversed += 1;
+            var sector: u8 = 0;
+            while (sector < self.sectors_per_cluster) : (sector += 1) {
+                const lba = self.clusterLba(cluster) + sector;
+                try self.storage.readBlock(lba, self.buffer);
+                const bytes: [*]const u8 = @ptrFromInt(self.buffer);
+                var offset: usize = 0;
+                while (offset < 512) : (offset += 32) {
+                    if (bytes[offset] == 0) return error.NotFound;
+                    if (!entryIsRegularFile(bytes + offset) or !equal11(bytes + offset, name)) continue;
+                    const first_cluster = get16(bytes + offset + 26);
+                    const entry: [*]u8 = @ptrFromInt(self.buffer + offset);
+                    entry[0] = 0xe5;
+                    try self.storage.writeBlock(lba, self.buffer);
+                    if (first_cluster >= 2) try self.freeChain(first_cluster);
+                    return;
+                }
+            }
+            const next = try self.fatEntry(cluster);
+            if (next >= 0xfff8) return error.NotFound;
+            try validateDataCluster(next, self.cluster_count);
+            cluster = next;
+        }
+    }
+
     pub fn readRootFileAt(self: *Volume, name: *const [11]u8, output: []u8, file_offset: usize) !usize {
         var first_cluster: u16 = 0;
         var size: usize = 0;
