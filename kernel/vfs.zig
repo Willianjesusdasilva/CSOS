@@ -304,6 +304,7 @@ pub fn openAt(directory_fd: i64, path: []const u8, flags: u64) !usize {
         descriptors[fd].append = (flags & 0x400) != 0;
         return fd;
     };
+    if (disk) |volume| if (openUiPath(volume, path, fd, flags)) |result| return result;
     if (disk) |volume| if (resolveFatPath(volume, path)) |resolved| {
         if (resolved.entry.directory) {
             if ((flags & 0x3) != 0 or (flags & 0x200) != 0) return error.IsDirectory;
@@ -374,6 +375,29 @@ pub fn openAt(directory_fd: i64, path: []const u8, flags: u64) !usize {
     descriptors[fd].close_on_exec = (flags & 0x80000) != 0;
     descriptors[fd].append = false;
     descriptors[fd].writable = (flags & 0x3) != 0;
+    return fd;
+}
+
+fn openUiPath(volume: *fat16.Volume, path: []const u8, fd: usize, flags: u64) ?usize {
+    if (!std.mem.startsWith(u8, path, "/system/ui/")) return null;
+    var current = volume.findRootEntry("SYSTEM     ") catch return null;
+    if (!current.directory) return null;
+    current = volume.findDirectoryEntry(current.first_cluster, "UI         ") catch return null;
+    if (!current.directory) return null;
+    var components = std.mem.splitScalar(u8, path[11..], '/');
+    var parent = current.first_cluster;
+    const group = components.next() orelse return null;
+    const group_name = toFatName(group) orelse return null;
+    const group_entry = volume.findDirectoryEntry(parent, &group_name) catch return null;
+    if (!group_entry.directory) return null;
+    parent = group_entry.first_cluster;
+    const leaf = components.next() orelse return null;
+    if (components.next() != null) return null;
+    const leaf_name = toFatName(leaf) orelse return null;
+    const entry = volume.findDirectoryEntry(parent, &leaf_name) catch return null;
+    if (entry.directory or (flags & 0x3) != 0) return null;
+    descriptors[fd] = .{ .generation = newGeneration() catch return null, .kind = .file, .node = .disk, .size = entry.size, .fat_name = entry.name, .fat_parent_cluster = parent };
+    descriptors[fd].close_on_exec = (flags & 0x80000) != 0;
     return fd;
 }
 
