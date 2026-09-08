@@ -247,6 +247,11 @@ pub fn openAt(directory_fd: i64, path: []const u8, flags: u64) !usize {
     if (disk) |volume| if (directory_fd >= 3 and @as(usize, @intCast(directory_fd)) < descriptors.len and
         descriptors[@intCast(directory_fd)].node == .fat_directory and std.mem.indexOfScalar(u8, path, '/') == null)
     {
+        if (std.mem.eql(u8, path, ".")) {
+            descriptors[fd] = .{ .generation = try newGeneration(), .kind = .directory, .node = .fat_directory, .fat_cluster = descriptors[@intCast(directory_fd)].fat_cluster };
+            descriptors[fd].close_on_exec = (flags & 0x80000) != 0;
+            return fd;
+        }
         const parent_cluster = descriptors[@intCast(directory_fd)].fat_cluster;
         const name = toFatName(path) orelse return error.Invalid;
         if (volume.findDirectoryEntry(parent_cluster, &name)) |entry| {
