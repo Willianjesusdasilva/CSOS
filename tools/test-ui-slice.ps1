@@ -30,3 +30,6 @@ Write-Output 'Kernel UI mailbox contract passed'
 & $Zig test --dep ui_backend "-Mroot=$(Join-Path $workspace 'userspace/ui_engine_loop.zig')" "-Mui_backend=$(Join-Path $workspace 'graphics/ui_backend.zig')"
 if ($LASTEXITCODE -ne 0) { throw "Userspace UI engine loop failed with exit code $LASTEXITCODE" }
 Write-Output 'Userspace UI engine loop passed'
+& $Zig test --dep ui_backend "-Mroot=$(Join-Path $workspace 'graphics/ui_compositor_bridge.zig')" "-Mui_backend=$(Join-Path $workspace 'graphics/ui_backend.zig')"
+if ($LASTEXITCODE -ne 0) { throw "UI compositor bridge failed with exit code $LASTEXITCODE" }
+Write-Output 'UI compositor bridge passed'
