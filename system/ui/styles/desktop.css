@@ -6,4 +6,6 @@ body { color: var(--text); background: #101a38; font-family: CSOS; }
 .topbar { color: var(--text); }
 .dock { background: var(--surface); }
 .alt-tab { background: var(--surface); }
+.widgets { display: grid; gap: 8px; }
+.widget { color: var(--text); background: var(--surface); }
 button { color: var(--text); background: var(--accent); }
