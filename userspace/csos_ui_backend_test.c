@@ -80,6 +80,13 @@ int main(void) {
     message[0] = CSOS_UI_HELLO_ACK; message[1] = 12; csos_ui_put16(message + 2, 1); csos_ui_put64(message + 4, CSOS_UI_CAP_SURFACE);
     if (csos_ui_client_confirm_hello(&client, message, 12) != 0 || !client.ready || client.hello_pending)
         return 9;
+    struct csos_ui_client incompatible_client;
+    csos_ui_client_init(&incompatible_client, transport);
+    if (csos_ui_client_hello(&incompatible_client, CSOS_UI_PROTOCOL_VERSION, CSOS_UI_CAP_SURFACE) != 0)
+        return 9;
+    csos_ui_put16(message + 2, CSOS_UI_PROTOCOL_VERSION + 1);
+    if (csos_ui_client_confirm_hello(&incompatible_client, message, 12) != -1 || incompatible_client.ready == 1)
+        return 9;
     struct csos_ui_client receiving_client;
     struct csos_ui_transport ack_transport = { 0, send_message, receive_hello_ack };
     csos_ui_client_init(&receiving_client, ack_transport);
