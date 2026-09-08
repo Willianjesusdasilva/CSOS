@@ -200,7 +200,8 @@ pub const Backend = struct {
         if (version != protocol_version) return false;
         self.negotiated_version = protocol_version;
         self.negotiated_capabilities = capabilities & supported_capabilities;
-        return self.enqueueRequest(.{ .hello = .{ .version = protocol_version, .capabilities = self.negotiated_capabilities } });
+        if (!self.enqueueRequest(.{ .hello = .{ .version = protocol_version, .capabilities = self.negotiated_capabilities } })) return false;
+        return self.enqueueResponse(.{ .hello_ack = .{ .version = self.negotiated_version, .capabilities = self.negotiated_capabilities } });
     }
 
     pub fn stop(self: *Backend) bool {
@@ -381,6 +382,16 @@ test "generic UI backend lifecycle, surface, damage and IPC requests" {
     try std.testing.expect(!backend.running);
     try std.testing.expect(backend.nextEvent() != null);
     try std.testing.expect(backend.nextRequest() != null);
+}
+
+test "negotiation emits a confirmed hello acknowledgement" {
+    var pixels = [_]u32{0} ** 4;
+    var backend = Backend.init(.{ .id = 14, .width = 2, .height = 2, .stride = 2, .pixels = &pixels });
+    try std.testing.expect(backend.negotiate(protocol_version, supported_capabilities));
+    switch (backend.nextResponse().?) {
+        .hello_ack => |ack| { try std.testing.expectEqual(protocol_version, ack.version); try std.testing.expectEqual(supported_capabilities, ack.capabilities); },
+        else => return error.UnexpectedBackendResponse,
+    }
 }
 
 test "backend request wire encoding is pointer-free" {

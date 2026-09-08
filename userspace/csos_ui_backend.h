@@ -336,6 +336,14 @@ static inline int csos_ui_client_confirm_hello(struct csos_ui_client *client,
     client->capabilities = ack.capabilities; client->ready = 1; client->hello_pending = 0; return 0;
 }
 
+static inline int csos_ui_client_receive_hello_ack(struct csos_ui_client *client,
+                                                   void *message, uint8_t capacity) {
+    if (!client || !client->hello_pending) return -1;
+    const int length = csos_ui_transport_receive(&client->transport, message, capacity);
+    if (length < 2 || length > 255) return -1;
+    return csos_ui_client_confirm_hello(client, message, (uint8_t)length) == 0 ? length : -1;
+}
+
 static inline int csos_ui_client_present(struct csos_ui_client *client, uint32_t surface_id,
                                          uint64_t generation, struct csos_ui_damage damage) {
     uint8_t message[22];
