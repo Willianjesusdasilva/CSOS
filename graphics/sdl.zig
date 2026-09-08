@@ -419,6 +419,8 @@ pub const Window = struct {
                 self.fillRect(x -| 2, cursor_y -| 2, text_width, text_height, 0x304860ff);
             }
             if (element.kind == .heading) self.drawTextScaled(x, cursor_y, text, color, 3) else self.drawText(x, cursor_y, text, color);
+            if (focused != null and focused.? == index and element.kind == .input)
+                self.fillRect(x +| text.len * 8, cursor_y, 1, 10, 0xffd070ff);
             cursor_y +|= if (element.kind == .heading) 16 else 12;
         }
     }
