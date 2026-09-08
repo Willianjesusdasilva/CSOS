@@ -21,6 +21,7 @@ pub const Event = union(enum) {
 };
 
 pub const Request = union(enum) {
+    hello: struct { version: u16, capabilities: u64 },
     present: struct { surface_id: u32, generation: u64, damage: Damage },
     create_window: struct { width: u16, height: u16, title: []const u8 },
     destroy_window: u32,
@@ -31,6 +32,19 @@ pub const Request = union(enum) {
     close,
 };
 
+pub const protocol_version: u16 = 1;
+pub const Capability = struct {
+    pub const surface: u64 = 1 << 0;
+    pub const damage: u64 = 1 << 1;
+    pub const input: u64 = 1 << 2;
+    pub const clipboard: u64 = 1 << 3;
+    pub const timers: u64 = 1 << 4;
+    pub const ipc: u64 = 1 << 5;
+    pub const windows: u64 = 1 << 6;
+    pub const audio: u64 = 1 << 7;
+};
+pub const supported_capabilities = Capability.surface | Capability.damage | Capability.input | Capability.clipboard | Capability.timers | Capability.ipc | Capability.windows | Capability.audio;
+
 pub const WireError = error{BufferTooSmall, InvalidMessage, UnsupportedRequest};
 
 /// Little-endian, pointer-free wire envelope for a userspace IPC transport.
@@ -39,8 +53,9 @@ pub const WireError = error{BufferTooSmall, InvalidMessage, UnsupportedRequest};
 pub fn encodeRequest(request: Request, output: []u8) WireError!usize {
     if (output.len < 2) return error.BufferTooSmall;
     var length: usize = 2;
-    output[0] = switch (request) { .present => 1, .create_window => 2, .destroy_window => 3, .open_file => 4, .connect => 5, .audio => 6, .set_timer => 7, .close => 8 };
+    output[0] = switch (request) { .hello => 9, .present => 1, .create_window => 2, .destroy_window => 3, .open_file => 4, .connect => 5, .audio => 6, .set_timer => 7, .close => 8 };
     switch (request) {
+        .hello => |value| { if (output.len < 12) return error.BufferTooSmall; writeU16(output[2..], value.version); writeU64(output[4..], value.capabilities); length = 12; },
         .present => |value| {
             if (output.len < 2 + 4 + 8 + 8) return error.BufferTooSmall;
             writeU32(output[2..], value.surface_id);
@@ -75,6 +90,7 @@ pub fn decodeRequest(input: []const u8) WireError!Request {
         6 => if (input.len == 7) .{ .audio = .{ .sample_rate = readU32(input[2..]), .channels = input[6] } } else error.InvalidMessage,
         7 => if (input.len == 14) .{ .set_timer = .{ .timer_id = readU32(input[2..]), .ticks = readU64(input[6..]) } } else error.InvalidMessage,
         8 => if (input.len == 2) .{ .close = {} } else error.InvalidMessage,
+        9 => if (input.len == 12) .{ .hello = .{ .version = readU16(input[2..]), .capabilities = readU64(input[4..]) } } else error.InvalidMessage,
         else => error.UnsupportedRequest,
     };
 }
@@ -126,6 +142,8 @@ pub const Backend = struct {
     clipboard: [1024]u8 = undefined,
     clipboard_len: usize = 0,
     surface_alive: bool = true,
+    negotiated_version: u16 = 0,
+    negotiated_capabilities: u64 = 0,
 
     pub fn init(surface: Surface) Backend { return .{ .surface = surface }; }
 
@@ -133,6 +151,13 @@ pub const Backend = struct {
         if (self.running) return false;
         self.running = true;
         return true;
+    }
+
+    pub fn negotiate(self: *Backend, version: u16, capabilities: u64) bool {
+        if (version != protocol_version) return false;
+        self.negotiated_version = protocol_version;
+        self.negotiated_capabilities = capabilities & supported_capabilities;
+        return self.enqueueRequest(.{ .hello = .{ .version = protocol_version, .capabilities = self.negotiated_capabilities } });
     }
 
     pub fn stop(self: *Backend) bool {
@@ -267,6 +292,11 @@ test "backend request wire encoding is pointer-free" {
         else => return error.UnexpectedBackendCommand,
     }
     try std.testing.expectError(error.InvalidMessage, decodeRequest(wire[0..title_length - 1]));
+    const hello_length = try encodeRequest(.{ .hello = .{ .version = protocol_version, .capabilities = supported_capabilities } }, &wire);
+    switch (try decodeRequest(wire[0..hello_length])) {
+        .hello => |hello| try std.testing.expectEqual(protocol_version, hello.version),
+        else => return error.UnexpectedBackendCommand,
+    }
 }
 
 test "backend event wire encoding round-trips input" {
