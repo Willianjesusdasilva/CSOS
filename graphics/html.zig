@@ -323,6 +323,12 @@ test "HTML checkbox preserves and toggles checked state" {
     try std.testing.expect(session.document.elements[0].checked);
 }
 
+test "HTML empty text input is not a checkbox" {
+    const document = Document.parse("<input value=\"\">");
+    try std.testing.expectEqual(@as(usize, 1), document.count);
+    try std.testing.expect(!document.isCheckbox(0));
+}
+
 test "HTML activation events distinguish focus from actions" {
     var session = Session.init("<input>name</input><button>Go</button>");
     switch (session.activateEvent(8, 4, 4, 4)) {
