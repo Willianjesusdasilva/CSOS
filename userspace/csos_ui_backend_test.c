@@ -30,6 +30,14 @@ int main(void) {
     struct csos_ui_surface decoded_surface;
     if (!csos_ui_decode_surface_created(message, 27, &decoded_surface) || decoded_surface.width != 640 || decoded_surface.format != CSOS_UI_BGRA8888)
         return 7;
+    message[0] = CSOS_UI_SURFACE_DESTROYED; message[1] = 6; csos_ui_put32(message + 2, 4);
+    uint32_t destroyed_id = 0;
+    if (!csos_ui_decode_surface_destroyed(message, 6, &destroyed_id) || destroyed_id != 4)
+        return 7;
+    message[0] = CSOS_UI_FAILURE; message[1] = 4; csos_ui_put16(message + 2, 0x1234);
+    uint16_t failure_code = 0;
+    if (!csos_ui_decode_failure(message, 4, &failure_code) || failure_code != 0x1234)
+        return 7;
     uint8_t transport_state = 0;
     struct csos_ui_transport transport = { &transport_state, send_message, receive_message };
     if (csos_ui_transport_send(&transport, message, 27) != 0 || transport_state != 27)

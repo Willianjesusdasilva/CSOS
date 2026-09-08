@@ -47,3 +47,10 @@ events are validated before the client accepts them.
 The `hello` request negotiates protocol version 1 and capability bits for
 surfaces, damage, input, clipboard, timers, IPC, windows, and audio. Unsupported
 versions are rejected before an engine starts rendering.
+### Decodificação de respostas
+
+O cliente C pode interpretar o lifecycle sem conhecer estruturas internas do
+Window Manager usando `csos_ui_decode_surface_created`,
+`csos_ui_decode_surface_destroyed` e `csos_ui_decode_failure`. Assim, resize,
+fechamento e falhas de transporte permanecem determinísticos sem acoplar o
+engine a DOM, CSS ou drivers.

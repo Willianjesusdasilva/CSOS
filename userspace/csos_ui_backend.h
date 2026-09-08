@@ -141,6 +141,19 @@ static inline int csos_ui_decode_surface_created(const uint8_t *message, uint8_t
     out->stride = csos_ui_get32(message + 14); out->format = message[18]; out->generation = csos_ui_get64(message + 19); return 1;
 }
 
+static inline int csos_ui_decode_surface_destroyed(const uint8_t *message, uint8_t length,
+                                                   uint32_t *surface_id) {
+    if (!surface_id || !csos_ui_response_valid(message, length) ||
+        message[0] != CSOS_UI_SURFACE_DESTROYED) return 0;
+    *surface_id = csos_ui_get32(message + 2); return 1;
+}
+
+static inline int csos_ui_decode_failure(const uint8_t *message, uint8_t length,
+                                         uint16_t *code) {
+    if (!code || !csos_ui_response_valid(message, length) || message[0] != CSOS_UI_FAILURE) return 0;
+    *code = csos_ui_get16(message + 2); return 1;
+}
+
 static inline int csos_ui_decode_pointer(const uint8_t *message, uint8_t length,
                                          struct csos_ui_pointer *out) {
     if (!out || !csos_ui_event_valid(message, length) || message[0] != CSOS_UI_POINTER) return 0;
