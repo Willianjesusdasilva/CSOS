@@ -11,6 +11,12 @@ fn contains(haystack: []const u8, needle: []const u8) !void {
     if (std.mem.indexOf(u8, haystack, needle) == null) return error.UiContractMismatch;
 }
 
+fn append(dst: []u8, used: *usize, text: []const u8) !void {
+    if (text.len > dst.len - used.*) return error.UiCompositionTooLarge;
+    @memcpy(dst[used.* .. used.* + text.len], text);
+    used.* += text.len;
+}
+
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
@@ -24,6 +30,8 @@ pub fn main() !void {
     const css = try readFile(allocator, "system/ui/styles/desktop.css");
     const cpu = std.mem.trim(u8, try readFile(allocator, "system/ui/providers/cpu_usage"), "\r\n");
     const action = try readFile(allocator, "system/ui/scripts/open_files");
+    var composed: [16384]u8 = undefined;
+    var composed_len: usize = 0;
     try contains(manifest, "template=desktop.html");
     try contains(manifest, "stylesheet=../styles/desktop.css");
     try contains(manifest, "fragment=topbar.html");
@@ -36,6 +44,12 @@ pub fn main() !void {
     try contains(dock, "data-action=\"open_files\"");
     try contains(launcher, "Buscar aplicações");
     try contains(alt_tab, "focus_files");
+    try append(&composed, &composed_len, desktop);
+    try append(&composed, &composed_len, topbar);
+    try append(&composed, &composed_len, dock);
+    try append(&composed, &composed_len, launcher);
+    try append(&composed, &composed_len, alt_tab);
+    try contains(composed[0..composed_len], "data-action=\"open_files\"");
     try contains(css, ".launcher");
     try contains(action, "action=open_files");
     if (!std.mem.eql(u8, cpu, "32")) return error.ProviderMismatch;
