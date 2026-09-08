@@ -185,7 +185,11 @@ pub const Volume = struct {
                 const bytes: [*]const u8 = @ptrFromInt(self.buffer);
                 var offset: usize = 0;
                 while (offset < 512) : (offset += 32) {
-                    if (bytes[offset] == 0) return error.NotFound;
+                    // The freshly-created entry can follow a zero marker when
+                    // the parent directory was previously empty. Keep scanning
+                    // the cluster instead of treating the marker as terminal;
+                    // FAT directories may contain sparse slots after deletes.
+                    if (bytes[offset] == 0) continue;
                     if ((!entryIsRegularFile(bytes + offset) and !entryIsDirectory(bytes + offset)) or
                         !equal11(bytes + offset, name)) continue;
                     var result = DirectoryEntry{ .name = undefined, .size = get32(bytes + offset + 28) };
