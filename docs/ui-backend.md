@@ -33,6 +33,17 @@ opaque buffer handle, dimensions, stride, pixel format and generation),
 `surface_destroyed`, or `failure`. The surface response is the only way for an
 engine to learn a shared-buffer handle; raw kernel pointers are never exposed.
 
+The public C client in `userspace/csos_ui_backend.h` provides the canonical
+sequence:
+
+```text
+client_init → hello → create/resize → present → receive events/responses → close
+```
+
+Its transport is callback-based, so a port may use a CSOS socket, an IPC
+channel, or a shared ring without changing the engine-facing API. Requests and
+events are validated before the client accepts them.
+
 The `hello` request negotiates protocol version 1 and capability bits for
 surfaces, damage, input, clipboard, timers, IPC, windows, and audio. Unsupported
 versions are rejected before an engine starts rendering.
