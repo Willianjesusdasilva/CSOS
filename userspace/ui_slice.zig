@@ -107,6 +107,7 @@ pub fn main() !void {
     }
     try contains(composed[0..composed_len], "data-action=\"open_files\"");
     try contains(composed[0..composed_len], ".launcher");
+    try contains(composed[0..composed_len], ".terminal-window");
     const variable_names = [_][]const u8{ "CPU_USAGE", "RAM_USAGE", "GPU_USAGE", "NETWORK_IP", "CURRENT_FPS", "FRAME_TIME" };
     var expanded: []const u8 = composed[0..composed_len];
     for (variable_names) |name| {
