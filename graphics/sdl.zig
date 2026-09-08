@@ -1775,3 +1775,12 @@ test "SDL window renders parsed HTML elements" {
     window.drawHtmlFocused(&document, 0, 0, 2);
     try @import("std").testing.expect(pixels[27 * 64 + 1] == 0x304860ff);
 }
+
+test "SDL application persists and edits HTML session" {
+    var pixels: [256]u32 = .{0} ** 256;
+    var application = Application{ .window = try createWindow(&pixels, 16, 16) };
+    application.startHtml("<input></input><button>Go</button>");
+    try std.testing.expectEqual(@as(usize, 0), application.focusHtmlNext(true).?);
+    try std.testing.expect(application.handleHtmlKey('z'));
+    try std.testing.expectEqualStrings("z", application.html_session.?.document.inputText(0));
+}
