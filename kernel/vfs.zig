@@ -412,6 +412,16 @@ test "file offsets reject arithmetic overflow" {
 }
 
 pub fn infoAt(directory_fd: i64, path: []const u8) !Info {
+    if (disk) |volume| if (splitNestedPath(path)) |parts| {
+        if (toFatName(parts.parent)) |parent_name| {
+            if (volume.findRootEntry(&parent_name)) |parent| if (parent.directory) {
+                if (toFatName(parts.child)) |child_name| {
+                    const child = try volume.findDirectoryEntry(parent.first_cluster, &child_name);
+                    return if (child.directory) .{ .mode = 0o040755, .size = 0, .directory = true } else .{ .mode = 0o100644, .size = child.size, .directory = false };
+                }
+            } else |_| {}
+        }
+    };
     if (toFatName(path)) |fat_name| if (disk) |volume| {
         if (volume.findRootEntry(&fat_name)) |entry| {
             if (entry.directory) return .{ .mode = 0o040755, .size = 0, .directory = true };
@@ -422,6 +432,17 @@ pub fn infoAt(directory_fd: i64, path: []const u8) !Info {
         return .{ .mode = 0o100644, .size = try volume.fileSize(&fat_name), .directory = false };
     };
     return nodeInfo(try resolve(directory_fd, path));
+}
+
+const NestedPath = struct { parent: []const u8, child: []const u8 };
+
+fn splitNestedPath(path: []const u8) ?NestedPath {
+    var start: usize = if (path.len != 0 and path[0] == '/') 1 else 0;
+    const separator = std.mem.indexOfScalarPos(u8, path, start, '/') orelse return null;
+    if (separator == start or separator + 1 >= path.len) return null;
+    start = separator + 1;
+    if (std.mem.indexOfScalarPos(u8, path, start, '/') != null) return null;
+    return .{ .parent = path[0..separator], .child = path[start..] };
 }
 
 pub fn infoFd(fd: usize) !Info {
