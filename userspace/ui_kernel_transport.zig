@@ -30,7 +30,7 @@ pub const Transport = struct {
 test "userspace UI transport maps channel syscalls" {
     const std = @import("std");
     const Mock = struct {
-        fn call(number: u64, arg1: u64, _: u64, _: u64) callconv(.c) u64 {
+        fn call(number: u64, _: u64, _: u64, _: u64) callconv(.c) u64 {
             return switch (number) { syscall_ui_channel_create => 3, syscall_ui_channel_send => 2, syscall_ui_channel_receive => 0, else => 0 };
         }
     };
