@@ -482,6 +482,32 @@ pub fn unlinkAt(directory_fd: i64, path: []const u8) !void {
     return error.ReadOnly;
 }
 
+pub fn mkdirAt(directory_fd: i64, path: []const u8, mode: u64) !void {
+    _ = mode;
+    if (disk) |volume| {
+        if (resolveFatPath(volume, path)) |_| return error.AlreadyExists else |_| {}
+        const child = toFatName(lastPathComponent(path)) orelse return error.Invalid;
+        const parent_path = nestedParentPath(path) orelse {
+            _ = try volume.createDirectory(0, &child);
+            return;
+        };
+        var parent_cluster: u16 = undefined;
+        if (toFatName(parent_path)) |root_name| {
+            const parent = try volume.findRootEntry(&root_name);
+            if (!parent.directory) return error.NotDirectory;
+            parent_cluster = parent.first_cluster;
+        } else {
+            const parent = try resolveFatPath(volume, parent_path);
+            if (!parent.entry.directory) return error.NotDirectory;
+            parent_cluster = parent.entry.first_cluster;
+        }
+        _ = try volume.createDirectory(parent_cluster, &child);
+        return;
+    }
+    _ = directory_fd;
+    return error.ReadOnly;
+}
+
 pub fn renameAt(directory_fd: i64, old_path: []const u8, new_path: []const u8) !void {
     if (disk) |volume| if (resolveFatPath(volume, old_path)) |old_resolved| {
         if (old_resolved.parent_cluster == 0 or old_resolved.entry.directory) return error.ReadOnly;

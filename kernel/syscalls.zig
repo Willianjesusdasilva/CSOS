@@ -468,6 +468,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         234 => tgkill(arg1, arg2, arg3),
         35 => clockNanosleep(1, 0, arg1, arg2),
         257 => openat(arg1, arg2, arg3),
+        258 => mkdirat(arg1, arg2, arg3),
         263 => unlinkat(arg1, arg2, arg3),
         264 => renameat(arg1, arg2, arg3, arg4),
         262 => stat(arg2, arg3, @bitCast(arg1)),
@@ -2650,6 +2651,13 @@ fn unlinkat(directory_fd: u64, path_address: u64, flags: u64) u64 {
     var path_buffer: [256]u8 = undefined;
     const path = userString(path_address, &path_buffer) orelse return errno(14);
     vfs.unlinkAt(@bitCast(directory_fd), path) catch |err| return vfsError(err);
+    return 0;
+}
+
+fn mkdirat(directory_fd: u64, path_address: u64, mode: u64) u64 {
+    var path_buffer: [256]u8 = undefined;
+    const path = userString(path_address, &path_buffer) orelse return errno(14);
+    vfs.mkdirAt(@bitCast(directory_fd), path, mode) catch |err| return vfsError(err);
     return 0;
 }
 

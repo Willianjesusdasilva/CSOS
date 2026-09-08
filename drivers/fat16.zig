@@ -341,6 +341,70 @@ pub const Volume = struct {
         }
     }
 
+    /// Create a FAT16 subdirectory and initialize its dot entries. A parent
+    /// cluster of zero denotes the fixed root directory.
+    pub fn createDirectory(self: *Volume, parent_cluster: u16, name: *const [11]u8) !u16 {
+        const cluster = try self.findFree(2);
+        try self.setFatEntry(cluster, 0xffff);
+        errdefer self.setFatEntry(cluster, 0) catch {};
+        var sector: u8 = 0;
+        while (sector < self.sectors_per_cluster) : (sector += 1) {
+            @memset(@as([*]u8, @ptrFromInt(self.buffer))[0..512], 0);
+            try self.storage.writeBlock(self.clusterLba(cluster) + sector, self.buffer);
+        }
+        var block: [512]u8 = .{0} ** 512;
+        @memcpy(block[0..11], ".          ");
+        block[11] = 0x10;
+        put16(block[26..].ptr, cluster);
+        @memcpy(block[32..43], "..         ");
+        block[43] = 0x10;
+        put16(block[58..].ptr, parent_cluster);
+        @memcpy(@as([*]u8, @ptrFromInt(self.buffer))[0..512], &block);
+        try self.storage.writeBlock(self.clusterLba(cluster), self.buffer);
+        if (parent_cluster == 0) {
+            var sector_index: u32 = 0;
+            while (sector_index < self.root_sectors) : (sector_index += 1) {
+                try self.storage.readBlock(self.root_start + sector_index, self.buffer);
+                const bytes: [*]u8 = @ptrFromInt(self.buffer);
+                var offset: usize = 0;
+                while (offset < 512) : (offset += 32) {
+                    if (bytes[offset] == 0xe5 or bytes[offset] == 0) {
+                        @memset(bytes[offset .. offset + 32], 0);
+                        @memcpy(bytes[offset .. offset + 11], name);
+                        bytes[offset + 11] = 0x10;
+                        put16(bytes + offset + 26, cluster);
+                        try self.storage.writeBlock(self.root_start + sector_index, self.buffer);
+                        return cluster;
+                    }
+                }
+            }
+            return error.DirectoryFull;
+        }
+        try self.createDirectoryFile(parent_cluster, name);
+        var current = parent_cluster;
+        while (true) {
+            var sector_index: u8 = 0;
+            while (sector_index < self.sectors_per_cluster) : (sector_index += 1) {
+                try self.storage.readBlock(self.clusterLba(current) + sector_index, self.buffer);
+                const bytes: [*]u8 = @ptrFromInt(self.buffer);
+                var offset: usize = 0;
+                while (offset < 512) : (offset += 32) {
+                    if (bytes[offset] == 0) return error.NotFound;
+                    if (entryIsAllocated(bytes + offset) and equal11(bytes + offset, name)) {
+                        bytes[offset + 11] = 0x10;
+                        put16(bytes + offset + 26, cluster);
+                        try self.storage.writeBlock(self.clusterLba(current) + sector_index, self.buffer);
+                        return cluster;
+                    }
+                }
+            }
+            const next = try self.fatEntry(current);
+            if (next >= 0xfff8) return error.NotFound;
+            current = next;
+        }
+        return cluster;
+    }
+
     pub fn writeDirectoryFile(self: *Volume, directory_cluster: u16, name: *const [11]u8, data: []const u8) !void {
         const cluster_bytes = @as(usize, self.sectors_per_cluster) * 512;
         const needed = try clustersForLength(data.len, cluster_bytes, self.cluster_count);
