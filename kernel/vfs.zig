@@ -563,6 +563,14 @@ pub fn rmdirAt(directory_fd: i64, path: []const u8) !void {
 }
 
 pub fn renameAt(directory_fd: i64, old_path: []const u8, new_path: []const u8) !void {
+    if (disk) |volume| if (directory_fd >= 3 and @as(usize, @intCast(directory_fd)) < descriptors.len and
+        descriptors[@intCast(directory_fd)].node == .fat_directory and
+        std.mem.indexOfScalar(u8, old_path, '/') == null and std.mem.indexOfScalar(u8, new_path, '/') == null)
+    {
+        const old_name = toFatName(old_path) orelse return error.Invalid;
+        const new_name = toFatName(new_path) orelse return error.Invalid;
+        return volume.renameDirectoryFile(descriptors[@intCast(directory_fd)].fat_cluster, &old_name, &new_name);
+    };
     if (disk) |volume| if (resolveFatPath(volume, old_path)) |old_resolved| {
         if (old_resolved.parent_cluster == 0 or old_resolved.entry.directory) return error.ReadOnly;
         if (resolveFatPath(volume, new_path)) |_| {
