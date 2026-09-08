@@ -55,7 +55,10 @@ int main(void) {
         return 8;
     struct csos_ui_client client;
     csos_ui_client_init(&client, transport);
-    if (csos_ui_client_hello(&client, CSOS_UI_PROTOCOL_VERSION, CSOS_UI_CAP_SURFACE) != 0 || !client.ready)
+    if (csos_ui_client_hello(&client, CSOS_UI_PROTOCOL_VERSION, CSOS_UI_CAP_SURFACE) != 0 || client.ready || !client.hello_pending)
+        return 9;
+    message[0] = CSOS_UI_HELLO_ACK; message[1] = 12; csos_ui_put16(message + 2, 1); csos_ui_put64(message + 4, CSOS_UI_CAP_SURFACE);
+    if (csos_ui_client_confirm_hello(&client, message, 12) != 0 || !client.ready || client.hello_pending)
         return 9;
     if (csos_ui_client_present(&client, 4, 9, (struct csos_ui_damage){ 0, 0, 8, 8 }) != 0)
         return 10;
