@@ -595,6 +595,8 @@ pub const WindowManager = struct {
     positions: [capacity]struct { x: i32, y: i32 } = undefined,
     count: usize = 0,
     focused: usize = 0,
+    dragging: ?usize = null,
+    drag_offset: struct { x: i32, y: i32 } = .{ .x = 0, .y = 0 },
 
     pub fn add(self: *WindowManager, window: *Window) !void {
         if (self.count == capacity) return error.TooManyWindows;
@@ -643,7 +645,19 @@ pub const WindowManager = struct {
     pub fn click(self: *WindowManager, x: i32, y: i32) ?*Window {
         const index = self.hitTest(x, y) orelse return null;
         _ = self.raise(index);
+        self.dragging = self.focused;
+        self.drag_offset = .{ .x = x - self.positions[self.focused].x, .y = y - self.positions[self.focused].y };
         return self.focusedWindow();
+    }
+
+    pub fn dragTo(self: *WindowManager, x: i32, y: i32) bool {
+        const index = self.dragging orelse return false;
+        self.positions[index] = .{ .x = x - self.drag_offset.x, .y = y - self.drag_offset.y };
+        return true;
+    }
+
+    pub fn endDrag(self: *WindowManager) void {
+        self.dragging = null;
     }
 
     pub fn focusedWindow(self: *const WindowManager) ?*Window {
