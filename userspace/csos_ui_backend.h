@@ -25,6 +25,7 @@ enum csos_ui_request_kind {
     CSOS_UI_SET_TIMER = 7,
     CSOS_UI_CLOSE = 8,
     CSOS_UI_HELLO = 9,
+    CSOS_UI_CLIPBOARD_SET = 10,
 };
 
 enum csos_ui_event_kind {
@@ -101,6 +102,7 @@ static inline int csos_ui_request_valid(const uint8_t *message, uint8_t length) 
     case CSOS_UI_HELLO: return length == 12;
     case CSOS_UI_PRESENT: return length == 22;
     case CSOS_UI_CLOSE: return length == 2;
+    case CSOS_UI_CLIPBOARD_SET: return length >= 3 && message[2] == (uint8_t)(length - 3);
     default: return 0;
     }
 }
@@ -219,6 +221,14 @@ static inline uint8_t csos_ui_encode_audio(uint8_t *out, uint8_t capacity, uint3
     out[0] = CSOS_UI_AUDIO; out[1] = 7; csos_ui_put32(out + 2, sample_rate); out[6] = channels; return 7;
 }
 
+static inline uint8_t csos_ui_encode_clipboard_set(uint8_t *out, uint8_t capacity,
+                                                   const char *text, uint8_t text_length) {
+    if (!out || !text || text_length > 252 || capacity < (uint8_t)(3 + text_length)) return 0;
+    out[0] = CSOS_UI_CLIPBOARD_SET; out[1] = (uint8_t)(3 + text_length); out[2] = text_length;
+    for (uint8_t i = 0; i != text_length; ++i) out[3 + i] = (uint8_t)text[i];
+    return (uint8_t)(3 + text_length);
+}
+
 static inline uint8_t csos_ui_encode_surface_created(uint8_t *out, uint8_t capacity,
                                                      struct csos_ui_surface surface) {
     if (!out || capacity < 27) return 0;
@@ -325,6 +335,13 @@ static inline int csos_ui_client_connect(struct csos_ui_client *client, const ch
 static inline int csos_ui_client_audio(struct csos_ui_client *client, uint32_t sample_rate, uint8_t channels) {
     uint8_t message[7];
     const uint8_t length = csos_ui_encode_audio(message, sizeof(message), sample_rate, channels);
+    if (!client || !client->ready || length == 0) return -1;
+    return csos_ui_transport_send(&client->transport, message, length);
+}
+
+static inline int csos_ui_client_clipboard_set(struct csos_ui_client *client, const char *text, uint8_t text_length) {
+    uint8_t message[255];
+    const uint8_t length = csos_ui_encode_clipboard_set(message, sizeof(message), text, text_length);
     if (!client || !client->ready || length == 0) return -1;
     return csos_ui_transport_send(&client->transport, message, length);
 }
