@@ -2748,6 +2748,7 @@ fn seedUiFilesystem(volume: *fat16.Volume) !void {
     const styles_cluster = volume.createDirectory(ui_cluster, &styles_name) catch |err| if (err == error.AlreadyExists) (try volume.findDirectoryEntry(ui_cluster, &styles_name)).first_cluster else return err;
     serial.write("ui seed styles\n");
     const providers_cluster = volume.createDirectory(ui_cluster, &providers_name) catch |err| if (err == error.AlreadyExists) (try volume.findDirectoryEntry(ui_cluster, &providers_name)).first_cluster else return err;
+    serial.write("ui seed providers\n");
     try volume.writeDirectoryFile(ui_cluster, &variables_name, @embedFile("ui_variables"));
     try volume.writeDirectoryFile(interface_cluster, &manifest_name, @embedFile("ui_manifest"));
     try volume.writeDirectoryFile(interface_cluster, &desktop_name, @embedFile("ui_desktop"));
