@@ -84,6 +84,7 @@ pub fn main() !void {
     const terminal = try readFile(allocator, "system/ui/interface/terminal.html");
     const system_app = try readFile(allocator, "system/ui/interface/apps/system.html");
     const files_app = try readFile(allocator, "system/ui/interface/apps/files.html");
+    const monitor_app = try readFile(allocator, "system/ui/interface/apps/monitor.html");
     const status = try readFile(allocator, "system/ui/interface/status.html");
     const desktop_actions = try readFile(allocator, "system/ui/interface/desktop-actions.html");
     const cpu_path = try configuredPath(variables, "CPU_USAGE");
@@ -125,6 +126,9 @@ pub fn main() !void {
     try contains(files_app, "data-app=\"files\"");
     try contains(files_app, "data-action=\"focus_files\"");
     try validateActions(files_app);
+    try contains(monitor_app, "data-app=\"monitor\"");
+    try contains(monitor_app, "{{ GPU_USAGE }}");
+    try validateActions(monitor_app);
     try contains(status, "{{ CPU_USAGE }}");
     try contains(status, "class=\"status-card\"");
     try validateActions(system_app);
