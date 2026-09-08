@@ -568,7 +568,7 @@ pub const Application = struct {
     html_origin_x: usize = 0,
     html_origin_y: usize = 0,
 
-    pub const reference_desktop_source = "<style>body{color:#e5efff}h1{color:#70d0ff}button{accent}</style><h1>CSOS</h1><input value=Buscar aplicações, arquivos...><p muted>● Sistema Online</p><p>Recentes   Home   Documentos   Downloads   Imagens   Música   Vídeos</p><p>Pastas</p><a href=projetos>Projetos</a><a href=csos>CSOS</a><a href=downloads>Downloads</a><a href=imagens>Imagens</a><p>Arquivos</p><a href=GOAL.md>GOAL.md</a><a href=README.md>README.md</a><a href=config.sys>config.sys</a><p>CPU 32%   RAM 48%   GPU 12%   Rede 125 MB/s</p><a href=files>Arquivos</a><a href=terminal>Terminal</a><a href=browser>Browser</a><a href=settings>Configurações</a><a href=music>Música</a><a href=steam>Steam</a>";
+    pub const reference_desktop_source = "<style>.accent{color:#70d0ff}.muted{color:#8de0a8}</style><h1 class=accent>CSOS</h1><input value=\"Buscar aplicações, arquivos...\"><p class=muted>● Sistema Online</p><p>Recentes   Home   Documentos   Downloads   Imagens   Música</p><p>Pastas</p><a href=\"projetos\">Projetos</a><a href=\"csos\">CSOS</a><a href=\"downloads\">Downloads</a><a href=\"imagens\">Imagens</a><p>Arquivos</p><a href=\"GOAL.md\">GOAL.md</a><a href=\"README.md\">README.md</a><a href=\"config.sys\">config.sys</a><p>CPU 32%   RAM 48%   GPU 12%   Rede 125 MB/s</p><a href=\"files\">Arquivos</a><a href=\"terminal\">Terminal</a><a href=\"browser\">Browser</a>";
 
     pub fn pump(self: *Application, events: *EventQueue, on_event: *const fn (*Application, Event) void) void {
         while (events.poll()) |event| {
@@ -2147,6 +2147,9 @@ test "reference desktop starts through HTML session backend" {
     try @import("std").testing.expect(application.html_session != null);
     try @import("std").testing.expect(application.backend != null);
     try @import("std").testing.expect(application.html_session.?.document.count > 0);
+    try @import("std").testing.expectEqual(@as(usize, 16), application.html_session.?.document.count);
+    try @import("std").testing.expectEqualStrings("Buscar aplicações, arquivos...", application.html_session.?.document.inputText(1));
+    try @import("std").testing.expectEqualStrings("projetos", application.activateHtmlAt(196, 156, 196, 92).?);
 }
 
 test "reference desktop renders shell with interactive HTML overlay" {
