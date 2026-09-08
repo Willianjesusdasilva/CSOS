@@ -133,6 +133,14 @@ static inline int csos_ui_response_valid(const uint8_t *message, uint8_t length)
     }
 }
 
+static inline int csos_ui_decode_surface_created(const uint8_t *message, uint8_t length,
+                                                 struct csos_ui_surface *out) {
+    if (!out || !csos_ui_response_valid(message, length) || message[0] != CSOS_UI_SURFACE_CREATED) return 0;
+    out->id = csos_ui_get32(message + 2); out->buffer_handle = csos_ui_get32(message + 6);
+    out->width = csos_ui_get16(message + 10); out->height = csos_ui_get16(message + 12);
+    out->stride = csos_ui_get32(message + 14); out->format = message[18]; out->generation = csos_ui_get64(message + 19); return 1;
+}
+
 static inline int csos_ui_decode_pointer(const uint8_t *message, uint8_t length,
                                          struct csos_ui_pointer *out) {
     if (!out || !csos_ui_event_valid(message, length) || message[0] != CSOS_UI_POINTER) return 0;

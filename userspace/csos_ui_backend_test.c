@@ -27,6 +27,9 @@ int main(void) {
     if (csos_ui_encode_surface_created(message, sizeof(message), surface) != 27 ||
         !csos_ui_response_valid(message, 27) || csos_ui_get32(message + 6) != 0x55)
         return 6;
+    struct csos_ui_surface decoded_surface;
+    if (!csos_ui_decode_surface_created(message, 27, &decoded_surface) || decoded_surface.width != 640 || decoded_surface.format != CSOS_UI_BGRA8888)
+        return 7;
     uint8_t transport_state = 0;
     struct csos_ui_transport transport = { &transport_state, send_message, receive_message };
     if (csos_ui_transport_send(&transport, message, 27) != 0 || transport_state != 27)
