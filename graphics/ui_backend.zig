@@ -79,6 +79,32 @@ pub fn decodeRequest(input: []const u8) WireError!Request {
     };
 }
 
+pub fn encodeEvent(event: Event, output: []u8) WireError!usize {
+    if (output.len < 2) return error.BufferTooSmall;
+    output[0] = switch (event) { .pointer => 1, .wheel => 2, .key => 3, .focus => 4, .timer => 5, .close => 6 };
+    switch (event) {
+        .pointer => |v| { if (output.len < 12) return error.BufferTooSmall; writeU32(output[2..], @bitCast(v.x)); writeU32(output[6..], @bitCast(v.y)); output[10] = v.buttons; output[1] = 11; return 11; },
+        .wheel => |v| { if (output.len < 6) return error.BufferTooSmall; writeU32(output[2..], @bitCast(v.delta)); output[1] = 6; return 6; },
+        .key => |v| { if (output.len < 8) return error.BufferTooSmall; writeU32(output[2..], v.code); output[6] = @intFromBool(v.pressed); output[7] = v.modifiers; output[1] = 8; return 8; },
+        .focus => |v| { output[2] = @intFromBool(v); output[1] = 3; return 3; },
+        .timer => |v| { if (output.len < 6) return error.BufferTooSmall; writeU32(output[2..], v); output[1] = 6; return 6; },
+        .close => { output[1] = 2; return 2; },
+    }
+}
+
+pub fn decodeEvent(input: []const u8) WireError!Event {
+    if (input.len < 2 or input[1] != input.len) return error.InvalidMessage;
+    return switch (input[0]) {
+        1 => if (input.len == 11) .{ .pointer = .{ .x = @bitCast(readU32(input[2..])), .y = @bitCast(readU32(input[6..])), .buttons = input[10] } } else error.InvalidMessage,
+        2 => if (input.len == 6) .{ .wheel = .{ .delta = @bitCast(readU32(input[2..])) } } else error.InvalidMessage,
+        3 => if (input.len == 8 and input[6] <= 1) .{ .key = .{ .code = readU32(input[2..]), .pressed = input[6] != 0, .modifiers = input[7] } } else error.InvalidMessage,
+        4 => if (input.len == 3 and input[2] <= 1) .{ .focus = input[2] != 0 } else error.InvalidMessage,
+        5 => if (input.len == 6) .{ .timer = readU32(input[2..]) } else error.InvalidMessage,
+        6 => if (input.len == 2) .{ .close = {} } else error.InvalidMessage,
+        else => error.UnsupportedRequest,
+    };
+}
+
 fn writeU8(output: []u8, value: u8) void { output[0] = value; }
 fn writeU16(output: []u8, value: u16) void { std.mem.writeInt(u16, output[0..2], value, .little); }
 fn writeU32(output: []u8, value: u32) void { std.mem.writeInt(u32, output[0..4], value, .little); }
@@ -223,4 +249,14 @@ test "backend request wire encoding is pointer-free" {
         else => return error.UnexpectedBackendCommand,
     }
     try std.testing.expectError(error.InvalidMessage, decodeRequest(wire[0..title_length - 1]));
+}
+
+test "backend event wire encoding round-trips input" {
+    var wire: [16]u8 = undefined;
+    const length = try encodeEvent(.{ .pointer = .{ .x = -4, .y = 9, .buttons = 1 } }, &wire);
+    switch (try decodeEvent(wire[0..length])) {
+        .pointer => |pointer| { try std.testing.expectEqual(@as(i32, -4), pointer.x); try std.testing.expectEqual(@as(u8, 1), pointer.buttons); },
+        else => return error.UnexpectedBackendEvent,
+    }
+    try std.testing.expectError(error.InvalidMessage, decodeEvent(wire[0..length - 1]));
 }
