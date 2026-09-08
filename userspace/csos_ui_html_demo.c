@@ -52,14 +52,14 @@ static size_t append_n(char *out, size_t used, size_t capacity, const char *text
     memcpy(out + used, text, length); return used + length;
 }
 
-static size_t render_template(const char *input, const char *cpu_value, char *out, size_t capacity) {
-    const char *token = "{{ CPU_USAGE }}"; const char *cursor = input; size_t used = 0;
+static size_t render_token(const char *input, const char *token, const char *value, char *out, size_t capacity) {
+    const char *cursor = input; size_t used = 0;
     while (*cursor && used + 1 < capacity) {
         const char *match = strstr(cursor, token);
         if (!match) { used = append_text(out, used, capacity, cursor); break; }
         used = append_n(out, used, capacity, cursor, (size_t)(match - cursor));
         if (match < cursor || used + 2 >= capacity) break;
-        used = append_text(out, used, capacity, cpu_value); cursor = match + strlen(token);
+        used = append_text(out, used, capacity, value); cursor = match + strlen(token);
     }
     out[used < capacity ? used : capacity - 1] = 0; return used;
 }
@@ -74,7 +74,7 @@ static int authorized_action(const char *name) {
 int main(void) {
     struct server server = { 0 }; struct csos_ui_transport transport;
     struct csos_ui_client client; uint8_t message[64]; uint8_t kind = 0;
-    char desktop[4096], topbar[1024], dock[1024], manifest[1024], cpu_value[32], rendered[8192]; size_t used = 0;
+    char desktop[4096], topbar[1024], dock[1024], manifest[1024], provider[64], rendered[8192], next[8192]; size_t used = 0;
     csos_ui_ring_init(&server.events);
     if (!file_contains("system/ui/variables.conf", "CPU_USAGE=\"/system/ui/providers/cpu_usage\"") ||
         !file_contains("system/ui/variables.conf", "CURRENT_FPS=\"/system/ui/providers/current_fps\"") ||
@@ -95,12 +95,22 @@ int main(void) {
         !read_text("system/ui/interface/desktop.html", desktop, sizeof(desktop)) ||
         !read_text("system/ui/interface/topbar.html", topbar, sizeof(topbar)) ||
         !read_text("system/ui/interface/dock.html", dock, sizeof(dock))) return 1;
-    if (!read_text("system/ui/providers/cpu_usage", cpu_value, sizeof(cpu_value))) return 1;
-    cpu_value[strcspn(cpu_value, "\r\n")] = 0;
-    used = render_template(desktop, cpu_value, rendered, sizeof(rendered));
+    if (!read_text("system/ui/providers/cpu_usage", provider, sizeof(provider))) return 1;
+    provider[strcspn(provider, "\r\n")] = 0;
+    used = render_token(desktop, "{{ CPU_USAGE }}", provider, rendered, sizeof(rendered));
+    if (!read_text("system/ui/providers/ram_usage", provider, sizeof(provider))) return 1;
+    provider[strcspn(provider, "\r\n")] = 0; used = render_token(rendered, "{{ RAM_USAGE }}", provider, next, sizeof(next)); memcpy(rendered, next, used + 1);
+    if (!read_text("system/ui/providers/gpu_usage", provider, sizeof(provider))) return 1;
+    provider[strcspn(provider, "\r\n")] = 0; used = render_token(rendered, "{{ GPU_USAGE }}", provider, next, sizeof(next)); memcpy(rendered, next, used + 1);
+    if (!read_text("system/ui/providers/network_ip", provider, sizeof(provider))) return 1;
+    provider[strcspn(provider, "\r\n")] = 0; used = render_token(rendered, "{{ NETWORK_IP }}", provider, next, sizeof(next)); memcpy(rendered, next, used + 1);
+    if (!read_text("system/ui/providers/current_fps", provider, sizeof(provider))) return 1;
+    provider[strcspn(provider, "\r\n")] = 0; used = render_token(rendered, "{{ CURRENT_FPS }}", provider, next, sizeof(next)); memcpy(rendered, next, used + 1);
+    if (!read_text("system/ui/providers/frame_time", provider, sizeof(provider))) return 1;
+    provider[strcspn(provider, "\r\n")] = 0; used = render_token(rendered, "{{ FRAME_TIME }}", provider, next, sizeof(next)); memcpy(rendered, next, used + 1);
     used = append_text(rendered, used, sizeof(rendered), topbar);
     used = append_text(rendered, used, sizeof(rendered), dock);
-    if (strstr(rendered, "{{ CPU_USAGE }}") || !strstr(rendered, "CPU 32%") ||
+    if (strstr(rendered, "{{") || !strstr(rendered, "CPU 32%") || !strstr(rendered, "RAM 48%") ||
         !strstr(rendered, "data-action=\"open_files\"") || !authorized_action("open_files") ||
         authorized_action("run_arbitrary_command")) return 1;
     transport = (struct csos_ui_transport){ &server, send_message, receive_message };
