@@ -206,6 +206,19 @@ static inline uint8_t csos_ui_encode_set_timer(uint8_t *out, uint8_t capacity,
     out[0] = CSOS_UI_SET_TIMER; out[1] = 14; csos_ui_put32(out + 2, timer_id); csos_ui_put64(out + 6, ticks); return 14;
 }
 
+static inline uint8_t csos_ui_encode_connect(uint8_t *out, uint8_t capacity,
+                                             const char *address, uint8_t address_length, uint16_t port) {
+    if (!out || !address || address_length > 250 || capacity < (uint8_t)(5 + address_length)) return 0;
+    out[0] = CSOS_UI_CONNECT; out[1] = (uint8_t)(5 + address_length); csos_ui_put16(out + 2, port); out[4] = address_length;
+    for (uint8_t i = 0; i != address_length; ++i) out[5 + i] = (uint8_t)address[i];
+    return (uint8_t)(5 + address_length);
+}
+
+static inline uint8_t csos_ui_encode_audio(uint8_t *out, uint8_t capacity, uint32_t sample_rate, uint8_t channels) {
+    if (!out || capacity < 7 || sample_rate == 0 || channels == 0 || channels > 8) return 0;
+    out[0] = CSOS_UI_AUDIO; out[1] = 7; csos_ui_put32(out + 2, sample_rate); out[6] = channels; return 7;
+}
+
 static inline uint8_t csos_ui_encode_surface_created(uint8_t *out, uint8_t capacity,
                                                      struct csos_ui_surface surface) {
     if (!out || capacity < 27) return 0;
@@ -297,6 +310,21 @@ static inline int csos_ui_client_open_file(struct csos_ui_client *client, const 
 static inline int csos_ui_client_set_timer(struct csos_ui_client *client, uint32_t timer_id, uint64_t ticks) {
     uint8_t message[14];
     const uint8_t length = csos_ui_encode_set_timer(message, sizeof(message), timer_id, ticks);
+    if (!client || !client->ready || length == 0) return -1;
+    return csos_ui_transport_send(&client->transport, message, length);
+}
+
+static inline int csos_ui_client_connect(struct csos_ui_client *client, const char *address,
+                                         uint8_t address_length, uint16_t port) {
+    uint8_t message[255];
+    const uint8_t length = csos_ui_encode_connect(message, sizeof(message), address, address_length, port);
+    if (!client || !client->ready || length == 0) return -1;
+    return csos_ui_transport_send(&client->transport, message, length);
+}
+
+static inline int csos_ui_client_audio(struct csos_ui_client *client, uint32_t sample_rate, uint8_t channels) {
+    uint8_t message[7];
+    const uint8_t length = csos_ui_encode_audio(message, sizeof(message), sample_rate, channels);
     if (!client || !client->ready || length == 0) return -1;
     return csos_ui_transport_send(&client->transport, message, length);
 }
