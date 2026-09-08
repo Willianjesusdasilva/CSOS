@@ -17,6 +17,8 @@ pub const Volume = struct {
     pub const DirectoryEntry = struct {
         name: [11]u8,
         size: u32,
+        first_cluster: u16 = 0,
+        directory: bool = false,
     };
 
     pub fn mount(storage: *nvme.Controller, pages: *physical.Allocator) !Volume {
@@ -102,6 +104,22 @@ pub const Volume = struct {
             try self.storage.readBlock(self.root_start + sector, self.buffer);
             const bytes: [*]const u8 = @ptrFromInt(self.buffer);
             const result = collectRootEntries(bytes, output, count);
+            count = result.count;
+            if (result.end_of_directory or count == output.len) break;
+        }
+        return count;
+    }
+
+    /// Enumerate both regular files and subdirectory entries in the FAT16 root.
+    /// Long-name entries, volume labels, deleted entries and the end marker are
+    /// skipped. The fixed FAT16 root remains bounded by `root_sectors`.
+    pub fn listRootEntries(self: *Volume, output: []DirectoryEntry) !usize {
+        var count: usize = 0;
+        var sector: u32 = 0;
+        while (sector < self.root_sectors) : (sector += 1) {
+            try self.storage.readBlock(self.root_start + sector, self.buffer);
+            const bytes: [*]const u8 = @ptrFromInt(self.buffer);
+            const result = collectRootEntriesAll(bytes, output, count);
             count = result.count;
             if (result.end_of_directory or count == output.len) break;
         }
@@ -368,9 +386,31 @@ fn collectRootEntries(sector: [*]const u8, output: []Volume.DirectoryEntry, init
         if (count == output.len) return .{ .count = count, .end_of_directory = false };
         @memcpy(&output[count].name, sector[offset .. offset + 11]);
         output[count].size = get32(sector + offset + 28);
+        output[count].first_cluster = get16(sector + offset + 26);
+        output[count].directory = false;
         count += 1;
     }
     return .{ .count = count, .end_of_directory = false };
+}
+
+fn collectRootEntriesAll(sector: [*]const u8, output: []Volume.DirectoryEntry, initial_count: usize) CollectionResult {
+    var count = initial_count;
+    var offset: usize = 0;
+    while (offset < 512) : (offset += 32) {
+        if (sector[offset] == 0) return .{ .count = count, .end_of_directory = true };
+        if (!entryIsRegularFile(sector + offset) and !entryIsDirectory(sector + offset)) continue;
+        if (count == output.len) return .{ .count = count, .end_of_directory = false };
+        @memcpy(&output[count].name, sector[offset .. offset + 11]);
+        output[count].size = get32(sector + offset + 28);
+        output[count].first_cluster = get16(sector + offset + 26);
+        output[count].directory = entryIsDirectory(sector + offset);
+        count += 1;
+    }
+    return .{ .count = count, .end_of_directory = false };
+}
+
+fn entryIsDirectory(entry: [*]const u8) bool {
+    return entryIsAllocated(entry) and !entryIsLongName(entry) and (entry[11] & 0x18) == 0x10;
 }
 
 const Layout = struct {
@@ -545,6 +585,25 @@ test "FAT16 root collection returns regular files and honors output capacity" {
     const limited = collectRootEntries(&sector, &one, 0);
     try std.testing.expectEqual(@as(usize, 1), limited.count);
     try std.testing.expect(!limited.end_of_directory);
+}
+
+test "FAT16 all-entry collection exposes directories without treating labels as entries" {
+    var sector = [_]u8{0} ** 512;
+    @memcpy(sector[0..11], "SUBDIR     ");
+    sector[11] = 0x10;
+    put16(sector[26..].ptr, 7);
+    @memcpy(sector[32..43], "LABEL     ");
+    sector[43] = 0x08;
+    @memcpy(sector[64..75], "FILE    TXT");
+    sector[75] = 0x20;
+    put32(sector[92..].ptr, 99);
+    var entries: [2]Volume.DirectoryEntry = undefined;
+    const result = collectRootEntriesAll(&sector, &entries, 0);
+    try std.testing.expectEqual(@as(usize, 2), result.count);
+    try std.testing.expect(entries[0].directory);
+    try std.testing.expectEqual(@as(u16, 7), entries[0].first_cluster);
+    try std.testing.expect(!entries[1].directory);
+    try std.testing.expectEqual(@as(u32, 99), entries[1].size);
 }
 
 fn get16(source: [*]const u8) u16 {
