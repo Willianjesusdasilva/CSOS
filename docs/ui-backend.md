@@ -55,3 +55,16 @@ Window Manager usando `csos_ui_decode_surface_created`,
 `csos_ui_decode_surface_destroyed` e `csos_ui_decode_failure`. Assim, resize,
 fechamento e falhas de transporte permanecem determinísticos sem acoplar o
 engine a DOM, CSS ou drivers.
+
+## Vertical slice userspace
+
+`userspace/csos_ui_demo.c` é uma aplicação mínima independente do renderer
+HTML. Ela usa somente `csos_ui_backend.h` e percorre handshake, criação de
+superfície, pintura, `present`, mouse, teclado, resize e close. O transporte
+em memória simula o endpoint do Window Manager/compositor e pode ser trocado
+por socket, canal IPC ou shared ring sem alterar a aplicação:
+
+```text
+zig cc -std=c11 -Wall -Werror userspace/csos_ui_demo.c -I userspace -o csos_ui_demo
+./csos_ui_demo
+```
