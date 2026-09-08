@@ -329,6 +329,14 @@ test "HTML empty text input is not a checkbox" {
     try std.testing.expect(!document.isCheckbox(0));
 }
 
+test "HTML checkbox accepts quoted type attributes" {
+    const document = Document.parse("<input type=\"checkbox\" checked><input type='checkbox'>");
+    try std.testing.expectEqual(@as(usize, 2), document.count);
+    try std.testing.expect(document.isCheckbox(0));
+    try std.testing.expect(document.elements[0].checked);
+    try std.testing.expect(document.isCheckbox(1));
+}
+
 test "HTML activation events distinguish focus from actions" {
     var session = Session.init("<input>name</input><button>Go</button>");
     switch (session.activateEvent(8, 4, 4, 4)) {
