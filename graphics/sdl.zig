@@ -611,15 +611,20 @@ pub const Application = struct {
                     if (self.backend) |*backend| {
                         _ = backend.enqueueEvent(if (mouse.wheel != 0) .{ .wheel = .{ .delta = mouse.wheel } } else .{ .pointer = .{ .x = mouse.x, .y = mouse.y, .buttons = mouse.buttons } });
                     }
-                    if ((mouse.buttons & 1) != 0) switch (self.activateHtmlEvent(
-                        @intCast(@max(mouse.x, 0)), @intCast(@max(mouse.y, 0)), self.html_origin_x, self.html_origin_y,
-                    )) {
-                        .action => |target| {
-                            self.last_html_activation = target;
-                            _ = self.dispatchReferenceAction(target);
-                        },
-                        else => {},
-                    };
+                    if ((mouse.buttons & 1) != 0) {
+                        switch (self.activateHtmlEvent(
+                            @intCast(@max(mouse.x, 0)), @intCast(@max(mouse.y, 0)), self.html_origin_x, self.html_origin_y,
+                        )) {
+                            .action => |target| {
+                                self.last_html_activation = target;
+                                _ = self.dispatchReferenceAction(target);
+                            },
+                            else => if (self.dispatchReferenceDock(@intCast(@max(mouse.x, 0)), @intCast(@max(mouse.y, 0)))) |target| {
+                                self.last_html_activation = target;
+                                _ = self.dispatchReferenceAction(target);
+                            },
+                        }
+                    }
                 },
             }
             if (!self.running) break;
@@ -704,6 +709,21 @@ pub const Application = struct {
         else return false;
         self.startHtml(source);
         return true;
+    }
+
+    fn dispatchReferenceDock(self: *Application, x: usize, y: usize) ?[]const u8 {
+        const dock_width = @min(@as(usize, 620), self.window.width -| 40);
+        const dock_x = (self.window.width -| dock_width) / 2;
+        const dock_y = self.window.height -| 82;
+        if (y < dock_y or y >= dock_y +| 58 or x < dock_x +| 18 or x >= dock_x +| 18 +| 8 * 72) return null;
+        const index = (x - (dock_x + 18)) / 72;
+        return switch (index) {
+            2 => "files",
+            3 => "terminal",
+            4 => "browser",
+            5 => "music",
+            else => null,
+        };
     }
 
     pub fn handleHtmlKey(self: *Application, key: u8) bool {
@@ -2201,6 +2221,7 @@ test "reference desktop dispatches launcher actions into HTML apps" {
     try @import("std").testing.expect(application.dispatchReferenceAction("files"));
     try @import("std").testing.expectEqualStrings("FILES", application.html_session.?.document.elements[0].text);
     try @import("std").testing.expect(!application.dispatchReferenceAction("unknown"));
+    try @import("std").testing.expectEqualStrings("terminal", application.dispatchReferenceDock(20 + 18 + 3 * 72 + 4, 200 - 82 + 20).?);
 }
 
 test "SDL application persists and edits HTML session" {
