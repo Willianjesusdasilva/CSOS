@@ -192,6 +192,20 @@ static inline uint8_t csos_ui_encode_destroy_window(uint8_t *out, uint8_t capaci
     out[0] = CSOS_UI_DESTROY_WINDOW; out[1] = 6; csos_ui_put32(out + 2, id); return 6;
 }
 
+static inline uint8_t csos_ui_encode_open_file(uint8_t *out, uint8_t capacity,
+                                               const char *path, uint8_t path_length) {
+    if (!out || !path || path_length > 252 || capacity < (uint8_t)(3 + path_length)) return 0;
+    out[0] = CSOS_UI_OPEN_FILE; out[1] = (uint8_t)(3 + path_length); out[2] = path_length;
+    for (uint8_t i = 0; i != path_length; ++i) out[3 + i] = (uint8_t)path[i];
+    return (uint8_t)(3 + path_length);
+}
+
+static inline uint8_t csos_ui_encode_set_timer(uint8_t *out, uint8_t capacity,
+                                               uint32_t timer_id, uint64_t ticks) {
+    if (!out || capacity < 14 || timer_id == 0 || ticks == 0) return 0;
+    out[0] = CSOS_UI_SET_TIMER; out[1] = 14; csos_ui_put32(out + 2, timer_id); csos_ui_put64(out + 6, ticks); return 14;
+}
+
 static inline uint8_t csos_ui_encode_surface_created(uint8_t *out, uint8_t capacity,
                                                      struct csos_ui_surface surface) {
     if (!out || capacity < 27) return 0;
@@ -271,6 +285,20 @@ static inline int csos_ui_client_destroy_window(struct csos_ui_client *client, u
     uint8_t message[6];
     if (!client || !client->ready || csos_ui_encode_destroy_window(message, sizeof(message), id) == 0) return -1;
     return csos_ui_transport_send(&client->transport, message, sizeof(message));
+}
+
+static inline int csos_ui_client_open_file(struct csos_ui_client *client, const char *path, uint8_t path_length) {
+    uint8_t message[258];
+    const uint8_t length = csos_ui_encode_open_file(message, sizeof(message), path, path_length);
+    if (!client || !client->ready || length == 0) return -1;
+    return csos_ui_transport_send(&client->transport, message, length);
+}
+
+static inline int csos_ui_client_set_timer(struct csos_ui_client *client, uint32_t timer_id, uint64_t ticks) {
+    uint8_t message[14];
+    const uint8_t length = csos_ui_encode_set_timer(message, sizeof(message), timer_id, ticks);
+    if (!client || !client->ready || length == 0) return -1;
+    return csos_ui_transport_send(&client->transport, message, length);
 }
 
 static inline int csos_ui_client_close(struct csos_ui_client *client) {
