@@ -1156,3 +1156,4 @@ arquivos em caminhos FAT com múltiplos componentes. Criação, `unlink`, rename
 escrita multi-cluster também estão disponíveis, com validação host completa.
 `mkdirat` agora cria diretórios FAT reais (inclusive aninhados), alocando o
 cluster, inicializando `.`/`..` e expondo a operação pela ABI Linux.
+`unlinkat` com `AT_REMOVEDIR` remove diretórios FAT vazios e libera sua cadeia.

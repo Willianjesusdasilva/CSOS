@@ -2101,3 +2101,4 @@ FAT aninhados já funciona em múltiplos níveis. Criação, remoção, renomea�
 escrita multi-cluster de arquivos nesses caminhos estão disponíveis e validados
 no build/teste host. `mkdirat` também cria diretórios FAT reais, incluindo os
 clusters e entradas `.`/`..`; melhorias adicionais de semântica POSIX continuam pendentes.
+Diretórios vazios também podem ser removidos pela ABI com `unlinkat`/`AT_REMOVEDIR`.
