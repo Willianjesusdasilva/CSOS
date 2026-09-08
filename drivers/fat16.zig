@@ -263,7 +263,7 @@ pub const Volume = struct {
                 const bytes: [*]const u8 = @ptrFromInt(self.buffer);
                 var offset: usize = 0;
                 while (offset < 512) : (offset += 32) {
-                    if (bytes[offset] == 0) return error.NotFound;
+                    if (bytes[offset] == 0) continue;
                     if (!entryIsRegularFile(bytes + offset) or !equal11(bytes + offset, name)) continue;
                     const first_cluster = get16(bytes + offset + 26);
                     const entry: [*]u8 = @ptrFromInt(self.buffer + offset);
@@ -474,7 +474,7 @@ pub const Volume = struct {
                 const bytes: [*]u8 = @ptrFromInt(self.buffer);
                 var offset: usize = 0;
                 while (offset < 512) : (offset += 32) {
-                    if (bytes[offset] == 0) return error.NotFound;
+                    if (bytes[offset] == 0) continue;
                     if (!entryIsRegularFile(bytes + offset) or !equal11(bytes + offset, name)) continue;
                     const old_cluster = get16(bytes + offset + 26);
                     var first_cluster: u16 = 0;

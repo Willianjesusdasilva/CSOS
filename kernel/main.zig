@@ -2749,16 +2749,16 @@ fn seedUiFilesystem(volume: *fat16.Volume) !void {
     serial.write("ui seed styles\n");
     const providers_cluster = volume.createDirectory(ui_cluster, &providers_name) catch |err| if (err == error.AlreadyExists) (try volume.findDirectoryEntry(ui_cluster, &providers_name)).first_cluster else return err;
     serial.write("ui seed providers\n");
-    try volume.writeDirectoryFile(ui_cluster, &variables_name, @embedFile("ui_variables"));
-    try volume.writeDirectoryFile(interface_cluster, &manifest_name, @embedFile("ui_manifest"));
-    try volume.writeDirectoryFile(interface_cluster, &desktop_name, @embedFile("ui_desktop"));
-    try volume.writeDirectoryFile(styles_cluster, &css_name, @embedFile("ui_desktop_css"));
-    try volume.writeDirectoryFile(providers_cluster, "CPU_USAGE  ", "32\n");
-    try volume.writeDirectoryFile(providers_cluster, "RAM_USAGE  ", "48\n");
-    try volume.writeDirectoryFile(providers_cluster, "GPU_USAGE  ", "unavailable\n");
-    try volume.writeDirectoryFile(providers_cluster, "NETWORK_IP ", "127.0.0.1\n");
-    try volume.writeDirectoryFile(providers_cluster, "CURRENTFPS ", "60\n");
-    try volume.writeDirectoryFile(providers_cluster, "FRAMETIME  ", "16.6\n");
+    try volume.createDirectoryFile(ui_cluster, &variables_name); try volume.writeDirectoryFile(ui_cluster, &variables_name, @embedFile("ui_variables"));
+    try volume.createDirectoryFile(interface_cluster, &manifest_name); try volume.writeDirectoryFile(interface_cluster, &manifest_name, @embedFile("ui_manifest"));
+    try volume.createDirectoryFile(interface_cluster, &desktop_name); try volume.writeDirectoryFile(interface_cluster, &desktop_name, @embedFile("ui_desktop"));
+    try volume.createDirectoryFile(styles_cluster, &css_name); try volume.writeDirectoryFile(styles_cluster, &css_name, @embedFile("ui_desktop_css"));
+    try volume.createDirectoryFile(providers_cluster, "CPU_USAGE  "); try volume.writeDirectoryFile(providers_cluster, "CPU_USAGE  ", "32\n");
+    try volume.createDirectoryFile(providers_cluster, "RAM_USAGE  "); try volume.writeDirectoryFile(providers_cluster, "RAM_USAGE  ", "48\n");
+    try volume.createDirectoryFile(providers_cluster, "GPU_USAGE  "); try volume.writeDirectoryFile(providers_cluster, "GPU_USAGE  ", "unavailable\n");
+    try volume.createDirectoryFile(providers_cluster, "NETWORK_IP "); try volume.writeDirectoryFile(providers_cluster, "NETWORK_IP ", "127.0.0.1\n");
+    try volume.createDirectoryFile(providers_cluster, "CURRENTFPS "); try volume.writeDirectoryFile(providers_cluster, "CURRENTFPS ", "60\n");
+    try volume.createDirectoryFile(providers_cluster, "FRAMETIME  "); try volume.writeDirectoryFile(providers_cluster, "FRAMETIME  ", "16.6\n");
 }
 
 fn handleSdlDemoEvent(app: *sdl.Application, event: sdl.Event) void {
