@@ -152,6 +152,26 @@ pub const Volume = struct {
         }
     }
 
+    pub fn findRootEntry(self: *Volume, name: *const [11]u8) !DirectoryEntry {
+        var sector: u32 = 0;
+        while (sector < self.root_sectors) : (sector += 1) {
+            try self.storage.readBlock(self.root_start + sector, self.buffer);
+            const bytes: [*]const u8 = @ptrFromInt(self.buffer);
+            var offset: usize = 0;
+            while (offset < 512) : (offset += 32) {
+                if (bytes[offset] == 0) return error.NotFound;
+                if ((!entryIsRegularFile(bytes + offset) and !entryIsDirectory(bytes + offset)) or
+                    !equal11(bytes + offset, name)) continue;
+                var result = DirectoryEntry{ .name = undefined, .size = get32(bytes + offset + 28) };
+                @memcpy(&result.name, bytes[offset .. offset + 11]);
+                result.first_cluster = get16(bytes + offset + 26);
+                result.directory = entryIsDirectory(bytes + offset);
+                return result;
+            }
+        }
+        return error.NotFound;
+    }
+
     pub fn readRootFileAt(self: *Volume, name: *const [11]u8, output: []u8, file_offset: usize) !usize {
         var first_cluster: u16 = 0;
         var size: usize = 0;
