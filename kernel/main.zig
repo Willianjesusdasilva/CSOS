@@ -3322,6 +3322,7 @@ fn drawDesktopChrome(framebuffer: Framebuffer) void {
             drawGlassPanel(framebuffer, 10 + (rail_width - rail_inner) / 2, rail_y, rail_inner, rail_inner, item_color, 0xd0e8ffff, 7);
             rail_y += rail_inner + 14;
         }
+        drawFramebufferText(framebuffer, 16, dock_top - 18, "HOME", 0xd8e8f0ff, 1);
     }
     if (framebuffer.width > 360 and framebuffer.height > top_height + dock_height + 56) {
         const widget_width: usize = @min(@as(usize, 188), framebuffer.width / 3);
@@ -3335,6 +3336,8 @@ fn drawDesktopChrome(framebuffer: Framebuffer) void {
         drawGlassPanel(framebuffer, accent_left, widget_top + 40, widget_width - 28, 5, 0x385070d0, 0x8aa8c080, 2);
         drawGlassPanel(framebuffer, accent_left, widget_top + 54, @max(@as(usize, 8), (widget_width - 28) * 2 / 3), 5, 0x70d090d0, 0x8aa8c080, 2);
         drawGlassPanel(framebuffer, accent_left, widget_top + 82, widget_width - 28, 28, 0x203452b0, 0x7e9fc080, 8);
+        drawFramebufferText(framebuffer, widget_left + 14, widget_top + 8, "STATUS", 0xd8e8f0ff, 1);
+        drawFramebufferText(framebuffer, widget_left + 14, widget_top + 120, "ONLINE", 0x80dc9cff, 1);
     }
     const icon_size: usize = 28;
     const gap: usize = 10;
@@ -3354,6 +3357,29 @@ fn drawDesktopChrome(framebuffer: Framebuffer) void {
         const menu_right = @min(framebuffer.width, menu_left + 128);
         const menu_bottom = @min(framebuffer.height, top_height + 92);
         drawGlassPanel(framebuffer, menu_left, top_height, menu_right - menu_left, menu_bottom - top_height, 0x283b5ee8, 0xadc5f0a0, 8);
+    }
+}
+
+fn drawFramebufferText(framebuffer: Framebuffer, x: usize, y: usize, text: []const u8, color: u32, scale: usize) void {
+    if (framebuffer.base == 0 or scale == 0) return;
+    const pixels: [*]volatile u32 = @ptrFromInt(framebuffer.base);
+    var cursor_x = x;
+    for (text) |character| {
+        const glyph = sdl.glyph3x5(character);
+        for (glyph, 0..) |row_bits, row| {
+            for (0..3) |column| {
+                if ((row_bits & (@as(u8, 1) << @intCast(2 - column))) == 0) continue;
+                for (0..scale) |sy| for (0..scale) |sx| {
+                    const px = cursor_x + column * scale + sx;
+                    const py = y + row * scale + sy;
+                    if (px >= framebuffer.width or py >= framebuffer.height) continue;
+                    const offset = py * framebuffer.stride + px;
+                    if ((offset + 1) * 4 <= framebuffer.size) pixels[offset] = color;
+                };
+            }
+        }
+        cursor_x += 4 * scale;
+        if (cursor_x >= framebuffer.width) break;
     }
 }
 
