@@ -401,6 +401,7 @@ pub const Window = struct {
     pub fn drawHtmlFocused(self: *Window, document: *const html.Document, x: usize, y: usize, focused: ?usize) void {
         var cursor_y = y;
         for (document.elements[0..document.count], 0..) |element, index| {
+            const text = if (element.kind == .input) document.inputText(index) else element.text;
             const color: u32 = if (element.muted) 0x7890a0ff else if (element.danger) 0xff8060ff else switch (element.kind) {
                 .heading => 0x70d0ffff,
                 .paragraph => 0xa0b8d0ff,
@@ -409,15 +410,15 @@ pub const Window = struct {
                 .input => 0xd0d0d0ff,
             };
             if (element.kind == .input) {
-                const input_width = @max(element.text.len, 8) * 8 + 6;
+                const input_width = @max(text.len, 8) * 8 + 6;
                 self.fillRect(x -| 2, cursor_y -| 2, input_width, 14, 0x182430ff);
             }
             if (focused != null and focused.? == index and (element.kind == .button or element.kind == .link or element.kind == .input)) {
-                const text_width: usize = if (element.kind == .input) @max(element.text.len, 8) * 8 + 4 else element.text.len * (if (element.kind == .heading) @as(usize, 12) else 8) + 4;
+                const text_width: usize = if (element.kind == .input) @max(text.len, 8) * 8 + 4 else text.len * (if (element.kind == .heading) @as(usize, 12) else 8) + 4;
                 const text_height: usize = if (element.kind == .heading) 20 else 14;
                 self.fillRect(x -| 2, cursor_y -| 2, text_width, text_height, 0x304860ff);
             }
-            if (element.kind == .heading) self.drawTextScaled(x, cursor_y, element.text, color, 3) else self.drawText(x, cursor_y, element.text, color);
+            if (element.kind == .heading) self.drawTextScaled(x, cursor_y, text, color, 3) else self.drawText(x, cursor_y, text, color);
             cursor_y +|= if (element.kind == .heading) 16 else 12;
         }
     }

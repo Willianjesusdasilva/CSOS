@@ -9,6 +9,8 @@ pub const DrawText = *const fn (x: usize, y: usize, text: []const u8, color: u32
 /// their text remains available to the next supported element.
 pub const Document = struct {
     elements: [16]Element = undefined,
+    input_values: [16][64]u8 = undefined,
+    input_lengths: [16]usize = .{0} ** 16,
     count: usize = 0,
 
     pub fn parse(source: []const u8) Document {
@@ -35,6 +37,12 @@ pub const Document = struct {
                         }
                     }
                     document.elements[document.count] = .{ .kind = value, .text = std.mem.trim(u8, source[close + 1 .. end], " \t\r\n"), .target = target, .accent = std.mem.indexOf(u8, tag, "accent") != null, .muted = std.mem.indexOf(u8, tag, "muted") != null, .danger = std.mem.indexOf(u8, tag, "danger") != null };
+                    if (value == .input) {
+                        const initial = document.elements[document.count].text;
+                        const length = @min(initial.len, document.input_values[document.count].len);
+                        @memcpy(document.input_values[document.count][0..length], initial[0..length]);
+                        document.input_lengths[document.count] = length;
+                    }
                     document.count += 1;
                     cursor = end + end_tag.len;
                     continue;
@@ -48,7 +56,8 @@ pub const Document = struct {
     /// Emits a simple vertical layout consumable by any text renderer.
     pub fn render(self: *const Document, draw: DrawText, origin_x: usize, origin_y: usize) void {
         var y = origin_y;
-        for (self.elements[0..self.count]) |element| {
+        for (self.elements[0..self.count], 0..) |element, index| {
+            const text = if (element.kind == .input) self.inputText(index) else element.text;
             const color: u32 = switch (element.kind) {
                 .heading => 0x70d0ffff,
                 .paragraph => 0xa0b8d0ff,
@@ -56,9 +65,28 @@ pub const Document = struct {
                 .link => 0x70b8ffff,
                 .input => 0xd0d0d0ff,
             };
-            draw(origin_x, y, element.text, color);
+            draw(origin_x, y, text, color);
             y += if (element.kind == .heading) 16 else 12;
         }
+    }
+
+    pub fn inputText(self: *const Document, index: usize) []const u8 {
+        if (index >= self.count or self.elements[index].kind != .input) return "";
+        return self.input_values[index][0..self.input_lengths[index]];
+    }
+
+    pub fn editInput(self: *Document, index: usize, byte: u8) bool {
+        if (index >= self.count or self.elements[index].kind != .input) return false;
+        if (self.input_lengths[index] == self.input_values[index].len) return false;
+        self.input_values[index][self.input_lengths[index]] = byte;
+        self.input_lengths[index] += 1;
+        return true;
+    }
+
+    pub fn backspaceInput(self: *Document, index: usize) bool {
+        if (index >= self.count or self.elements[index].kind != .input or self.input_lengths[index] == 0) return false;
+        self.input_lengths[index] -= 1;
+        return true;
     }
 
     pub fn hitTest(self: *const Document, x: usize, y: usize, origin_x: usize, origin_y: usize) ?usize {
@@ -165,4 +193,13 @@ test "HTML inputs participate in focus and hit testing" {
     try std.testing.expectEqual(@as(usize, 1), document.nextButton(null, true).?);
     try std.testing.expectEqual(@as(usize, 1), document.hitTest(12, 20, 4, 4).?);
     try std.testing.expect(document.activateIndex(1) == null);
+}
+
+test "HTML input values are mutable independently of source markup" {
+    var document = Document.parse("<input>name</input>");
+    try std.testing.expectEqualStrings("name", document.inputText(0));
+    try std.testing.expect(document.editInput(0, '!'));
+    try std.testing.expectEqualStrings("name!", document.inputText(0));
+    try std.testing.expect(document.backspaceInput(0));
+    try std.testing.expectEqualStrings("name", document.inputText(0));
 }
