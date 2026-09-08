@@ -52,6 +52,18 @@ pub fn main() !void {
     try append(&composed, &composed_len, css);
     try contains(composed[0..composed_len], "data-action=\"open_files\"");
     try contains(composed[0..composed_len], ".launcher");
+    const variable_names = [_][]const u8{ "CPU_USAGE", "RAM_USAGE", "GPU_USAGE", "NETWORK_IP", "CURRENT_FPS", "FRAME_TIME" };
+    const provider_paths = [_][]const u8{
+        "system/ui/providers/cpu_usage", "system/ui/providers/ram_usage", "system/ui/providers/gpu_usage",
+        "system/ui/providers/network_ip", "system/ui/providers/current_fps", "system/ui/providers/frame_time",
+    };
+    var expanded: []const u8 = composed[0..composed_len];
+    for (variable_names, provider_paths) |name, path| {
+        const value = std.mem.trim(u8, try readFile(allocator, path), "\r\n");
+        expanded = try std.mem.replaceOwned(u8, allocator, expanded, try std.fmt.allocPrint(allocator, "{{{{ {s} }}}}", .{name}), value);
+    }
+    if (std.mem.indexOf(u8, expanded, "{{") != null) return error.UnresolvedProvider;
+    try contains(expanded, "CPU 32%");
     try contains(css, ".launcher");
     try contains(action, "action=open_files");
     if (!std.mem.eql(u8, cpu, "32")) return error.ProviderMismatch;
