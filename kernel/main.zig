@@ -3285,6 +3285,8 @@ fn drawDesktopWallpaper(framebuffer: Framebuffer) void {
             const dx = @as(i32, @intCast(x)) - @as(i32, @intCast(framebuffer.width * 3 / 4));
             const dy = @as(i32, @intCast(y)) - @as(i32, @intCast(framebuffer.height / 5));
             if (dx * dx + dy * dy < 900) color = 0x6870a0;
+            if (y > framebuffer.height / 9 and y < framebuffer.height * 2 / 5 and
+                ((x / 23 + y / 11) % 7 == 0)) color = (color & 0x7f7f7f) + 0x202020;
             if (y < framebuffer.height * 2 / 5 and ((x * 37 + y * 17) % 251 == 0)) color = 0x9bbcff;
             const horizon = framebuffer.height * 3 / 5;
             if (y > horizon and y < horizon + framebuffer.height / 5 and
