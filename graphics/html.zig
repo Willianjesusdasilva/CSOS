@@ -270,6 +270,88 @@ pub const Session = struct {
     }
 };
 
+/// Stable userspace/backend contract for a future HTML engine.  The parser and
+/// current software renderer use this same mailbox as an engine such as WPE
+/// or WebKit would: input travels in, and window commands/present requests
+/// travel out.  It is intentionally fixed-size so the kernel path needs no
+/// allocator or engine-specific ABI.
+pub const BackendEvent = union(enum) {
+    pointer: struct { x: i32, y: i32, buttons: u8 },
+    key: struct { code: u32, pressed: bool, modifiers: u8 },
+    resize: struct { width: u16, height: u16 },
+    close,
+};
+
+pub const BackendCommand = union(enum) {
+    present: struct { width: u16, height: u16, serial: u64 },
+    focus,
+    close,
+};
+
+pub const Backend = struct {
+    surface_id: u32,
+    width: u16,
+    height: u16,
+    frame_serial: u64 = 0,
+    events: [32]BackendEvent = undefined,
+    event_read: usize = 0,
+    event_write: usize = 0,
+    commands: [32]BackendCommand = undefined,
+    command_read: usize = 0,
+    command_write: usize = 0,
+
+    pub fn init(surface_id: u32, width: u16, height: u16) Backend {
+        return .{ .surface_id = surface_id, .width = width, .height = height };
+    }
+
+    pub fn submit(self: *Backend, event: BackendEvent) bool {
+        if (self.event_write - self.event_read >= self.events.len) return false;
+        self.events[self.event_write % self.events.len] = event;
+        self.event_write += 1;
+        return true;
+    }
+
+    pub fn nextEvent(self: *Backend) ?BackendEvent {
+        if (self.event_read == self.event_write) return null;
+        const event = self.events[self.event_read % self.events.len];
+        self.event_read += 1;
+        return event;
+    }
+
+    pub fn present(self: *Backend) bool {
+        if (self.command_write - self.command_read >= self.commands.len) return false;
+        self.frame_serial +|= 1;
+        self.commands[self.command_write % self.commands.len] = .{ .present = .{ .width = self.width, .height = self.height, .serial = self.frame_serial } };
+        self.command_write += 1;
+        return true;
+    }
+
+    pub fn nextCommand(self: *Backend) ?BackendCommand {
+        if (self.command_read == self.command_write) return null;
+        const command = self.commands[self.command_read % self.commands.len];
+        self.command_read += 1;
+        return command;
+    }
+
+    pub fn applyEvent(self: *Backend, event: BackendEvent) bool {
+        switch (event) {
+            .resize => |size| {
+                if (size.width == 0 or size.height == 0) return false;
+                self.width = size.width;
+                self.height = size.height;
+                return self.present();
+            },
+            .close => {
+                if (self.command_write - self.command_read >= self.commands.len) return false;
+                self.commands[self.command_write % self.commands.len] = .close;
+                self.command_write += 1;
+                return true;
+            },
+            .pointer, .key => return true,
+        }
+    }
+};
+
 var rendered_count: usize = 0;
 fn countDraw(_: usize, _: usize, _: []const u8, _: u32) void { rendered_count += 1; }
 
@@ -286,6 +368,26 @@ test "HTML CSS class rules provide inherited text colors" {
     try std.testing.expectEqual(@as(usize, 2), document.count);
     try std.testing.expectEqual(@as(?u32, 0xff8040ff), document.elements[0].color);
     try std.testing.expectEqual(@as(?u32, 0x40d080ff), document.elements[1].color);
+}
+
+test "HTML backend carries input and present commands without allocation" {
+    var backend = Backend.init(7, 320, 200);
+    try std.testing.expect(backend.submit(.{ .pointer = .{ .x = 12, .y = 18, .buttons = 1 } }));
+    try std.testing.expect(backend.applyEvent(backend.nextEvent().?));
+    try std.testing.expect(backend.applyEvent(.{ .resize = .{ .width = 640, .height = 480 } }));
+    const command = backend.nextCommand().?;
+    switch (command) {
+        .present => |present| {
+            try std.testing.expectEqual(@as(u16, 640), present.width);
+            try std.testing.expectEqual(@as(u16, 480), present.height);
+        },
+        else => return error.UnexpectedBackendCommand,
+    }
+    try std.testing.expect(backend.applyEvent(.close));
+    switch (backend.nextCommand().?) {
+        .close => {},
+        else => return error.UnexpectedBackendCommand,
+    }
 }
 
 test "HTML parser ignores unknown tags but keeps containers" {
