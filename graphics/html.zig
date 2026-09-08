@@ -2,7 +2,7 @@ const std = @import("std");
 
 pub const Kind = enum { heading, paragraph, container, button, link, input };
 pub const Activation = union(enum) { none, focus_input: usize, action: []const u8 };
-pub const Element = struct { kind: Kind, text: []const u8, target: []const u8 = "", accent: bool = false, muted: bool = false, danger: bool = false };
+pub const Element = struct { kind: Kind, text: []const u8, target: []const u8 = "", accent: bool = false, muted: bool = false, danger: bool = false, color: ?u32 = null };
 pub const DrawText = *const fn (x: usize, y: usize, text: []const u8, color: u32) void;
 
 /// Small allocation-free HTML subset used by the planned system UI.
@@ -37,7 +37,7 @@ pub const Document = struct {
                             target = tag[value_start..value_end];
                         }
                     }
-                    document.elements[document.count] = .{ .kind = value, .text = std.mem.trim(u8, source[close + 1 .. end], " \t\r\n"), .target = target, .accent = std.mem.indexOf(u8, tag, "accent") != null, .muted = std.mem.indexOf(u8, tag, "muted") != null, .danger = std.mem.indexOf(u8, tag, "danger") != null };
+                    document.elements[document.count] = .{ .kind = value, .text = std.mem.trim(u8, source[close + 1 .. end], " \t\r\n"), .target = target, .accent = std.mem.indexOf(u8, tag, "accent") != null, .muted = std.mem.indexOf(u8, tag, "muted") != null, .danger = std.mem.indexOf(u8, tag, "danger") != null, .color = parseColor(tag) };
                     if (value == .input) {
                         const initial = document.elements[document.count].text;
                         const length = @min(initial.len, document.input_values[document.count].len);
@@ -59,7 +59,7 @@ pub const Document = struct {
         var y = origin_y;
         for (self.elements[0..self.count], 0..) |element, index| {
             const text = if (element.kind == .input) self.inputText(index) else element.text;
-            const color: u32 = switch (element.kind) {
+            const color: u32 = element.color orelse switch (element.kind) {
                 .heading => 0x70d0ffff,
                 .paragraph => 0xa0b8d0ff,
                 .container => if (element.muted) 0x788898ff else 0xb0b8c0ff,
@@ -127,6 +127,17 @@ pub const Document = struct {
         return if (self.elements[index].kind == .link and self.elements[index].target.len != 0) self.elements[index].target else self.elements[index].text;
     }
 };
+
+fn parseColor(tag: []const u8) ?u32 {
+    const marker = std.mem.indexOf(u8, tag, "color:#") orelse return null;
+    if (marker + 13 > tag.len) return null;
+    var value: u32 = 0;
+    for (tag[marker + 7 .. marker + 13]) |digit| {
+        const nibble: u32 = if (digit >= '0' and digit <= '9') digit - '0' else if (digit >= 'a' and digit <= 'f') digit - 'a' + 10 else if (digit >= 'A' and digit <= 'F') digit - 'A' + 10 else return null;
+        value = (value << 4) | nibble;
+    }
+    return (value << 8) | 0xff;
+}
 
 pub const Session = struct {
     document: Document,
