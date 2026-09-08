@@ -1153,4 +1153,6 @@ O FAT16 já enumera arquivos e diretórios da raiz, percorre cadeias de clusters
 de subdiretórios e expõe busca de entradas aninhadas ao driver. O VFS reconhece
 diretórios FAT da raiz em `openAt`, `infoAt` e `getDents`. Ainda falta ligar a
 resolução de mutações ainda está pendente; leitura e `stat` já funcionam para
-arquivos em caminhos FAT com múltiplos componentes.
+arquivos em caminhos FAT com múltiplos componentes. Criação, `unlink`, rename e
+escrita de arquivos pequenos (até um cluster) também estão disponíveis; escrita
+multi-cluster permanece pendente.
