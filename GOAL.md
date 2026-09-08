@@ -1152,4 +1152,5 @@ Até todos esses critérios passarem, o GOAL permanece ativo.
 O FAT16 já enumera arquivos e diretórios da raiz, percorre cadeias de clusters
 de subdiretórios e expõe busca de entradas aninhadas ao driver. O VFS reconhece
 diretórios FAT da raiz em `openAt`, `infoAt` e `getDents`. Ainda falta ligar a
-resolução completa de caminhos (`/pasta/arquivo`) à leitura e mutação de arquivos.
+resolução de mutações ainda está pendente; leitura e `stat` já funcionam para
+arquivos em caminhos FAT com múltiplos componentes.

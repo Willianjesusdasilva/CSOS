@@ -2096,5 +2096,6 @@ Todo o restante precisa justificar sua existência.
 ### Estado do filesystem
 
 O driver FAT16 suporta enumeração e travessia de subdiretórios, e o VFS já abre
-e lista diretórios reais da raiz. A resolução de arquivos em caminhos aninhados
-continua como próxima etapa.
+e lista diretórios reais da raiz. A resolução e leitura de arquivos em caminhos
+FAT aninhados já funciona em múltiplos níveis; mutações nesses caminhos continuam
+como próxima etapa.
