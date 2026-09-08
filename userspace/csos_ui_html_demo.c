@@ -77,6 +77,9 @@ int main(void) {
     char desktop[4096], topbar[1024], dock[1024], manifest[1024], cpu_value[32], rendered[8192]; size_t used = 0;
     csos_ui_ring_init(&server.events);
     if (!file_contains("system/ui/variables.conf", "CPU_USAGE=\"/system/ui/providers/cpu_usage\"") ||
+        !file_contains("system/ui/variables.conf", "CURRENT_FPS=\"/system/ui/providers/current_fps\"") ||
+        !file_contains("system/ui/providers/current_fps", "60") ||
+        !file_contains("system/ui/providers/frame_time", "16.6") ||
         !file_contains("system/ui/interface/desktop.html", "{{ CPU_USAGE }}") ||
         !file_contains("system/ui/interface/topbar.html", "{{ NETWORK_IP }}") ||
         !file_contains("system/ui/interface/dock.html", "data-action=\"open_files\"") ||
