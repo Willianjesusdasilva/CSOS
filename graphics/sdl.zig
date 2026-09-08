@@ -600,7 +600,10 @@ pub const Application = struct {
                     if (self.backend) |*backend| _ = backend.enqueueEvent(.{ .key = .{ .code = key.scancode, .pressed = key.pressed, .modifiers = key.modifiers } });
                     if (key.scancode == 0x2b) _ = self.focusHtmlNext((key.modifiers & 0x01) == 0);
                     if (self.activateHtmlEventKey(key.scancode)) |activation| switch (activation) {
-                        .action => |target| self.last_html_activation = target,
+                        .action => |target| {
+                            self.last_html_activation = target;
+                            _ = self.dispatchReferenceAction(target);
+                        },
                         else => {},
                     };
                 },
@@ -611,7 +614,10 @@ pub const Application = struct {
                     if ((mouse.buttons & 1) != 0) switch (self.activateHtmlEvent(
                         @intCast(@max(mouse.x, 0)), @intCast(@max(mouse.y, 0)), self.html_origin_x, self.html_origin_y,
                     )) {
-                        .action => |target| self.last_html_activation = target,
+                        .action => |target| {
+                            self.last_html_activation = target;
+                            _ = self.dispatchReferenceAction(target);
+                        },
                         else => {},
                     };
                 },
