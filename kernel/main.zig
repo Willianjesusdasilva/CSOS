@@ -3311,6 +3311,31 @@ fn drawDesktopChrome(framebuffer: Framebuffer) void {
     const dock_height: usize = @min(52, framebuffer.height / 4);
     const dock_top = framebuffer.height - dock_height;
     drawGlassPanel(framebuffer, 8, dock_top, framebuffer.width - 16, dock_height - 4, 0x18253fbb, 0x8ea8d080, 14);
+    const rail_width = @min(@as(usize, 72), framebuffer.width / 5);
+    if (framebuffer.height > top_height + dock_height + 24) {
+        drawGlassPanel(framebuffer, 10, top_height + 10, rail_width, framebuffer.height - top_height - dock_height - 20, 0x142039b8, 0x8ea8d080, 12);
+        const rail_inner = @min(@as(usize, 32), rail_width -| 20);
+        var rail_y = top_height + 24;
+        for (0..4) |item| {
+            if (rail_y + rail_inner >= dock_top) break;
+            const item_color: u32 = switch (item) { 0 => 0x70c8ffff, 1 => 0x80dc9cff, 2 => 0xe0b070ff, else => 0xb090e8ff };
+            drawGlassPanel(framebuffer, 10 + (rail_width - rail_inner) / 2, rail_y, rail_inner, rail_inner, item_color, 0xd0e8ffff, 7);
+            rail_y += rail_inner + 14;
+        }
+    }
+    if (framebuffer.width > 360 and framebuffer.height > top_height + dock_height + 56) {
+        const widget_width: usize = @min(@as(usize, 188), framebuffer.width / 3);
+        const widget_left = framebuffer.width - widget_width - 16;
+        const widget_top = top_height + 16;
+        const widget_height = @min(@as(usize, 152), dock_top - widget_top - 12);
+        drawGlassPanel(framebuffer, widget_left, widget_top, widget_width, widget_height, 0x172640c8, 0xa0c8e8a0, 12);
+        const accent_left = widget_left + 14;
+        const accent_width = @min(@as(usize, 64), widget_width - 28);
+        drawGlassPanel(framebuffer, accent_left, widget_top + 16, accent_width, 8, 0x70c8ffff, 0x70c8ffff, 4);
+        drawGlassPanel(framebuffer, accent_left, widget_top + 40, widget_width - 28, 5, 0x385070d0, 0x8aa8c080, 2);
+        drawGlassPanel(framebuffer, accent_left, widget_top + 54, @max(@as(usize, 8), (widget_width - 28) * 2 / 3), 5, 0x70d090d0, 0x8aa8c080, 2);
+        drawGlassPanel(framebuffer, accent_left, widget_top + 82, widget_width - 28, 28, 0x203452b0, 0x7e9fc080, 8);
+    }
     const icon_size: usize = 28;
     const gap: usize = 10;
     const total = 7 * icon_size + 6 * gap;
