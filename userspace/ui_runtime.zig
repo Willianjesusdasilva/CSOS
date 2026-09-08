@@ -13,6 +13,7 @@ pub export const media_path: [32:0]u8 = "/system/ui/interface/media.html\x00".*;
 pub export const widgets_path: [34:0]u8 = "/system/ui/interface/widgets.html\x00".*;
 pub export const notifications_path: [40:0]u8 = "/system/ui/interface/notifications.html\x00".*;
 pub export const launcher_path: [35:0]u8 = "/system/ui/interface/launcher.html\x00".*;
+pub export const cpu_provider_path: [31:0]u8 = "/system/ui/providers/CPU_USAGE\x00".*;
 
 pub export fn _start() callconv(.naked) noreturn {
     asm volatile (
@@ -119,6 +120,16 @@ pub export fn _start() callconv(.naked) noreturn {
         \\movl %%eax, %%edi
         \\mov $3, %%eax
         \\syscall
+        \\mov $257, %%eax
+        \\movq $-100, %%rdi
+        \\lea cpu_provider_path(%%rip), %%rsi
+        \\xor %%edx, %%edx
+        \\syscall
+        \\test %%rax, %%rax
+        \\js 21f
+        \\movl %%eax, %%edi
+        \\mov $3, %%eax
+        \\syscall
         \\mov $451, %%eax
         \\mov $1, %%edi
         \\lea hello_frame(%%rip), %%rsi
@@ -205,6 +216,10 @@ pub export fn _start() callconv(.naked) noreturn {
         \\20:
         \\mov $60, %%eax
         \\mov $20, %%edi
+        \\syscall
+        \\21:
+        \\mov $60, %%eax
+        \\mov $21, %%edi
         \\syscall
         \\1:
         \\mov $60, %%eax

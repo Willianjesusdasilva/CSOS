@@ -2787,7 +2787,7 @@ fn seedUiFilesystem(volume: *fat16.Volume) !void {
     if (volume.findDirectoryEntry(interface_cluster, &topbar_name)) |_| serial.write("ui seed topbar ready\n") else |_| serial.write("ui seed topbar lookup failed\n");
     if (volume.findDirectoryEntry(interface_cluster, &sidebar_name)) |_| serial.write("ui seed sidebar ready\n") else |_| serial.write("ui seed sidebar lookup failed\n");
     try volume.createDirectoryFile(styles_cluster, &css_name); try volume.writeDirectoryFile(styles_cluster, &css_name, @embedFile("ui_desktop_css"));
-    try volume.createDirectoryFile(providers_cluster, "CPU_USAGE  "); try volume.writeDirectoryFile(providers_cluster, "CPU_USAGE  ", "32\n");
+    try volume.createDirectoryFile(providers_cluster, "CPUUSAGETXT"); try volume.writeDirectoryFile(providers_cluster, "CPUUSAGETXT", "32\n");
     try volume.createDirectoryFile(providers_cluster, "RAM_USAGE  "); try volume.writeDirectoryFile(providers_cluster, "RAM_USAGE  ", "48\n");
     try volume.createDirectoryFile(providers_cluster, "GPU_USAGE  "); try volume.writeDirectoryFile(providers_cluster, "GPU_USAGE  ", "unavailable\n");
     try volume.createDirectoryFile(providers_cluster, "NETWORK_IP "); try volume.writeDirectoryFile(providers_cluster, "NETWORK_IP ", "127.0.0.1\n");

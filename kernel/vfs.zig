@@ -927,6 +927,7 @@ fn toFatName(path: []const u8) ?[11]u8 {
     if (std.mem.eql(u8, path, "widgets.html")) return "WIDGETS HTM".*;
     if (std.mem.eql(u8, path, "notifications.html")) return "NOTIFICAHTM".*;
     if (std.mem.eql(u8, path, "launcher.html")) return "LAUNCHERHTM".*;
+    if (std.mem.eql(u8, path, "CPU_USAGE")) return "CPUUSAGETXT".*;
     if (std.mem.eql(u8, path, "/system/ui/variables.conf") or std.mem.eql(u8, path, "system/ui/variables.conf") or std.mem.eql(u8, path, "variables.conf")) return "VARIABLESCF".*;
     var start: usize = 0;
     if (path.len != 0 and path[0] == '/') start = 1;
