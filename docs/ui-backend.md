@@ -91,6 +91,13 @@ and runs the file-backed userspace composition. The primary implementation is
 pointer input and presents through `graphics/ui_backend.zig`; the C program is
 kept as an ABI compatibility check for `csos_ui_backend.h`.
 
+`userspace/ui_ipc_loopback.zig` is the executable transport contract probe. It
+serializes requests, decodes them at an endpoint boundary, applies only
+surface lifecycle/present state, serializes the response, and decodes it back.
+It is deliberately visual-neutral; its bounded buffers can later be replaced
+by the kernel IPC channel or a shared ring without changing the HTML engine or
+the compositor contract.
+
 Application chrome is declared independently in
 `system/ui/interface/apps.manifest`. The Zig userspace composition loads its
 HTML fragments and `apps.css`, expands the same read-only providers, and applies
