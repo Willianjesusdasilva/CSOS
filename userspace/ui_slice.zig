@@ -244,5 +244,9 @@ pub fn main() !void {
     const app_pointer = app_backend.nextEvent() orelse return error.AppPointerMissing;
     if (app_pointer != .pointer or app_pointer.pointer.buttons != 1) return error.AppPointerRoutingFailed;
     if (!app_backend.present(.{ .x = 0, .y = 0, .width = 800, .height = 600 })) return error.AppPresentFailed;
+    const resized_pixels = try allocator.alloc(u32, 640 * 480);
+    paintSurface(resized_pixels, 640, 480, apps_expanded);
+    if (!app_backend.resize(640, 480, resized_pixels)) return error.AppResizeFailed;
+    if (app_backend.surface.width != 640 or app_backend.surface.height != 480) return error.AppResizeMismatch;
     std.debug.print("Zig HTML UI slice passed (provider CPU={s}, surfaces=desktop+apps)\n", .{ cpu });
 }
