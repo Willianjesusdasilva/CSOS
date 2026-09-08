@@ -422,6 +422,7 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
         syscalls.configureUserSlice(null);
     }
     lifecycle = .running;
+    syscalls.resetExitStatus();
     var user_instruction = execution_entry;
     var user_stack = stack_pointer;
     while (true) {

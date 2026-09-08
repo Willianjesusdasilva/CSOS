@@ -356,6 +356,8 @@ pub fn exitStatus() ?u8 {
     return @truncate(process_exit_status);
 }
 
+pub fn resetExitStatus() void { process_exit_status = 0xffffffffffffffff; }
+
 export fn process_exit_dispatch(status: u64) callconv(.c) void {
     process_exit_status = status;
 }
