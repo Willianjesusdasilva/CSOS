@@ -2933,13 +2933,14 @@ fn drawFilesSurface(window: *sdl.Window, entries: []const fat16.Volume.Directory
         const row = index - selection.first_visible;
         const y = 28 + row * 11;
         if (index == selection.selected) window.fillRect(2, y - 1, 220, 10, 0x50402cff);
-        window.drawText(4, y, &entry.name, 0xd8d0c0ff);
-        drawSurfaceNumber(window, 108, y, entry.size, 0x90b0d0ff);
+        window.drawText(4, y, if (entry.directory) "[DIR]" else "     ", 0x80b0d0ff);
+        window.drawText(34, y, &entry.name, 0xd8d0c0ff);
+        drawSurfaceNumber(window, 138, y, entry.size, 0x90b0d0ff);
     }
 }
 
 fn refreshFiles(volume: *fat16.Volume, entries: []fat16.Volume.DirectoryEntry, selection: *sdl.ListSelection, window: *sdl.Window, filter: *const sdl.TextInput) !usize {
-    const count = try volume.listRootFiles(entries);
+    const count = try volume.listRootEntries(entries);
     const query = filter.slice();
     if (query.len == 0) {
         selection.setCount(count);
@@ -2973,6 +2974,7 @@ fn containsAsciiFold(name: []const u8, query: []const u8) bool {
 }
 
 fn loadFilePreview(volume: *fat16.Volume, entry: fat16.Volume.DirectoryEntry, pager: *const sdl.Pager, buffer: []u8, window: *sdl.Window) !usize {
+    if (entry.directory) return error.NotAFile;
     const length = try volume.readRootFileAt(&entry.name, buffer, pager.offset);
     drawFilePreview(window, entry, pager.offset, buffer[0..length]);
     return length;
