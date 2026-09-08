@@ -26,6 +26,25 @@ pub const Document = struct {
             const kind: ?Kind = if (std.mem.eql(u8, name, "h1")) .heading else if (std.mem.eql(u8, name, "p")) .paragraph else if (std.mem.eql(u8, name, "div") or std.mem.eql(u8, name, "span")) .container else if (std.mem.eql(u8, name, "button")) .button else if (std.mem.eql(u8, name, "a")) .link else if (std.mem.eql(u8, name, "input")) .input else null;
             if (kind) |value| {
                 const end_tag = switch (value) { .heading => "</h1>", .paragraph => "</p>", .container => if (std.mem.eql(u8, name, "div")) "</div>" else "</span>", .button => "</button>", .link => "</a>", .input => "</input>" };
+                if (value == .input and std.mem.indexOfPos(u8, source, close + 1, end_tag) == null) {
+                    var initial: []const u8 = "";
+                    if (std.mem.indexOf(u8, tag, "value=") ) |value_start| {
+                        var start = value_start + 6;
+                        if (start < tag.len and (tag[start] == '"' or tag[start] == '\'')) {
+                            const quote = tag[start];
+                            start += 1;
+                            const finish = std.mem.indexOfScalarPos(u8, tag, start, quote) orelse tag.len;
+                            initial = tag[start..finish];
+                        }
+                    }
+                    document.elements[document.count] = .{ .kind = .input, .text = initial, .accent = std.mem.indexOf(u8, tag, "accent") != null, .muted = std.mem.indexOf(u8, tag, "muted") != null, .danger = std.mem.indexOf(u8, tag, "danger") != null, .color = parseColor(tag) };
+                    const length = @min(initial.len, document.input_values[document.count].len);
+                    @memcpy(document.input_values[document.count][0..length], initial[0..length]);
+                    document.input_lengths[document.count] = length;
+                    document.count += 1;
+                    cursor = close + 1;
+                    continue;
+                }
                 if (std.mem.indexOfPos(u8, source, close + 1, end_tag)) |end| {
                     var target: []const u8 = "";
                     if (value == .link) {
