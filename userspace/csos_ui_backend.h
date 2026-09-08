@@ -36,6 +36,12 @@ enum csos_ui_event_kind {
     CSOS_UI_EVENT_CLOSE = 6,
 };
 
+enum csos_ui_pixel_format {
+    CSOS_UI_RGBA8888 = 1,
+    CSOS_UI_BGRA8888 = 2,
+    CSOS_UI_ARGB8888 = 3,
+};
+
 /* Every message starts with kind:u8, total_length:u8. */
 #if defined(__GNUC__) || defined(__clang__)
 #define CSOS_UI_PACKED __attribute__((packed))
@@ -48,7 +54,7 @@ struct CSOS_UI_PACKED csos_ui_message_header { uint8_t kind; uint8_t total_lengt
 struct CSOS_UI_PACKED csos_ui_damage { uint16_t x, y, width, height; };
 struct CSOS_UI_PACKED csos_ui_hello { uint16_t version; uint64_t capabilities; };
 struct CSOS_UI_PACKED csos_ui_present { uint32_t surface_id; uint64_t generation; struct csos_ui_damage damage; };
-struct CSOS_UI_PACKED csos_ui_surface { uint32_t id, buffer_handle, width, height, stride; uint64_t generation; };
+struct CSOS_UI_PACKED csos_ui_surface { uint32_t id, buffer_handle, width, height, stride; uint8_t format; uint64_t generation; };
 
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 _Static_assert(sizeof(struct csos_ui_message_header) == 2, "CSOS UI header layout mismatch");

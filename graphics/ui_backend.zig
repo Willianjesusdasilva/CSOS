@@ -3,12 +3,15 @@ const std = @import("std");
 pub const Surface = struct {
     id: u32,
     buffer_handle: u32 = 0,
+    format: PixelFormat = .rgba8888,
     width: u16,
     height: u16,
     stride: u32,
     pixels: []u32,
     generation: u64 = 0,
 };
+
+pub const PixelFormat = enum(u8) { rgba8888 = 1, bgra8888 = 2, argb8888 = 3 };
 
 pub const Damage = struct { x: u16, y: u16, width: u16, height: u16 };
 
@@ -213,6 +216,13 @@ pub const Backend = struct {
         return true;
     }
 
+    pub fn setFormat(self: *Backend, format: PixelFormat) bool {
+        if (!self.surface_alive) return false;
+        self.surface.format = format;
+        self.surface.generation +|= 1;
+        return true;
+    }
+
     pub fn enqueueEvent(self: *Backend, event: Event) bool {
         if (self.event_write - self.event_read >= self.events.len) return false;
         self.events[self.event_write % self.events.len] = event;
@@ -391,4 +401,13 @@ test "backend attaches an opaque shared buffer handle" {
     try std.testing.expectEqual(@as(u32, 0x44), backend.surface.buffer_handle);
     try std.testing.expect(!backend.attachBuffer(0, &pixels, 4));
     try std.testing.expect(!backend.attachBuffer(0x45, pixels[0..4], 4));
+}
+
+test "backend exposes an explicit pixel format" {
+    var pixels = [_]u32{0} ** 4;
+    var backend = Backend.init(.{ .id = 11, .width = 2, .height = 2, .stride = 2, .pixels = &pixels });
+    try std.testing.expect(backend.setFormat(.bgra8888));
+    try std.testing.expectEqual(PixelFormat.bgra8888, backend.surface.format);
+    try std.testing.expect(backend.destroySurface());
+    try std.testing.expect(!backend.setFormat(.argb8888));
 }
