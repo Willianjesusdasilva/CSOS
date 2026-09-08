@@ -54,6 +54,8 @@ int main(void) {
         return 15;
     if (csos_ui_client_receive_response(&client, message, sizeof(message)) != -1)
         return 16;
+    if (csos_ui_client_receive_event(&client, message, sizeof(message)) != -1)
+        return 21;
     struct csos_ui_pointer pointer;
     uint8_t pointer_message[11] = { CSOS_UI_POINTER, 11, 0xfc, 0xff, 0xff, 0xff, 9, 0, 0, 0, 1 };
     if (!csos_ui_decode_pointer(pointer_message, sizeof(pointer_message), &pointer) || pointer.x != -4 || pointer.buttons != 1)

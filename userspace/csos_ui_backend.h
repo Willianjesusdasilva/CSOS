@@ -360,4 +360,11 @@ static inline int csos_ui_client_receive_response(struct csos_ui_client *client,
     return length >= 2 && csos_ui_response_valid((const uint8_t *)message, (uint8_t)length) ? length : -1;
 }
 
+static inline int csos_ui_client_receive_event(struct csos_ui_client *client,
+                                               void *message, uint8_t capacity) {
+    if (!client || !client->ready) return -1;
+    const int length = csos_ui_transport_receive(&client->transport, message, capacity);
+    return length >= 2 && csos_ui_event_valid((const uint8_t *)message, (uint8_t)length) ? length : -1;
+}
+
 #endif
