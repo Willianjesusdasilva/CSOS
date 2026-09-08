@@ -288,7 +288,7 @@ static inline int csos_ui_client_destroy_window(struct csos_ui_client *client, u
 }
 
 static inline int csos_ui_client_open_file(struct csos_ui_client *client, const char *path, uint8_t path_length) {
-    uint8_t message[258];
+    uint8_t message[255];
     const uint8_t length = csos_ui_encode_open_file(message, sizeof(message), path, path_length);
     if (!client || !client->ready || length == 0) return -1;
     return csos_ui_transport_send(&client->transport, message, length);
