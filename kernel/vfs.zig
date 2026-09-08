@@ -495,6 +495,12 @@ pub fn write(fd: usize, input: []const u8) !usize {
 }
 
 pub fn unlinkAt(directory_fd: i64, path: []const u8) !void {
+    if (disk) |volume| if (directory_fd >= 3 and @as(usize, @intCast(directory_fd)) < descriptors.len and
+        descriptors[@intCast(directory_fd)].node == .fat_directory and std.mem.indexOfScalar(u8, path, '/') == null)
+    {
+        const name = toFatName(path) orelse return error.Invalid;
+        return volume.deleteDirectoryFile(descriptors[@intCast(directory_fd)].fat_cluster, &name);
+    };
     if (disk) |volume| if (resolveFatPath(volume, path)) |resolved| {
         if (resolved.entry.directory) return error.IsDirectory;
         if (resolved.parent_cluster == 0) return error.Invalid;
