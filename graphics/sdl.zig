@@ -480,6 +480,7 @@ pub fn drawReferenceDesktop(window: *Window) void {
     window.drawText(18, 12, "CSOS", 0xf0f6ffff);
     window.drawText(78, 12, "Arquivo   Editar   Visualizar   Janela   Ajuda", 0xc4d5f0ff);
     window.drawText(width -| 112, 12, "Sistema Online", 0x8de0a8ff);
+    window.drawText(width -| 238, 12, "WiFi  🔊   Seg, 7 de Set   18:42", 0xe1eaffff);
 
     // Desktop shortcuts.
     const labels = [_][]const u8{ "Home", "Sistema", "Jogos", "Lixeira" };
