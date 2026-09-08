@@ -1,4 +1,5 @@
 pub export const ready_message: [30]u8 = "CSOS userspace UI files ready\n".*;
+pub export const hello_frame = "UI_HELLO file-backed\n";
 pub export const manifest_path = "/system/ui/interface/desktop.manifest\x00";
 pub export const html_path = "/system/ui/interface/desktop.html\x00";
 pub export const css_path = "/system/ui/styles/desktop.css\x00";
@@ -34,6 +35,11 @@ pub export fn _start() callconv(.naked) noreturn {
         \\js 1f
         \\movl %%eax, %%edi
         \\mov $3, %%eax
+        \\syscall
+        \\mov $451, %%eax
+        \\mov $1, %%edi
+        \\lea hello_frame(%%rip), %%rsi
+        \\mov $21, %%edx
         \\syscall
         \\mov $1, %%eax
         \\mov $1, %%edi
