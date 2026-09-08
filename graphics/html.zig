@@ -1,6 +1,6 @@
 const std = @import("std");
 
-pub const Kind = enum { heading, paragraph, container, button, link, input };
+pub const Kind = enum { heading, paragraph, container, line_break, button, link, input };
 pub const Activation = union(enum) { none, focus_input: usize, action: []const u8 };
 pub const Element = struct { kind: Kind, text: []const u8, target: []const u8 = "", accent: bool = false, muted: bool = false, danger: bool = false, color: ?u32 = null };
 pub const DrawText = *const fn (x: usize, y: usize, text: []const u8, color: u32) void;
@@ -23,9 +23,15 @@ pub const Document = struct {
             const tag = source[open + 1 .. close];
             const name_end = std.mem.indexOfScalar(u8, tag, ' ') orelse tag.len;
             const name = tag[0..name_end];
+            if (std.mem.eql(u8, name, "br")) {
+                document.elements[document.count] = .{ .kind = .line_break, .text = "" };
+                document.count += 1;
+                cursor = close + 1;
+                continue;
+            }
             const kind: ?Kind = if (std.mem.eql(u8, name, "h1")) .heading else if (std.mem.eql(u8, name, "p")) .paragraph else if (std.mem.eql(u8, name, "div") or std.mem.eql(u8, name, "span") or std.mem.eql(u8, name, "ul") or std.mem.eql(u8, name, "ol") or std.mem.eql(u8, name, "li")) .container else if (std.mem.eql(u8, name, "button")) .button else if (std.mem.eql(u8, name, "a")) .link else if (std.mem.eql(u8, name, "input") or std.mem.eql(u8, name, "textarea")) .input else null;
             if (kind) |value| {
-                const end_tag = switch (value) { .heading => "</h1>", .paragraph => "</p>", .container => if (std.mem.eql(u8, name, "div")) "</div>" else if (std.mem.eql(u8, name, "span")) "</span>" else if (std.mem.eql(u8, name, "ul")) "</ul>" else if (std.mem.eql(u8, name, "ol")) "</ol>" else "</li>", .button => "</button>", .link => "</a>", .input => if (std.mem.eql(u8, name, "textarea")) "</textarea>" else "</input>" };
+                const end_tag = switch (value) { .heading => "</h1>", .paragraph => "</p>", .container => if (std.mem.eql(u8, name, "div")) "</div>" else if (std.mem.eql(u8, name, "span")) "</span>" else if (std.mem.eql(u8, name, "ul")) "</ul>" else if (std.mem.eql(u8, name, "ol")) "</ol>" else "</li>", .line_break => "", .button => "</button>", .link => "</a>", .input => if (std.mem.eql(u8, name, "textarea")) "</textarea>" else "</input>" };
                 if (value == .input and std.mem.indexOfPos(u8, source, close + 1, end_tag) == null) {
                     var initial: []const u8 = "";
                     if (std.mem.indexOf(u8, tag, "value=") ) |value_start| {
@@ -80,14 +86,14 @@ pub const Document = struct {
             const text = if (element.kind == .input) self.inputText(index) else element.text;
             const color: u32 = element.color orelse switch (element.kind) {
                 .heading => 0x70d0ffff,
-                .paragraph => 0xa0b8d0ff,
+                .paragraph, .line_break => 0xa0b8d0ff,
                 .container => if (element.muted) 0x788898ff else 0xb0b8c0ff,
                 .button => 0xffd070ff,
                 .link => 0x70b8ffff,
                 .input => 0xd0d0d0ff,
             };
             draw(origin_x, y, text, color);
-            y += if (element.kind == .heading) 16 else 12;
+            y += if (element.kind == .heading) 16 else if (element.kind == .line_break) 6 else 12;
         }
     }
 
