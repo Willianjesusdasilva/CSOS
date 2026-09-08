@@ -117,6 +117,10 @@ int main(void) {
     if (csos_ui_client_process_response(&failed_client, message, sizeof(message), &response_kind) != 4 ||
         response_kind != CSOS_UI_FAILURE || failed_client.ready)
         return 22;
+    failed_client.ready = 1; failed_client.surface_valid = 1; failed_client.focused = 1;
+    if (csos_ui_client_process_response(&failed_client, message, sizeof(message), 0) != 4 ||
+        failed_client.surface_valid || failed_client.focused)
+        return 22;
     struct csos_ui_client event_client;
     struct csos_ui_transport event_transport = { 0, send_message, receive_focus };
     csos_ui_client_init(&event_client, event_transport); event_client.ready = 1;

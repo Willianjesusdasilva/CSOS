@@ -414,7 +414,7 @@ static inline int csos_ui_client_close(struct csos_ui_client *client) {
     uint8_t message[2];
     if (!client || !client->ready || csos_ui_encode_close(message, sizeof(message)) == 0) return -1;
     const int result = csos_ui_transport_send(&client->transport, message, sizeof(message));
-    client->ready = 0; client->hello_pending = 0; return result;
+    client->ready = 0; client->hello_pending = 0; client->surface_valid = 0; client->focused = 0; return result;
 }
 
 static inline int csos_ui_client_receive_response(struct csos_ui_client *client,
@@ -441,7 +441,7 @@ static inline int csos_ui_client_process_response(struct csos_ui_client *client,
         if (csos_ui_decode_surface_destroyed((const uint8_t *)message, (uint8_t)length, &destroyed_id) &&
             client->surface_valid && client->surface.id == destroyed_id) client->surface_valid = 0;
     }
-    if (response_kind == CSOS_UI_FAILURE) { client->ready = 0; client->hello_pending = 0; }
+    if (response_kind == CSOS_UI_FAILURE) { client->ready = 0; client->hello_pending = 0; client->surface_valid = 0; client->focused = 0; }
     return length;
 }
 
@@ -462,7 +462,7 @@ static inline int csos_ui_client_process_event(struct csos_ui_client *client,
     if (event_kind == CSOS_UI_FOCUS) {
         int focused = 0;
         if (csos_ui_decode_focus((const uint8_t *)message, (uint8_t)length, &focused)) client->focused = focused;
-    } else if (event_kind == CSOS_UI_EVENT_CLOSE) client->ready = 0;
+    } else if (event_kind == CSOS_UI_EVENT_CLOSE) { client->ready = 0; client->hello_pending = 0; client->surface_valid = 0; client->focused = 0; }
     return length;
 }
 
