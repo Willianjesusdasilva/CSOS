@@ -622,6 +622,9 @@ pub const Application = struct {
                             else => if (self.dispatchReferenceDock(@intCast(@max(mouse.x, 0)), @intCast(@max(mouse.y, 0)))) |target| {
                                 self.last_html_activation = target;
                                 _ = self.dispatchReferenceAction(target);
+                            } else if (dispatchReferenceShortcut(@intCast(@max(mouse.x, 0)), @intCast(@max(mouse.y, 0)))) |target| {
+                                self.last_html_activation = target;
+                                _ = self.dispatchReferenceAction(target);
                             },
                         }
                     }
@@ -706,6 +709,8 @@ pub const Application = struct {
             "<h1>Configurações</h1><p>Display   Audio   Rede   Energia</p>"
         else if (std.mem.eql(u8, target, "music"))
             "<h1>Música</h1><p>Midnight City — M83</p><a href=\"pause\">||</a>"
+        else if (std.mem.eql(u8, target, "steam"))
+            "<h1>Jogos</h1><p class=muted>Steam está pronto</p><a href=\"steam\">Abrir Steam</a>"
         else return false;
         self.startHtml(source);
         return true;
@@ -722,6 +727,19 @@ pub const Application = struct {
             3 => "terminal",
             4 => "browser",
             5 => "music",
+            else => null,
+        };
+    }
+
+    fn dispatchReferenceShortcut(x: usize, y: usize) ?[]const u8 {
+        if (x < 20 or x >= 92) return null;
+        if (y < 64 or y >= 72 + 4 * 74) return null;
+        const index = (y - 64) / 74;
+        return switch (index) {
+            0 => "files",
+            1 => "settings",
+            2 => "steam",
+            3 => "files",
             else => null,
         };
     }
@@ -2222,6 +2240,7 @@ test "reference desktop dispatches launcher actions into HTML apps" {
     try @import("std").testing.expectEqualStrings("FILES", application.html_session.?.document.elements[0].text);
     try @import("std").testing.expect(!application.dispatchReferenceAction("unknown"));
     try @import("std").testing.expectEqualStrings("terminal", application.dispatchReferenceDock(20 + 18 + 3 * 72 + 4, 200 - 82 + 20).?);
+    try @import("std").testing.expectEqualStrings("settings", Application.dispatchReferenceShortcut(30, 72 + 74 + 8).?);
 }
 
 test "SDL application persists and edits HTML session" {
