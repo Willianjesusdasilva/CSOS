@@ -10,7 +10,7 @@ const Node = enum {
     root, bin, dev, dri, sys, sys_dev, sys_char, drm_char_primary, drm_char_render,
     drm_device, drm_device_drm, drm_subsystem, drm_pci_uevent, drm_vendor,
     drm_device_id, drm_subsystem_vendor, drm_subsystem_device,
-    drm_primary_uevent, drm_render_uevent, busybox, hello, framebuffer, drm, render, disk,
+    drm_primary_uevent, drm_render_uevent, busybox, hello, framebuffer, drm, render, disk, fat_directory,
 };
 
 const Descriptor = struct {
@@ -23,6 +23,7 @@ const Descriptor = struct {
     offset: usize = 0,
     size: usize = 0,
     fat_name: [11]u8 = .{' '} ** 11,
+    fat_cluster: u16 = 0,
 };
 
 pub const Info = struct {
@@ -216,6 +217,13 @@ pub fn openAt(directory_fd: i64, path: []const u8, flags: u64) !usize {
     while (fd < descriptors.len and descriptors[fd].kind != .unused) : (fd += 1) {}
     if (fd == descriptors.len) return error.TooManyFiles;
     if (toFatName(path)) |fat_name| if (disk) |volume| {
+        if (volume.findRootEntry(&fat_name)) |entry| {
+            if (entry.directory) {
+                descriptors[fd] = .{ .generation = try newGeneration(), .kind = .directory, .node = .fat_directory, .fat_cluster = entry.first_cluster };
+                descriptors[fd].close_on_exec = (flags & 0x80000) != 0;
+                return fd;
+            }
+        } else |err| switch (err) { error.NotFound => {}, else => return err };
         var existed = true;
         var size = volume.fileSize(&fat_name) catch |err| switch (err) {
             error.NotFound => blk: {
@@ -418,6 +426,7 @@ pub fn infoAt(directory_fd: i64, path: []const u8) !Info {
 pub fn infoFd(fd: usize) !Info {
     if (fd >= descriptors.len or descriptors[fd].kind == .unused) return error.BadFd;
     if (descriptors[fd].node == .disk) return .{ .mode = 0o100644, .size = descriptors[fd].size, .directory = false };
+    if (descriptors[fd].node == .fat_directory) return .{ .mode = 0o040755, .size = 0, .directory = true };
     return nodeInfo(descriptors[fd].node);
 }
 
@@ -432,6 +441,27 @@ pub fn readLinkAt(directory_fd: i64, path: []const u8, output: []u8) !usize {
 
 pub fn getDents(fd: usize, output: []u8) !usize {
     if (fd >= descriptors.len or descriptors[fd].kind != .directory) return error.BadFd;
+    if (descriptors[fd].node == .fat_directory) {
+        const volume = disk orelse return error.NotFound;
+        var entries: [64]fat16.Volume.DirectoryEntry = undefined;
+        const count = try volume.listDirectory(descriptors[fd].fat_cluster, &entries);
+        var written: usize = 0;
+        while (descriptors[fd].offset < count) {
+            const entry = entries[descriptors[fd].offset];
+            const name: []const u8 = &entry.name;
+            const record_length = (19 + name.len + 1 + 7) & ~@as(usize, 7);
+            if (written > output.len or record_length > output.len - written) break;
+            @memset(output[written .. written + record_length], 0);
+            write64(output[written..], descriptors[fd].offset + 1);
+            write64(output[written + 8 ..], descriptors[fd].offset + 1);
+            write16(output[written + 16 ..], @intCast(record_length));
+            output[written + 18] = if (entry.directory) 4 else 8;
+            @memcpy(output[written + 19 .. written + 19 + name.len], name);
+            written += record_length;
+            descriptors[fd].offset += 1;
+        }
+        return written;
+    }
     const entries = switch (descriptors[fd].node) {
         .root => &[_][]const u8{ "bin", "dev", "sys", "hello.txt" },
         .bin => &[_][]const u8{ "busybox", "sh", "ls", "cat", "echo" },
@@ -495,7 +525,7 @@ fn resolve(directory_fd: i64, path: []const u8) !Node {
 
 fn nodeInfo(node: Node) Info {
     return switch (node) {
-        .root, .bin, .dev, .dri, .sys, .sys_dev, .sys_char, .drm_char_primary, .drm_char_render, .drm_device, .drm_device_drm => .{ .mode = 0o040755, .size = 0, .directory = true },
+        .root, .bin, .dev, .dri, .sys, .sys_dev, .sys_char, .drm_char_primary, .drm_char_render, .drm_device, .drm_device_drm, .fat_directory => .{ .mode = 0o040755, .size = 0, .directory = true },
         .busybox => .{ .mode = 0o100755, .size = busybox.len, .directory = false },
         .hello => .{ .mode = 0o100644, .size = hello.len, .directory = false },
         .framebuffer => .{ .mode = 0o020600, .size = 0, .directory = false },
