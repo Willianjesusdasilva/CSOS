@@ -202,6 +202,49 @@ pub const Volume = struct {
         }
     }
 
+    pub fn readDirectoryFileAt(self: *Volume, directory_cluster: u16, name: *const [11]u8, output: []u8, file_offset: usize) !usize {
+        const entry = try self.findDirectoryEntry(directory_cluster, name);
+        if (entry.directory) return error.IsDirectory;
+        const size: usize = entry.size;
+        if (file_offset >= size or output.len == 0) return 0;
+        try validateDataCluster(entry.first_cluster, self.cluster_count);
+        const cluster_bytes = @as(usize, self.sectors_per_cluster) * 512;
+        var cluster = entry.first_cluster;
+        var skip = file_offset / cluster_bytes;
+        var traversed: u32 = 0;
+        while (skip != 0) : (skip -= 1) {
+            if (!chainTraversalAllowed(traversed, self.cluster_count)) return error.BrokenChain;
+            traversed += 1;
+            cluster = try self.fatEntry(cluster);
+            if (cluster >= 0xfff8) return error.BrokenChain;
+            try validateDataCluster(cluster, self.cluster_count);
+        }
+        var within_cluster = file_offset % cluster_bytes;
+        var copied: usize = 0;
+        const wanted = @min(output.len, size - file_offset);
+        while (copied < wanted) {
+            if (!chainTraversalAllowed(traversed, self.cluster_count)) return error.BrokenChain;
+            traversed += 1;
+            var cluster_sector: u8 = @intCast(within_cluster / 512);
+            var sector_offset = within_cluster % 512;
+            while (cluster_sector < self.sectors_per_cluster and copied < wanted) : (cluster_sector += 1) {
+                try self.storage.readBlock(self.clusterLba(cluster) + cluster_sector, self.buffer);
+                const bytes: [*]const u8 = @ptrFromInt(self.buffer);
+                const count = @min(wanted - copied, 512 - sector_offset);
+                @memcpy(output[copied .. copied + count], bytes[sector_offset .. sector_offset + count]);
+                copied += count;
+                sector_offset = 0;
+            }
+            within_cluster = 0;
+            if (copied < wanted) {
+                cluster = try self.fatEntry(cluster);
+                if (cluster >= 0xfff8) return error.BrokenChain;
+                try validateDataCluster(cluster, self.cluster_count);
+            }
+        }
+        return copied;
+    }
+
     pub fn readRootFileAt(self: *Volume, name: *const [11]u8, output: []u8, file_offset: usize) !usize {
         var first_cluster: u16 = 0;
         var size: usize = 0;
