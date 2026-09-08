@@ -341,6 +341,53 @@ pub const Volume = struct {
         }
     }
 
+    pub fn writeDirectoryFile(self: *Volume, directory_cluster: u16, name: *const [11]u8, data: []const u8) !void {
+        if (data.len > @as(usize, self.sectors_per_cluster) * 512) return error.UnsupportedFile;
+        try validateDataCluster(directory_cluster, self.cluster_count);
+        var cluster = directory_cluster;
+        var traversed: u32 = 0;
+        while (true) {
+            if (!chainTraversalAllowed(traversed, self.cluster_count)) return error.BrokenChain;
+            traversed += 1;
+            var sector: u8 = 0;
+            while (sector < self.sectors_per_cluster) : (sector += 1) {
+                const lba = self.clusterLba(cluster) + sector;
+                try self.storage.readBlock(lba, self.buffer);
+                const bytes: [*]u8 = @ptrFromInt(self.buffer);
+                var offset: usize = 0;
+                while (offset < 512) : (offset += 32) {
+                    if (bytes[offset] == 0) return error.NotFound;
+                    if (!entryIsRegularFile(bytes + offset) or !equal11(bytes + offset, name)) continue;
+                    const old_cluster = get16(bytes + offset + 26);
+                    const data_cluster = if (data.len == 0) @as(u16, 0) else try self.findFree(2);
+                    if (data_cluster >= 2) {
+                        try self.setFatEntry(data_cluster, 0xffff);
+                        var written: usize = 0;
+                        var data_sector: u8 = 0;
+                        while (data_sector < self.sectors_per_cluster) : (data_sector += 1) {
+                            @memset(@as([*]u8, @ptrFromInt(self.buffer))[0..512], 0);
+                            const count = @min(data.len - written, 512);
+                            if (count != 0) @memcpy(@as([*]u8, @ptrFromInt(self.buffer))[0..count], data[written .. written + count]);
+                            try self.storage.writeBlock(self.clusterLba(data_cluster) + data_sector, self.buffer);
+                            written += count;
+                        }
+                    }
+                    try self.storage.readBlock(lba, self.buffer);
+                    const entry: [*]u8 = @ptrFromInt(self.buffer + offset);
+                    put16(entry + 26, data_cluster);
+                    put32(entry + 28, @intCast(data.len));
+                    try self.storage.writeBlock(lba, self.buffer);
+                    if (old_cluster >= 2) try self.freeChain(old_cluster);
+                    return;
+                }
+            }
+            const next = try self.fatEntry(cluster);
+            if (next >= 0xfff8) return error.NotFound;
+            try validateDataCluster(next, self.cluster_count);
+            cluster = next;
+        }
+    }
+
     pub fn readRootFileAt(self: *Volume, name: *const [11]u8, output: []u8, file_offset: usize) !usize {
         var first_cluster: u16 = 0;
         var size: usize = 0;
