@@ -663,7 +663,7 @@ const ResolvedFatPath = struct { entry: fat16.Volume.DirectoryEntry, parent_clus
 
 fn resolveFatPath(volume: *fat16.Volume, path: []const u8) !ResolvedFatPath {
     var iterator = std.mem.splitScalar(u8, path, '/');
-    var components: [8][]const u8 = undefined;
+    var components: [32][]const u8 = undefined;
     var count: usize = 0;
     while (iterator.next()) |component| {
         if (component.len == 0) continue;
