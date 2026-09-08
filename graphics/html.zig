@@ -1,6 +1,6 @@
 const std = @import("std");
 
-pub const Kind = enum { heading, paragraph, button, link, input };
+pub const Kind = enum { heading, paragraph, container, button, link, input };
 pub const Activation = union(enum) { none, focus_input: usize, action: []const u8 };
 pub const Element = struct { kind: Kind, text: []const u8, target: []const u8 = "", accent: bool = false, muted: bool = false, danger: bool = false };
 pub const DrawText = *const fn (x: usize, y: usize, text: []const u8, color: u32) void;
@@ -23,9 +23,9 @@ pub const Document = struct {
             const tag = source[open + 1 .. close];
             const name_end = std.mem.indexOfScalar(u8, tag, ' ') orelse tag.len;
             const name = tag[0..name_end];
-            const kind: ?Kind = if (std.mem.eql(u8, name, "h1")) .heading else if (std.mem.eql(u8, name, "p")) .paragraph else if (std.mem.eql(u8, name, "button")) .button else if (std.mem.eql(u8, name, "a")) .link else if (std.mem.eql(u8, name, "input")) .input else null;
+            const kind: ?Kind = if (std.mem.eql(u8, name, "h1")) .heading else if (std.mem.eql(u8, name, "p")) .paragraph else if (std.mem.eql(u8, name, "div") or std.mem.eql(u8, name, "span")) .container else if (std.mem.eql(u8, name, "button")) .button else if (std.mem.eql(u8, name, "a")) .link else if (std.mem.eql(u8, name, "input")) .input else null;
             if (kind) |value| {
-                const end_tag = switch (value) { .heading => "</h1>", .paragraph => "</p>", .button => "</button>", .link => "</a>", .input => "</input>" };
+                const end_tag = switch (value) { .heading => "</h1>", .paragraph => "</p>", .container => if (std.mem.eql(u8, name, "div")) "</div>" else "</span>", .button => "</button>", .link => "</a>", .input => "</input>" };
                 if (std.mem.indexOfPos(u8, source, close + 1, end_tag)) |end| {
                     var target: []const u8 = "";
                     if (value == .link) {
@@ -62,6 +62,7 @@ pub const Document = struct {
             const color: u32 = switch (element.kind) {
                 .heading => 0x70d0ffff,
                 .paragraph => 0xa0b8d0ff,
+                .container => if (element.muted) 0x788898ff else 0xb0b8c0ff,
                 .button => 0xffd070ff,
                 .link => 0x70b8ffff,
                 .input => 0xd0d0d0ff,
@@ -187,10 +188,11 @@ test "HTML subset parses UI elements in document order" {
     try std.testing.expectEqual(Kind.button, document.elements[2].kind);
 }
 
-test "HTML subset ignores unsupported tags" {
+test "HTML parser ignores unknown tags but keeps containers" {
     const document = Document.parse("<div>x</div><p>ok</p><script>bad</script>");
-    try std.testing.expectEqual(@as(usize, 1), document.count);
-    try std.testing.expectEqualStrings("ok", document.elements[0].text);
+    try std.testing.expectEqual(@as(usize, 2), document.count);
+    try std.testing.expectEqual(Kind.container, document.elements[0].kind);
+    try std.testing.expectEqualStrings("ok", document.elements[1].text);
 }
 
 test "HTML subset emits vertical render operations" {
