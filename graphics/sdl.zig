@@ -695,6 +695,14 @@ pub const WindowManager = struct {
         return if (self.count == 0) null else self.windows[self.focused];
     }
 
+    pub fn focusedIndex(self: *const WindowManager) ?usize {
+        return if (self.count == 0) null else self.focused;
+    }
+
+    pub fn position(self: *const WindowManager, index: usize) ?struct { x: i32, y: i32 } {
+        return if (index < self.count) self.positions[index] else null;
+    }
+
     pub fn altTab(self: *WindowManager, reverse: bool) ?*Window {
         if (self.count == 0) return null;
         self.focused = if (reverse) (self.focused + self.count - 1) % self.count else (self.focused + 1) % self.count;
