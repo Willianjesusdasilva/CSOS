@@ -593,11 +593,6 @@ pub fn start(info: BootInfo) noreturn {
     vfs.validateRuntimeLibraryAliasesSelfTest() catch panic("VFS runtime library alias self-test failed");
     vfs.mount(&volume);
     vfs.reset();
-    const ui_manifest_fd = vfs.openAt(-100, "/system/ui/interface/desktop.manifest", 0) catch |err| {
-        serial.write("UI manifest VFS error: "); serial.write(@errorName(err)); serial.write("\n");
-        panic("desktop.manifest VFS open failed");
-    };
-    vfs.close(ui_manifest_fd) catch panic("desktop.manifest VFS close failed");
     process.runUiRuntime(mapper.root, &pages) catch |err| {
         serial.write("UI runtime error: ");
         serial.write(@errorName(err));
