@@ -244,6 +244,32 @@ pub fn openAt(directory_fd: i64, path: []const u8, flags: u64) !usize {
     var fd: usize = 3;
     while (fd < descriptors.len and descriptors[fd].kind != .unused) : (fd += 1) {}
     if (fd == descriptors.len) return error.TooManyFiles;
+    if (disk) |volume| if (directory_fd >= 3 and @as(usize, @intCast(directory_fd)) < descriptors.len and
+        descriptors[@intCast(directory_fd)].node == .fat_directory and std.mem.indexOfScalar(u8, path, '/') == null)
+    {
+        const parent_cluster = descriptors[@intCast(directory_fd)].fat_cluster;
+        const name = toFatName(path) orelse return error.Invalid;
+        if (volume.findDirectoryEntry(parent_cluster, &name)) |entry| {
+            if (entry.directory) {
+                if ((flags & 0x3) != 0 or (flags & 0x200) != 0) return error.IsDirectory;
+                descriptors[fd] = .{ .generation = try newGeneration(), .kind = .directory, .node = .fat_directory, .fat_cluster = entry.first_cluster };
+            } else {
+                descriptors[fd] = .{ .generation = try newGeneration(), .kind = .file, .node = .disk, .size = entry.size, .fat_name = entry.name, .fat_parent_cluster = parent_cluster };
+            }
+            descriptors[fd].writable = (flags & 0x3) != 0;
+            descriptors[fd].append = (flags & 0x400) != 0;
+            descriptors[fd].close_on_exec = (flags & 0x80000) != 0;
+            return fd;
+        } else |err| if (err != error.NotFound) return err;
+        if ((flags & 0x40) != 0) {
+            try volume.createDirectoryFile(parent_cluster, &name);
+            const entry = try volume.findDirectoryEntry(parent_cluster, &name);
+            descriptors[fd] = .{ .generation = try newGeneration(), .kind = .file, .node = .disk, .size = entry.size, .fat_name = entry.name, .fat_parent_cluster = parent_cluster };
+            descriptors[fd].writable = (flags & 0x3) != 0;
+            return fd;
+        }
+        return error.NotFound;
+    };
     if (disk) |volume| if ((flags & 0x40) != 0) if (resolveFatPath(volume, path)) |_| {} else |_| if (nestedParentPath(path)) |parent_path| {
         const child_name = toFatName(lastPathComponent(path)) orelse return error.Invalid;
         var parent_cluster: u16 = undefined;
