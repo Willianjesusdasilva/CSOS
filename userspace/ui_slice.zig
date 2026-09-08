@@ -49,7 +49,9 @@ pub fn main() !void {
     try append(&composed, &composed_len, dock);
     try append(&composed, &composed_len, launcher);
     try append(&composed, &composed_len, alt_tab);
+    try append(&composed, &composed_len, css);
     try contains(composed[0..composed_len], "data-action=\"open_files\"");
+    try contains(composed[0..composed_len], ".launcher");
     try contains(css, ".launcher");
     try contains(action, "action=open_files");
     if (!std.mem.eql(u8, cpu, "32")) return error.ProviderMismatch;
