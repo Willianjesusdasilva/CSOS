@@ -1,4 +1,10 @@
 pub export const ready_message: [30]u8 = "CSOS userspace UI files ready\n".*;
+pub export const manifest_ok = "UI manifest opened\n";
+pub export const html_ok = "UI html opened\n";
+pub export const css_ok = "UI css opened\n";
+pub export const manifest_fail = "UI manifest OPEN FAIL\n";
+pub export const html_fail = "UI html OPEN FAIL\n";
+pub export const css_fail = "UI css OPEN FAIL\n";
 pub export const hello_frame = [_]u8{ 1, 21 } ++ "UI_HELLO file-backed\n";
 pub export const create_frame = [_]u8{ 2, 19, 0x80, 0x02, 0xe0, 0x01, 12 } ++ "HTML DESKTOP";
 pub export const present_frame = [_]u8{ 1, 22, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x80, 0x02, 0xe0, 0x01 };
@@ -18,9 +24,14 @@ pub export fn _start() callconv(.naked) noreturn {
         \\xor %%edx, %%edx
         \\syscall
         \\test %%rax, %%rax
-        \\js 1f
+        \\js 2f
         \\movl %%eax, %%edi
         \\mov $3, %%eax
+        \\syscall
+        \\mov $1, %%eax
+        \\mov $1, %%edi
+        \\lea manifest_ok(%%rip), %%rsi
+        \\mov $19, %%edx
         \\syscall
         \\mov $257, %%eax
         \\mov $-100, %%edi
@@ -28,9 +39,14 @@ pub export fn _start() callconv(.naked) noreturn {
         \\xor %%edx, %%edx
         \\syscall
         \\test %%rax, %%rax
-        \\js 1f
+        \\js 3f
         \\movl %%eax, %%edi
         \\mov $3, %%eax
+        \\syscall
+        \\mov $1, %%eax
+        \\mov $1, %%edi
+        \\lea html_ok(%%rip), %%rsi
+        \\mov $15, %%edx
         \\syscall
         \\mov $257, %%eax
         \\mov $-100, %%edi
@@ -38,9 +54,14 @@ pub export fn _start() callconv(.naked) noreturn {
         \\xor %%edx, %%edx
         \\syscall
         \\test %%rax, %%rax
-        \\js 1f
+        \\js 4f
         \\movl %%eax, %%edi
         \\mov $3, %%eax
+        \\syscall
+        \\mov $1, %%eax
+        \\mov $1, %%edi
+        \\lea css_ok(%%rip), %%rsi
+        \\mov $14, %%edx
         \\syscall
         \\mov $451, %%eax
         \\movl %%r12d, %%edi
@@ -69,6 +90,27 @@ pub export fn _start() callconv(.naked) noreturn {
         \\syscall
         \\xor %%edi, %%edi
         \\mov $60, %%eax
+        \\syscall
+        \\jmp 1f
+        \\2:
+        \\mov $1, %%eax
+        \\mov $1, %%edi
+        \\lea manifest_fail(%%rip), %%rsi
+        \\mov $22, %%edx
+        \\syscall
+        \\jmp 1f
+        \\3:
+        \\mov $1, %%eax
+        \\mov $1, %%edi
+        \\lea html_fail(%%rip), %%rsi
+        \\mov $18, %%edx
+        \\syscall
+        \\jmp 1f
+        \\4:
+        \\mov $1, %%eax
+        \\mov $1, %%edi
+        \\lea css_fail(%%rip), %%rsi
+        \\mov $18, %%edx
         \\syscall
         \\1:
         \\mov $60, %%eax
