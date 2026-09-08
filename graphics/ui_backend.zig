@@ -169,6 +169,14 @@ fn readU16(input: []const u8) u16 { return std.mem.readInt(u16, input[0..2], .li
 fn readU32(input: []const u8) u32 { return std.mem.readInt(u32, input[0..4], .little); }
 fn readU64(input: []const u8) u64 { return std.mem.readInt(u64, input[0..8], .little); }
 
+/// Engine-facing transport hooks. The backend owns framing and validation;
+/// callers only provide the actual IPC/socket/ring I/O.
+pub const WireTransport = struct {
+    context: *anyopaque,
+    send: *const fn (context: *anyopaque, message: []const u8) bool,
+    receive: *const fn (context: *anyopaque, output: []u8) ?usize,
+};
+
 pub const Backend = struct {
     surface: Surface,
     events: [64]Event = undefined,
@@ -332,6 +340,21 @@ pub const Backend = struct {
     pub fn nextRequestWire(self: *Backend, output: []u8) WireError!?usize {
         const request = self.nextRequest() orelse return null;
         return try encodeRequest(request, output);
+    }
+
+    /// Move at most one framed request and one framed response through an
+    /// external transport. No DOM, CSS, renderer, or kernel pointer crosses
+    /// this boundary; the transport can be replaced without changing UI code.
+    pub fn pumpTransport(self: *Backend, transport: WireTransport) WireError!bool {
+        var wire: [255]u8 = undefined;
+        if (try self.nextRequestWire(&wire)) |length| {
+            if (!transport.send(transport.context, wire[0..length])) return false;
+        }
+        if (transport.receive(transport.context, &wire)) |length| {
+            if (length < 2 or length > wire.len) return error.InvalidMessage;
+            if (!try self.submitResponseWire(wire[0..length])) return false;
+        }
+        return true;
     }
 
     pub fn dispatchRequests(self: *Backend, handler: *const fn (Request) void) usize {

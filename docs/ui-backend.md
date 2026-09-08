@@ -47,6 +47,10 @@ may use a CSOS socket, an IPC channel, or a shared ring without changing the
 engine-facing API. Requests and events are validated before the client accepts
 them.
 
+The Zig backend exposes the same seam through `WireTransport` and
+`Backend.pumpTransport`: one bounded request and response can be moved through
+the caller-supplied endpoint while framing and validation remain centralized.
+
 The `hello` request negotiates protocol version 1 and capability bits for
 surfaces, damage, input, clipboard, timers, IPC, windows, and audio. Unsupported
 versions are rejected before an engine starts rendering.
