@@ -477,6 +477,15 @@ pub fn start(info: BootInfo) noreturn {
     if (syscalls.drm_allocations != expected_drm_objects or syscalls.drm_releases != expected_drm_objects) panic("DRM backing memory lifecycle failed");
     if (drm_guard.* != drm_guard_before) panic("DRM buffer aliased firmware framebuffer");
     serial.write("CSOS M14 userspace DRM core ready\n");
+    if (build_options.webkit_runtime_probe) {
+        process.runWebkitRuntimeProbe(mapper.root, &pages) catch |err| {
+            serial.write("WebKit prerequisite process error: ");
+            serial.write(@errorName(err));
+            serial.write("\n");
+            panic("WebKit prerequisite probe failed; engine not integrated");
+        };
+        mapper.activate();
+    }
     if (build_options.libdrm_probe and !build_options.libdrm_probe_after_gpu) {
         process.runLibdrmProbe(mapper.root, &pages) catch |err| {
             serial.write("libdrm process error: ");

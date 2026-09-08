@@ -8,6 +8,15 @@ O sistema operacional vem primeiro. Steam, Steam Runtime e CS2 são as últimas 
 
 ## Regras
 
+- Requisito explícito de interface (2026-09-08): todo o desktop deve executar
+  HTML, CSS e JavaScript por WebKit em userspace. O parser HTML simplificado e
+  o desenho nativo atual não satisfazem a entrega. Priorizar WPE WebKit como
+  base de portabilidade; manter o kernel e o backend CSOS prioritariamente Zig.
+- Não declarar WebKit integrado por abrir arquivos HTML/CSS, testar um mailbox,
+  apresentar um pixel ou exibir uma prévia em outro SO. A aceitação exige
+  WebKit executando dentro do CSOS no QEMU, CSS aplicado, JavaScript alterando
+  o DOM por input real e chamadas verificáveis ao backend do SO.
+
 - Priorizar `funciona > simples > rápido > bonito`.
 - Reutilizar componentes maduros como Mesa, RADV, Nouveau/NVK e, quando necessário e legalmente compatível, componentes oficiais redistribuíveis.
 - Não reimplementar integralmente drivers modernos AMD ou NVIDIA em Zig antes do primeiro frame Vulkan.

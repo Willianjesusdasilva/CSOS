@@ -1,5 +1,18 @@
 # CSOS
 
+## Interface: requisito de WebKit
+
+O desktop solicitado deve ser implementado em **HTML, CSS e JavaScript**, com
+**WebKit executando em userspace do CSOS**. A base escolhida para investigar o
+port é WPE WebKit; o kernel e a integração específica do SO continuam
+prioritariamente Zig. O código C/C++ do WebKit será reutilizado, não reescrito.
+
+**Estado real:** WebKit ainda não está integrado. A composição nativa atual,
+o parser HTML limitado e o teste que abre arquivos não executam WebKit nem
+JavaScript. Declarações anteriores de interface HTML pronta não constituem
+validação desse requisito. Prévia no Windows/Linux também não comprova execução
+no CSOS. Veja [o contrato de entrega](docs/webkit-desktop.md).
+
 **CSOS** é um sistema operacional experimental x86-64 escrito principalmente em **Zig**, projetado em torno de um único objetivo:
 
 > Executar Counter-Strike 2 com o menor overhead possível do sistema operacional.
