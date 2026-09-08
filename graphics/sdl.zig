@@ -533,7 +533,7 @@ pub const Application = struct {
     processed_events: u64 = 0,
     last_html_activation: ?[]const u8 = null,
 
-    pub const reference_desktop_source = "<style>body{color:#e5efff}h1{color:#70d0ff}button{accent}</style><h1>CSOS</h1><p muted>Sistema Online</p><p>Pastas</p><button action=files accent>Arquivos</button><button action=terminal>Terminal</button><button action=browser>Browser</button><p>CPU 32%   RAM 48%   GPU 12%</p>";
+    pub const reference_desktop_source = "<style>body{color:#e5efff}h1{color:#70d0ff}button{accent}</style><h1>CSOS</h1><input value=Buscar aplicações, arquivos...><p muted>● Sistema Online</p><p>Recentes   Home   Documentos   Downloads   Imagens   Música   Vídeos</p><p>Pastas</p><button action=projetos accent>Projetos</button><button action=csos accent>CSOS</button><button action=downloads accent>Downloads</button><button action=imagens accent>Imagens</button><p>Arquivos</p><button action=goal>GOAL.md</button><button action=readme>README.md</button><button action=config>config.sys</button><p>CPU 32%   RAM 48%   GPU 12%   Rede 125 MB/s</p><button action=files accent>Arquivos</button><button action=terminal>Terminal</button><button action=browser>Browser</button><button action=settings>Configurações</button><button action=music>Música</button><button action=steam>Steam</button>";
 
     pub fn pump(self: *Application, events: *EventQueue, on_event: *const fn (*Application, Event) void) void {
         while (events.poll()) |event| {
