@@ -748,6 +748,10 @@ pub const Application = struct {
             "<h1>Música</h1><p>Midnight City — M83</p><a href=\"pause\">||</a>"
         else if (std.mem.eql(u8, target, "steam"))
             "<h1>Jogos</h1><p class=muted>Steam está pronto</p><a href=\"steam\">Abrir Steam</a>"
+        else if (std.mem.eql(u8, target, "monitor"))
+            "<h1>Monitor</h1><p>CPU 32%   RAM 48%   GPU 12%</p><p class=muted>Processos do sistema ativos</p>"
+        else if (std.mem.eql(u8, target, "store"))
+            "<h1>Loja</h1><p>Aplicativos CSOS</p><a href=\"files\">Explorar catálogo</a>"
         else return false;
         self.startHtml(source);
         return true;
@@ -2292,6 +2296,8 @@ test "reference desktop dispatches launcher actions into HTML apps" {
     try @import("std").testing.expectEqualStrings("terminal", application.dispatchReferenceDock(20 + 18 + 3 * 72 + 4, 200 - 82 + 20).?);
     try @import("std").testing.expectEqualStrings("settings", Application.dispatchReferenceShortcut(30, 72 + 74 + 8).?);
     try @import("std").testing.expect(application.dispatchReferenceAction("terminal"));
+    try @import("std").testing.expect(application.dispatchReferenceAction("monitor"));
+    try @import("std").testing.expectEqualStrings("Monitor", application.html_session.?.document.elements[0].text);
     var events = EventQueue{};
     try @import("std").testing.expect(events.pushKeyboard(0x29, true, 0));
     application.pumpHtml(&events);
