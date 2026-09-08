@@ -2793,6 +2793,7 @@ fn seedUiFilesystem(volume: *fat16.Volume) !void {
     try volume.createDirectoryFile(providers_cluster, "NETWORK_IP "); try volume.writeDirectoryFile(providers_cluster, "NETWORK_IP ", "127.0.0.1\n");
     try volume.createDirectoryFile(providers_cluster, "CURRENTFPS "); try volume.writeDirectoryFile(providers_cluster, "CURRENTFPS ", "60\n");
     try volume.createDirectoryFile(providers_cluster, "FRAMETIME  "); try volume.writeDirectoryFile(providers_cluster, "FRAMETIME  ", "16.6\n");
+    try volume.createDirectoryFile(scripts_cluster, "OPENFILESH "); try volume.writeDirectoryFile(scripts_cluster, "OPENFILESH ", "open_files\n");
 }
 
 fn handleSdlDemoEvent(app: *sdl.Application, event: sdl.Event) void {
