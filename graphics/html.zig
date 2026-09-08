@@ -156,6 +156,12 @@ pub const Session = struct {
         const index = self.focused orelse return null;
         return self.document.activateIndex(index);
     }
+
+    /// Handles keyboard activation commands for the currently focused control.
+    pub fn activateKey(self: *const Session, key: u8) ?[]const u8 {
+        if (key != 13 and key != 32) return null;
+        return self.activateFocused();
+    }
 };
 
 var rendered_count: usize = 0;
@@ -243,6 +249,8 @@ test "HTML session activates focused controls from keyboard navigation" {
     var session = Session.init("<p>Menu</p><button>Launch</button>");
     _ = session.focusNext(true);
     try std.testing.expectEqualStrings("Launch", session.activateFocused().?);
+    try std.testing.expectEqualStrings("Launch", session.activateKey(13).?);
+    try std.testing.expect(session.activateKey('x') == null);
 }
 
 test "HTML input values are mutable independently of source markup" {
