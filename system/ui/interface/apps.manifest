@@ -1,0 +1,4 @@
+fragment=apps/system.html
+fragment=apps/files.html
+fragment=apps/monitor.html
+stylesheet=../styles/apps.css

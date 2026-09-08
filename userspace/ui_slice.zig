@@ -68,6 +68,7 @@ pub fn main() !void {
     defer arena.deinit();
     const allocator = arena.allocator();
     const manifest = try readFile(allocator, "system/ui/interface/desktop.manifest");
+    const apps_manifest = try readFile(allocator, "system/ui/interface/apps.manifest");
     const variables = try readFile(allocator, "system/ui/variables.conf");
     const template_name = try manifestValue(manifest, "template=");
     if (template_name.len == 0 or std.mem.indexOf(u8, template_name, "..") != null or std.mem.startsWith(u8, template_name, "/")) return error.InvalidTemplatePath;
@@ -108,6 +109,10 @@ pub fn main() !void {
     try contains(manifest, "fragment=terminal.html");
     try contains(manifest, "fragment=status.html");
     try contains(manifest, "fragment=desktop-actions.html");
+    try contains(apps_manifest, "fragment=apps/system.html");
+    try contains(apps_manifest, "fragment=apps/files.html");
+    try contains(apps_manifest, "fragment=apps/monitor.html");
+    try contains(apps_manifest, "stylesheet=../styles/apps.css");
     try contains(manifest, "stylesheet=../styles/terminal.css");
     try contains(desktop_actions, "data-action=\"open_files\"");
     try contains(topbar, "{{ NETWORK_IP }}");
