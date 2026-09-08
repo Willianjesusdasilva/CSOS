@@ -75,6 +75,17 @@ const GpuVmRuntime = struct {
     active: bool = false,
 };
 var gpu_vm_runtime = GpuVmRuntime{};
+
+fn resetSystemHtmlState() void {
+    system_surface_cache = null;
+    system_html_active = false;
+    system_html_focus = 0;
+    system_html_document_ready = false;
+}
+
+fn advanceSystemHtmlFocus() void {
+    system_html_focus = (system_html_focus + 1) % 5;
+}
 const GpuCsRuntime = struct {
     mmio: ?gpu.AmdGmc11MmioTransport = null,
     doorbell: ?gpu.AmdGfx11DoorbellTransport = null,
@@ -2281,7 +2292,7 @@ pub fn start(info: BootInfo) noreturn {
                     }
                 }
                 if (!terminal_shortcut_pressed and !monitor_shortcut_pressed and !system_shortcut_pressed and !files_shortcut_pressed and !launcher_consumed and !tab_switch_pressed and event.c != 0 and event.a == 0x2b and focusedWindowIs(window_manager, 3)) {
-                    system_html_focus = (system_html_focus + 1) % 5;
+                    advanceSystemHtmlFocus();
                     drawSystemSurface(&system_window, storage.block_count, @as(usize, hid.keyboards) + hid.mice, audio_info.playback_endpoints);
                     serial.write("UI HTML focus: ");
                     serial.writeDecimal(system_html_focus);
@@ -2879,10 +2890,10 @@ fn drawSdlTerminal(app: *sdl.Application) void {
 fn launchDesktopWindow(manager: *display.WindowManager, application_id: u32, app_surface: *sdl.Window, monitor_surface: *sdl.Window, system_surface: *sdl.Window, files_surface: *sdl.Window) !usize {
     if (manager.findById(application_id)) |existing| {
         _ = manager.restore(existing);
-        if (application_id == 3) { system_surface_cache = null; system_html_active = false; system_html_focus = 0; }
+        if (application_id == 3) resetSystemHtmlState();
         return manager.focused.?;
     }
-    if (application_id == 3) { system_surface_cache = null; system_html_active = false; system_html_focus = 0; }
+    if (application_id == 3) resetSystemHtmlState();
     return switch (application_id) {
         1 => manager.create(.{ .id = 1, .title = "TERMINAL", .x = 32, .y = 220, .width = 260, .height = 140, .title_color = 0x405070, .body_color = 0x18202c, .surface = app_surface }),
         2 => manager.create(.{ .id = 2, .title = "MONITOR", .x = 180, .y = 280, .width = 260, .height = 140, .title_color = 0x604070, .body_color = 0x241828, .surface = monitor_surface }),
