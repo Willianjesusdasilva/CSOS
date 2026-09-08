@@ -342,7 +342,8 @@ pub const Volume = struct {
     }
 
     pub fn writeDirectoryFile(self: *Volume, directory_cluster: u16, name: *const [11]u8, data: []const u8) !void {
-        if (data.len > @as(usize, self.sectors_per_cluster) * 512) return error.UnsupportedFile;
+        const cluster_bytes = @as(usize, self.sectors_per_cluster) * 512;
+        const needed = try clustersForLength(data.len, cluster_bytes, self.cluster_count);
         try validateDataCluster(directory_cluster, self.cluster_count);
         var cluster = directory_cluster;
         var traversed: u32 = 0;
@@ -359,22 +360,32 @@ pub const Volume = struct {
                     if (bytes[offset] == 0) return error.NotFound;
                     if (!entryIsRegularFile(bytes + offset) or !equal11(bytes + offset, name)) continue;
                     const old_cluster = get16(bytes + offset + 26);
-                    const data_cluster = if (data.len == 0) @as(u16, 0) else try self.findFree(2);
-                    if (data_cluster >= 2) {
+                    var first_cluster: u16 = 0;
+                    var previous_cluster: u16 = 0;
+                    var allocated: usize = 0;
+                    var search: u16 = 2;
+                    var written: usize = 0;
+                    errdefer if (first_cluster >= 2) self.freeChain(first_cluster) catch {};
+                    while (allocated < needed) {
+                        const data_cluster = try self.findFree(search);
                         try self.setFatEntry(data_cluster, 0xffff);
-                        var written: usize = 0;
+                        if (previous_cluster >= 2) try self.setFatEntry(previous_cluster, data_cluster) else first_cluster = data_cluster;
+                        previous_cluster = data_cluster;
+                        allocated += 1;
+                        search = data_cluster + 1;
                         var data_sector: u8 = 0;
                         while (data_sector < self.sectors_per_cluster) : (data_sector += 1) {
-                            @memset(@as([*]u8, @ptrFromInt(self.buffer))[0..512], 0);
+                            const cluster_bytes_ptr: [*]u8 = @ptrFromInt(self.buffer);
+                            @memset(cluster_bytes_ptr[0..512], 0);
                             const count = @min(data.len - written, 512);
-                            if (count != 0) @memcpy(@as([*]u8, @ptrFromInt(self.buffer))[0..count], data[written .. written + count]);
+                            if (count != 0) @memcpy(cluster_bytes_ptr[0..count], data[written .. written + count]);
                             try self.storage.writeBlock(self.clusterLba(data_cluster) + data_sector, self.buffer);
                             written += count;
                         }
                     }
                     try self.storage.readBlock(lba, self.buffer);
                     const entry: [*]u8 = @ptrFromInt(self.buffer + offset);
-                    put16(entry + 26, data_cluster);
+                    put16(entry + 26, first_cluster);
                     put32(entry + 28, @intCast(data.len));
                     try self.storage.writeBlock(lba, self.buffer);
                     if (old_cluster >= 2) try self.freeChain(old_cluster);
