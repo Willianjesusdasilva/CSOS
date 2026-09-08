@@ -587,6 +587,58 @@ pub const Application = struct {
     }
 };
 
+/// Lightweight desktop stacking model. Windows are owned by the caller;
+/// this manager only tracks stacking and focus order.
+pub const WindowManager = struct {
+    pub const capacity: usize = 16;
+    windows: [capacity]*Window = undefined,
+    count: usize = 0,
+    focused: usize = 0,
+
+    pub fn add(self: *WindowManager, window: *Window) !void {
+        if (self.count == capacity) return error.TooManyWindows;
+        self.windows[self.count] = window;
+        self.count += 1;
+        self.focused = self.count - 1;
+    }
+
+    pub fn remove(self: *WindowManager, window: *Window) bool {
+        for (self.windows[0..self.count], 0..) |candidate, index| {
+            if (candidate != window) continue;
+            for (index + 1..self.count) |move| self.windows[move - 1] = self.windows[move];
+            self.count -= 1;
+            if (self.count == 0) self.focused = 0 else if (self.focused >= self.count) self.focused = self.count - 1;
+            return true;
+        }
+        return false;
+    }
+
+    pub fn focus(self: *WindowManager, index: usize) bool {
+        if (index >= self.count) return false;
+        self.focused = index;
+        return true;
+    }
+
+    pub fn focusedWindow(self: *const WindowManager) ?*Window {
+        return if (self.count == 0) null else self.windows[self.focused];
+    }
+
+    pub fn altTab(self: *WindowManager, reverse: bool) ?*Window {
+        if (self.count == 0) return null;
+        self.focused = if (reverse) (self.focused + self.count - 1) % self.count else (self.focused + 1) % self.count;
+        return self.windows[self.focused];
+    }
+
+    pub fn raise(self: *WindowManager, index: usize) bool {
+        if (index >= self.count) return false;
+        const selected = self.windows[index];
+        for (index + 1..self.count) |move| self.windows[move - 1] = self.windows[move];
+        self.windows[self.count - 1] = selected;
+        self.focused = self.count - 1;
+        return true;
+    }
+};
+
 pub const TextInput = struct {
     bytes: [64]u8 = undefined,
     len: usize = 0,
