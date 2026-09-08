@@ -86,6 +86,18 @@ pub fn main() !void {
     const system_app = try readFile(allocator, "system/ui/interface/apps/system.html");
     const files_app = try readFile(allocator, "system/ui/interface/apps/files.html");
     const monitor_app = try readFile(allocator, "system/ui/interface/apps/monitor.html");
+    var apps_composed: [8192]u8 = undefined;
+    var apps_len: usize = 0;
+    var apps_lines = std.mem.splitScalar(u8, apps_manifest, '\n');
+    while (apps_lines.next()) |raw| {
+        const line = std.mem.trim(u8, raw, " \r\t");
+        if (line.len == 0 or std.mem.startsWith(u8, line, "stylesheet=")) continue;
+        if (!std.mem.startsWith(u8, line, "fragment=apps/")) return error.InvalidAppsManifest;
+        const name = line[9..];
+        if (std.mem.indexOf(u8, name, "..") != null) return error.InvalidAppsPath;
+        const path = try std.fmt.allocPrint(allocator, "system/ui/interface/{s}", .{name});
+        try append(&apps_composed, &apps_len, try readFile(allocator, path));
+    }
     const status = try readFile(allocator, "system/ui/interface/status.html");
     const desktop_actions = try readFile(allocator, "system/ui/interface/desktop-actions.html");
     const cpu_path = try configuredPath(variables, "CPU_USAGE");
@@ -134,6 +146,7 @@ pub fn main() !void {
     try contains(monitor_app, "data-app=\"monitor\"");
     try contains(monitor_app, "{{ GPU_USAGE }}");
     try validateActions(monitor_app);
+    try validateActions(apps_composed[0..apps_len]);
     try contains(status, "{{ CPU_USAGE }}");
     try contains(status, "class=\"status-card\"");
     try validateActions(system_app);
