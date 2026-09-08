@@ -8,4 +8,6 @@ fragment=launcher.html
 fragment=alt-tab.html
 fragment=widgets.html
 fragment=sidebar.html
+fragment=terminal.html
 stylesheet=../styles/desktop.css
+stylesheet=../styles/terminal.css
