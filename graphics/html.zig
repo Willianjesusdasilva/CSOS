@@ -312,6 +312,16 @@ test "HTML session activates mouse targets and focuses inputs" {
     try std.testing.expectEqual(@as(usize, 2), session.focused.?);
 }
 
+test "HTML checkbox preserves and toggles checked state" {
+    var session = Session.init("<input type=checkbox checked>");
+    try std.testing.expect(session.document.isCheckbox(0));
+    try std.testing.expect(session.document.elements[0].checked);
+    _ = session.activateEvent(4, 4, 0, 0);
+    try std.testing.expect(!session.document.elements[0].checked);
+    _ = session.activateEvent(4, 4, 0, 0);
+    try std.testing.expect(session.document.elements[0].checked);
+}
+
 test "HTML activation events distinguish focus from actions" {
     var session = Session.init("<input>name</input><button>Go</button>");
     switch (session.activateEvent(8, 4, 4, 4)) {
