@@ -27,3 +27,6 @@ Write-Output 'C ABI backend contract passed'
 & $Zig test (Join-Path $workspace 'kernel/ui_ipc.zig')
 if ($LASTEXITCODE -ne 0) { throw "Kernel UI mailbox contract failed with exit code $LASTEXITCODE" }
 Write-Output 'Kernel UI mailbox contract passed'
+& $Zig test --dep ui_backend "-Mroot=$(Join-Path $workspace 'userspace/ui_engine_loop.zig')" "-Mui_backend=$(Join-Path $workspace 'graphics/ui_backend.zig')"
+if ($LASTEXITCODE -ne 0) { throw "Userspace UI engine loop failed with exit code $LASTEXITCODE" }
+Write-Output 'Userspace UI engine loop passed'
