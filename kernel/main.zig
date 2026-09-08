@@ -1589,9 +1589,12 @@ pub fn start(info: BootInfo) noreturn {
     const gpu_register_probe = gpu_identity.boot0 orelse gpu_adapter.readRegister(0) catch panic("GPU register MMIO read failed");
     var screen = display.Context.init(info.framebuffer, display_device, &pages) catch panic("display initialization failed");
     var sdl_events = sdl.EventQueue{};
-    var demo_window = sdl.createWindow(&sdl_demo_pixels, 224, 96) catch panic("SDL demo surface creation failed");
+    const desktop_surface_pixels_count = std.math.mul(usize, screen.framebuffer.stride, screen.framebuffer.height) catch panic("HTML desktop surface size overflow");
+    const desktop_surface_pages = (desktop_surface_pixels_count * @sizeOf(u32) + 4095) / 4096;
+    const desktop_surface_address = pages.allocate(desktop_surface_pages) orelse panic("HTML desktop surface allocation failed");
+    const desktop_surface_pixels: [*]u32 = @ptrFromInt(desktop_surface_address);
+    var demo_window = sdl.createWindow(desktop_surface_pixels[0..desktop_surface_pixels_count], screen.framebuffer.width, screen.framebuffer.height) catch panic("SDL HTML desktop surface creation failed");
     demo_window.clear(0x182838ff);
-    demo_window.drawText(4, 4, "TERMINAL", 0x70d0ffff);
     var demo_app = sdl.Application{ .window = demo_window };
     demo_app.startReferenceDesktop();
     _ = demo_app.renderReferenceDesktop();
@@ -1615,7 +1618,7 @@ pub fn start(info: BootInfo) noreturn {
     serial.write("\n");
     const window_manager = &desktop_window_manager;
     window_manager.reset();
-    _ = window_manager.create(.{ .id = 1, .title = "TERMINAL", .x = 32, .y = 220, .width = 260, .height = 140, .title_color = 0x405070, .body_color = 0x18202c, .surface = &demo_app.window }) catch panic("desktop window creation failed");
+    _ = window_manager.create(.{ .id = 1, .title = "DESKTOP HTML", .x = 0, .y = 0, .width = screen.framebuffer.width, .height = screen.framebuffer.height, .title_color = 0x405070, .body_color = 0x18202c, .surface = &demo_app.window }) catch panic("desktop window creation failed");
     _ = window_manager.create(.{ .id = 2, .title = "MONITOR", .x = 180, .y = 280, .width = 260, .height = 140, .title_color = 0x604070, .body_color = 0x241828, .surface = &monitor_window }) catch panic("desktop window creation failed");
     screen.drawBaseline(@as(usize, hid.keyboards) + hid.mice, audio_info.playback_endpoints);
     window_manager.compose(&screen);
