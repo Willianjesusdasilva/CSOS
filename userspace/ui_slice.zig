@@ -71,6 +71,7 @@ pub fn main() !void {
     const notifications = try readFile(allocator, "system/ui/interface/notifications.html");
     const media = try readFile(allocator, "system/ui/interface/media.html");
     const terminal = try readFile(allocator, "system/ui/interface/terminal.html");
+    const status = try readFile(allocator, "system/ui/interface/status.html");
     const css = try readFile(allocator, "system/ui/styles/desktop.css");
     const terminal_css = try readFile(allocator, "system/ui/styles/terminal.css");
     const cpu_path = try configuredPath(variables, "CPU_USAGE");
@@ -91,8 +92,8 @@ pub fn main() !void {
     try contains(manifest, "fragment=notifications.html");
     try contains(manifest, "fragment=media.html");
     try contains(manifest, "fragment=terminal.html");
+    try contains(manifest, "fragment=status.html");
     try contains(manifest, "stylesheet=../styles/terminal.css");
-    try contains(desktop, "{{ CPU_USAGE }}");
     try contains(desktop, "data-action=\"open_files\"");
     try contains(topbar, "{{ NETWORK_IP }}");
     try contains(dock, "data-action=\"open_files\"");
@@ -105,6 +106,8 @@ pub fn main() !void {
     try contains(media, "data-action=\"pause_media\"");
     try contains(terminal, "class=\"terminal-window\"");
     try contains(terminal, "CSOS shell");
+    try contains(status, "{{ CPU_USAGE }}");
+    try contains(status, "class=\"status-card\"");
     try append(&composed, &composed_len, desktop);
     var manifest_lines = std.mem.splitScalar(u8, manifest, '\n');
     while (manifest_lines.next()) |raw_line| {

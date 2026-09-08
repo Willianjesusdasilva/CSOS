@@ -9,5 +9,6 @@ fragment=alt-tab.html
 fragment=widgets.html
 fragment=sidebar.html
 fragment=terminal.html
+fragment=status.html
 stylesheet=../styles/desktop.css
 stylesheet=../styles/terminal.css
