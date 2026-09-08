@@ -76,6 +76,13 @@ pub fn main() !void {
     try contains(css, ".launcher");
     try contains(action, "action=open_files");
     try contains(action, "capability=window");
+    const actions = [_][]const u8{ "open_terminal", "open_browser", "open_settings", "open_monitor", "open_store", "focus_files", "focus_terminal", "focus_browser" };
+    for (actions) |action_name| {
+        const action_path = try std.fmt.allocPrint(allocator, "system/ui/scripts/{s}", .{action_name});
+        const action_file = try readFile(allocator, action_path);
+        const declaration = try std.fmt.allocPrint(allocator, "action={s}", .{action_name});
+        try contains(action_file, declaration);
+    }
     if (!std.mem.eql(u8, cpu, "32")) return error.ProviderMismatch;
 
     var pixels = [_]u32{0} ** (1920 * 4);
