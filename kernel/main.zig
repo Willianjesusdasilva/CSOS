@@ -3255,6 +3255,7 @@ pub fn panic(message: []const u8) noreturn {
 
 fn drawDisplay(framebuffer: Framebuffer, hid: xhci.HidDevices, audio_info: xhci.AudioDevices) void {
     if (framebuffer.base == 0 or framebuffer.size < 4) panic("invalid framebuffer");
+    drawDesktopWallpaper(framebuffer);
     const pixels: [*]volatile u32 = @ptrFromInt(framebuffer.base);
     const rows = @min(framebuffer.height, 32);
     var y: usize = 0;
@@ -3269,6 +3270,25 @@ fn drawDisplay(framebuffer: Framebuffer, hid: xhci.HidDevices, audio_info: xhci.
     drawDisplayStatusPanel(framebuffer, hid, audio_info);
     drawDisplayHeader(framebuffer);
     drawDesktopChrome(framebuffer);
+}
+
+fn drawDesktopWallpaper(framebuffer: Framebuffer) void {
+    if (framebuffer.base == 0) return;
+    const pixels: [*]volatile u32 = @ptrFromInt(framebuffer.base);
+    for (0..framebuffer.height) |y| {
+        const t: u32 = @intCast((y * 255) / @max(framebuffer.height, 1));
+        const red: u32 = 20 + ((45 * (255 - t)) / 255);
+        const green: u32 = 35 + ((55 * (255 - t)) / 255);
+        const blue: u32 = 75 + ((85 * (255 - t)) / 255);
+        for (0..framebuffer.width) |x| {
+            var color = (red << 16) | (green << 8) | blue;
+            const horizon = framebuffer.height * 3 / 5;
+            if (y > horizon and y < horizon + framebuffer.height / 5 and
+                x > (y - horizon) * 3 and x + (y - horizon) * 2 < framebuffer.width + 40)
+                color = 0x18253f;
+            pixels[y * framebuffer.stride + x] = color;
+        }
+    }
 }
 
 fn drawDesktopChrome(framebuffer: Framebuffer) void {
