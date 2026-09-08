@@ -18,3 +18,9 @@ if ($LASTEXITCODE -ne 0) { throw 'C ABI userspace compilation failed' }
 & $output
 if ($LASTEXITCODE -ne 0) { throw "C ABI HTML UI vertical slice failed with exit code $LASTEXITCODE" }
 Write-Output 'C ABI HTML UI vertical slice passed'
+$backendOutput = Join-Path $workspace '.zig-cache/csos_ui_backend_test.exe'
+& $Zig cc -std=c11 -Wall -Werror (Join-Path $workspace 'userspace/csos_ui_backend_test.c') -I (Join-Path $workspace 'userspace') -o $backendOutput
+if ($LASTEXITCODE -ne 0) { throw 'C ABI backend contract compilation failed' }
+& $backendOutput
+if ($LASTEXITCODE -ne 0) { throw "C ABI backend contract failed with exit code $LASTEXITCODE" }
+Write-Output 'C ABI backend contract passed'

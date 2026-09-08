@@ -98,7 +98,7 @@ int main(void) {
     if (csos_ui_client_confirm_hello(&incompatible_client, message, 12) != -1 || incompatible_client.ready == 1)
         return 9;
     struct csos_ui_client receiving_client;
-    struct csos_ui_transport ack_transport = { 0, send_message, receive_hello_ack };
+    struct csos_ui_transport ack_transport = { &transport_state, send_message, receive_hello_ack };
     csos_ui_client_init(&receiving_client, ack_transport);
     if (csos_ui_client_hello(&receiving_client, CSOS_UI_PROTOCOL_VERSION, CSOS_UI_CAP_SURFACE) != 0 ||
         csos_ui_client_receive_hello_ack(&receiving_client, message, sizeof(message)) != 12 ||
