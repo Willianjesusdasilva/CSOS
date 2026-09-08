@@ -89,6 +89,8 @@ int main(void) {
         !surface_client.surface_valid || surface_client.surface.buffer_handle != 0x55 ||
         surface_client.surface.generation != 9)
         return 9;
+    if (!csos_ui_client_surface(&surface_client) || csos_ui_client_surface(&surface_client)->id != 4)
+        return 9;
     if (csos_ui_client_present(&surface_client, 4, 8, (struct csos_ui_damage){ 0, 0, 1, 1 }) != -1 ||
         csos_ui_client_present(&surface_client, 4, 9, (struct csos_ui_damage){ 0, 0, 1, 1 }) != 0)
         return 9;

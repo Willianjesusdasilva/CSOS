@@ -312,6 +312,10 @@ struct csos_ui_client {
     uint32_t timer_id;
 };
 
+static inline const struct csos_ui_surface *csos_ui_client_surface(const struct csos_ui_client *client) {
+    return client && client->surface_valid ? &client->surface : (const struct csos_ui_surface *)0;
+}
+
 static inline int csos_ui_transport_send(const struct csos_ui_transport *transport,
                                          const void *message, uint8_t length) {
     if (!transport || !transport->send || !message || length < 2) return -1;
