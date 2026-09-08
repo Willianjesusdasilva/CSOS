@@ -169,6 +169,10 @@ pub fn main() !void {
         try contains(action_file, "capability=");
         if (std.mem.indexOf(u8, action_file, "exec=") != null or std.mem.indexOf(u8, action_file, "command=") != null)
             return error.ArbitraryActionCommand;
+        const capability_ok = std.mem.indexOf(u8, action_file, "capability=window") != null or
+            std.mem.indexOf(u8, action_file, "capability=focus") != null or
+            std.mem.indexOf(u8, action_file, "capability=audio") != null;
+        if (!capability_ok) return error.UnknownActionCapability;
     }
     if (!std.mem.eql(u8, cpu, "32")) return error.ProviderMismatch;
 
