@@ -43,7 +43,7 @@ pub const Document = struct {
                             initial = tag[start..finish];
                         }
                     }
-                    const checkbox = std.mem.indexOf(u8, tag, "type=checkbox") != null;
+                    const checkbox = std.mem.indexOf(u8, tag, "type=checkbox") != null or std.mem.indexOf(u8, tag, "type=\"checkbox\"") != null or std.mem.indexOf(u8, tag, "type='checkbox'") != null;
                     document.elements[document.count] = .{ .kind = .input, .text = initial, .accent = std.mem.indexOf(u8, tag, "accent") != null, .muted = std.mem.indexOf(u8, tag, "muted") != null, .danger = std.mem.indexOf(u8, tag, "danger") != null, .color = parseColor(tag), .checkbox = checkbox, .checked = checkbox and std.mem.indexOf(u8, tag, "checked") != null };
                     const length = @min(initial.len, document.input_values[document.count].len);
                     @memcpy(document.input_values[document.count][0..length], initial[0..length]);
