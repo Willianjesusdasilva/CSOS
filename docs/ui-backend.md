@@ -90,3 +90,9 @@ and runs the file-backed userspace composition. The primary implementation is
 `userspace/ui_slice.zig`, which loads the manifest, expands providers, routes
 pointer input and presents through `graphics/ui_backend.zig`; the C program is
 kept as an ABI compatibility check for `csos_ui_backend.h`.
+
+Application chrome is declared independently in
+`system/ui/interface/apps.manifest`. The Zig userspace composition loads its
+HTML fragments and `apps.css`, expands the same read-only providers, and applies
+the same action/capability allow-list without coupling application layout to
+the compositor.
