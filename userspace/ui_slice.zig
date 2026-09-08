@@ -111,14 +111,13 @@ pub fn main() !void {
         const line = std.mem.trim(u8, raw_line, " \r\t");
         if (std.mem.startsWith(u8, line, "fragment=")) {
             const name = line[9..];
+            if (name.len == 0 or std.mem.indexOf(u8, name, "..") != null or std.mem.startsWith(u8, name, "/")) return error.InvalidFragmentPath;
             const path = try std.fmt.allocPrint(allocator, "system/ui/interface/{s}", .{name});
             try append(&composed, &composed_len, try readFile(allocator, path));
         } else if (std.mem.startsWith(u8, line, "stylesheet=")) {
-            if (std.mem.endsWith(u8, line, "terminal.css")) {
-                try append(&composed, &composed_len, terminal_css);
-            } else {
-                try append(&composed, &composed_len, css);
-            }
+            const name = line[11..];
+            if (!std.mem.startsWith(u8, name, "../styles/") or std.mem.indexOf(u8, name[10..], "..") != null) return error.InvalidStylesheetPath;
+            if (std.mem.endsWith(u8, name, "terminal.css")) try append(&composed, &composed_len, terminal_css) else try append(&composed, &composed_len, css);
         }
     }
     try contains(composed[0..composed_len], "data-action=\"open_files\"");
