@@ -461,6 +461,69 @@ pub const Window = struct {
     }
 };
 
+/// Reference desktop composition used by the bootstrap renderer until a real
+/// userspace compositor supplies these surfaces. It deliberately uses only
+/// Window drawing primitives; applications still arrive through html.Session.
+pub fn drawReferenceDesktop(window: *Window) void {
+    window.clear(0x101a38ff);
+    const width = window.width;
+    const height = window.height;
+    window.fillRect(0, 0, width, @min(height, 38), 0x17294fff);
+    window.drawText(18, 12, "CSOS", 0xf0f6ffff);
+    window.drawText(78, 12, "Arquivo   Editar   Visualizar   Janela   Ajuda", 0xc4d5f0ff);
+    window.drawText(width -| 112, 12, "Sistema Online", 0x8de0a8ff);
+
+    // Desktop shortcuts.
+    const labels = [_][]const u8{ "Home", "Sistema", "Jogos", "Lixeira" };
+    for (labels, 0..) |label, index| {
+        const y = 72 + index * 74;
+        window.fillRect(28, y, 48, 38, if (index == 3) 0x71809aff else 0x3d9ce8ff);
+        window.drawText(24, y + 46, label, 0xe1eaffff);
+    }
+
+    // FILES glass panel.
+    window.fillRect(178, 66, @min(@as(usize, 690), width -| 198), @min(@as(usize, 400), height -| 150), 0x273958dd);
+    window.fillRect(178, 66, @min(@as(usize, 690), width -| 198), 40, 0x17253fdd);
+    window.drawText(198, 80, "●  ●  ●", 0xb0b8d0ff);
+    window.drawText(290, 80, "⌂  /home/willian", 0xe5efffff);
+    window.drawText(204, 128, "Recentes", 0x9eb5d8ff);
+    window.drawText(204, 158, "Home", 0xf1f6ffff);
+    window.drawText(204, 188, "Documentos", 0xb9c9e5ff);
+    window.drawText(204, 218, "Downloads", 0xb9c9e5ff);
+    window.drawText(204, 248, "Imagens", 0xb9c9e5ff);
+    window.drawText(370, 128, "Pastas", 0xf1f6ffff);
+    const folders = [_][]const u8{ "Projetos", "CSOS", "Downloads", "Imagens", "Música", "Vídeos", "Jogos", "Apps" };
+    for (folders, 0..) |label, index| {
+        const x = 370 + (index % 4) * 126;
+        const y = 160 + (index / 4) * 86;
+        window.fillRect(x, y, 52, 38, 0x47b7f0ff);
+        window.drawText(x -| 4, y + 48, label, 0xe1eaffff);
+    }
+
+    // System card and terminal.
+    const card_x = width -| 310;
+    window.fillRect(card_x, 66, 286, 164, 0x273958dd);
+    window.drawText(card_x + 22, 84, "CSOS", 0xf1f6ffff);
+    window.drawText(card_x + 22, 110, "● Sistema Online", 0x7ee6a0ff);
+    window.drawText(card_x + 22, 148, "CPU 32%   RAM 48%   GPU 12%", 0xc5d7f2ff);
+    window.drawText(card_x + 22, 182, "Rede  ↓125 MB/s  ↑8 MB/s", 0xb7c9e7ff);
+    const term_y = height / 2 + 18;
+    window.fillRect(360, term_y, @min(@as(usize, 600), width -| 380), 178, 0x101827ee);
+    window.drawText(382, term_y + 18, "willian@csos:~$ neofetch", 0x6ff1e0ff);
+    window.drawText(382, term_y + 48, "CSOS 0.1   Kernel: csos 0.1.0", 0x9d9beeff);
+    window.drawText(382, term_y + 72, "Resolution: 1920x1080", 0xa9b9eaff);
+    window.drawText(382, term_y + 96, "GPU: Virtual   Memory: 1.2GiB", 0xa9b9eaff);
+
+    // Dock.
+    const dock_width: usize = @min(620, width -| 40);
+    const dock_x = (width -| dock_width) / 2;
+    const dock_y = height -| 82;
+    window.fillRect(dock_x, dock_y, dock_width, 58, 0x273958ee);
+    const dock_labels = [_][]const u8{ "Finder", "Apps", "Files", "Terminal", "Browser", "Music", "Steam", "⚙" };
+    for (dock_labels, 0..) |label, index| window.drawText(dock_x + 18 + index * 72, dock_y + 22, label, 0xf1f6ffff);
+    window.invalidate();
+}
+
 pub const Application = struct {
     window: Window,
     html_session: ?html.Session = null,
@@ -2009,6 +2072,15 @@ test "SDL window renders parsed HTML elements" {
     window.clear(0);
     window.drawHtmlFocused(&document, 0, 0, 2);
     try @import("std").testing.expect(pixels[27 * 64 + 1] == 0x304860ff);
+}
+
+test "reference desktop paints shell, files panel, system card and dock" {
+    var pixels = [_]u32{0} ** (320 * 200);
+    var window = Window{ .width = 320, .height = 200, .pixels = &pixels };
+    drawReferenceDesktop(&window);
+    try @import("std").testing.expectEqual(@as(u32, 0x17294fff), pixels[10]);
+    try @import("std").testing.expectEqual(@as(u32, 0x273958dd), pixels[190 * 320 + 200]);
+    try @import("std").testing.expect(window.dirtyRect() != null);
 }
 
 test "SDL application persists and edits HTML session" {
