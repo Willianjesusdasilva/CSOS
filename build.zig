@@ -461,6 +461,9 @@ pub fn build(b: *std.Build) void {
         process_module.addAnonymousImport("radv_loader_probe_elf", .{ .root_source_file = dynamic_hello.getEmittedBin() });
     process_module.addAnonymousImport("busybox_elf", .{ .root_source_file = b.path("userspace/initramfs/bin/busybox") });
     const kernel_module = b.createModule(.{ .root_source_file = b.path("kernel/main.zig") });
+    const ui_ipc_module = b.createModule(.{ .root_source_file = b.path("kernel/ui_ipc.zig") });
+    syscalls_module.addImport("ui_ipc", ui_ipc_module);
+    kernel_module.addImport("ui_ipc", ui_ipc_module);
     kernel_module.addImport("serial", serial_module);
     kernel_module.addImport("gdt", gdt_module);
     kernel_module.addImport("idt", idt_module);
