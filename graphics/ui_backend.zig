@@ -41,6 +41,9 @@ pub const Backend = struct {
     request_write: usize = 0,
     running: bool = false,
     focused: bool = false,
+    clipboard: [1024]u8 = undefined,
+    clipboard_len: usize = 0,
+    surface_alive: bool = true,
 
     pub fn init(surface: Surface) Backend { return .{ .surface = surface }; }
 
@@ -54,6 +57,33 @@ pub const Backend = struct {
         if (!self.running) return false;
         self.running = false;
         return self.enqueueRequest(.close);
+    }
+
+    pub fn destroySurface(self: *Backend) bool {
+        if (!self.surface_alive) return false;
+        self.surface_alive = false;
+        return self.enqueueRequest(.{ .destroy_window = self.surface.id });
+    }
+
+    pub fn createWindow(self: *Backend, width: u16, height: u16, title: []const u8) bool {
+        if (width == 0 or height == 0 or title.len > 128) return false;
+        return self.enqueueRequest(.{ .create_window = .{ .width = width, .height = height, .title = title } });
+    }
+
+    pub fn setTimer(self: *Backend, timer_id: u32, ticks: u64) bool {
+        if (timer_id == 0 or ticks == 0) return false;
+        return self.enqueueRequest(.{ .set_timer = .{ .timer_id = timer_id, .ticks = ticks } });
+    }
+
+    pub fn setClipboard(self: *Backend, text: []const u8) bool {
+        if (text.len > self.clipboard.len) return false;
+        @memcpy(self.clipboard[0..text.len], text);
+        self.clipboard_len = text.len;
+        return true;
+    }
+
+    pub fn getClipboard(self: *const Backend) []const u8 {
+        return self.clipboard[0..self.clipboard_len];
     }
 
     pub fn resize(self: *Backend, width: u16, height: u16, pixels: []u32) bool {
@@ -108,11 +138,16 @@ test "generic UI backend lifecycle, surface, damage and IPC requests" {
     var pixels = [_]u32{0} ** 64;
     var backend = Backend.init(.{ .id = 4, .width = 8, .height = 8, .stride = 8, .pixels = &pixels });
     try std.testing.expect(backend.start());
+    try std.testing.expect(backend.createWindow(320, 200, "FILES"));
+    try std.testing.expect(backend.setTimer(1, 60));
+    try std.testing.expect(backend.setClipboard("CSOS"));
+    try std.testing.expectEqualStrings("CSOS", backend.getClipboard());
     try std.testing.expect(backend.enqueueEvent(.{ .pointer = .{ .x = 2, .y = 3, .buttons = 1 } }));
     try std.testing.expect(backend.present(.{ .x = 0, .y = 0, .width = 8, .height = 8 }));
     try std.testing.expect(backend.enqueueRequest(.{ .open_file = "/system/config/hardware.csc" }));
     try std.testing.expect(backend.resize(4, 4, pixels[0..16]));
     try std.testing.expect(backend.stop());
+    try std.testing.expect(backend.destroySurface());
     try std.testing.expect(!backend.running);
     try std.testing.expect(backend.nextEvent() != null);
     try std.testing.expect(backend.nextRequest() != null);
