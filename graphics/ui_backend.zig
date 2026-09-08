@@ -250,7 +250,16 @@ pub const Backend = struct {
     }
 
     pub fn present(self: *Backend, damage: Damage) bool {
-        return self.enqueueRequest(.{ .present = .{ .surface_id = self.surface.id, .generation = self.surface.generation, .damage = damage } });
+        const clipped = self.clipDamage(damage) orelse return false;
+        return self.enqueueRequest(.{ .present = .{ .surface_id = self.surface.id, .generation = self.surface.generation, .damage = clipped } });
+    }
+
+    fn clipDamage(self: *const Backend, damage: Damage) ?Damage {
+        if (damage.x >= self.surface.width or damage.y >= self.surface.height) return null;
+        const right = @min(@as(u32, self.surface.width), @as(u32, damage.x) + damage.width);
+        const bottom = @min(@as(u32, self.surface.height), @as(u32, damage.y) + damage.height);
+        if (right <= damage.x or bottom <= damage.y) return null;
+        return .{ .x = damage.x, .y = damage.y, .width = @intCast(right - damage.x), .height = @intCast(bottom - damage.y) };
     }
 
     pub fn setFocus(self: *Backend, focused: bool) bool {
@@ -319,4 +328,15 @@ test "backend consumes and emits wire messages through its queues" {
     const event_length = try encodeEvent(.{ .focus = true }, &wire);
     try std.testing.expect(try backend.submitEventWire(wire[0..event_length]));
     try std.testing.expectEqual(@as(?usize, event_length), try backend.nextEventWire(&wire));
+}
+
+test "backend clips damage to the shared surface" {
+    var pixels = [_]u32{0} ** 16;
+    var backend = Backend.init(.{ .id = 3, .width = 4, .height = 4, .stride = 4, .pixels = &pixels });
+    try std.testing.expect(backend.present(.{ .x = 3, .y = 3, .width = 10, .height = 10 }));
+    switch (backend.nextRequest().?) {
+        .present => |present| { try std.testing.expectEqual(@as(u16, 1), present.damage.width); try std.testing.expectEqual(@as(u16, 1), present.damage.height); },
+        else => return error.UnexpectedBackendCommand,
+    }
+    try std.testing.expect(!backend.present(.{ .x = 4, .y = 0, .width = 1, .height = 1 }));
 }
