@@ -197,6 +197,8 @@ pub fn main() !void {
     }
     if (std.mem.indexOf(u8, expanded, "{{") != null) return error.UnresolvedProvider;
     if (std.mem.indexOf(u8, apps_expanded, "{{") != null) return error.UnresolvedAppProvider;
+    try contains(apps_expanded, "CPU</dt><dd>32%");
+    try contains(apps_expanded, "60 FPS");
     try contains(expanded, "CPU 32%");
     try contains(action, "action=open_files");
     try contains(action, "capability=window");
