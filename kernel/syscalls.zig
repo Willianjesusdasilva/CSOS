@@ -46,6 +46,7 @@ var random_state: u64 = 0x9e3779b97f4a7c15;
 var registered_rseq: u64 = 0;
 var ui_mailboxes: [8]ui_ipc.Mailbox = undefined;
 var ui_mailbox_used: [8]bool = .{false} ** 8;
+pub var ui_send_count: u64 = 0;
 var monotonic_time_ns: u64 = 0;
 const max_epoll_watch = 16;
 const EpollWatch = struct { fd: u32 = 0, generation: u32 = 0, events: u32 = 0, data: u64 = 0, active: bool = false };
@@ -3796,7 +3797,11 @@ fn uiChannelCreate() u64 {
 fn uiChannelSend(channel: u64, address: u64, length: u64) u64 {
     if (channel == 0 or channel > ui_mailboxes.len or length < 2 or length > ui_ipc.max_message or !validUserSlice(address, length)) return errno(22);
     const bytes: []const u8 = @as([*]const u8, @ptrFromInt(address))[0..@intCast(length)];
-    return if (ui_mailbox_used[channel - 1] and ui_mailboxes[channel - 1].push(bytes)) length else errno(11);
+    if (ui_mailbox_used[channel - 1] and ui_mailboxes[channel - 1].push(bytes)) {
+        ui_send_count += 1;
+        return length;
+    }
+    return errno(11);
 }
 
 fn uiChannelReceive(channel: u64, address: u64, capacity_bytes: u64) u64 {
