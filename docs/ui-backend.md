@@ -28,6 +28,11 @@ Requests include `hello`, `present`, `create_window`, `destroy_window`,
 pointer, wheel, key, focus, timer, and close. Strings are length-prefixed and
 bounded; no message contains a pointer.
 
+Responses use the same envelope: `surface_created` (27 bytes, including the
+opaque buffer handle, dimensions, stride, pixel format and generation),
+`surface_destroyed`, or `failure`. The surface response is the only way for an
+engine to learn a shared-buffer handle; raw kernel pointers are never exposed.
+
 The `hello` request negotiates protocol version 1 and capability bits for
 surfaces, damage, input, clipboard, timers, IPC, windows, and audio. Unsupported
 versions are rejected before an engine starts rendering.

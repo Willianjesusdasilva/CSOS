@@ -36,6 +36,12 @@ enum csos_ui_event_kind {
     CSOS_UI_EVENT_CLOSE = 6,
 };
 
+enum csos_ui_response_kind {
+    CSOS_UI_SURFACE_CREATED = 1,
+    CSOS_UI_SURFACE_DESTROYED = 2,
+    CSOS_UI_FAILURE = 3,
+};
+
 enum csos_ui_pixel_format {
     CSOS_UI_RGBA8888 = 1,
     CSOS_UI_BGRA8888 = 2,
@@ -54,13 +60,14 @@ struct CSOS_UI_PACKED csos_ui_message_header { uint8_t kind; uint8_t total_lengt
 struct CSOS_UI_PACKED csos_ui_damage { uint16_t x, y, width, height; };
 struct CSOS_UI_PACKED csos_ui_hello { uint16_t version; uint64_t capabilities; };
 struct CSOS_UI_PACKED csos_ui_present { uint32_t surface_id; uint64_t generation; struct csos_ui_damage damage; };
-struct CSOS_UI_PACKED csos_ui_surface { uint32_t id, buffer_handle, width, height, stride; uint8_t format; uint64_t generation; };
+struct CSOS_UI_PACKED csos_ui_surface { uint32_t id, buffer_handle; uint16_t width, height; uint32_t stride; uint8_t format; uint64_t generation; };
 
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 _Static_assert(sizeof(struct csos_ui_message_header) == 2, "CSOS UI header layout mismatch");
 _Static_assert(sizeof(struct csos_ui_damage) == 8, "CSOS UI damage layout mismatch");
 _Static_assert(sizeof(struct csos_ui_hello) == 10, "CSOS UI hello layout mismatch");
 _Static_assert(sizeof(struct csos_ui_present) == 20, "CSOS UI present layout mismatch");
+_Static_assert(sizeof(struct csos_ui_surface) == 27, "CSOS UI surface layout mismatch");
 #endif
 
 static inline void csos_ui_put16(uint8_t *p, uint16_t v) {
@@ -132,6 +139,24 @@ static inline uint8_t csos_ui_encode_present(uint8_t *out, uint8_t capacity,
     csos_ui_put16(out + 14, damage.x); csos_ui_put16(out + 16, damage.y);
     csos_ui_put16(out + 18, damage.width); csos_ui_put16(out + 20, damage.height);
     return 22;
+}
+
+static inline uint8_t csos_ui_encode_surface_created(uint8_t *out, uint8_t capacity,
+                                                     struct csos_ui_surface surface) {
+    if (!out || capacity < 27) return 0;
+    out[0] = CSOS_UI_SURFACE_CREATED; out[1] = 27;
+    csos_ui_put32(out + 2, surface.id); csos_ui_put32(out + 6, surface.buffer_handle);
+    csos_ui_put16(out + 10, surface.width); csos_ui_put16(out + 12, surface.height);
+    csos_ui_put32(out + 14, surface.stride); out[18] = surface.format;
+    csos_ui_put64(out + 19, surface.generation);
+    return 27;
+}
+
+static inline uint8_t csos_ui_encode_surface_destroyed(uint8_t *out, uint8_t capacity,
+                                                       uint32_t surface_id) {
+    if (!out || capacity < 6) return 0;
+    out[0] = CSOS_UI_SURFACE_DESTROYED; out[1] = 6;
+    csos_ui_put32(out + 2, surface_id); return 6;
 }
 
 /* Transport is supplied by the CSOS userspace runtime, not by this header. */
