@@ -239,6 +239,7 @@ pub const Backend = struct {
 
     pub fn resize(self: *Backend, width: u16, height: u16, pixels: []u32) bool {
         if (!self.surface_alive or width == 0 or height == 0 or pixels.len < @as(usize, width) * height) return false;
+        if (self.response_write - self.response_read >= self.responses.len) return false;
         self.surface.width = width;
         self.surface.height = height;
         self.surface.stride = width;
@@ -480,6 +481,17 @@ test "resize publishes updated shared surface metadata" {
         .surface_created => |info| { try std.testing.expectEqual(@as(u16, 4), info.width); try std.testing.expectEqual(@as(u64, 1), info.generation); },
         else => return error.UnexpectedBackendResponse,
     }
+}
+
+test "resize does not mutate when lifecycle response queue is full" {
+    var pixels = [_]u32{0} ** 4;
+    var backend = Backend.init(.{ .id = 16, .width = 2, .height = 2, .stride = 2, .pixels = &pixels });
+    var i: usize = 0;
+    while (i < backend.responses.len) : (i += 1) {
+        try std.testing.expect(backend.enqueueResponse(.{ .failure = 1 }));
+    }
+    try std.testing.expect(!backend.resize(1, 1, pixels[0..1]));
+    try std.testing.expectEqual(@as(u16, 2), backend.surface.width);
 }
 
 test "backend attaches an opaque shared buffer handle" {
