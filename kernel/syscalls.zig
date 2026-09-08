@@ -415,6 +415,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         79 => getcwd(arg1, arg2),
         83 => mkdirLegacy(arg1, arg2),
         84 => rmdirLegacy(arg1),
+        85 => creatLegacy(arg1, arg2),
         87 => unlinkLegacy(arg1),
         89 => readlinkat(@bitCast(@as(i64, -100)), arg1, arg2, arg3),
         96 => getTimeOfDay(arg1, arg2),
@@ -2678,6 +2679,11 @@ fn rmdirLegacy(path_address: u64) u64 {
 
 fn unlinkLegacy(path_address: u64) u64 {
     return unlinkat(@bitCast(@as(i64, -100)), path_address, 0);
+}
+
+fn creatLegacy(path_address: u64, mode: u64) u64 {
+    _ = mode;
+    return openat(@bitCast(@as(i64, -100)), path_address, 0x241);
 }
 
 fn renameat(old_directory_fd: u64, old_path_address: u64, new_path_address: u64, flags: u64) u64 {
