@@ -64,12 +64,10 @@ pub fn main() !void {
     try contains(composed[0..composed_len], "data-action=\"open_files\"");
     try contains(composed[0..composed_len], ".launcher");
     const variable_names = [_][]const u8{ "CPU_USAGE", "RAM_USAGE", "GPU_USAGE", "NETWORK_IP", "CURRENT_FPS", "FRAME_TIME" };
-    const provider_paths = [_][]const u8{
-        "system/ui/providers/cpu_usage", "system/ui/providers/ram_usage", "system/ui/providers/gpu_usage",
-        "system/ui/providers/network_ip", "system/ui/providers/current_fps", "system/ui/providers/frame_time",
-    };
     var expanded: []const u8 = composed[0..composed_len];
-    for (variable_names, provider_paths) |name, path| {
+    for (variable_names) |name| {
+        const configured = try configuredPath(variables, name);
+        const path = if (std.mem.startsWith(u8, configured, "/")) configured[1..] else configured;
         const value = std.mem.trim(u8, try readFile(allocator, path), "\r\n");
         expanded = try std.mem.replaceOwned(u8, allocator, expanded, try std.fmt.allocPrint(allocator, "{{{{ {s} }}}}", .{name}), value);
     }
