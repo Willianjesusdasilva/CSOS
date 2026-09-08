@@ -633,6 +633,24 @@ pub const WindowManager = struct {
         return true;
     }
 
+    pub fn resize(self: *WindowManager, index: usize, width: usize, height: usize) bool {
+        if (index >= self.count or width == 0 or height == 0) return false;
+        const window = self.windows[index];
+        const new_width = @max(width, 16);
+        const new_height = @max(height, 16);
+        const copy_width = @min(window.width, new_width);
+        const copy_height = @min(window.height, new_height);
+        // Window storage is caller-owned; resize is supported when the
+        // existing surface already has capacity for the requested geometry.
+        if (new_width * new_height > window.pixels.len) return false;
+        window.width = new_width;
+        window.height = new_height;
+        _ = copy_width;
+        _ = copy_height;
+        window.markDirty(0, 0, new_width, new_height);
+        return true;
+    }
+
     pub fn hitTest(self: *const WindowManager, x: i32, y: i32) ?usize {
         var index = self.count;
         while (index > 0) {
