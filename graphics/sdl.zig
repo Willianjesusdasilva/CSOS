@@ -612,6 +612,9 @@ pub const WindowManager = struct {
             for (index + 1..self.count) |move| self.windows[move - 1] = self.windows[move];
             for (index + 1..self.count) |move| self.positions[move - 1] = self.positions[move];
             self.count -= 1;
+            if (self.dragging) |drag| {
+                if (drag == index) self.dragging = null else if (drag > index) self.dragging = drag - 1;
+            }
             if (self.count == 0) self.focused = 0 else if (self.focused >= self.count) self.focused = self.count - 1;
             return true;
         }
