@@ -3,6 +3,7 @@ body { color: var(--text); background: #101a38; font-family: CSOS; }
 .wallpaper { background: #101a38; }
 .notifications { display: grid; gap: 8px; }
 .notification { color: var(--text); background: var(--surface); }
+.media { color: var(--text); background: var(--surface); }
 .desktop { background: #101a38; }
 .status { color: #8de0a8; }
 .launcher { background: var(--surface); }
