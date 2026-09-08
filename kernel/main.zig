@@ -1649,7 +1649,7 @@ pub fn start(info: BootInfo) noreturn {
     serial.write("\n");
     const window_manager = &desktop_window_manager;
     window_manager.reset();
-    _ = window_manager.create(.{ .id = 1, .title = "DESKTOP HTML", .x = 0, .y = 0, .width = screen.framebuffer.width, .height = screen.framebuffer.height, .title_color = 0x405070, .body_color = 0x18202c, .surface = &demo_app.window }) catch panic("desktop window creation failed");
+    _ = window_manager.create(.{ .id = 100, .title = "DESKTOP HTML", .x = 0, .y = 0, .width = screen.framebuffer.width, .height = screen.framebuffer.height, .title_color = 0x405070, .body_color = 0x18202c, .surface = &demo_app.window }) catch panic("desktop window creation failed");
     _ = window_manager.create(.{ .id = 2, .title = "MONITOR", .x = 180, .y = 280, .width = 260, .height = 140, .title_color = 0x604070, .body_color = 0x241828, .surface = &monitor_window }) catch panic("desktop window creation failed");
     screen.drawBaseline(@as(usize, hid.keyboards) + hid.mice, audio_info.playback_endpoints);
     window_manager.compose(&screen);
@@ -2358,7 +2358,7 @@ pub fn start(info: BootInfo) noreturn {
                         serial.write(if (system_html_focus == 1) "RESET (keyboard)\n" else if (system_html_active) "ACTIVE (keyboard)\n" else "READY (keyboard)\n");
                     }
                 }
-                if (!terminal_shortcut_pressed and !monitor_shortcut_pressed and !system_shortcut_pressed and !files_shortcut_pressed and !launcher_consumed and !tab_switch_pressed and focusedWindowIs(window_manager, 1)) {
+                if (!terminal_shortcut_pressed and !monitor_shortcut_pressed and !system_shortcut_pressed and !files_shortcut_pressed and !launcher_consumed and !tab_switch_pressed and focusedWindowIs(window_manager, 100)) {
                     _ = sdl_events.pushKeyboard(event.a, event.a != 0, event.b);
                     if (event.c != 0 and event.a != 0) {
                         if (event.a == 0x0f and (event.b & 0x01) != 0) {
@@ -2532,7 +2532,7 @@ pub fn start(info: BootInfo) noreturn {
                     }
                 }
             }
-            if (focusedWindowIs(window_manager, 1)) {
+            if (focusedWindowIs(window_manager, 100)) {
                 _ = sdl_events.pushMouseCoalesced(@intCast(dx), @intCast(dy), @intCast(wheel), event.a);
                 demo_app.pump(&sdl_events, &handleSdlDemoEvent);
             }
