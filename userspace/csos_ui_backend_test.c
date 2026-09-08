@@ -1,5 +1,14 @@
 #include "csos_ui_backend.h"
 
+static int send_message(void *userdata, const void *message, uint8_t length) {
+    (void)message; *(uint8_t *)userdata = length; return 0;
+}
+static int receive_message(void *userdata, void *message, uint8_t capacity) {
+    if (capacity < 2) return -1;
+    ((uint8_t *)message)[0] = CSOS_UI_CLOSE; ((uint8_t *)message)[1] = 2;
+    return *(uint8_t *)userdata = 2;
+}
+
 int main(void) {
     uint8_t message[32];
     struct csos_ui_damage damage = { 1, 2, 8, 9 };
@@ -18,5 +27,11 @@ int main(void) {
     if (csos_ui_encode_surface_created(message, sizeof(message), surface) != 27 ||
         !csos_ui_response_valid(message, 27) || csos_ui_get32(message + 6) != 0x55)
         return 6;
-    return csos_ui_event_valid((uint8_t[]){ CSOS_UI_FOCUS, 3, 1 }, 3) ? 0 : 7;
+    uint8_t transport_state = 0;
+    struct csos_ui_transport transport = { &transport_state, send_message, receive_message };
+    if (csos_ui_transport_send(&transport, message, 27) != 0 || transport_state != 27)
+        return 7;
+    if (csos_ui_transport_receive(&transport, message, sizeof(message)) != 2 || message[0] != CSOS_UI_CLOSE)
+        return 8;
+    return csos_ui_event_valid((uint8_t[]){ CSOS_UI_FOCUS, 3, 1 }, 3) ? 0 : 9;
 }

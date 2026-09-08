@@ -170,8 +170,25 @@ static inline uint8_t csos_ui_encode_surface_destroyed(uint8_t *out, uint8_t cap
     csos_ui_put32(out + 2, surface_id); return 6;
 }
 
-/* Transport is supplied by the CSOS userspace runtime, not by this header. */
-int csos_ui_send(const void *message, uint8_t length);
-int csos_ui_receive(void *message, uint8_t capacity);
+typedef int (*csos_ui_send_fn)(void *userdata, const void *message, uint8_t length);
+typedef int (*csos_ui_receive_fn)(void *userdata, void *message, uint8_t capacity);
+
+struct csos_ui_transport {
+    void *userdata;
+    csos_ui_send_fn send;
+    csos_ui_receive_fn receive;
+};
+
+static inline int csos_ui_transport_send(const struct csos_ui_transport *transport,
+                                         const void *message, uint8_t length) {
+    if (!transport || !transport->send || !message || length < 2) return -1;
+    return transport->send(transport->userdata, message, length);
+}
+
+static inline int csos_ui_transport_receive(const struct csos_ui_transport *transport,
+                                            void *message, uint8_t capacity) {
+    if (!transport || !transport->receive || !message || capacity < 2) return -1;
+    return transport->receive(transport->userdata, message, capacity);
+}
 
 #endif
