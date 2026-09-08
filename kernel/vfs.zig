@@ -220,7 +220,12 @@ pub fn openAt(directory_fd: i64, path: []const u8, flags: u64) !usize {
     if (disk) |volume| if (splitNestedPath(path)) |parts| {
         if (toFatName(parts.parent)) |parent_name| if (volume.findRootEntry(&parent_name)) |parent| if (parent.directory)
             if (toFatName(parts.child)) |child_name| if (volume.findDirectoryEntry(parent.first_cluster, &child_name)) |child| {
-                if (child.directory) return error.IsDirectory;
+                if (child.directory) {
+                    if ((flags & 0x3) != 0 or (flags & 0x200) != 0) return error.IsDirectory;
+                    descriptors[fd] = .{ .generation = try newGeneration(), .kind = .directory, .node = .fat_directory, .fat_cluster = child.first_cluster };
+                    descriptors[fd].close_on_exec = (flags & 0x80000) != 0;
+                    return fd;
+                }
                 if ((flags & 0x40) != 0 or (flags & 0x200) != 0 or (flags & 0x3) != 0) return error.ReadOnly;
                 descriptors[fd] = .{ .generation = try newGeneration(), .kind = .file, .node = .disk, .size = child.size, .fat_name = child.name, .fat_parent_cluster = parent.first_cluster };
                 descriptors[fd].close_on_exec = (flags & 0x80000) != 0;
