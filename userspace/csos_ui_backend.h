@@ -127,7 +127,9 @@ static inline int csos_ui_response_valid(const uint8_t *message, uint8_t length)
     if (!message || length < 2 || message[1] != length) return 0;
     switch (message[0]) {
     case CSOS_UI_SURFACE_CREATED:
-        return length == 27 && message[18] >= CSOS_UI_RGBA8888 && message[18] <= CSOS_UI_ARGB8888;
+        return length == 27 && csos_ui_get16(message + 10) != 0 && csos_ui_get16(message + 12) != 0 &&
+               csos_ui_get32(message + 14) >= csos_ui_get16(message + 10) &&
+               message[18] >= CSOS_UI_RGBA8888 && message[18] <= CSOS_UI_ARGB8888;
     case CSOS_UI_SURFACE_DESTROYED: return length == 6;
     case CSOS_UI_FAILURE: return length == 4;
     case CSOS_UI_HELLO_ACK: return length == 12;

@@ -76,7 +76,7 @@ pub fn decodeResponse(input: []const u8) WireError!Response {
     if (input.len < 2 or input[1] != input.len) return error.InvalidMessage;
     return switch (input[0]) {
         4 => if (input.len == 12) .{ .hello_ack = .{ .version = readU16(input[2..]), .capabilities = readU64(input[4..]) } } else error.InvalidMessage,
-        1 => if (input.len == 27 and input[18] >= 1 and input[18] <= 3) .{ .surface_created = .{ .id = readU32(input[2..]), .buffer_handle = readU32(input[6..]), .width = readU16(input[10..]), .height = readU16(input[12..]), .stride = readU32(input[14..]), .format = @enumFromInt(input[18]), .generation = readU64(input[19..]) } } else error.InvalidMessage,
+        1 => if (input.len == 27 and readU16(input[10..]) != 0 and readU16(input[12..]) != 0 and readU32(input[14..]) >= readU16(input[10..]) and input[18] >= 1 and input[18] <= 3) .{ .surface_created = .{ .id = readU32(input[2..]), .buffer_handle = readU32(input[6..]), .width = readU16(input[10..]), .height = readU16(input[12..]), .stride = readU32(input[14..]), .format = @enumFromInt(input[18]), .generation = readU64(input[19..]) } } else error.InvalidMessage,
         2 => if (input.len == 6) .{ .surface_destroyed = readU32(input[2..]) } else error.InvalidMessage,
         3 => if (input.len == 4) .{ .failure = readU16(input[2..]) } else error.InvalidMessage,
         else => error.UnsupportedRequest,
@@ -568,4 +568,10 @@ test "hello acknowledgement round-trips through wire" {
         .hello_ack => |ack| { try std.testing.expectEqual(protocol_version, ack.version); try std.testing.expectEqual(supported_capabilities, ack.capabilities); },
         else => return error.UnexpectedBackendResponse,
     }
+}
+
+test "invalid surface metadata is rejected" {
+    var wire: [27]u8 = [_]u8{0} ** 27;
+    wire[0] = 1; wire[1] = 27; wire[18] = 1;
+    try std.testing.expectError(error.InvalidMessage, decodeResponse(&wire));
 }
