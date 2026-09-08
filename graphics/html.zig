@@ -1,6 +1,7 @@
 const std = @import("std");
 
 pub const Kind = enum { heading, paragraph, button, link, input };
+pub const Activation = union(enum) { none, focus_input: usize, action: []const u8 };
 pub const Element = struct { kind: Kind, text: []const u8, target: []const u8 = "", accent: bool = false, muted: bool = false, danger: bool = false };
 pub const DrawText = *const fn (x: usize, y: usize, text: []const u8, color: u32) void;
 
@@ -152,6 +153,17 @@ pub const Session = struct {
         return self.document.activateIndex(index);
     }
 
+    pub fn activateEvent(self: *Session, x: usize, y: usize, origin_x: usize, origin_y: usize) Activation {
+        const index = self.document.hitTest(x, y, origin_x, origin_y) orelse return .none;
+        self.focused = index;
+        return if (self.document.elements[index].kind == .input)
+            .{ .focus_input = index }
+        else if (self.document.activateIndex(index)) |target|
+            .{ .action = target }
+        else
+            .none;
+    }
+
     pub fn activateFocused(self: *const Session) ?[]const u8 {
         const index = self.focused orelse return null;
         return self.document.activateIndex(index);
@@ -243,6 +255,18 @@ test "HTML session activates mouse targets and focuses inputs" {
     try std.testing.expectEqual(@as(usize, 1), session.focused.?);
     try std.testing.expectEqualStrings("Go", session.activateAt(12, 32, 4, 4).?);
     try std.testing.expectEqual(@as(usize, 2), session.focused.?);
+}
+
+test "HTML activation events distinguish focus from actions" {
+    var session = Session.init("<input>name</input><button>Go</button>");
+    switch (session.activateEvent(8, 4, 4, 4)) {
+        .focus_input => |index| try std.testing.expectEqual(@as(usize, 0), index),
+        else => return error.UnexpectedActivation,
+    }
+    switch (session.activateEvent(8, 16, 4, 4)) {
+        .action => |target| try std.testing.expectEqualStrings("Go", target),
+        else => return error.UnexpectedActivation,
+    }
 }
 
 test "HTML session activates focused controls from keyboard navigation" {

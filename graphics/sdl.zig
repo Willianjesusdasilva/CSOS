@@ -512,6 +512,11 @@ pub const Application = struct {
         return null;
     }
 
+    pub fn activateHtmlEvent(self: *Application, x: usize, y: usize, origin_x: usize, origin_y: usize) html.Activation {
+        if (self.html_session) |*session| return session.activateEvent(x, y, origin_x, origin_y);
+        return .none;
+    }
+
     pub fn activateFocusedHtml(self: *const Application) ?[]const u8 {
         if (self.html_session) |session| return session.activateFocused();
         return null;
