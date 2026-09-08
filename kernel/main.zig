@@ -3306,7 +3306,6 @@ fn drawDesktopChrome(framebuffer: Framebuffer) void {
     if (framebuffer.base == 0 or framebuffer.width < 240 or framebuffer.height < 120) return;
     const pixels: [*]volatile u32 = @ptrFromInt(framebuffer.base);
     const top_height: usize = @min(28, framebuffer.height);
-    _ = pixels;
     drawGlassPanel(framebuffer, 0, 0, framebuffer.width, top_height, 0x18253fd8, 0x9db8e860, 0);
     const dock_height: usize = @min(52, framebuffer.height / 4);
     const dock_top = framebuffer.height - dock_height;
