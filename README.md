@@ -450,6 +450,10 @@ O HTML solicita uma ação autorizada:
 
 O `ui-runtime` resolve essa ação para um script autorizado.
 
+O contrato editável do engine userspace fica em `/system/ui/engine.conf`:
+ele seleciona o backend genérico `csos_ui_backend`, o transporte wire e o
+fallback bootstrap sem colocar configuração visual no kernel.
+
 Comandos arbitrários vindos de HTML ou JavaScript não são permitidos.
 
 ---

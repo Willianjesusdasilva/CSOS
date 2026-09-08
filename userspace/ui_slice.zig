@@ -71,6 +71,10 @@ pub fn main() !void {
     defer threaded.deinit();
     active_io = threaded.io();
     const manifest = try readFile(allocator, "system/ui/interface/desktop.manifest");
+    const engine = try readFile(allocator, "system/ui/engine.conf");
+    try contains(engine, "backend=csos_ui_backend");
+    try contains(engine, "transport=wire");
+    try contains(engine, "fallback=bootstrap");
     const apps_manifest = try readFile(allocator, "system/ui/interface/apps.manifest");
     const variables = try readFile(allocator, "system/ui/variables.conf");
     const template_name = try manifestValue(manifest, "template=");
