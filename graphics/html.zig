@@ -2,7 +2,7 @@ const std = @import("std");
 
 pub const Kind = enum { heading, paragraph, container, line_break, button, link, input };
 pub const Activation = union(enum) { none, focus_input: usize, action: []const u8 };
-pub const Element = struct { kind: Kind, text: []const u8, target: []const u8 = "", accent: bool = false, muted: bool = false, danger: bool = false, color: ?u32 = null };
+pub const Element = struct { kind: Kind, text: []const u8, target: []const u8 = "", accent: bool = false, muted: bool = false, danger: bool = false, color: ?u32 = null, checked: bool = false };
 pub const DrawText = *const fn (x: usize, y: usize, text: []const u8, color: u32) void;
 
 /// Small allocation-free HTML subset used by the planned system UI.
@@ -43,7 +43,7 @@ pub const Document = struct {
                             initial = tag[start..finish];
                         }
                     }
-                    document.elements[document.count] = .{ .kind = .input, .text = initial, .accent = std.mem.indexOf(u8, tag, "accent") != null, .muted = std.mem.indexOf(u8, tag, "muted") != null, .danger = std.mem.indexOf(u8, tag, "danger") != null, .color = parseColor(tag) };
+                    document.elements[document.count] = .{ .kind = .input, .text = initial, .accent = std.mem.indexOf(u8, tag, "accent") != null, .muted = std.mem.indexOf(u8, tag, "muted") != null, .danger = std.mem.indexOf(u8, tag, "danger") != null, .color = parseColor(tag), .checked = std.mem.indexOf(u8, tag, "type=checkbox") != null and std.mem.indexOf(u8, tag, "checked") != null };
                     const length = @min(initial.len, document.input_values[document.count].len);
                     @memcpy(document.input_values[document.count][0..length], initial[0..length]);
                     document.input_lengths[document.count] = length;
@@ -100,6 +100,16 @@ pub const Document = struct {
     pub fn inputText(self: *const Document, index: usize) []const u8 {
         if (index >= self.count or self.elements[index].kind != .input) return "";
         return self.input_values[index][0..self.input_lengths[index]];
+    }
+
+    pub fn toggleChecked(self: *Document, index: usize) bool {
+        if (index >= self.count or self.elements[index].kind != .input or !self.isCheckbox(index)) return false;
+        self.elements[index].checked = !self.elements[index].checked;
+        return self.elements[index].checked;
+    }
+
+    pub fn isCheckbox(self: *const Document, index: usize) bool {
+        return index < self.count and self.elements[index].kind == .input and self.elements[index].text.len == 0;
     }
 
     pub fn editInput(self: *Document, index: usize, byte: u8) bool {
