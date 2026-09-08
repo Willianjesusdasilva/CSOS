@@ -6,6 +6,9 @@ pub export var pixel_frame: [10]u8 = .{ 12, 10, 1, 0, 0, 0, 0x20, 0x40, 0x80, 0x
 pub export const manifest_path: [38:0]u8 = "/system/ui/interface/desktop.manifest\x00".*;
 pub export const html_path: [34:0]u8 = "/system/ui/interface/desktop.html\x00".*;
 pub export const css_path: [30:0]u8 = "/system/ui/styles/desktop.css\x00".*;
+pub export const wallpaper_path: [36:0]u8 = "/system/ui/interface/wallpaper.html\x00".*;
+pub export const topbar_path: [33:0]u8 = "/system/ui/interface/topbar.html\x00".*;
+pub export const sidebar_path: [34:0]u8 = "/system/ui/interface/sidebar.html\x00".*;
 
 pub export fn _start() callconv(.naked) noreturn {
     asm volatile (
@@ -39,6 +42,36 @@ pub export fn _start() callconv(.naked) noreturn {
         \\syscall
         \\test %%rax, %%rax
         \\js 13f
+        \\movl %%eax, %%edi
+        \\mov $3, %%eax
+        \\syscall
+        \\mov $257, %%eax
+        \\movq $-100, %%rdi
+        \\lea wallpaper_path(%%rip), %%rsi
+        \\xor %%edx, %%edx
+        \\syscall
+        \\test %%rax, %%rax
+        \\js 14f
+        \\movl %%eax, %%edi
+        \\mov $3, %%eax
+        \\syscall
+        \\mov $257, %%eax
+        \\movq $-100, %%rdi
+        \\lea topbar_path(%%rip), %%rsi
+        \\xor %%edx, %%edx
+        \\syscall
+        \\test %%rax, %%rax
+        \\js 15f
+        \\movl %%eax, %%edi
+        \\mov $3, %%eax
+        \\syscall
+        \\mov $257, %%eax
+        \\movq $-100, %%rdi
+        \\lea sidebar_path(%%rip), %%rsi
+        \\xor %%edx, %%edx
+        \\syscall
+        \\test %%rax, %%rax
+        \\js 16f
         \\movl %%eax, %%edi
         \\mov $3, %%eax
         \\syscall
@@ -100,6 +133,18 @@ pub export fn _start() callconv(.naked) noreturn {
         \\13:
         \\mov $60, %%eax
         \\mov $13, %%edi
+        \\syscall
+        \\14:
+        \\mov $60, %%eax
+        \\mov $14, %%edi
+        \\syscall
+        \\15:
+        \\mov $60, %%eax
+        \\mov $15, %%edi
+        \\syscall
+        \\16:
+        \\mov $60, %%eax
+        \\mov $16, %%edi
         \\syscall
         \\1:
         \\mov $60, %%eax

@@ -480,6 +480,9 @@ pub fn build(b: *std.Build) void {
     kernel_module.addAnonymousImport("ui_manifest", .{ .root_source_file = b.path("system/ui/interface/desktop.manifest") });
     kernel_module.addAnonymousImport("ui_desktop", .{ .root_source_file = b.path("system/ui/interface/desktop.html") });
     kernel_module.addAnonymousImport("ui_desktop_css", .{ .root_source_file = b.path("system/ui/styles/desktop.css") });
+    kernel_module.addAnonymousImport("ui_wallpaper", .{ .root_source_file = b.path("system/ui/interface/wallpaper.html") });
+    kernel_module.addAnonymousImport("ui_topbar", .{ .root_source_file = b.path("system/ui/interface/topbar.html") });
+    kernel_module.addAnonymousImport("ui_sidebar", .{ .root_source_file = b.path("system/ui/interface/sidebar.html") });
     kernel_module.addImport("serial", serial_module);
     kernel_module.addImport("gdt", gdt_module);
     kernel_module.addImport("idt", idt_module);
