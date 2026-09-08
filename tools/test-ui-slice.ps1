@@ -24,3 +24,6 @@ if ($LASTEXITCODE -ne 0) { throw 'C ABI backend contract compilation failed' }
 & $backendOutput
 if ($LASTEXITCODE -ne 0) { throw "C ABI backend contract failed with exit code $LASTEXITCODE" }
 Write-Output 'C ABI backend contract passed'
+& $Zig test (Join-Path $workspace 'kernel/ui_ipc.zig')
+if ($LASTEXITCODE -ne 0) { throw "Kernel UI mailbox contract failed with exit code $LASTEXITCODE" }
+Write-Output 'Kernel UI mailbox contract passed'
