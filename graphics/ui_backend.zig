@@ -496,6 +496,6 @@ test "surface lifecycle response round-trips through wire" {
         else => return error.UnexpectedBackendResponse,
     }
     try std.testing.expectError(error.InvalidMessage, decodeResponse(wire[0..length - 1]));
-    try std.testing.expect(backend.submitResponseWire(wire[0..length]));
+    try std.testing.expect(try backend.submitResponseWire(wire[0..length]));
     try std.testing.expectEqual(@as(?usize, length), try backend.nextResponseWire(&wire));
 }
