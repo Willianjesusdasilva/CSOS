@@ -77,6 +77,7 @@ pub fn main() !void {
     try contains(expanded, "CPU 32%");
     try contains(css, ".launcher");
     try contains(action, "action=open_files");
+    try contains(action, "capability=window");
     if (!std.mem.eql(u8, cpu, "32")) return error.ProviderMismatch;
 
     var pixels = [_]u32{0} ** (1920 * 4);
