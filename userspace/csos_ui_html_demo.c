@@ -95,9 +95,12 @@ int main(void) {
         !read_text("system/ui/interface/desktop.html", desktop, sizeof(desktop)) ||
         !read_text("system/ui/interface/topbar.html", topbar, sizeof(topbar)) ||
         !read_text("system/ui/interface/dock.html", dock, sizeof(dock))) return 1;
+    used = append_text(rendered, 0, sizeof(rendered), desktop);
+    used = append_text(rendered, used, sizeof(rendered), topbar);
+    used = append_text(rendered, used, sizeof(rendered), dock);
     if (!read_text("system/ui/providers/cpu_usage", provider, sizeof(provider))) return 1;
     provider[strcspn(provider, "\r\n")] = 0;
-    used = render_token(desktop, "{{ CPU_USAGE }}", provider, rendered, sizeof(rendered));
+    used = render_token(rendered, "{{ CPU_USAGE }}", provider, next, sizeof(next)); memcpy(rendered, next, used + 1);
     if (!read_text("system/ui/providers/ram_usage", provider, sizeof(provider))) return 1;
     provider[strcspn(provider, "\r\n")] = 0; used = render_token(rendered, "{{ RAM_USAGE }}", provider, next, sizeof(next)); memcpy(rendered, next, used + 1);
     if (!read_text("system/ui/providers/gpu_usage", provider, sizeof(provider))) return 1;
@@ -108,8 +111,6 @@ int main(void) {
     provider[strcspn(provider, "\r\n")] = 0; used = render_token(rendered, "{{ CURRENT_FPS }}", provider, next, sizeof(next)); memcpy(rendered, next, used + 1);
     if (!read_text("system/ui/providers/frame_time", provider, sizeof(provider))) return 1;
     provider[strcspn(provider, "\r\n")] = 0; used = render_token(rendered, "{{ FRAME_TIME }}", provider, next, sizeof(next)); memcpy(rendered, next, used + 1);
-    used = append_text(rendered, used, sizeof(rendered), topbar);
-    used = append_text(rendered, used, sizeof(rendered), dock);
     if (strstr(rendered, "{{") || !strstr(rendered, "CPU 32%") || !strstr(rendered, "RAM 48%") ||
         !strstr(rendered, "data-action=\"open_files\"") || !authorized_action("open_files") ||
         authorized_action("run_arbitrary_command")) return 1;
