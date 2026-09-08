@@ -9,6 +9,9 @@ pub export const css_path = "/system/ui/styles/desktop.css\x00";
 
 pub export fn _start() callconv(.naked) noreturn {
     asm volatile (
+        \\mov $450, %%eax
+        \\syscall
+        \\movl %%eax, %%r12d
         \\mov $257, %%eax
         \\mov $-100, %%edi
         \\lea manifest_path(%%rip), %%rsi
@@ -40,22 +43,22 @@ pub export fn _start() callconv(.naked) noreturn {
         \\mov $3, %%eax
         \\syscall
         \\mov $451, %%eax
-        \\mov $1, %%edi
+        \\movl %%r12d, %%edi
         \\lea hello_frame(%%rip), %%rsi
         \\mov $21, %%edx
         \\syscall
         \\mov $451, %%eax
-        \\mov $1, %%edi
+        \\movl %%r12d, %%edi
         \\lea create_frame(%%rip), %%rsi
         \\mov $19, %%edx
         \\syscall
         \\mov $451, %%eax
-        \\mov $1, %%edi
+        \\movl %%r12d, %%edi
         \\lea present_frame(%%rip), %%rsi
         \\mov $22, %%edx
         \\syscall
         \\mov $451, %%eax
-        \\mov $1, %%edi
+        \\movl %%r12d, %%edi
         \\lea pixel_frame(%%rip), %%rsi
         \\mov $10, %%edx
         \\syscall
