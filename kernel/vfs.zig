@@ -630,6 +630,13 @@ test "file offsets reject arithmetic overflow" {
 }
 
 pub fn infoAt(directory_fd: i64, path: []const u8) !Info {
+    if (disk) |volume| if (directory_fd >= 3 and @as(usize, @intCast(directory_fd)) < descriptors.len and
+        descriptors[@intCast(directory_fd)].node == .fat_directory and std.mem.indexOfScalar(u8, path, '/') == null)
+    {
+        const name = toFatName(path) orelse return error.Invalid;
+        const entry = try volume.findDirectoryEntry(descriptors[@intCast(directory_fd)].fat_cluster, &name);
+        return if (entry.directory) .{ .mode = 0o040755, .size = 0, .directory = true } else .{ .mode = 0o100644, .size = entry.size, .directory = false };
+    };
     if (disk) |volume| if (resolveFatPath(volume, path)) |resolved| {
         return if (resolved.entry.directory) .{ .mode = 0o040755, .size = 0, .directory = true } else .{ .mode = 0o100644, .size = resolved.entry.size, .directory = false };
     } else |_| {};
