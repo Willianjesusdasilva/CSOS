@@ -89,6 +89,10 @@ pub const Document = struct {
         return true;
     }
 
+    pub fn inputKey(self: *Document, index: usize, key: u8) bool {
+        return if (key == 8 or key == 127) self.backspaceInput(index) else if (key >= 0x20 and key <= 0x7e) self.editInput(index, key) else false;
+    }
+
     pub fn hitTest(self: *const Document, x: usize, y: usize, origin_x: usize, origin_y: usize) ?usize {
         var cursor_y = origin_y;
         for (self.elements[0..self.count], 0..) |element, index| {
@@ -202,4 +206,11 @@ test "HTML input values are mutable independently of source markup" {
     try std.testing.expectEqualStrings("name!", document.inputText(0));
     try std.testing.expect(document.backspaceInput(0));
     try std.testing.expectEqualStrings("name", document.inputText(0));
+}
+
+test "HTML input key handler accepts printable bytes and delete" {
+    var document = Document.parse("<input></input>");
+    try std.testing.expect(document.inputKey(0, 'x'));
+    try std.testing.expect(document.inputKey(0, 8));
+    try std.testing.expectEqualStrings("", document.inputText(0));
 }
