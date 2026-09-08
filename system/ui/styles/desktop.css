@@ -8,4 +8,5 @@ body { color: var(--text); background: #101a38; font-family: CSOS; }
 .alt-tab { background: var(--surface); }
 .widgets { display: grid; gap: 8px; }
 .widget { color: var(--text); background: var(--surface); }
+.sidebar { color: var(--text); background: var(--surface); }
 button { color: var(--text); background: var(--accent); }
