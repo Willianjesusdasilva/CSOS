@@ -624,6 +624,15 @@ pub const Application = struct {
         self.startHtml(reference_desktop_source);
     }
 
+    /// Paints the reference shell and overlays the interactive HTML surface.
+    pub fn renderReferenceDesktop(self: *Application) bool {
+        if (!self.running) return false;
+        drawReferenceDesktop(&self.window);
+        if (self.html_session) |*session| self.window.drawHtmlFocused(&session.document, 196, 92, session.focused);
+        if (self.backend) |*backend| _ = backend.present(.{ .x = 0, .y = 0, .width = @intCast(self.window.width), .height = @intCast(self.window.height) });
+        return true;
+    }
+
     pub fn handleHtmlKey(self: *Application, key: u8) bool {
         if (self.html_session) |*session| return session.handleKey(key);
         return false;
@@ -2099,6 +2108,14 @@ test "reference desktop starts through HTML session backend" {
     try @import("std").testing.expect(application.html_session != null);
     try @import("std").testing.expect(application.backend != null);
     try @import("std").testing.expect(application.html_session.?.document.count > 0);
+}
+
+test "reference desktop renders shell with interactive HTML overlay" {
+    var pixels = [_]u32{0} ** (320 * 200);
+    var application = Application{ .window = .{ .width = 320, .height = 200, .pixels = &pixels } };
+    application.startReferenceDesktop();
+    try @import("std").testing.expect(application.renderReferenceDesktop());
+    try @import("std").testing.expectEqual(@as(u32, 0x17294fff), pixels[10]);
 }
 
 test "SDL application persists and edits HTML session" {
