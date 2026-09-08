@@ -311,6 +311,15 @@ pub fn build(b: *std.Build) void {
     const ui_backend_tests = b.addTest(.{ .root_module = ui_backend_test_module });
     const run_ui_backend_tests = b.addRunArtifact(ui_backend_tests);
     test_step.dependOn(&run_ui_backend_tests.step);
+    const ui_bridge_test_module = b.createModule(.{
+        .root_source_file = b.path("graphics/ui_compositor_bridge.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+    });
+    ui_bridge_test_module.addImport("ui_backend", ui_backend_module);
+    const ui_bridge_tests = b.addTest(.{ .root_module = ui_bridge_test_module });
+    const run_ui_bridge_tests = b.addRunArtifact(ui_bridge_tests);
+    test_step.dependOn(&run_ui_bridge_tests.step);
     const hardware_profile_module = b.createModule(.{ .root_source_file = b.path("hardware/profile.zig") });
     const hardware_profile_test_module = b.createModule(.{
         .root_source_file = b.path("hardware/profile.zig"),
