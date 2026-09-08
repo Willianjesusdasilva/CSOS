@@ -81,3 +81,10 @@ defined in `kernel/main.zig` for this slice.
 zig cc -std=c11 -Wall -Werror userspace/csos_ui_html_demo.c -I userspace -o csos_ui_html_demo
 ./csos_ui_html_demo
 ```
+
+On Windows the same check is reproducible with
+`powershell -File tools/test-ui-slice.ps1`; it compiles with `-Wall -Werror`
+and runs the file-backed userspace composition. The primary implementation is
+`userspace/ui_slice.zig`, which loads the manifest, expands providers, routes
+pointer input and presents through `graphics/ui_backend.zig`; the C program is
+kept as an ABI compatibility check for `csos_ui_backend.h`.
