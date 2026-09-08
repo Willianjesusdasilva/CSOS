@@ -17,6 +17,19 @@ fn append(dst: []u8, used: *usize, text: []const u8) !void {
     used.* += text.len;
 }
 
+fn paintSurface(pixels: []u32, width: usize, height: usize, document: []const u8) void {
+    @memset(pixels, 0x101a38ff);
+    var y: usize = 24;
+    var lines = std.mem.splitScalar(u8, document, '\n');
+    while (lines.next()) |line| {
+        const text = std.mem.trim(u8, line, " \r\t");
+        if (text.len == 0 or y + 8 >= height) continue;
+        const bar_width = @min(width -| 32, 16 + text.len * 4);
+        for (0..bar_width) |x| pixels[y * width + 16 + x] = 0x70d0ffff;
+        y += 18;
+    }
+}
+
 fn configuredPath(config: []const u8, name: []const u8) ![]const u8 {
     var key: [64]u8 = undefined;
     const key_text = try std.fmt.bufPrint(&key, "{s}=\"", .{name});
@@ -93,10 +106,11 @@ pub fn main() !void {
     }
     if (!std.mem.eql(u8, cpu, "32")) return error.ProviderMismatch;
 
-    var pixels = [_]u32{0} ** (1920 * 4);
-    var backend = ui.Backend.init(.{ .id = 1, .buffer_handle = 1, .width = 1920, .height = 1080, .stride = 1920, .pixels = &pixels });
+    const pixels = try allocator.alloc(u32, 1920 * 1080);
+    paintSurface(pixels, 1920, 1080, expanded);
+    var backend = ui.Backend.init(.{ .id = 1, .buffer_handle = 1, .width = 1920, .height = 1080, .stride = 1920, .pixels = pixels });
     if (!backend.start() or !backend.negotiate(ui.protocol_version, ui.Capability.surface | ui.Capability.input)) return error.BackendStartup;
-    pixels[0] = 0x17294fff;
+    if (pixels[24 * 1920 + 16] != 0x70d0ffff) return error.SurfaceNotPainted;
     if (!backend.enqueueEvent(.{ .pointer = .{ .x = 24, .y = 20, .buttons = 1 } })) return error.InputQueueFailed;
     const pointer = backend.nextEvent() orelse return error.MissingPointerEvent;
     if (pointer != .pointer or pointer.pointer.buttons != 1) return error.PointerRoutingFailed;
