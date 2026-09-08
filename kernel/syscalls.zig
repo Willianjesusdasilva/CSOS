@@ -3804,6 +3804,11 @@ fn uiChannelReceive(channel: u64, address: u64, capacity_bytes: u64) u64 {
     return @intCast(length);
 }
 
+pub fn receiveUiBootFrame(output: []u8) ?usize {
+    if (!ui_mailbox_used[0]) return null;
+    return ui_mailboxes[0].pop(output);
+}
+
 fn errno(value: i64) u64 {
     return @bitCast(-value);
 }
