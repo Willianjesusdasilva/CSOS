@@ -55,6 +55,7 @@ test "bridge forwards present and resize without DOM knowledge" {
     var backend = ui.Backend.init(.{ .id = 3, .width = 4, .height = 4, .stride = 4, .pixels = &pixels });
     var presents: usize = 0;
     var resizes: usize = 0;
+    var closes: usize = 0;
     const Hooks = struct {
         fn present(value: ?*anyopaque, surface: *const ui.Surface, damage: ui.Damage) bool {
             _ = surface; _ = damage; const count: *usize = @ptrCast(@alignCast(value.?)); count.* += 1; return true;
@@ -62,7 +63,7 @@ test "bridge forwards present and resize without DOM knowledge" {
         fn resize(value: ?*anyopaque, surface: *const ui.Surface) bool {
             _ = surface; const count: *usize = @ptrCast(@alignCast(value.?)); count.* += 1; return true;
         }
-        fn close(_: ?*anyopaque, _: u32) void {}
+        fn close(value: ?*anyopaque, _: u32) void { const count: *usize = @ptrCast(@alignCast(value.?)); count.* += 1; }
     };
     var bridge = Bridge.init(&backend, .{ .userdata = &presents, .present = Hooks.present, .resize = Hooks.resize, .close = Hooks.close });
     try std.testing.expect(backend.enqueueRequest(.{ .hello = .{ .version = ui.protocol_version, .capabilities = ui.supported_capabilities } }));
@@ -90,4 +91,7 @@ test "bridge forwards present and resize without DOM knowledge" {
         .pointer => |pointer| { try std.testing.expectEqual(@as(i32, 12), pointer.x); try std.testing.expectEqual(@as(u8, 1), pointer.buttons); },
         else => return error.UnexpectedBridgeEvent,
     }
+    bridge.sink.userdata = &closes;
+    try std.testing.expect(bridge.dispatch(.{ .close = {} }));
+    try std.testing.expectEqual(@as(usize, 1), closes);
 }
