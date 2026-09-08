@@ -13,7 +13,7 @@ pub const Surface = struct {
 
 pub const PixelFormat = enum(u8) { rgba8888 = 1, bgra8888 = 2, argb8888 = 3 };
 pub const SurfaceInfo = struct { id: u32, buffer_handle: u32, width: u16, height: u16, stride: u32, format: PixelFormat, generation: u64 };
-pub const Response = union(enum) { surface_created: SurfaceInfo, surface_destroyed: u32, error: u16 };
+pub const Response = union(enum) { surface_created: SurfaceInfo, surface_destroyed: u32, failure: u16 };
 
 pub const Damage = struct { x: u16, y: u16, width: u16, height: u16 };
 
