@@ -52,14 +52,14 @@ static size_t append_n(char *out, size_t used, size_t capacity, const char *text
     memcpy(out + used, text, length); return used + length;
 }
 
-static size_t render_template(const char *input, char *out, size_t capacity) {
+static size_t render_template(const char *input, const char *cpu_value, char *out, size_t capacity) {
     const char *token = "{{ CPU_USAGE }}"; const char *cursor = input; size_t used = 0;
     while (*cursor && used + 1 < capacity) {
         const char *match = strstr(cursor, token);
         if (!match) { used = append_text(out, used, capacity, cursor); break; }
         used = append_n(out, used, capacity, cursor, (size_t)(match - cursor));
         if (match < cursor || used + 2 >= capacity) break;
-        out[used++] = '3'; out[used++] = '2'; cursor = match + strlen(token);
+        used = append_text(out, used, capacity, cpu_value); cursor = match + strlen(token);
     }
     out[used < capacity ? used : capacity - 1] = 0; return used;
 }
@@ -74,7 +74,7 @@ static int authorized_action(const char *name) {
 int main(void) {
     struct server server = { 0 }; struct csos_ui_transport transport;
     struct csos_ui_client client; uint8_t message[64]; uint8_t kind = 0;
-    char desktop[4096], topbar[1024], dock[1024], manifest[1024], rendered[8192]; size_t used = 0;
+    char desktop[4096], topbar[1024], dock[1024], manifest[1024], cpu_value[32], rendered[8192]; size_t used = 0;
     csos_ui_ring_init(&server.events);
     if (!file_contains("system/ui/interface/desktop.html", "{{ CPU_USAGE }}") ||
         !file_contains("system/ui/interface/topbar.html", "{{ NETWORK_IP }}") ||
@@ -91,7 +91,9 @@ int main(void) {
         !read_text("system/ui/interface/desktop.html", desktop, sizeof(desktop)) ||
         !read_text("system/ui/interface/topbar.html", topbar, sizeof(topbar)) ||
         !read_text("system/ui/interface/dock.html", dock, sizeof(dock))) return 1;
-    used = render_template(desktop, rendered, sizeof(rendered));
+    if (!read_text("system/ui/providers/cpu_usage", cpu_value, sizeof(cpu_value))) return 1;
+    cpu_value[strcspn(cpu_value, "\r\n")] = 0;
+    used = render_template(desktop, cpu_value, rendered, sizeof(rendered));
     used = append_text(rendered, used, sizeof(rendered), topbar);
     used = append_text(rendered, used, sizeof(rendered), dock);
     if (strstr(rendered, "{{ CPU_USAGE }}") || !strstr(rendered, "CPU 32%") ||
