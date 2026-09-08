@@ -638,15 +638,25 @@ pub const WindowManager = struct {
         const window = self.windows[index];
         const new_width = @max(width, 16);
         const new_height = @max(height, 16);
-        const copy_width = @min(window.width, new_width);
-        const copy_height = @min(window.height, new_height);
         // Window storage is caller-owned; resize is supported when the
         // existing surface already has capacity for the requested geometry.
         if (new_width * new_height > window.pixels.len) return false;
+        const old_width = window.width;
+        const old_height = window.height;
+        if (new_width > old_width) {
+            var row = @min(old_height, new_height);
+            while (row > 0) {
+                row -= 1;
+                std.mem.copyBackwards(u32, window.pixels[row * new_width .. row * new_width + old_width], window.pixels[row * old_width .. row * old_width + old_width]);
+            }
+        } else if (new_width < old_width) for (0..@min(old_height, new_height)) |row|
+            std.mem.copyForwards(u32, window.pixels[row * new_width .. row * new_width + new_width], window.pixels[row * old_width .. row * old_width + new_width]);
         window.width = new_width;
         window.height = new_height;
-        _ = copy_width;
-        _ = copy_height;
+        if (new_width > old_width) for (0..@min(old_height, new_height)) |row|
+            @memset(window.pixels[row * new_width + old_width .. row * new_width + new_width], 0);
+        if (new_height > old_height) for (old_height..new_height) |row|
+            @memset(window.pixels[row * new_width .. row * new_width + new_width], 0);
         window.markDirty(0, 0, new_width, new_height);
         return true;
     }
