@@ -67,7 +67,7 @@ _Static_assert(sizeof(struct csos_ui_message_header) == 2, "CSOS UI header layou
 _Static_assert(sizeof(struct csos_ui_damage) == 8, "CSOS UI damage layout mismatch");
 _Static_assert(sizeof(struct csos_ui_hello) == 10, "CSOS UI hello layout mismatch");
 _Static_assert(sizeof(struct csos_ui_present) == 20, "CSOS UI present layout mismatch");
-_Static_assert(sizeof(struct csos_ui_surface) == 27, "CSOS UI surface layout mismatch");
+_Static_assert(sizeof(struct csos_ui_surface) == 25, "CSOS UI surface layout mismatch");
 #endif
 
 static inline void csos_ui_put16(uint8_t *p, uint16_t v) {
@@ -112,6 +112,17 @@ static inline int csos_ui_event_valid(const uint8_t *message, uint8_t length) {
     case CSOS_UI_FOCUS: return length == 3 && message[2] <= 1;
     case CSOS_UI_TIMER: return length == 6;
     case CSOS_UI_EVENT_CLOSE: return length == 2;
+    default: return 0;
+    }
+}
+
+static inline int csos_ui_response_valid(const uint8_t *message, uint8_t length) {
+    if (!message || length < 2 || message[1] != length) return 0;
+    switch (message[0]) {
+    case CSOS_UI_SURFACE_CREATED:
+        return length == 27 && message[18] >= CSOS_UI_RGBA8888 && message[18] <= CSOS_UI_ARGB8888;
+    case CSOS_UI_SURFACE_DESTROYED: return length == 6;
+    case CSOS_UI_FAILURE: return length == 4;
     default: return 0;
     }
 }

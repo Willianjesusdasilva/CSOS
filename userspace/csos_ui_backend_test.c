@@ -14,5 +14,9 @@ int main(void) {
         return 4;
     if (csos_ui_encode_close(message, 1) != 0)
         return 5;
-    return csos_ui_event_valid((uint8_t[]){ CSOS_UI_FOCUS, 3, 1 }, 3) ? 0 : 6;
+    struct csos_ui_surface surface = { 4, 0x55, 640, 480, 640, CSOS_UI_BGRA8888, 9 };
+    if (csos_ui_encode_surface_created(message, sizeof(message), surface) != 27 ||
+        !csos_ui_response_valid(message, 27) || csos_ui_get32(message + 6) != 0x55)
+        return 6;
+    return csos_ui_event_valid((uint8_t[]){ CSOS_UI_FOCUS, 3, 1 }, 3) ? 0 : 7;
 }
