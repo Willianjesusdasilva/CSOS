@@ -17,18 +17,29 @@ fn append(dst: []u8, used: *usize, text: []const u8) !void {
     used.* += text.len;
 }
 
+fn configuredPath(config: []const u8, name: []const u8) ![]const u8 {
+    var key: [64]u8 = undefined;
+    const key_text = try std.fmt.bufPrint(&key, "{s}=\"", .{name});
+    const start = (std.mem.indexOf(u8, config, key_text) orelse return error.MissingVariable) + key_text.len;
+    const end = std.mem.indexOfScalarPos(u8, config, start, '"') orelse return error.InvalidVariable;
+    return config[start..end];
+}
+
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
     const manifest = try readFile(allocator, "system/ui/interface/desktop.manifest");
+    const variables = try readFile(allocator, "system/ui/variables.conf");
     const desktop = try readFile(allocator, "system/ui/interface/desktop.html");
     const topbar = try readFile(allocator, "system/ui/interface/topbar.html");
     const dock = try readFile(allocator, "system/ui/interface/dock.html");
     const launcher = try readFile(allocator, "system/ui/interface/launcher.html");
     const alt_tab = try readFile(allocator, "system/ui/interface/alt-tab.html");
     const css = try readFile(allocator, "system/ui/styles/desktop.css");
-    const cpu = std.mem.trim(u8, try readFile(allocator, "system/ui/providers/cpu_usage"), "\r\n");
+    const cpu_path = try configuredPath(variables, "CPU_USAGE");
+    const cpu_relative = if (std.mem.startsWith(u8, cpu_path, "/")) cpu_path[1..] else cpu_path;
+    const cpu = std.mem.trim(u8, try readFile(allocator, cpu_relative), "\r\n");
     const action = try readFile(allocator, "system/ui/scripts/open_files");
     var composed: [16384]u8 = undefined;
     var composed_len: usize = 0;
