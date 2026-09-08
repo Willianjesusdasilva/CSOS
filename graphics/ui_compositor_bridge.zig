@@ -20,6 +20,13 @@ pub const Bridge = struct {
 
     pub fn dispatch(self: *Bridge, request: ui.Request) bool {
         return switch (request) {
+            .hello => |value| if (value.version == ui.protocol_version) blk: {
+                self.backend.negotiated_version = ui.protocol_version;
+                self.backend.negotiated_capabilities = value.capabilities & ui.supported_capabilities;
+                break :blk self.backend.enqueueResponse(.{ .hello_ack = .{ .version = ui.protocol_version, .capabilities = self.backend.negotiated_capabilities } });
+            } else false,
+            .create_window => |value| self.backend.resize(value.width, value.height, self.backend.surface.pixels) and
+                self.sink.resize(self.sink.userdata, &self.backend.surface),
             .present => |value| if (value.surface_id == self.backend.surface.id and value.generation == self.backend.surface.generation)
                 self.sink.present(self.sink.userdata, &self.backend.surface, value.damage) else false,
             .resize => |value| self.backend.resize(value.width, value.height, self.backend.surface.pixels) and
