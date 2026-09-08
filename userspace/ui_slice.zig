@@ -129,6 +129,7 @@ pub fn main() !void {
     var expanded: []const u8 = composed[0..composed_len];
     for (variable_names) |name| {
         const configured = try configuredPath(variables, name);
+        if (!std.mem.startsWith(u8, configured, "/system/ui/providers/")) return error.ProviderOutsideReadOnlyTree;
         const path = if (std.mem.startsWith(u8, configured, "/")) configured[1..] else configured;
         const value = std.mem.trim(u8, try readFile(allocator, path), "\r\n");
         if (std.mem.indexOf(u8, value, "action=") != null or std.mem.indexOf(u8, value, "exec=") != null)
