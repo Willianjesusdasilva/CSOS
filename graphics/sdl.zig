@@ -637,6 +637,21 @@ pub const WindowManager = struct {
         self.focused = self.count - 1;
         return true;
     }
+
+    /// Composite the stack from back to front into a destination surface.
+    /// All windows are clipped to the destination; alpha is blended in RGB.
+    pub fn compose(self: *const WindowManager, destination: *Window) void {
+        destination.clear(0);
+        for (self.windows[0..self.count]) |source| {
+            const width = @min(source.width, destination.width);
+            const height = @min(source.height, destination.height);
+            for (0..height) |row| for (0..width) |column| {
+                const index = row * destination.width + column;
+                destination.pixels[index] = blendRgbaOverRgb(source.pixels[row * source.width + column], destination.pixels[index]);
+            };
+        }
+        destination.markDirty(0, 0, destination.width, destination.height);
+    }
 };
 
 pub const TextInput = struct {
