@@ -237,6 +237,20 @@ static inline int csos_ui_client_hello(struct csos_ui_client *client,
     client->version = version; client->capabilities = capabilities; client->ready = 1; return 0;
 }
 
+static inline int csos_ui_client_present(struct csos_ui_client *client, uint32_t surface_id,
+                                         uint64_t generation, struct csos_ui_damage damage) {
+    uint8_t message[22];
+    if (!client || !client->ready || csos_ui_encode_present(message, sizeof(message), surface_id, generation, damage) == 0) return -1;
+    return csos_ui_transport_send(&client->transport, message, sizeof(message));
+}
+
+static inline int csos_ui_client_close(struct csos_ui_client *client) {
+    uint8_t message[2];
+    if (!client || !client->ready || csos_ui_encode_close(message, sizeof(message)) == 0) return -1;
+    const int result = csos_ui_transport_send(&client->transport, message, sizeof(message));
+    client->ready = 0; return result;
+}
+
 static inline int csos_ui_client_receive_response(struct csos_ui_client *client,
                                                    void *message, uint8_t capacity) {
     if (!client || !client->ready) return -1;
