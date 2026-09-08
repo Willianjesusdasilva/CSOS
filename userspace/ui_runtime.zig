@@ -18,6 +18,8 @@ pub export const status_path: [33:0]u8 = "/system/ui/interface/status.html\x00".
 pub export const dock_path: [31:0]u8 = "/system/ui/interface/dock.html\x00".*;
 pub export const alt_tab_path: [34:0]u8 = "/system/ui/interface/alt-tab.html\x00".*;
 pub export const desktop_actions_path: [42:0]u8 = "/system/ui/interface/desktop-actions.html\x00".*;
+pub export const terminal_css_path: [31:0]u8 = "/system/ui/styles/terminal.css\x00".*;
+pub export const apps_css_path: [27:0]u8 = "/system/ui/styles/apps.css\x00".*;
 pub export const cpu_provider_path: [31:0]u8 = "/system/ui/providers/CPU_USAGE\x00".*;
 pub export const script_path: [30:0]u8 = "/system/ui/scripts/open_files\x00".*;
 
@@ -196,6 +198,26 @@ pub export fn _start() callconv(.naked) noreturn {
         \\movl %%eax, %%edi
         \\mov $3, %%eax
         \\syscall
+        \\mov $257, %%eax
+        \\movq $-100, %%rdi
+        \\lea terminal_css_path(%%rip), %%rsi
+        \\xor %%edx, %%edx
+        \\syscall
+        \\test %%rax, %%rax
+        \\js 28f
+        \\movl %%eax, %%edi
+        \\mov $3, %%eax
+        \\syscall
+        \\mov $257, %%eax
+        \\movq $-100, %%rdi
+        \\lea apps_css_path(%%rip), %%rsi
+        \\xor %%edx, %%edx
+        \\syscall
+        \\test %%rax, %%rax
+        \\js 29f
+        \\movl %%eax, %%edi
+        \\mov $3, %%eax
+        \\syscall
         \\mov $451, %%eax
         \\mov $1, %%edi
         \\lea hello_frame(%%rip), %%rsi
@@ -310,6 +332,14 @@ pub export fn _start() callconv(.naked) noreturn {
         \\27:
         \\mov $60, %%eax
         \\mov $27, %%edi
+        \\syscall
+        \\28:
+        \\mov $60, %%eax
+        \\mov $28, %%edi
+        \\syscall
+        \\29:
+        \\mov $60, %%eax
+        \\mov $29, %%edi
         \\syscall
         \\1:
         \\mov $60, %%eax

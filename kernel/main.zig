@@ -2754,6 +2754,8 @@ fn seedUiFilesystem(volume: *fat16.Volume) !void {
     const manifest_name: [11]u8 = "DESKTOP MAN".*;
     const desktop_name: [11]u8 = "DESKTOP HTM".*;
     const css_name: [11]u8 = "DESKTOP CSS".*;
+    const terminal_css_name: [11]u8 = "TERMINALCSS".*;
+    const apps_css_name: [11]u8 = "APPS    CSS".*;
     const wallpaper_name: [11]u8 = "WALLPAP HTM".*;
     const topbar_name: [11]u8 = "TOPBAR  HTM".*;
     const sidebar_name: [11]u8 = "SIDEBAR HTM".*;
@@ -2797,6 +2799,8 @@ fn seedUiFilesystem(volume: *fat16.Volume) !void {
     if (volume.findDirectoryEntry(interface_cluster, &topbar_name)) |_| serial.write("ui seed topbar ready\n") else |_| serial.write("ui seed topbar lookup failed\n");
     if (volume.findDirectoryEntry(interface_cluster, &sidebar_name)) |_| serial.write("ui seed sidebar ready\n") else |_| serial.write("ui seed sidebar lookup failed\n");
     try volume.createDirectoryFile(styles_cluster, &css_name); try volume.writeDirectoryFile(styles_cluster, &css_name, @embedFile("ui_desktop_css"));
+    try volume.createDirectoryFile(styles_cluster, &terminal_css_name); try volume.writeDirectoryFile(styles_cluster, &terminal_css_name, @embedFile("ui_terminal_css"));
+    try volume.createDirectoryFile(styles_cluster, &apps_css_name); try volume.writeDirectoryFile(styles_cluster, &apps_css_name, @embedFile("ui_apps_css"));
     try volume.createDirectoryFile(providers_cluster, "CPUUSAGETXT"); try volume.writeDirectoryFile(providers_cluster, "CPUUSAGETXT", "32\n");
     try volume.createDirectoryFile(providers_cluster, "RAM_USAGE  "); try volume.writeDirectoryFile(providers_cluster, "RAM_USAGE  ", "48\n");
     try volume.createDirectoryFile(providers_cluster, "GPU_USAGE  "); try volume.writeDirectoryFile(providers_cluster, "GPU_USAGE  ", "unavailable\n");

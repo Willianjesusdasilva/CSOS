@@ -492,6 +492,8 @@ pub fn build(b: *std.Build) void {
     kernel_module.addAnonymousImport("ui_dock", .{ .root_source_file = b.path("system/ui/interface/dock.html") });
     kernel_module.addAnonymousImport("ui_alt_tab", .{ .root_source_file = b.path("system/ui/interface/alt-tab.html") });
     kernel_module.addAnonymousImport("ui_desktop_actions", .{ .root_source_file = b.path("system/ui/interface/desktop-actions.html") });
+    kernel_module.addAnonymousImport("ui_terminal_css", .{ .root_source_file = b.path("system/ui/styles/terminal.css") });
+    kernel_module.addAnonymousImport("ui_apps_css", .{ .root_source_file = b.path("system/ui/styles/apps.css") });
     kernel_module.addImport("serial", serial_module);
     kernel_module.addImport("gdt", gdt_module);
     kernel_module.addImport("idt", idt_module);
