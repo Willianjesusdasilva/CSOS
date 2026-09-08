@@ -143,6 +143,14 @@ pub const Session = struct {
         const index = self.focused orelse return false;
         return self.document.inputKey(index, key);
     }
+
+    /// Hit-tests and activates an interactive element at document coordinates.
+    /// Inputs become focused; buttons and links return their action target.
+    pub fn activateAt(self: *Session, x: usize, y: usize, origin_x: usize, origin_y: usize) ?[]const u8 {
+        const index = self.document.hitTest(x, y, origin_x, origin_y) orelse return null;
+        self.focused = index;
+        return self.document.activateIndex(index);
+    }
 };
 
 var rendered_count: usize = 0;
@@ -216,6 +224,14 @@ test "HTML inputs participate in focus and hit testing" {
     try std.testing.expectEqual(@as(usize, 1), document.nextButton(null, true).?);
     try std.testing.expectEqual(@as(usize, 1), document.hitTest(12, 20, 4, 4).?);
     try std.testing.expect(document.activateIndex(1) == null);
+}
+
+test "HTML session activates mouse targets and focuses inputs" {
+    var session = Session.init("<p>Name</p><input>enter</input><button>Go</button>");
+    try std.testing.expect(session.activateAt(12, 20, 4, 4) == null);
+    try std.testing.expectEqual(@as(usize, 1), session.focused.?);
+    try std.testing.expectEqualStrings("Go", session.activateAt(12, 32, 4, 4).?);
+    try std.testing.expectEqual(@as(usize, 2), session.focused.?);
 }
 
 test "HTML input values are mutable independently of source markup" {

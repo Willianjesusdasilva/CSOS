@@ -506,6 +506,12 @@ pub const Application = struct {
         return false;
     }
 
+    /// Activates an HTML control under pointer coordinates and updates focus.
+    pub fn activateHtmlAt(self: *Application, x: usize, y: usize, origin_x: usize, origin_y: usize) ?[]const u8 {
+        if (self.html_session) |*session| return session.activateAt(x, y, origin_x, origin_y);
+        return null;
+    }
+
     pub fn focusHtmlNext(self: *Application, forward: bool) ?usize {
         if (self.html_session) |*session| return session.focusNext(forward);
         return null;
