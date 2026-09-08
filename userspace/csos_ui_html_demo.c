@@ -35,9 +35,39 @@ static int file_contains(const char *path, const char *needle) {
     return strstr(buffer, needle) != NULL;
 }
 
+static size_t read_text(const char *path, char *out, size_t capacity) {
+    FILE *file = fopen(path, "rb"); size_t n;
+    if (!file || capacity == 0) { if (file) fclose(file); return 0; }
+    n = fread(out, 1, capacity - 1, file); fclose(file); out[n] = 0; return n;
+}
+
+static size_t append_text(char *out, size_t used, size_t capacity, const char *text) {
+    size_t length = strlen(text);
+    if (used >= capacity || length >= capacity - used) return used;
+    memcpy(out + used, text, length); return used + length;
+}
+
+static size_t append_n(char *out, size_t used, size_t capacity, const char *text, size_t length) {
+    if (used >= capacity || length >= capacity - used) return used;
+    memcpy(out + used, text, length); return used + length;
+}
+
+static size_t render_template(const char *input, char *out, size_t capacity) {
+    const char *token = "{{ CPU_USAGE }}"; const char *cursor = input; size_t used = 0;
+    while (*cursor && used + 1 < capacity) {
+        const char *match = strstr(cursor, token);
+        if (!match) { used = append_text(out, used, capacity, cursor); break; }
+        used = append_n(out, used, capacity, cursor, (size_t)(match - cursor));
+        if (match < cursor || used + 2 >= capacity) break;
+        out[used++] = '3'; out[used++] = '2'; cursor = match + strlen(token);
+    }
+    out[used < capacity ? used : capacity - 1] = 0; return used;
+}
+
 int main(void) {
     struct server server = { 0 }; struct csos_ui_transport transport;
     struct csos_ui_client client; uint8_t message[64]; uint8_t kind = 0;
+    char desktop[4096], topbar[1024], dock[1024], rendered[8192]; size_t used = 0;
     csos_ui_ring_init(&server.events);
     if (!file_contains("system/ui/interface/desktop.html", "{{ CPU_USAGE }}") ||
         !file_contains("system/ui/interface/topbar.html", "{{ NETWORK_IP }}") ||
@@ -47,6 +77,14 @@ int main(void) {
         !file_contains("system/ui/styles/desktop.css", ".launcher") ||
         !file_contains("system/ui/providers/cpu_usage", "32") ||
         !file_contains("system/ui/scripts/open_files", "action=open_files")) return 1;
+    if (!read_text("system/ui/interface/desktop.html", desktop, sizeof(desktop)) ||
+        !read_text("system/ui/interface/topbar.html", topbar, sizeof(topbar)) ||
+        !read_text("system/ui/interface/dock.html", dock, sizeof(dock))) return 1;
+    used = render_template(desktop, rendered, sizeof(rendered));
+    used = append_text(rendered, used, sizeof(rendered), topbar);
+    used = append_text(rendered, used, sizeof(rendered), dock);
+    if (strstr(rendered, "{{ CPU_USAGE }}") || !strstr(rendered, "CPU 32%") ||
+        !strstr(rendered, "data-action=\"open_files\"")) return 1;
     transport = (struct csos_ui_transport){ &server, send_message, receive_message };
     csos_ui_client_init(&client, transport);
     if (csos_ui_client_hello(&client, CSOS_UI_PROTOCOL_VERSION, CSOS_UI_CAP_SURFACE | CSOS_UI_CAP_INPUT) != 0 ||
