@@ -530,10 +530,18 @@ pub fn drawReferenceDesktop(window: *Window) void {
     window.drawText(card_x + 22, 110, "● Sistema Online", 0x7ee6a0ff);
     window.drawText(card_x + 22, 148, "CPU 32%   RAM 48%   GPU 12%", 0xc5d7f2ff);
     window.drawText(card_x + 22, 182, "Rede  ↓125 MB/s  ↑8 MB/s", 0xb7c9e7ff);
+    const gauges = [_]u32{ 0x70e0a0ff, 0x8ca8ffff, 0x70e0a0ff };
+    for (gauges, 0..) |color, index| {
+        const gauge_x = card_x + 20 + index * 82;
+        window.fillRect(gauge_x, 198, 62, 5, 0x536784cc);
+        window.fillRect(gauge_x, 198, if (index == 0) 20 else if (index == 1) 30 else 8, 5, color);
+    }
     const player_y = 246;
     window.fillRect(card_x, player_y, 286, 104, 0x273958dd);
     window.drawText(card_x + 18, player_y + 18, "Midnight City", 0xf1f6ffff);
     window.drawText(card_x + 18, player_y + 42, "M83", 0xb7c9e7ff);
+    window.fillRect(card_x + 18, player_y + 56, 250, 4, 0x536784cc);
+    window.fillRect(card_x + 18, player_y + 56, 96, 4, 0x9b7dffff);
     window.drawText(card_x + 18, player_y + 72, "|<<     ||     >>|", 0xd9e8ffff);
     const notification_x = width -| 312;
     const notification_y = @min(height -| 154, player_y + 122);
