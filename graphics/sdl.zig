@@ -465,9 +465,17 @@ pub const Window = struct {
 /// userspace compositor supplies these surfaces. It deliberately uses only
 /// Window drawing primitives; applications still arrive through html.Session.
 pub fn drawReferenceDesktop(window: *Window) void {
-    window.clear(0x101a38ff);
     const width = window.width;
     const height = window.height;
+    window.clear(0x101a38ff);
+    const bands = @max(@as(usize, 1), @min(@as(usize, 12), height));
+    for (0..bands) |band| {
+        const y = band * height / bands;
+        const band_height = @max(@as(usize, 1), height / bands);
+        const red: u32 = 16 + @as(u32, @intCast(band * 3));
+        const blue: u32 = 48 + @as(u32, @intCast(band * 8));
+        window.fillRect(0, y, width, band_height, (red << 24) | (32 << 16) | (blue << 8) | 0xff);
+    }
     window.fillRect(0, 0, width, @min(height, 38), 0x17294fff);
     window.drawText(18, 12, "CSOS", 0xf0f6ffff);
     window.drawText(78, 12, "Arquivo   Editar   Visualizar   Janela   Ajuda", 0xc4d5f0ff);
