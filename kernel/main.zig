@@ -3282,6 +3282,7 @@ fn drawDesktopWallpaper(framebuffer: Framebuffer) void {
         const blue: u32 = 75 + ((85 * (255 - t)) / 255);
         for (0..framebuffer.width) |x| {
             var color = (red << 16) | (green << 8) | blue;
+            if (y < framebuffer.height * 2 / 5 and ((x * 37 + y * 17) % 251 == 0)) color = 0x9bbcff;
             const horizon = framebuffer.height * 3 / 5;
             if (y > horizon and y < horizon + framebuffer.height / 5 and
                 x > (y - horizon) * 3 and x + (y - horizon) * 2 < framebuffer.width + 40)
