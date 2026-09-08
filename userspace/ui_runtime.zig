@@ -18,7 +18,7 @@ pub export fn _start() callconv(.naked) noreturn {
         \\xor %%edx, %%edx
         \\syscall
         \\test %%rax, %%rax
-        \\js 1f
+        \\js 11f
         \\movl %%eax, %%edi
         \\mov $3, %%eax
         \\syscall
@@ -28,7 +28,7 @@ pub export fn _start() callconv(.naked) noreturn {
         \\xor %%edx, %%edx
         \\syscall
         \\test %%rax, %%rax
-        \\js 1f
+        \\js 12f
         \\movl %%eax, %%edi
         \\mov $3, %%eax
         \\syscall
@@ -38,27 +38,27 @@ pub export fn _start() callconv(.naked) noreturn {
         \\xor %%edx, %%edx
         \\syscall
         \\test %%rax, %%rax
-        \\js 1f
+        \\js 13f
         \\movl %%eax, %%edi
         \\mov $3, %%eax
         \\syscall
         \\mov $451, %%eax
-        \\movl %%r12d, %%edi
+        \\mov $1, %%edi
         \\lea hello_frame(%%rip), %%rsi
         \\mov $21, %%edx
         \\syscall
         \\mov $451, %%eax
-        \\movl %%r12d, %%edi
+        \\mov $1, %%edi
         \\lea create_frame(%%rip), %%rsi
         \\mov $19, %%edx
         \\syscall
         \\mov $451, %%eax
-        \\movl %%r12d, %%edi
+        \\mov $1, %%edi
         \\lea present_frame(%%rip), %%rsi
         \\mov $22, %%edx
         \\syscall
         \\mov $451, %%eax
-        \\movl %%r12d, %%edi
+        \\mov $1, %%edi
         \\lea pixel_frame(%%rip), %%rsi
         \\mov $10, %%edx
         \\syscall
@@ -69,6 +69,19 @@ pub export fn _start() callconv(.naked) noreturn {
         \\syscall
         \\xor %%edi, %%edi
         \\mov $60, %%eax
+        \\syscall
+        \\jmp 1f
+        \\11:
+        \\mov $60, %%eax
+        \\mov $11, %%edi
+        \\syscall
+        \\12:
+        \\mov $60, %%eax
+        \\mov $12, %%edi
+        \\syscall
+        \\13:
+        \\mov $60, %%eax
+        \\mov $13, %%edi
         \\syscall
         \\1:
         \\mov $60, %%eax
