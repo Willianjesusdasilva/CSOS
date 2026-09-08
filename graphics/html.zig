@@ -23,9 +23,9 @@ pub const Document = struct {
             const tag = source[open + 1 .. close];
             const name_end = std.mem.indexOfScalar(u8, tag, ' ') orelse tag.len;
             const name = tag[0..name_end];
-            const kind: ?Kind = if (std.mem.eql(u8, name, "h1")) .heading else if (std.mem.eql(u8, name, "p")) .paragraph else if (std.mem.eql(u8, name, "div") or std.mem.eql(u8, name, "span")) .container else if (std.mem.eql(u8, name, "button")) .button else if (std.mem.eql(u8, name, "a")) .link else if (std.mem.eql(u8, name, "input")) .input else null;
+            const kind: ?Kind = if (std.mem.eql(u8, name, "h1")) .heading else if (std.mem.eql(u8, name, "p")) .paragraph else if (std.mem.eql(u8, name, "div") or std.mem.eql(u8, name, "span")) .container else if (std.mem.eql(u8, name, "button")) .button else if (std.mem.eql(u8, name, "a")) .link else if (std.mem.eql(u8, name, "input") or std.mem.eql(u8, name, "textarea")) .input else null;
             if (kind) |value| {
-                const end_tag = switch (value) { .heading => "</h1>", .paragraph => "</p>", .container => if (std.mem.eql(u8, name, "div")) "</div>" else "</span>", .button => "</button>", .link => "</a>", .input => "</input>" };
+                const end_tag = switch (value) { .heading => "</h1>", .paragraph => "</p>", .container => if (std.mem.eql(u8, name, "div")) "</div>" else "</span>", .button => "</button>", .link => "</a>", .input => if (std.mem.eql(u8, name, "textarea")) "</textarea>" else "</input>" };
                 if (value == .input and std.mem.indexOfPos(u8, source, close + 1, end_tag) == null) {
                     var initial: []const u8 = "";
                     if (std.mem.indexOf(u8, tag, "value=") ) |value_start| {
