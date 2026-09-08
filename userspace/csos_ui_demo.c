@@ -68,6 +68,16 @@ int main(void) {
     uint8_t focus[] = { CSOS_UI_FOCUS, 3, 1 };
     if (csos_ui_ring_send(&server.events, focus, sizeof(focus)) != 0 ||
         csos_ui_client_process_event(&client, message, sizeof(message), &kind) != 3 || !client.focused) return 5;
+    uint8_t pointer[] = { CSOS_UI_POINTER, 11, 24, 0, 0, 0, 20, 0, 0, 0, 1 };
+    if (csos_ui_ring_send(&server.events, pointer, sizeof(pointer)) != 0 ||
+        csos_ui_client_process_event(&client, message, sizeof(message), &kind) != 11 ||
+        client.pointer.x != 24 || client.pointer.y != 20 || client.pointer.buttons != 1) return 5;
+    uint8_t key[] = { CSOS_UI_KEY, 8, 0x1b, 0, 0, 0, 1, 0 };
+    if (csos_ui_ring_send(&server.events, key, sizeof(key)) != 0 ||
+        csos_ui_client_process_event(&client, message, sizeof(message), &kind) != 8 ||
+        client.key.code != 0x1b || !client.key.pressed) return 5;
+    /* React to input by painting the pointer location in the local surface. */
+    pixels[client.pointer.y * 64 + client.pointer.x] = 0xffffffff;
     if (csos_ui_client_resize(&client, 80, 60) != 0 ||
         csos_ui_client_process_response(&client, message, sizeof(message), &kind) != 27 ||
         client.surface.width != 80 || client.surface.height != 60 || client.surface.generation != 1) return 6;
