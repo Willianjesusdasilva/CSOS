@@ -24,6 +24,7 @@ const Descriptor = struct {
     size: usize = 0,
     fat_name: [11]u8 = .{' '} ** 11,
     fat_cluster: u16 = 0,
+    fat_parent_cluster: u16 = 0,
 };
 
 pub const Info = struct {
@@ -216,6 +217,16 @@ pub fn openAt(directory_fd: i64, path: []const u8, flags: u64) !usize {
     var fd: usize = 3;
     while (fd < descriptors.len and descriptors[fd].kind != .unused) : (fd += 1) {}
     if (fd == descriptors.len) return error.TooManyFiles;
+    if (disk) |volume| if (splitNestedPath(path)) |parts| {
+        if (toFatName(parts.parent)) |parent_name| if (volume.findRootEntry(&parent_name)) |parent| if (parent.directory)
+            if (toFatName(parts.child)) |child_name| if (volume.findDirectoryEntry(parent.first_cluster, &child_name)) |child| {
+                if (child.directory) return error.IsDirectory;
+                if ((flags & 0x40) != 0 or (flags & 0x200) != 0 or (flags & 0x3) != 0) return error.ReadOnly;
+                descriptors[fd] = .{ .generation = try newGeneration(), .kind = .file, .node = .disk, .size = child.size, .fat_name = child.name, .fat_parent_cluster = parent.first_cluster };
+                descriptors[fd].close_on_exec = (flags & 0x80000) != 0;
+                return fd;
+            } else |_| {};
+    };
     if (toFatName(path)) |fat_name| if (disk) |volume| {
         if (volume.findRootEntry(&fat_name)) |entry| {
             if (entry.directory) {
@@ -328,7 +339,10 @@ pub fn read(fd: usize, output: []u8) !usize {
     if (fd >= descriptors.len or descriptors[fd].kind != .file) return error.BadFd;
     if (descriptors[fd].node == .disk) {
         const volume = disk orelse return error.NotFound;
-        const count = try volume.readRootFileAt(&descriptors[fd].fat_name, output, descriptors[fd].offset);
+        const count = if (descriptors[fd].fat_parent_cluster != 0)
+            try volume.readDirectoryFileAt(descriptors[fd].fat_parent_cluster, &descriptors[fd].fat_name, output, descriptors[fd].offset)
+        else
+            try volume.readRootFileAt(&descriptors[fd].fat_name, output, descriptors[fd].offset);
         try advanceOffset(&descriptors[fd].offset, count);
         return count;
     }
@@ -344,7 +358,10 @@ pub fn pread(fd: usize, output: []u8, offset: usize) !usize {
     if (fd >= descriptors.len or descriptors[fd].kind != .file) return error.BadFd;
     if (descriptors[fd].node == .disk) {
         const volume = disk orelse return error.NotFound;
-        return volume.readRootFileAt(&descriptors[fd].fat_name, output, offset);
+        return if (descriptors[fd].fat_parent_cluster != 0)
+            volume.readDirectoryFileAt(descriptors[fd].fat_parent_cluster, &descriptors[fd].fat_name, output, offset)
+        else
+            volume.readRootFileAt(&descriptors[fd].fat_name, output, offset);
     }
     const data = nodeData(descriptors[fd].node);
     const start = @min(offset, data.len);
