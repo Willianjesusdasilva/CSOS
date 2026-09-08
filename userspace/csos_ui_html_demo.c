@@ -40,6 +40,10 @@ int main(void) {
     struct csos_ui_client client; uint8_t message[64]; uint8_t kind = 0;
     csos_ui_ring_init(&server.events);
     if (!file_contains("system/ui/interface/desktop.html", "{{ CPU_USAGE }}") ||
+        !file_contains("system/ui/interface/topbar.html", "{{ NETWORK_IP }}") ||
+        !file_contains("system/ui/interface/dock.html", "data-action=\"open_files\"") ||
+        !file_contains("system/ui/interface/launcher.html", "Buscar aplicações") ||
+        !file_contains("system/ui/interface/alt-tab.html", "focus_files") ||
         !file_contains("system/ui/styles/desktop.css", ".launcher") ||
         !file_contains("system/ui/providers/cpu_usage", "32") ||
         !file_contains("system/ui/scripts/open_files", "action=open_files")) return 1;
