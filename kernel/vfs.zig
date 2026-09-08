@@ -511,6 +511,14 @@ pub fn unlinkAt(directory_fd: i64, path: []const u8) !void {
 pub fn mkdirAt(directory_fd: i64, path: []const u8, mode: u64) !void {
     _ = mode;
     if (disk) |volume| {
+        if (directory_fd >= 3 and @as(usize, @intCast(directory_fd)) < descriptors.len and
+            descriptors[@intCast(directory_fd)].node == .fat_directory and std.mem.indexOfScalar(u8, path, '/') == null)
+        {
+            const child = toFatName(path) orelse return error.Invalid;
+            if (volume.findDirectoryEntry(descriptors[@intCast(directory_fd)].fat_cluster, &child)) |_| return error.AlreadyExists else |_| {}
+            _ = try volume.createDirectory(descriptors[@intCast(directory_fd)].fat_cluster, &child);
+            return;
+        }
         if (resolveFatPath(volume, path)) |_| return error.AlreadyExists else |_| {}
         const child = toFatName(lastPathComponent(path)) orelse return error.Invalid;
         const parent_path = nestedParentPath(path) orelse {
@@ -530,17 +538,21 @@ pub fn mkdirAt(directory_fd: i64, path: []const u8, mode: u64) !void {
         _ = try volume.createDirectory(parent_cluster, &child);
         return;
     }
-    _ = directory_fd;
     return error.ReadOnly;
 }
 
 pub fn rmdirAt(directory_fd: i64, path: []const u8) !void {
     if (disk) |volume| {
+        if (directory_fd >= 3 and @as(usize, @intCast(directory_fd)) < descriptors.len and
+            descriptors[@intCast(directory_fd)].node == .fat_directory and std.mem.indexOfScalar(u8, path, '/') == null)
+        {
+            const child = toFatName(path) orelse return error.Invalid;
+            return volume.deleteDirectory(descriptors[@intCast(directory_fd)].fat_cluster, &child);
+        }
         const resolved = try resolveFatPath(volume, path);
         if (!resolved.entry.directory) return error.NotDirectory;
         return volume.deleteDirectory(resolved.parent_cluster, &resolved.entry.name);
     }
-    _ = directory_fd;
     return error.ReadOnly;
 }
 
