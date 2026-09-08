@@ -1,10 +1,10 @@
 const std = @import("std");
 const ui = @import("ui_backend");
 
+var active_io: ?std.Io = null;
+
 fn readFile(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
-    const file = try std.fs.cwd().openFile(path, .{});
-    defer file.close();
-    return file.readToEndAlloc(allocator, 64 * 1024);
+    return std.Io.Dir.cwd().readFileAlloc(active_io.?, path, allocator, .limited(64 * 1024));
 }
 
 fn contains(haystack: []const u8, needle: []const u8) !void {
@@ -67,6 +67,9 @@ pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    active_io = threaded.io();
     const manifest = try readFile(allocator, "system/ui/interface/desktop.manifest");
     const apps_manifest = try readFile(allocator, "system/ui/interface/apps.manifest");
     const variables = try readFile(allocator, "system/ui/variables.conf");
