@@ -67,6 +67,41 @@ static inline void csos_ui_put32(uint8_t *p, uint32_t v) {
 static inline void csos_ui_put64(uint8_t *p, uint64_t v) {
     for (unsigned i = 0; i != 8; ++i) p[i] = (uint8_t)(v >> (i * 8));
 }
+static inline uint16_t csos_ui_get16(const uint8_t *p) {
+    return (uint16_t)p[0] | ((uint16_t)p[1] << 8);
+}
+static inline uint32_t csos_ui_get32(const uint8_t *p) {
+    return (uint32_t)p[0] | ((uint32_t)p[1] << 8) |
+           ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+}
+static inline uint64_t csos_ui_get64(const uint8_t *p) {
+    uint64_t value = 0;
+    for (unsigned i = 0; i != 8; ++i) value |= (uint64_t)p[i] << (i * 8);
+    return value;
+}
+
+static inline int csos_ui_request_valid(const uint8_t *message, uint8_t length) {
+    if (!message || length < 2 || message[1] != length) return 0;
+    switch (message[0]) {
+    case CSOS_UI_HELLO: return length == 12;
+    case CSOS_UI_PRESENT: return length == 22;
+    case CSOS_UI_CLOSE: return length == 2;
+    default: return 0;
+    }
+}
+
+static inline int csos_ui_event_valid(const uint8_t *message, uint8_t length) {
+    if (!message || length < 2 || message[1] != length) return 0;
+    switch (message[0]) {
+    case CSOS_UI_POINTER: return length == 11;
+    case CSOS_UI_WHEEL: return length == 6;
+    case CSOS_UI_KEY: return length == 8 && message[6] <= 1;
+    case CSOS_UI_FOCUS: return length == 3 && message[2] <= 1;
+    case CSOS_UI_TIMER: return length == 6;
+    case CSOS_UI_EVENT_CLOSE: return length == 2;
+    default: return 0;
+    }
+}
 
 /* Return the encoded byte count, or zero when capacity is insufficient. */
 static inline uint8_t csos_ui_encode_hello(uint8_t *out, uint8_t capacity,
