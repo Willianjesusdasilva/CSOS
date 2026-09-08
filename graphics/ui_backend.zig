@@ -31,6 +31,44 @@ pub const Request = union(enum) {
     close,
 };
 
+pub const WireError = error{BufferTooSmall, InvalidMessage, UnsupportedRequest};
+
+/// Little-endian, pointer-free wire envelope for a userspace IPC transport.
+/// The transport can later be a socket, channel or shared ring without
+/// exposing kernel or renderer data structures.
+pub fn encodeRequest(request: Request, output: []u8) WireError!usize {
+    if (output.len < 2) return error.BufferTooSmall;
+    var length: usize = 2;
+    output[0] = switch (request) { .present => 1, .create_window => 2, .destroy_window => 3, .open_file => 4, .connect => 5, .audio => 6, .set_timer => 7, .close => 8 };
+    switch (request) {
+        .present => |value| {
+            if (output.len < 2 + 4 + 8 + 8) return error.BufferTooSmall;
+            writeU32(output[2..], value.surface_id);
+            writeU64(output[6..], value.generation);
+            writeU16(output[14..], value.damage.x); writeU16(output[16..], value.damage.y);
+            writeU16(output[18..], value.damage.width); writeU16(output[20..], value.damage.height); length = 22;
+        },
+        .create_window => |value| {
+            if (value.title.len > 255 or output.len < 7 + value.title.len) return error.BufferTooSmall;
+            writeU16(output[2..], value.width); writeU16(output[4..], value.height); output[6] = @intCast(value.title.len);
+            @memcpy(output[7 .. 7 + value.title.len], value.title); length = 7 + value.title.len;
+        },
+        .destroy_window => |id| { if (output.len < 6) return error.BufferTooSmall; writeU32(output[2..], id); length = 6; },
+        .open_file => |path| { if (path.len > 255 or output.len < 3 + path.len) return error.BufferTooSmall; output[2] = @intCast(path.len); @memcpy(output[3 .. 3 + path.len], path); length = 3 + path.len; },
+        .connect => |value| { if (value.address.len > 255 or output.len < 6 + value.address.len) return error.BufferTooSmall; writeU16(output[2..], value.port); output[4] = @intCast(value.address.len); @memcpy(output[5 .. 5 + value.address.len], value.address); length = 5 + value.address.len; },
+        .audio => |value| { if (output.len < 7) return error.BufferTooSmall; writeU32(output[2..], value.sample_rate); output[6] = value.channels; length = 7; },
+        .set_timer => |value| { if (output.len < 14) return error.BufferTooSmall; writeU32(output[2..], value.timer_id); writeU64(output[6..], value.ticks); length = 14; },
+        .close => {},
+    }
+    writeU8(output[1..], @intCast(length));
+    return length;
+}
+
+fn writeU8(output: []u8, value: u8) void { output[0] = value; }
+fn writeU16(output: []u8, value: u16) void { std.mem.writeInt(u16, output[0..2], value, .little); }
+fn writeU32(output: []u8, value: u32) void { std.mem.writeInt(u32, output[0..4], value, .little); }
+fn writeU64(output: []u8, value: u64) void { std.mem.writeInt(u64, output[0..8], value, .little); }
+
 pub const Backend = struct {
     surface: Surface,
     events: [64]Event = undefined,
@@ -151,4 +189,15 @@ test "generic UI backend lifecycle, surface, damage and IPC requests" {
     try std.testing.expect(!backend.running);
     try std.testing.expect(backend.nextEvent() != null);
     try std.testing.expect(backend.nextRequest() != null);
+}
+
+test "backend request wire encoding is pointer-free" {
+    var wire: [64]u8 = undefined;
+    const length = try encodeRequest(.{ .present = .{ .surface_id = 9, .generation = 3, .damage = .{ .x = 1, .y = 2, .width = 8, .height = 9 } } }, &wire);
+    try std.testing.expectEqual(@as(usize, 22), length);
+    try std.testing.expectEqual(@as(u8, 1), wire[0]);
+    try std.testing.expectEqual(@as(u8, 22), wire[1]);
+    const title_length = try encodeRequest(.{ .create_window = .{ .width = 100, .height = 80, .title = "FILES" } }, &wire);
+    try std.testing.expectEqual(@as(usize, 12), title_length);
+    try std.testing.expectEqualStrings("FILES", wire[7..12]);
 }
