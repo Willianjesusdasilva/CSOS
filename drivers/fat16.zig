@@ -276,6 +276,40 @@ pub const Volume = struct {
         }
     }
 
+    pub fn renameDirectoryFile(self: *Volume, directory_cluster: u16, old_name: *const [11]u8, new_name: *const [11]u8) !void {
+        try validateDataCluster(directory_cluster, self.cluster_count);
+        var cluster = directory_cluster;
+        var traversed: u32 = 0;
+        while (true) {
+            if (!chainTraversalAllowed(traversed, self.cluster_count)) return error.BrokenChain;
+            traversed += 1;
+            var sector: u8 = 0;
+            while (sector < self.sectors_per_cluster) : (sector += 1) {
+                const lba = self.clusterLba(cluster) + sector;
+                try self.storage.readBlock(lba, self.buffer);
+                const bytes: [*]const u8 = @ptrFromInt(self.buffer);
+                var offset: usize = 0;
+                while (offset < 512) : (offset += 32) {
+                    if (bytes[offset] == 0) return error.NotFound;
+                    if (entryIsAllocated(bytes + offset) and !entryIsLongName(bytes + offset) and equal11(bytes + offset, new_name)) return error.AlreadyExists;
+                }
+                offset = 0;
+                while (offset < 512) : (offset += 32) {
+                    if (bytes[offset] == 0) return error.NotFound;
+                    if (!entryIsRegularFile(bytes + offset) or !equal11(bytes + offset, old_name)) continue;
+                    const entry: [*]u8 = @ptrFromInt(self.buffer + offset);
+                    @memcpy(entry[0..11], new_name);
+                    try self.storage.writeBlock(lba, self.buffer);
+                    return;
+                }
+            }
+            const next = try self.fatEntry(cluster);
+            if (next >= 0xfff8) return error.NotFound;
+            try validateDataCluster(next, self.cluster_count);
+            cluster = next;
+        }
+    }
+
     pub fn readRootFileAt(self: *Volume, name: *const [11]u8, output: []u8, file_offset: usize) !usize {
         var first_cluster: u16 = 0;
         var size: usize = 0;

@@ -420,12 +420,26 @@ pub fn unlinkAt(directory_fd: i64, path: []const u8) !void {
 }
 
 pub fn renameAt(directory_fd: i64, old_path: []const u8, new_path: []const u8) !void {
+    if (disk) |volume| if (resolveFatPath(volume, old_path)) |old_resolved| {
+        if (old_resolved.parent_cluster == 0 or old_resolved.entry.directory) return error.ReadOnly;
+        if (resolveFatPath(volume, new_path)) |_| return error.AlreadyExists else |_| {};
+        if (toFatName(lastPathComponent(new_path))) |new_name|
+            return volume.renameDirectoryFile(old_resolved.parent_cluster, &old_resolved.entry.name, &new_name);
+    } else |_| {};
     if (toFatName(old_path)) |old_name| if (toFatName(new_path)) |new_name| if (disk) |volume| {
         try volume.renameRootFile(&old_name, &new_name);
         return;
     };
     _ = try resolve(directory_fd, old_path);
     return error.ReadOnly;
+}
+
+fn lastPathComponent(path: []const u8) []const u8 {
+    var end = path.len;
+    while (end != 0 and path[end - 1] == '/') : (end -= 1) {}
+    var start = end;
+    while (start != 0 and path[start - 1] != '/') : (start -= 1) {}
+    return path[start..end];
 }
 
 pub fn seek(fd: usize, offset: i64, whence: u64) !usize {
