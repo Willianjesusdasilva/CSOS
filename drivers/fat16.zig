@@ -854,7 +854,7 @@ test "FAT16 all-entry collection exposes directories without treating labels as 
     @memcpy(sector[0..11], "SUBDIR     ");
     sector[11] = 0x10;
     put16(sector[26..].ptr, 7);
-    @memcpy(sector[32..43], "LABEL     ");
+    @memcpy(sector[32..43], "LABEL      ");
     sector[43] = 0x08;
     @memcpy(sector[64..75], "FILE    TXT");
     sector[75] = 0x20;

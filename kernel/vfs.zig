@@ -249,7 +249,7 @@ pub fn openAt(directory_fd: i64, path: []const u8, flags: u64) !usize {
         return fd;
     } else |_| {};
     if (disk) |volume| if (splitNestedPath(path)) |parts| {
-        if (toFatName(parts.parent)) |parent_name| if (volume.findRootEntry(&parent_name)) |parent| if (parent.directory)
+        if (toFatName(parts.parent)) |parent_name| if (volume.findRootEntry(&parent_name) catch null) |parent| if (parent.directory)
             if (toFatName(parts.child)) |child_name| if (volume.findDirectoryEntry(parent.first_cluster, &child_name)) |child| {
                 if (child.directory) {
                     if ((flags & 0x3) != 0 or (flags & 0x200) != 0) return error.IsDirectory;
@@ -273,7 +273,9 @@ pub fn openAt(directory_fd: i64, path: []const u8, flags: u64) !usize {
                 descriptors[fd].close_on_exec = (flags & 0x80000) != 0;
                 return fd;
             }
-        } else |err| switch (err) { error.NotFound => {}, else => return err };
+        } else |err| {
+            switch (err) { error.NotFound => {}, else => return err }
+        }
         var existed = true;
         var size = volume.fileSize(&fat_name) catch |err| switch (err) {
             error.NotFound => blk: {
@@ -447,7 +449,9 @@ pub fn unlinkAt(directory_fd: i64, path: []const u8) !void {
 pub fn renameAt(directory_fd: i64, old_path: []const u8, new_path: []const u8) !void {
     if (disk) |volume| if (resolveFatPath(volume, old_path)) |old_resolved| {
         if (old_resolved.parent_cluster == 0 or old_resolved.entry.directory) return error.ReadOnly;
-        if (resolveFatPath(volume, new_path)) |_| return error.AlreadyExists else |_| {};
+        if (resolveFatPath(volume, new_path)) |_| {
+            return error.AlreadyExists;
+        } else |_| {}
         if (toFatName(lastPathComponent(new_path))) |new_name|
             return volume.renameDirectoryFile(old_resolved.parent_cluster, &old_resolved.entry.name, &new_name);
     } else |_| {};
@@ -500,16 +504,6 @@ pub fn infoAt(directory_fd: i64, path: []const u8) !Info {
     if (disk) |volume| if (resolveFatPath(volume, path)) |resolved| {
         return if (resolved.entry.directory) .{ .mode = 0o040755, .size = 0, .directory = true } else .{ .mode = 0o100644, .size = resolved.entry.size, .directory = false };
     } else |_| {};
-    if (disk) |volume| if (splitNestedPath(path)) |parts| {
-        if (toFatName(parts.parent)) |parent_name| {
-            if (volume.findRootEntry(&parent_name)) |parent| if (parent.directory) {
-                if (toFatName(parts.child)) |child_name| {
-                    const child = try volume.findDirectoryEntry(parent.first_cluster, &child_name);
-                    return if (child.directory) .{ .mode = 0o040755, .size = 0, .directory = true } else .{ .mode = 0o100644, .size = child.size, .directory = false };
-                }
-            } else |_| {}
-        }
-    };
     if (toFatName(path)) |fat_name| if (disk) |volume| {
         if (volume.findRootEntry(&fat_name)) |entry| {
             if (entry.directory) return .{ .mode = 0o040755, .size = 0, .directory = true };
@@ -654,8 +648,8 @@ fn formatFatName(fat_name: *const [11]u8, output: *[12]u8) usize {
 
 test "VFS formats FAT 8.3 names for directory records" {
     var output: [12]u8 = undefined;
-    try std.testing.expectEqual(@as(usize, 9), formatFatName("README  TXT", &output));
-    try std.testing.expectEqualSlices(u8, "README.TXT", output[0..9]);
+    try std.testing.expectEqual(@as(usize, 10), formatFatName("README  TXT", &output));
+    try std.testing.expectEqualSlices(u8, "README.TXT", output[0..10]);
     try std.testing.expectEqual(@as(usize, 3), formatFatName("BIN        ", &output));
     try std.testing.expectEqualSlices(u8, "BIN", output[0..3]);
 }
