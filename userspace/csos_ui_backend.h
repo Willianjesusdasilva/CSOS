@@ -300,6 +300,7 @@ struct csos_ui_client {
     int hello_pending;
     struct csos_ui_surface surface;
     int surface_valid;
+    int focused;
 };
 
 static inline int csos_ui_transport_send(const struct csos_ui_transport *transport,
@@ -317,7 +318,7 @@ static inline int csos_ui_transport_receive(const struct csos_ui_transport *tran
 static inline void csos_ui_client_init(struct csos_ui_client *client,
                                        struct csos_ui_transport transport) {
     if (!client) return;
-    client->transport = transport; client->version = 0; client->capabilities = 0; client->ready = 0; client->hello_pending = 0; client->surface_valid = 0;
+    client->transport = transport; client->version = 0; client->capabilities = 0; client->ready = 0; client->hello_pending = 0; client->surface_valid = 0; client->focused = 0;
 }
 
 static inline int csos_ui_client_hello(struct csos_ui_client *client,
@@ -449,6 +450,20 @@ static inline int csos_ui_client_receive_event(struct csos_ui_client *client,
     if (!client || !client->ready) return -1;
     const int length = csos_ui_transport_receive(&client->transport, message, capacity);
     return length >= 2 && csos_ui_event_valid((const uint8_t *)message, (uint8_t)length) ? length : -1;
+}
+
+static inline int csos_ui_client_process_event(struct csos_ui_client *client,
+                                               void *message, uint8_t capacity,
+                                               uint8_t *kind) {
+    const int length = csos_ui_client_receive_event(client, message, capacity);
+    if (length < 0) return -1;
+    const uint8_t event_kind = ((const uint8_t *)message)[0];
+    if (kind) *kind = event_kind;
+    if (event_kind == CSOS_UI_FOCUS) {
+        int focused = 0;
+        if (csos_ui_decode_focus((const uint8_t *)message, (uint8_t)length, &focused)) client->focused = focused;
+    } else if (event_kind == CSOS_UI_EVENT_CLOSE) client->ready = 0;
+    return length;
 }
 
 #endif

@@ -24,6 +24,10 @@ static int receive_surface_created(void *userdata, void *message, uint8_t capaci
     struct csos_ui_surface surface = { 4, 0x55, 640, 480, 640, CSOS_UI_BGRA8888, 9 };
     return csos_ui_encode_surface_created((uint8_t *)message, capacity, surface);
 }
+static int receive_focus(void *userdata, void *message, uint8_t capacity) {
+    (void)userdata; if (capacity < 3) return -1;
+    ((uint8_t *)message)[0] = CSOS_UI_FOCUS; ((uint8_t *)message)[1] = 3; ((uint8_t *)message)[2] = 1; return 3;
+}
 
 int main(void) {
     uint8_t message[32];
@@ -113,6 +117,12 @@ int main(void) {
     if (csos_ui_client_process_response(&failed_client, message, sizeof(message), &response_kind) != 4 ||
         response_kind != CSOS_UI_FAILURE || failed_client.ready)
         return 22;
+    struct csos_ui_client event_client;
+    struct csos_ui_transport event_transport = { 0, send_message, receive_focus };
+    csos_ui_client_init(&event_client, event_transport); event_client.ready = 1;
+    if (csos_ui_client_process_event(&event_client, message, sizeof(message), &response_kind) != 3 ||
+        response_kind != CSOS_UI_FOCUS || !event_client.focused)
+        return 23;
     struct csos_ui_pointer pointer;
     uint8_t pointer_message[11] = { CSOS_UI_POINTER, 11, 0xfc, 0xff, 0xff, 0xff, 9, 0, 0, 0, 1 };
     if (!csos_ui_decode_pointer(pointer_message, sizeof(pointer_message), &pointer) || pointer.x != -4 || pointer.buttons != 1)
