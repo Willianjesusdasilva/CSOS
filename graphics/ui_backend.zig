@@ -120,7 +120,7 @@ pub fn encodeRequest(request: Request, output: []u8) WireError!usize {
 pub fn decodeRequest(input: []const u8) WireError!Request {
     if (input.len < 2 or input[1] != input.len) return error.InvalidMessage;
     return switch (input[0]) {
-        1 => if (input.len == 22) .{ .present = .{ .surface_id = readU32(input[2..]), .generation = readU64(input[6..]), .damage = .{ .x = readU16(input[14..]), .y = readU16(input[16..]), .width = readU16(input[18..]), .height = readU16(input[20..]) } } } else error.InvalidMessage,
+        1 => if (input.len == 22 and readU16(input[18..]) != 0 and readU16(input[20..]) != 0) .{ .present = .{ .surface_id = readU32(input[2..]), .generation = readU64(input[6..]), .damage = .{ .x = readU16(input[14..]), .y = readU16(input[16..]), .width = readU16(input[18..]), .height = readU16(input[20..]) } } } else error.InvalidMessage,
         2 => if (input.len >= 7 and input[6] == input.len - 7) .{ .create_window = .{ .width = readU16(input[2..]), .height = readU16(input[4..]), .title = input[7..] } } else error.InvalidMessage,
         3 => if (input.len == 6) .{ .destroy_window = readU32(input[2..]) } else error.InvalidMessage,
         4 => if (input.len >= 3 and input[2] == input.len - 3) .{ .open_file = input[3..] } else error.InvalidMessage,
@@ -574,4 +574,10 @@ test "invalid surface metadata is rejected" {
     var wire: [27]u8 = [_]u8{0} ** 27;
     wire[0] = 1; wire[1] = 27; wire[18] = 1;
     try std.testing.expectError(error.InvalidMessage, decodeResponse(&wire));
+}
+
+test "empty present damage is rejected" {
+    var wire: [22]u8 = [_]u8{0} ** 22;
+    wire[0] = 1; wire[1] = 22;
+    try std.testing.expectError(error.InvalidMessage, decodeRequest(&wire));
 }

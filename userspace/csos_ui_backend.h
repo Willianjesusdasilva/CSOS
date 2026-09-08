@@ -102,7 +102,7 @@ static inline int csos_ui_request_valid(const uint8_t *message, uint8_t length) 
     if (!message || length < 2 || message[1] != length) return 0;
     switch (message[0]) {
     case CSOS_UI_HELLO: return length == 12;
-    case CSOS_UI_PRESENT: return length == 22;
+    case CSOS_UI_PRESENT: return length == 22 && csos_ui_get16(message + 18) != 0 && csos_ui_get16(message + 20) != 0;
     case CSOS_UI_CLOSE: return length == 2;
     case CSOS_UI_CLIPBOARD_SET: return length >= 3 && message[2] == (uint8_t)(length - 3);
     case CSOS_UI_RESIZE: return length == 6 && csos_ui_get16(message + 2) != 0 && csos_ui_get16(message + 4) != 0;
