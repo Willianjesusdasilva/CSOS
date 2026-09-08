@@ -76,7 +76,8 @@ int main(void) {
     struct csos_ui_client client; uint8_t message[64]; uint8_t kind = 0;
     char desktop[4096], topbar[1024], dock[1024], manifest[1024], cpu_value[32], rendered[8192]; size_t used = 0;
     csos_ui_ring_init(&server.events);
-    if (!file_contains("system/ui/interface/desktop.html", "{{ CPU_USAGE }}") ||
+    if (!file_contains("system/ui/variables.conf", "CPU_USAGE=\"/system/ui/providers/cpu_usage\"") ||
+        !file_contains("system/ui/interface/desktop.html", "{{ CPU_USAGE }}") ||
         !file_contains("system/ui/interface/topbar.html", "{{ NETWORK_IP }}") ||
         !file_contains("system/ui/interface/dock.html", "data-action=\"open_files\"") ||
         !file_contains("system/ui/interface/launcher.html", "Buscar aplicações") ||
