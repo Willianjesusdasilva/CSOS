@@ -65,6 +65,7 @@ int main(void) {
     uint32_t pixels[64 * 48];
     for (unsigned i = 0; i < 64 * 48; ++i) pixels[i] = 0xff202030;
     for (unsigned y = 12; y < 36; ++y) for (unsigned x = 16; x < 48; ++x) pixels[y * 64 + x] = 0xff40a0e0;
+    if (pixels[0] != 0xff202030 || pixels[24 * 64 + 32] != 0xff40a0e0) return 3;
     if (csos_ui_client_present(&client, client.surface.id, client.surface.generation,
                                (struct csos_ui_damage){ 0, 0, 64, 48 }) != 0) return 3;
     if (server.present_count != 1 || !server.displayed) return 4;
@@ -82,6 +83,7 @@ int main(void) {
         client.key.code != 0x1b || !client.key.pressed) return 5;
     /* React to input by painting the pointer location in the local surface. */
     pixels[client.pointer.y * 64 + client.pointer.x] = 0xffffffff;
+    if (pixels[20 * 64 + 24] != 0xffffffff) return 5;
     if (csos_ui_client_resize(&client, 80, 60) != 0 ||
         csos_ui_client_process_response(&client, message, sizeof(message), &kind) != 27 ||
         client.surface.width != 80 || client.surface.height != 60 || client.surface.generation != 1) return 6;
