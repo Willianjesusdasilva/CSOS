@@ -2249,6 +2249,15 @@ test "reference desktop paints shell, files panel, system card and dock" {
     try @import("std").testing.expect(window.dirtyRect() != null);
 }
 
+test "reference desktop composes at reference resolution" {
+    var pixels = [_]u32{0} ** (1920 * 1080);
+    var window = Window{ .width = 1920, .height = 1080, .pixels = &pixels };
+    drawReferenceDesktop(&window);
+    try @import("std").testing.expectEqual(@as(u32, 0x17294fff), pixels[10]);
+    try @import("std").testing.expect(pixels[1080 * 1920 - 1] != 0);
+    try @import("std").testing.expect(window.dirtyRect() != null);
+}
+
 test "reference desktop starts through HTML session backend" {
     var pixels = [_]u32{0} ** (64 * 32);
     var application = Application{ .window = .{ .width = 64, .height = 32, .pixels = &pixels } };
