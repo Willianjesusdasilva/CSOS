@@ -224,7 +224,11 @@ pub fn main() !void {
     if (!std.mem.eql(u8, cpu, "32")) return error.ProviderMismatch;
 
     const pixels = try allocator.alloc(u32, 1920 * 1080);
-    paintSurface(pixels, 1920, 1080, expanded);
+    var render_document: [32768]u8 = undefined;
+    var render_len: usize = 0;
+    try append(&render_document, &render_len, expanded);
+    try append(&render_document, &render_len, apps_expanded);
+    paintSurface(pixels, 1920, 1080, render_document[0..render_len]);
     var backend = ui.Backend.init(.{ .id = 1, .buffer_handle = 1, .width = 1920, .height = 1080, .stride = 1920, .pixels = pixels });
     if (!backend.start() or !backend.negotiate(ui.protocol_version, ui.Capability.surface | ui.Capability.input)) return error.BackendStartup;
     if (pixels[24 * 1920 + 16] != 0x70d0ffff) return error.SurfaceNotPainted;
