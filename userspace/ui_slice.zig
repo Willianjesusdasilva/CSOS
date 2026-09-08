@@ -52,6 +52,7 @@ pub fn main() !void {
     const widgets = try readFile(allocator, "system/ui/interface/widgets.html");
     const sidebar = try readFile(allocator, "system/ui/interface/sidebar.html");
     const wallpaper = try readFile(allocator, "system/ui/interface/wallpaper.html");
+    const notifications = try readFile(allocator, "system/ui/interface/notifications.html");
     const css = try readFile(allocator, "system/ui/styles/desktop.css");
     const cpu_path = try configuredPath(variables, "CPU_USAGE");
     const cpu_relative = if (std.mem.startsWith(u8, cpu_path, "/")) cpu_path[1..] else cpu_path;
@@ -68,6 +69,7 @@ pub fn main() !void {
     try contains(manifest, "fragment=widgets.html");
     try contains(manifest, "fragment=sidebar.html");
     try contains(manifest, "fragment=wallpaper.html");
+    try contains(manifest, "fragment=notifications.html");
     try contains(desktop, "{{ CPU_USAGE }}");
     try contains(desktop, "data-action=\"open_files\"");
     try contains(topbar, "{{ NETWORK_IP }}");
@@ -77,6 +79,7 @@ pub fn main() !void {
     try contains(widgets, "{{ CURRENT_FPS }}");
     try contains(sidebar, "{{ NETWORK_IP }}");
     try contains(wallpaper, "class=\"wallpaper\"");
+    try contains(notifications, "data-action=\"open_store\"");
     try append(&composed, &composed_len, desktop);
     var manifest_lines = std.mem.splitScalar(u8, manifest, '\n');
     while (manifest_lines.next()) |raw_line| {
