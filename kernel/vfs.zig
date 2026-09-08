@@ -247,6 +247,16 @@ pub fn openAt(directory_fd: i64, path: []const u8, flags: u64) !usize {
     if (disk) |volume| if (directory_fd >= 3 and @as(usize, @intCast(directory_fd)) < descriptors.len and
         descriptors[@intCast(directory_fd)].node == .fat_directory and std.mem.indexOfScalar(u8, path, '/') == null)
     {
+        if (std.mem.eql(u8, path, "..")) {
+            const parent = descriptors[@intCast(directory_fd)].fat_parent_cluster;
+            if (parent == 0) {
+                descriptors[fd] = .{ .generation = try newGeneration(), .kind = .directory, .node = .root };
+            } else {
+                descriptors[fd] = .{ .generation = try newGeneration(), .kind = .directory, .node = .fat_directory, .fat_cluster = parent };
+            }
+            descriptors[fd].close_on_exec = (flags & 0x80000) != 0;
+            return fd;
+        }
         if (std.mem.eql(u8, path, ".")) {
             descriptors[fd] = .{ .generation = try newGeneration(), .kind = .directory, .node = .fat_directory, .fat_cluster = descriptors[@intCast(directory_fd)].fat_cluster };
             descriptors[fd].close_on_exec = (flags & 0x80000) != 0;
@@ -257,7 +267,7 @@ pub fn openAt(directory_fd: i64, path: []const u8, flags: u64) !usize {
         if (volume.findDirectoryEntry(parent_cluster, &name)) |entry| {
             if (entry.directory) {
                 if ((flags & 0x3) != 0 or (flags & 0x200) != 0) return error.IsDirectory;
-                descriptors[fd] = .{ .generation = try newGeneration(), .kind = .directory, .node = .fat_directory, .fat_cluster = entry.first_cluster };
+                descriptors[fd] = .{ .generation = try newGeneration(), .kind = .directory, .node = .fat_directory, .fat_cluster = entry.first_cluster, .fat_parent_cluster = parent_cluster };
             } else {
                 descriptors[fd] = .{ .generation = try newGeneration(), .kind = .file, .node = .disk, .size = entry.size, .fat_name = entry.name, .fat_parent_cluster = parent_cluster };
             }
