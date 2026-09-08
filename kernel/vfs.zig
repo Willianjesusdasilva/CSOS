@@ -217,6 +217,17 @@ pub fn openAt(directory_fd: i64, path: []const u8, flags: u64) !usize {
     var fd: usize = 3;
     while (fd < descriptors.len and descriptors[fd].kind != .unused) : (fd += 1) {}
     if (fd == descriptors.len) return error.TooManyFiles;
+    if (disk) |volume| if (resolveFatPath(volume, path)) |resolved| {
+        if (resolved.entry.directory) {
+            if ((flags & 0x3) != 0 or (flags & 0x200) != 0) return error.IsDirectory;
+            descriptors[fd] = .{ .generation = try newGeneration(), .kind = .directory, .node = .fat_directory, .fat_cluster = resolved.entry.first_cluster };
+        } else {
+            if ((flags & 0x40) != 0 or (flags & 0x200) != 0 or (flags & 0x3) != 0) return error.ReadOnly;
+            descriptors[fd] = .{ .generation = try newGeneration(), .kind = .file, .node = .disk, .size = resolved.entry.size, .fat_name = resolved.entry.name, .fat_parent_cluster = resolved.parent_cluster };
+        }
+        descriptors[fd].close_on_exec = (flags & 0x80000) != 0;
+        return fd;
+    } else |_| {};
     if (disk) |volume| if (splitNestedPath(path)) |parts| {
         if (toFatName(parts.parent)) |parent_name| if (volume.findRootEntry(&parent_name)) |parent| if (parent.directory)
             if (toFatName(parts.child)) |child_name| if (volume.findDirectoryEntry(parent.first_cluster, &child_name)) |child| {
@@ -457,6 +468,32 @@ pub fn infoAt(directory_fd: i64, path: []const u8) !Info {
 }
 
 const NestedPath = struct { parent: []const u8, child: []const u8 };
+
+const ResolvedFatPath = struct { entry: fat16.Volume.DirectoryEntry, parent_cluster: u16 };
+
+fn resolveFatPath(volume: *fat16.Volume, path: []const u8) !ResolvedFatPath {
+    var iterator = std.mem.splitScalar(u8, path, '/');
+    var components: [8][]const u8 = undefined;
+    var count: usize = 0;
+    while (iterator.next()) |component| {
+        if (component.len == 0) continue;
+        if (count == components.len) return error.NameTooLong;
+        components[count] = component;
+        count += 1;
+    }
+    if (count < 2) return error.NotFound;
+    const first_name = toFatName(components[0]) orelse return error.NotFound;
+    var entry = try volume.findRootEntry(&first_name);
+    var parent_cluster: u16 = 0;
+    var index: usize = 1;
+    while (index < count) : (index += 1) {
+        if (!entry.directory) return error.NotFound;
+        parent_cluster = entry.first_cluster;
+        const name = toFatName(components[index]) orelse return error.NotFound;
+        entry = try volume.findDirectoryEntry(parent_cluster, &name);
+    }
+    return .{ .entry = entry, .parent_cluster = parent_cluster };
+}
 
 fn splitNestedPath(path: []const u8) ?NestedPath {
     var start: usize = if (path.len != 0 and path[0] == '/') 1 else 0;
