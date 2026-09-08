@@ -564,10 +564,13 @@ pub fn drawReferenceDesktop(window: *Window) void {
     window.drawText(launcher_x + 20, launcher_y + 246, "Willian                         ⏻", 0xe1eaffff);
     const term_y = height / 2 + 18;
     window.fillRect(360, term_y, @min(@as(usize, 600), width -| 380), 178, 0x101827ee);
-    window.drawText(382, term_y + 18, "willian@csos:~$ neofetch", 0x6ff1e0ff);
-    window.drawText(382, term_y + 48, "CSOS 0.1   Kernel: csos 0.1.0", 0x9d9beeff);
-    window.drawText(382, term_y + 72, "Resolution: 1920x1080", 0xa9b9eaff);
-    window.drawText(382, term_y + 96, "GPU: Virtual   Memory: 1.2GiB", 0xa9b9eaff);
+    window.fillRect(360, term_y, @min(@as(usize, 600), width -| 380), 28, 0x17253fee);
+    window.drawText(378, term_y + 8, "●  ●  ●", 0xb0b8d0ff);
+    window.drawText(470, term_y + 8, "willian@csos ~", 0xb7c9e7ff);
+    window.drawText(382, term_y + 44, "willian@csos:~$ neofetch", 0x6ff1e0ff);
+    window.drawText(382, term_y + 74, "CSOS 0.1   Kernel: csos 0.1.0", 0x9d9beeff);
+    window.drawText(382, term_y + 98, "Resolution: 1920x1080", 0xa9b9eaff);
+    window.drawText(382, term_y + 122, "GPU: Virtual   Memory: 1.2GiB", 0xa9b9eaff);
 
     // Dock.
     const dock_width: usize = @min(620, width -| 40);
