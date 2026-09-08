@@ -38,6 +38,22 @@ fn configuredPath(config: []const u8, name: []const u8) ![]const u8 {
     return config[start..end];
 }
 
+fn validateActions(document: []const u8) !void {
+    const allowed = [_][]const u8{ "open_files", "open_terminal", "open_browser", "open_settings", "open_monitor", "open_store", "focus_files", "focus_terminal", "focus_browser", "pause_media" };
+    var rest = document;
+    while (std.mem.indexOf(u8, rest, "data-action=\"") ) |offset| {
+        const start = offset + "data-action=\"".len;
+        const end = std.mem.indexOfScalarPos(u8, rest, start, '\"') orelse return error.InvalidAction;
+        const action_name = rest[start..end];
+        var known = false;
+        for (allowed) |candidate| {
+            if (std.mem.eql(u8, action_name, candidate)) known = true;
+        }
+        if (!known) return error.UnauthorizedAction;
+        rest = rest[end + 1 ..];
+    }
+}
+
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
@@ -108,6 +124,7 @@ pub fn main() !void {
     try contains(composed[0..composed_len], "data-action=\"open_files\"");
     try contains(composed[0..composed_len], ".launcher");
     try contains(composed[0..composed_len], ".terminal-window");
+    try validateActions(composed[0..composed_len]);
     const variable_names = [_][]const u8{ "CPU_USAGE", "RAM_USAGE", "GPU_USAGE", "NETWORK_IP", "CURRENT_FPS", "FRAME_TIME" };
     var expanded: []const u8 = composed[0..composed_len];
     for (variable_names) |name| {
