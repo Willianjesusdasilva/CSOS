@@ -1593,6 +1593,8 @@ pub fn start(info: BootInfo) noreturn {
     demo_window.clear(0x182838ff);
     demo_window.drawText(4, 4, "TERMINAL", 0x70d0ffff);
     var demo_app = sdl.Application{ .window = demo_window };
+    demo_app.startReferenceDesktop();
+    _ = demo_app.renderReferenceDesktop();
     var monitor_window = sdl.createWindow(&sdl_monitor_pixels, 224, 96) catch panic("SDL monitor surface creation failed");
     drawMonitorSurface(&monitor_window, &screen);
     var system_window = sdl.createWindow(&sdl_system_pixels, 224, 96) catch panic("SDL system surface creation failed");
