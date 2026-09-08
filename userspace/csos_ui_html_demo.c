@@ -77,6 +77,9 @@ int main(void) {
     char desktop[4096], topbar[1024], dock[1024], status[1024], actions[1024], manifest[1024], provider[64], rendered[8192], next[8192]; size_t used = 0;
     csos_ui_ring_init(&server.events);
     if (!file_contains("system/ui/variables.conf", "CPU_USAGE=\"/system/ui/providers/cpu_usage\"") ||
+        !file_contains("system/ui/engine.conf", "backend=csos_ui_backend") ||
+        !file_contains("system/ui/engine.conf", "transport=wire") ||
+        !file_contains("system/ui/engine.conf", "fallback=bootstrap") ||
         !file_contains("system/ui/variables.conf", "RAM_USAGE=\"/system/ui/providers/ram_usage\"") ||
         !file_contains("system/ui/variables.conf", "GPU_USAGE=\"/system/ui/providers/gpu_usage\"") ||
         !file_contains("system/ui/variables.conf", "NETWORK_IP=\"/system/ui/providers/network_ip\"") ||
