@@ -1,8 +1,8 @@
 pub export const ready_message: [30]u8 = "CSOS userspace UI files ready\n".*;
-pub export const hello_frame = [_]u8{ 1, 21 } ++ "UI_HELLO file-backed\n";
-pub export const create_frame = [_]u8{ 2, 19, 0x80, 0x02, 0xe0, 0x01, 12 } ++ "HTML DESKTOP";
-pub export const present_frame = [_]u8{ 1, 22, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x80, 0x02, 0xe0, 0x01 };
-pub export const pixel_frame = [_]u8{ 12, 10, 1, 0, 0, 0, 0x20, 0x40, 0x80, 0xff };
+pub export var hello_frame: [23]u8 = ([_]u8{ 1, 23 } ++ "UI_HELLO file-backed\n").*;
+pub export var create_frame: [19]u8 = ([_]u8{ 2, 19, 0x80, 0x02, 0xe0, 0x01, 12 } ++ "HTML DESKTOP").*;
+pub export var present_frame: [22]u8 = .{ 1, 22, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x80, 0x02, 0xe0, 0x01 };
+pub export var pixel_frame: [10]u8 = .{ 12, 10, 1, 0, 0, 0, 0x20, 0x40, 0x80, 0xff };
 pub export const manifest_path: [38:0]u8 = "/system/ui/interface/desktop.manifest\x00".*;
 pub export const html_path: [34:0]u8 = "/system/ui/interface/desktop.html\x00".*;
 pub export const css_path: [30:0]u8 = "/system/ui/styles/desktop.css\x00".*;
@@ -45,23 +45,29 @@ pub export fn _start() callconv(.naked) noreturn {
         \\mov $451, %%eax
         \\mov $1, %%edi
         \\lea hello_frame(%%rip), %%rsi
-        \\mov $21, %%edx
+        \\mov $23, %%edx
         \\syscall
         \\mov $451, %%eax
         \\mov $1, %%edi
         \\lea create_frame(%%rip), %%rsi
         \\mov $19, %%edx
         \\syscall
+        \\test %%rax, %%rax
+        \\js 42f
         \\mov $451, %%eax
         \\mov $1, %%edi
         \\lea present_frame(%%rip), %%rsi
         \\mov $22, %%edx
         \\syscall
+        \\test %%rax, %%rax
+        \\js 43f
         \\mov $451, %%eax
         \\mov $1, %%edi
         \\lea pixel_frame(%%rip), %%rsi
         \\mov $10, %%edx
         \\syscall
+        \\test %%rax, %%rax
+        \\js 44f
         \\mov $1, %%eax
         \\mov $1, %%edi
         \\lea ready_message(%%rip), %%rsi
@@ -71,6 +77,18 @@ pub export fn _start() callconv(.naked) noreturn {
         \\mov $60, %%eax
         \\syscall
         \\jmp 1f
+        \\42:
+        \\mov $60, %%eax
+        \\mov $42, %%edi
+        \\syscall
+        \\43:
+        \\mov $60, %%eax
+        \\mov $43, %%edi
+        \\syscall
+        \\44:
+        \\mov $60, %%eax
+        \\mov $44, %%edi
+        \\syscall
         \\11:
         \\mov $60, %%eax
         \\mov $11, %%edi
