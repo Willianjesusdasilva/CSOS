@@ -13,3 +13,4 @@ fragment=status.html
 fragment=desktop-actions.html
 stylesheet=../styles/desktop.css
 stylesheet=../styles/terminal.css
+stylesheet=../styles/apps.css

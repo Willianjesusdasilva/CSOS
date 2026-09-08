@@ -1,0 +1,3 @@
+.app-window { color: var(--text); background: var(--surface); padding: 12px; border-radius: 8px; }
+.app-titlebar { display: flex; justify-content: space-between; color: var(--accent); }
+.app-actions { display: flex; gap: 8px; margin-top: 12px; }
