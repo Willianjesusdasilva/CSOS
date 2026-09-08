@@ -15,7 +15,8 @@ param(
     [string]$ExpectSerial = 'CSOS M14 userspace DRM core ready',
     [switch]$SmokeDesktopFiles,
     [switch]$SmokeDesktopMouse,
-    [switch]$SmokeTerminalRun
+    [switch]$SmokeTerminalRun,
+    [switch]$CaptureScreen
 )
 
 $ErrorActionPreference = 'Stop'
@@ -86,6 +87,13 @@ if ($SmokeTestSeconds -gt 0) {
         $monitorTarget = "tcp:127.0.0.1:$monitorPort,server=on,wait=off"
     }
     $qemuArguments += @('-display', 'none', '-monitor', $monitorTarget, '-serial', "file:$serialLog")
+    if ($CaptureScreen) {
+        $reservation = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
+        $reservation.Start()
+        try { $capturePort = ([Net.IPEndPoint]$reservation.LocalEndpoint).Port } finally { $reservation.Stop() }
+        $qemuArguments += @('-qmp', "tcp:127.0.0.1:$capturePort,server=on,wait=off")
+        $capturePath = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\zig-out\smoke-$runId.png"))
+    }
     # Start-Process joins ArgumentList into a Windows command line. Quote each
     # argument explicitly so installation/workspace paths with spaces survive.
     $quotedArguments = $qemuArguments | ForEach-Object { '"' + $_.Replace('"', '\"') + '"' }
@@ -174,7 +182,29 @@ if ($SmokeTestSeconds -gt 0) {
             if ($SmokeTerminalRun) {
                 $observed = $observed -and $serialText.Contains('UI terminal run: echo smoke')
             }
-            if ($observed) { $testResult = 0; break }
+            if ($CaptureScreen) { $observed = $observed -and $serialText.Contains('CSOS graphical session ready') }
+            if ($observed) {
+                if ($CaptureScreen) {
+                    $captureClient = [Net.Sockets.TcpClient]::new()
+                    try {
+                        $captureClient.Connect('127.0.0.1', $capturePort)
+                        $captureStream = $captureClient.GetStream()
+                        $captureStream.ReadTimeout = 5000
+                        $captureReader = [IO.StreamReader]::new($captureStream)
+                        $captureWriter = [IO.StreamWriter]::new($captureStream)
+                        $captureWriter.AutoFlush = $true
+                        $null = $captureReader.ReadLine()
+                        foreach ($request in @(@{execute='qmp_capabilities';id='caps'}, @{execute='screendump';arguments=@{filename=$capturePath;format='png'};id='screen'})) {
+                            $captureWriter.WriteLine(($request | ConvertTo-Json -Compress -Depth 4))
+                            do { $reply = $captureReader.ReadLine() | ConvertFrom-Json } while ($null -eq $reply.id)
+                            if ($reply.error) { throw ($reply.error | ConvertTo-Json -Compress) }
+                        }
+                        if (-not (Test-Path -LiteralPath $capturePath)) { throw 'QEMU acknowledged capture without producing a file' }
+                        Write-Output "QEMU screenshot: $capturePath"
+                    } finally { $captureClient.Dispose() }
+                }
+                $testResult = 0; break
+            }
             if ($testProcess.HasExited) { $testResult = 1; break }
             Start-Sleep -Milliseconds 200
         }

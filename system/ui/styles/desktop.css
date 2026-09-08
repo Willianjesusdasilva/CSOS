@@ -15,3 +15,42 @@ body { color: var(--text); background: #101a38; font-family: CSOS; }
 .widget { color: var(--text); background: var(--surface); }
 .sidebar { color: var(--text); background: var(--surface); }
 button { color: var(--text); background: var(--accent); }
+
+/* Reference composition: viewport positions follow the supplied 1536x1024
+   design. Requires a CSS engine with layout and backdrop-filter support. */
+:root { color-scheme: dark; --surface: rgb(35 52 86 / 56%); --text: #f2f5ff; --edge: rgb(223 237 255 / 55%); }
+* { box-sizing: border-box; }
+html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+body, button, input { font-family: Inter, "Segoe UI", sans-serif; font-size: 14px; }
+.desktop { position: relative; width: 100vw; height: 100vh; isolation: isolate; }
+.wallpaper { position: absolute; inset: 0; z-index: -1; }
+.topbar { position: absolute; inset: 0 0 auto; height: 38px; display: flex; align-items: center; gap: 32px; padding: 0 26px; background: rgb(17 30 55 / 55%); border-bottom: 1px solid rgb(220 235 255 / 25%); backdrop-filter: blur(24px); }
+.topbar strong { font-size: 18px; }
+.topbar nav { word-spacing: 20px; }
+.topbar .status { margin-left: auto; }
+.launcher, .terminal-window, .status-card, .media, .notification, .dock, .alt-tab { background: var(--surface); border: 1px solid var(--edge); border-radius: 22px; backdrop-filter: blur(28px) saturate(130%); box-shadow: 0 16px 42px rgb(0 8 24 / 28%), inset 0 1px rgb(255 255 255 / 12%); }
+.sidebar { position: absolute; left: 16%; top: 15%; width: 11%; display: flex; flex-direction: column; gap: 8px; background: transparent; }
+.sidebar a { display: block; padding: 10px 12px; border-radius: 9px; color: var(--text); text-decoration: none; }
+.sidebar a:hover { background: rgb(143 171 255 / 38%); }
+.status-card { position: absolute; left: 70.2%; right: 2%; top: 6%; min-height: 23%; padding: 26px; display: flex; flex-wrap: wrap; align-content: center; gap: 22px; }
+.status-card span { flex: 1 1 25%; text-align: center; line-height: 1.8; }
+.widgets { position: absolute; right: 4%; top: 8%; display: flex; gap: 16px; }
+.widget { font-size: 12px; color: #bcc7df; background: transparent; }
+.media { position: absolute; left: 70.2%; right: 2%; top: 32.4%; height: 15.6%; padding: 24px 28px; display: grid; grid-template-columns: 1fr auto; gap: 10px; }
+.media strong { font-size: 16px; font-weight: 500; }
+.media progress { grid-column: 1 / -1; width: 100%; height: 4px; accent-color: #b89aff; }
+.media button, .notification button { border: 0; background: transparent; }
+.notifications { position: absolute; left: 74.7%; right: 2%; top: 52.2%; display: grid; gap: 8px; }
+.notification { min-height: 74px; padding: 22px; border-radius: 20px; font-size: 13px; }
+.launcher { position: absolute; left: 2%; bottom: 7%; width: 26%; height: 46%; padding: 18px 20px; display: flex; flex-wrap: wrap; align-content: flex-start; gap: 22px 10px; }
+.launcher input { width: 100%; height: 40px; padding: 0 14px; border: 1px solid rgb(230 240 255 / 45%); border-radius: 12px; background: rgb(204 224 255 / 17%); color: var(--text); }
+.launcher button { width: calc(25% - 8px); min-height: 66px; padding: 8px 0; border: 0; border-radius: 12px; background: transparent; font-size: 12px; }
+.terminal-window { position: absolute; left: 33.6%; top: 54.5%; width: 39%; height: 29%; border-radius: 20px; overflow: hidden; background: rgb(5 12 24 / 86%); }
+.terminal-titlebar { height: 40px; padding: 10px 18px; display: flex; gap: 24px; background: rgb(92 117 157 / 24%); border-bottom: 1px solid rgb(198 214 249 / 20%); }
+.terminal-output { margin: 14px 18px; font: 13px/1.5 "Cascadia Mono", Consolas, monospace; white-space: pre-wrap; color: #b9c9ff; }
+.dock { position: absolute; left: 50%; bottom: 3%; transform: translateX(-50%); height: 88px; min-width: 45%; padding: 12px 18px; display: flex; justify-content: center; align-items: center; gap: 12px; border-radius: 30px; }
+.dock button { height: 58px; min-width: 58px; padding: 8px; border: 0; border-radius: 14px; background: rgb(167 195 248 / 12%); }
+.alt-tab { position: absolute; top: 42%; left: 25%; width: 50%; padding: 24px; display: flex; justify-content: space-around; }
+.alt-tab[hidden] { display: none; }
+button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+@media (max-width: 1000px) { .topbar { gap: 18px; padding: 0 16px; } .topbar nav { word-spacing: 4px; } .launcher { width: 30%; padding: 14px; } .status-card, .media { left: 68%; padding: 16px; } .notifications { left: 72%; } .terminal-window { left: 34%; width: 36%; } .dock { height: 72px; bottom: 1%; } .dock button { height: 44px; min-width: 44px; } }
