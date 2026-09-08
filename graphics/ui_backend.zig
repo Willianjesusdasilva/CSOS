@@ -206,6 +206,24 @@ pub const Backend = struct {
         return request;
     }
 
+    pub fn submitRequestWire(self: *Backend, message: []const u8) WireError!bool {
+        return self.enqueueRequest(try decodeRequest(message));
+    }
+
+    pub fn nextRequestWire(self: *Backend, output: []u8) WireError!?usize {
+        const request = self.nextRequest() orelse return null;
+        return try encodeRequest(request, output);
+    }
+
+    pub fn submitEventWire(self: *Backend, message: []const u8) WireError!bool {
+        return self.enqueueEvent(try decodeEvent(message));
+    }
+
+    pub fn nextEventWire(self: *Backend, output: []u8) WireError!?usize {
+        const event = self.nextEvent() orelse return null;
+        return try encodeEvent(event, output);
+    }
+
     pub fn present(self: *Backend, damage: Damage) bool {
         return self.enqueueRequest(.{ .present = .{ .surface_id = self.surface.id, .generation = self.surface.generation, .damage = damage } });
     }
@@ -259,4 +277,16 @@ test "backend event wire encoding round-trips input" {
         else => return error.UnexpectedBackendEvent,
     }
     try std.testing.expectError(error.InvalidMessage, decodeEvent(wire[0..length - 1]));
+}
+
+test "backend consumes and emits wire messages through its queues" {
+    var pixels = [_]u32{0} ** 16;
+    var backend = Backend.init(.{ .id = 2, .width = 4, .height = 4, .stride = 4, .pixels = &pixels });
+    var wire: [64]u8 = undefined;
+    const request_length = try encodeRequest(.{ .close = {} }, &wire);
+    try std.testing.expect(try backend.submitRequestWire(wire[0..request_length]));
+    try std.testing.expectEqual(@as(?usize, request_length), try backend.nextRequestWire(&wire));
+    const event_length = try encodeEvent(.{ .focus = true }, &wire);
+    try std.testing.expect(try backend.submitEventWire(wire[0..event_length]));
+    try std.testing.expectEqual(@as(?usize, event_length), try backend.nextEventWire(&wire));
 }
