@@ -1,0 +1,6 @@
+template=desktop.html
+fragment=topbar.html
+fragment=dock.html
+fragment=launcher.html
+fragment=alt-tab.html
+stylesheet=../styles/desktop.css
