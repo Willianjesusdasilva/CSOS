@@ -2740,6 +2740,7 @@ fn seedUiFilesystem(volume: *fat16.Volume) !void {
     const interface_name: [11]u8 = "INTERFAC   ".*;
     const styles_name: [11]u8 = "STYLES     ".*;
     const providers_name: [11]u8 = "PROVIDERS  ".*;
+    const scripts_name: [11]u8 = "SCRIPTS    ".*;
     const variables_name: [11]u8 = "VARIABLESCF".*;
     const manifest_name: [11]u8 = "DESKTOP MAN".*;
     const desktop_name: [11]u8 = "DESKTOP HTM".*;
@@ -2754,6 +2755,8 @@ fn seedUiFilesystem(volume: *fat16.Volume) !void {
     serial.write("ui seed styles\n");
     const providers_cluster = volume.createDirectory(ui_cluster, &providers_name) catch |err| if (err == error.AlreadyExists) (try volume.findDirectoryEntry(ui_cluster, &providers_name)).first_cluster else return err;
     serial.write("ui seed providers\n");
+    const scripts_cluster = volume.createDirectory(ui_cluster, &scripts_name) catch |err| if (err == error.AlreadyExists) (try volume.findDirectoryEntry(ui_cluster, &scripts_name)).first_cluster else return err;
+    vfs.registerUiTree(.{ .system = system_cluster, .ui = ui_cluster, .interface = interface_cluster, .styles = styles_cluster, .providers = providers_cluster, .scripts = scripts_cluster });
     try volume.createDirectoryFile(ui_cluster, &variables_name); try volume.writeDirectoryFile(ui_cluster, &variables_name, @embedFile("ui_variables"));
     try volume.createDirectoryFile(interface_cluster, &manifest_name); try volume.writeDirectoryFile(interface_cluster, &manifest_name, @embedFile("ui_manifest"));
     try volume.createDirectoryFile(interface_cluster, &desktop_name); try volume.writeDirectoryFile(interface_cluster, &desktop_name, @embedFile("ui_desktop"));

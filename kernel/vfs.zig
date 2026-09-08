@@ -71,6 +71,10 @@ var descriptors: [max_fds]Descriptor = .{Descriptor{}} ** max_fds;
 var next_generation: u32 = 1;
 var generations_exhausted = false;
 var disk: ?*fat16.Volume = null;
+pub const UiTree = struct { system: u16 = 0, ui: u16 = 0, interface: u16 = 0, styles: u16 = 0, providers: u16 = 0, scripts: u16 = 0 };
+var ui_tree: UiTree = .{};
+
+pub fn registerUiTree(tree: UiTree) void { ui_tree = tree; }
 var drm_pci_configured = false;
 var drm_pci_uevent: [40]u8 = undefined;
 var drm_pci_uevent_len: usize = 0;
@@ -380,17 +384,12 @@ pub fn openAt(directory_fd: i64, path: []const u8, flags: u64) !usize {
 
 fn openUiPath(volume: *fat16.Volume, path: []const u8, fd: usize, flags: u64) ?usize {
     if (!std.mem.startsWith(u8, path, "/system/ui/")) return null;
-    var current = volume.findRootEntry("SYSTEM     ") catch return null;
-    if (!current.directory) return null;
-    current = volume.findDirectoryEntry(current.first_cluster, "UI         ") catch return null;
-    if (!current.directory) return null;
+    if (ui_tree.system == 0 or ui_tree.ui == 0) return null;
+    const current_cluster = ui_tree.ui;
     var components = std.mem.splitScalar(u8, path[11..], '/');
-    var parent = current.first_cluster;
+    var parent = current_cluster;
     const group = components.next() orelse return null;
-    const group_name = toFatName(group) orelse return null;
-    const group_entry = volume.findDirectoryEntry(parent, &group_name) catch return null;
-    if (!group_entry.directory) return null;
-    parent = group_entry.first_cluster;
+    if (std.mem.eql(u8, group, "interface")) parent = ui_tree.interface else if (std.mem.eql(u8, group, "styles")) parent = ui_tree.styles else if (std.mem.eql(u8, group, "providers")) parent = ui_tree.providers else if (std.mem.eql(u8, group, "scripts")) parent = ui_tree.scripts else return null;
     const leaf = components.next() orelse return null;
     if (components.next() != null) return null;
     const leaf_name = toFatName(leaf) orelse return null;
