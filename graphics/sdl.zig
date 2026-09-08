@@ -408,8 +408,12 @@ pub const Window = struct {
                 .link => 0x70b8ffff,
                 .input => 0xd0d0d0ff,
             };
-            if (focused != null and focused.? == index and (element.kind == .button or element.kind == .link)) {
-                const text_width: usize = element.text.len * (if (element.kind == .heading) @as(usize, 12) else 8) + 4;
+            if (element.kind == .input) {
+                const input_width = @max(element.text.len, 8) * 8 + 6;
+                self.fillRect(x -| 2, cursor_y -| 2, input_width, 14, 0x182430ff);
+            }
+            if (focused != null and focused.? == index and (element.kind == .button or element.kind == .link or element.kind == .input)) {
+                const text_width: usize = if (element.kind == .input) @max(element.text.len, 8) * 8 + 4 else element.text.len * (if (element.kind == .heading) @as(usize, 12) else 8) + 4;
                 const text_height: usize = if (element.kind == .heading) 20 else 14;
                 self.fillRect(x -| 2, cursor_y -| 2, text_width, text_height, 0x304860ff);
             }
