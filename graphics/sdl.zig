@@ -465,6 +465,7 @@ pub const Application = struct {
     running: bool = true,
     last_event: ?Event = null,
     processed_events: u64 = 0,
+    last_html_activation: ?[]const u8 = null,
 
     pub fn pump(self: *Application, events: *EventQueue, on_event: *const fn (*Application, Event) void) void {
         while (events.poll()) |event| {
@@ -476,6 +477,39 @@ pub const Application = struct {
         }
     }
 
+    /// Dispatch queued input to the active HTML document and retain the last
+    /// action target for the host application to consume.
+    pub fn pumpHtml(self: *Application, events: *EventQueue) void {
+        while (events.poll()) |event| {
+            self.last_event = event;
+            self.processed_events +|= 1;
+            switch (event) {
+                .quit => self.running = false,
+                .text => |byte| _ = self.handleHtmlKey(byte),
+                .key => |key| if (key.pressed) {
+                    if (key.scancode == 0x2b) _ = self.focusHtmlNext((key.modifiers & 0x01) == 0);
+                    if (self.activateHtmlEventKey(key.scancode)) |activation| switch (activation) {
+                        .action => |target| self.last_html_activation = target,
+                        else => {},
+                    };
+                },
+                .mouse => |mouse| if ((mouse.buttons & 1) != 0) switch (self.activateHtmlEvent(
+                    @intCast(@max(mouse.x, 0)), @intCast(@max(mouse.y, 0)), 0, 0,
+                )) {
+                    .action => |target| self.last_html_activation = target,
+                    else => {},
+                },
+            }
+            if (!self.running) break;
+        }
+    }
+
+    pub fn takeHtmlActivation(self: *Application) ?[]const u8 {
+        const target = self.last_html_activation;
+        self.last_html_activation = null;
+        return target;
+    }
+
     pub fn takeLastEvent(self: *Application) ?Event {
         const event = self.last_event;
         self.last_event = null;
@@ -485,6 +519,7 @@ pub const Application = struct {
     pub fn takeProcessedEvents(self: *Application) u64 {
         const processed = self.processed_events;
         self.processed_events = 0;
+        self.last_html_activation = null;
         return processed;
     }
 
