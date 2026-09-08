@@ -26,6 +26,7 @@ enum csos_ui_request_kind {
     CSOS_UI_CLOSE = 8,
     CSOS_UI_HELLO = 9,
     CSOS_UI_CLIPBOARD_SET = 10,
+    CSOS_UI_RESIZE = 11,
 };
 
 enum csos_ui_event_kind {
@@ -103,6 +104,7 @@ static inline int csos_ui_request_valid(const uint8_t *message, uint8_t length) 
     case CSOS_UI_PRESENT: return length == 22;
     case CSOS_UI_CLOSE: return length == 2;
     case CSOS_UI_CLIPBOARD_SET: return length >= 3 && message[2] == (uint8_t)(length - 3);
+    case CSOS_UI_RESIZE: return length == 6 && csos_ui_get16(message + 2) != 0 && csos_ui_get16(message + 4) != 0;
     default: return 0;
     }
 }
@@ -229,6 +231,11 @@ static inline uint8_t csos_ui_encode_clipboard_set(uint8_t *out, uint8_t capacit
     return (uint8_t)(3 + text_length);
 }
 
+static inline uint8_t csos_ui_encode_resize(uint8_t *out, uint8_t capacity, uint16_t width, uint16_t height) {
+    if (!out || capacity < 6 || width == 0 || height == 0) return 0;
+    out[0] = CSOS_UI_RESIZE; out[1] = 6; csos_ui_put16(out + 2, width); csos_ui_put16(out + 4, height); return 6;
+}
+
 static inline uint8_t csos_ui_encode_surface_created(uint8_t *out, uint8_t capacity,
                                                      struct csos_ui_surface surface) {
     if (!out || capacity < 27) return 0;
@@ -344,6 +351,12 @@ static inline int csos_ui_client_clipboard_set(struct csos_ui_client *client, co
     const uint8_t length = csos_ui_encode_clipboard_set(message, sizeof(message), text, text_length);
     if (!client || !client->ready || length == 0) return -1;
     return csos_ui_transport_send(&client->transport, message, length);
+}
+
+static inline int csos_ui_client_resize(struct csos_ui_client *client, uint16_t width, uint16_t height) {
+    uint8_t message[6];
+    if (!client || !client->ready || csos_ui_encode_resize(message, sizeof(message), width, height) == 0) return -1;
+    return csos_ui_transport_send(&client->transport, message, sizeof(message));
 }
 
 static inline int csos_ui_client_close(struct csos_ui_client *client) {

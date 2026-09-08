@@ -29,6 +29,7 @@ pub const Event = union(enum) {
 pub const Request = union(enum) {
     hello: struct { version: u16, capabilities: u64 },
     clipboard_set: []const u8,
+    resize: struct { width: u16, height: u16 },
     present: struct { surface_id: u32, generation: u64, damage: Damage },
     create_window: struct { width: u16, height: u16, title: []const u8 },
     destroy_window: u32,
@@ -86,10 +87,11 @@ pub fn decodeResponse(input: []const u8) WireError!Response {
 pub fn encodeRequest(request: Request, output: []u8) WireError!usize {
     if (output.len < 2) return error.BufferTooSmall;
     var length: usize = 2;
-    output[0] = switch (request) { .hello => 9, .clipboard_set => 10, .present => 1, .create_window => 2, .destroy_window => 3, .open_file => 4, .connect => 5, .audio => 6, .set_timer => 7, .close => 8 };
+    output[0] = switch (request) { .hello => 9, .clipboard_set => 10, .resize => 11, .present => 1, .create_window => 2, .destroy_window => 3, .open_file => 4, .connect => 5, .audio => 6, .set_timer => 7, .close => 8 };
     switch (request) {
         .hello => |value| { if (output.len < 12) return error.BufferTooSmall; writeU16(output[2..], value.version); writeU64(output[4..], value.capabilities); length = 12; },
         .clipboard_set => |text| { if (text.len > 252 or output.len < 3 + text.len) return error.BufferTooSmall; output[2] = @intCast(text.len); @memcpy(output[3 .. 3 + text.len], text); length = 3 + text.len; },
+        .resize => |value| { if (output.len < 6 or value.width == 0 or value.height == 0) return error.InvalidMessage; writeU16(output[2..], value.width); writeU16(output[4..], value.height); length = 6; },
         .present => |value| {
             if (output.len < 2 + 4 + 8 + 8) return error.BufferTooSmall;
             writeU32(output[2..], value.surface_id);
@@ -126,6 +128,7 @@ pub fn decodeRequest(input: []const u8) WireError!Request {
         8 => if (input.len == 2) .{ .close = {} } else error.InvalidMessage,
         9 => if (input.len == 12) .{ .hello = .{ .version = readU16(input[2..]), .capabilities = readU64(input[4..]) } } else error.InvalidMessage,
         10 => if (input.len >= 3 and input[2] == input.len - 3) .{ .clipboard_set = input[3..] } else error.InvalidMessage,
+        11 => if (input.len == 6 and readU16(input[2..]) != 0 and readU16(input[4..]) != 0) .{ .resize = .{ .width = readU16(input[2..]), .height = readU16(input[4..]) } } else error.InvalidMessage,
         else => error.UnsupportedRequest,
     };
 }

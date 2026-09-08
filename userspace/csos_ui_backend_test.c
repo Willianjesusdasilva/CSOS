@@ -50,8 +50,10 @@ int main(void) {
         return 13;
     if (csos_ui_client_clipboard_set(&client, "CSOS", 4) != 0)
         return 14;
-    if (csos_ui_client_close(&client) != 0 || client.ready)
+    if (csos_ui_client_resize(&client, 800, 600) != 0)
         return 15;
+    if (csos_ui_client_close(&client) != 0 || client.ready)
+        return 16;
     if (csos_ui_client_receive_response(&client, message, sizeof(message)) != -1)
         return 16;
     if (csos_ui_client_receive_event(&client, message, sizeof(message)) != -1)
