@@ -12,10 +12,15 @@ pub const Document = struct {
     elements: [16]Element = undefined,
     input_values: [16][64]u8 = undefined,
     input_lengths: [16]usize = .{0} ** 16,
+    css_names: [4][16]u8 = undefined,
+    css_name_lengths: [4]usize = .{0} ** 4,
+    css_colors: [4]u32 = .{0} ** 4,
+    css_count: usize = 0,
     count: usize = 0,
 
     pub fn parse(source: []const u8) Document {
         var document = Document{};
+        document.parseCss(source);
         var cursor: usize = 0;
         while (cursor < source.len and document.count < document.elements.len) {
             const open = std.mem.indexOfScalarPos(u8, source, cursor, '<') orelse break;
@@ -63,7 +68,7 @@ pub const Document = struct {
                             target = tag[value_start..value_end];
                         }
                     }
-                    document.elements[document.count] = .{ .kind = value, .text = std.mem.trim(u8, source[close + 1 .. end], " \t\r\n"), .target = target, .accent = std.mem.indexOf(u8, tag, "accent") != null, .muted = std.mem.indexOf(u8, tag, "muted") != null, .danger = std.mem.indexOf(u8, tag, "danger") != null, .color = parseColor(tag) };
+                    document.elements[document.count] = .{ .kind = value, .text = std.mem.trim(u8, source[close + 1 .. end], " \t\r\n"), .target = target, .accent = std.mem.indexOf(u8, tag, "accent") != null, .muted = std.mem.indexOf(u8, tag, "muted") != null, .danger = std.mem.indexOf(u8, tag, "danger") != null, .color = parseColor(tag) orelse document.classColor(tag) };
                     if (value == .input) {
                         const initial = document.elements[document.count].text;
                         const length = @min(initial.len, document.input_values[document.count].len);
@@ -78,6 +83,40 @@ pub const Document = struct {
             cursor = close + 1;
         }
         return document;
+    }
+
+    fn parseCss(self: *Document, source: []const u8) void {
+        var cursor: usize = 0;
+        while (self.css_count < self.css_names.len) {
+            const dot = std.mem.indexOfScalarPos(u8, source, cursor, '.') orelse break;
+            const open = std.mem.indexOfScalarPos(u8, source, dot + 1, '{') orelse break;
+            const close = std.mem.indexOfScalarPos(u8, source, open + 1, '}') orelse break;
+            const name = std.mem.trim(u8, source[dot + 1 .. open], " \t\r\n");
+            const declaration = source[open + 1 .. close];
+            if (name.len != 0 and name.len <= self.css_names[0].len) if (parseColor(declaration)) |color| {
+                const slot = self.css_count;
+                @memcpy(self.css_names[slot][0..name.len], name);
+                self.css_name_lengths[slot] = name.len;
+                self.css_colors[slot] = color;
+                self.css_count += 1;
+            };
+            cursor = close + 1;
+        }
+    }
+
+    fn classColor(self: *const Document, tag: []const u8) ?u32 {
+        const marker = std.mem.indexOf(u8, tag, "class=") orelse return null;
+        var start = marker + 6;
+        if (start >= tag.len) return null;
+        const quote = if (tag[start] == '\'' or tag[start] == '"') tag[start] else 0;
+        if (quote != 0) start += 1;
+        const end = if (quote != 0) std.mem.indexOfScalarPos(u8, tag, start, quote) orelse tag.len else tag.len;
+        const classes = tag[start..end];
+        for (self.css_names[0..self.css_count], 0..) |name, index| {
+            const length = self.css_name_lengths[index];
+            if (std.mem.indexOf(u8, classes, name[0..length]) != null) return self.css_colors[index];
+        }
+        return null;
     }
 
     /// Emits a simple vertical layout consumable by any text renderer.
@@ -240,6 +279,13 @@ test "HTML subset parses UI elements in document order" {
     try std.testing.expectEqual(Kind.heading, document.elements[0].kind);
     try std.testing.expectEqualStrings("Ready", document.elements[1].text);
     try std.testing.expectEqual(Kind.button, document.elements[2].kind);
+}
+
+test "HTML CSS class rules provide inherited text colors" {
+    const document = Document.parse("<style>.warning { color:#ff8040 } .ok{color:#40d080}</style><p class=warning>Alert</p><p class=ok>Ready</p>");
+    try std.testing.expectEqual(@as(usize, 2), document.count);
+    try std.testing.expectEqual(@as(?u32, 0xff8040ff), document.elements[0].color);
+    try std.testing.expectEqual(@as(?u32, 0x40d080ff), document.elements[1].color);
 }
 
 test "HTML parser ignores unknown tags but keeps containers" {
