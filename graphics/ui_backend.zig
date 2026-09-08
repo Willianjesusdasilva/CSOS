@@ -64,10 +64,28 @@ pub fn encodeRequest(request: Request, output: []u8) WireError!usize {
     return length;
 }
 
+pub fn decodeRequest(input: []const u8) WireError!Request {
+    if (input.len < 2 or input[1] != input.len) return error.InvalidMessage;
+    return switch (input[0]) {
+        1 => if (input.len == 22) .{ .present = .{ .surface_id = readU32(input[2..]), .generation = readU64(input[6..]), .damage = .{ .x = readU16(input[14..]), .y = readU16(input[16..]), .width = readU16(input[18..]), .height = readU16(input[20..]) } } } else error.InvalidMessage,
+        2 => if (input.len >= 7 and input[6] == input.len - 7) .{ .create_window = .{ .width = readU16(input[2..]), .height = readU16(input[4..]), .title = input[7..] } } else error.InvalidMessage,
+        3 => if (input.len == 6) .{ .destroy_window = readU32(input[2..]) } else error.InvalidMessage,
+        4 => if (input.len >= 3 and input[2] == input.len - 3) .{ .open_file = input[3..] } else error.InvalidMessage,
+        5 => if (input.len >= 5 and input[4] == input.len - 5) .{ .connect = .{ .port = readU16(input[2..]), .address = input[5..] } } else error.InvalidMessage,
+        6 => if (input.len == 7) .{ .audio = .{ .sample_rate = readU32(input[2..]), .channels = input[6] } } else error.InvalidMessage,
+        7 => if (input.len == 14) .{ .set_timer = .{ .timer_id = readU32(input[2..]), .ticks = readU64(input[6..]) } } else error.InvalidMessage,
+        8 => if (input.len == 2) .{ .close = {} } else error.InvalidMessage,
+        else => error.UnsupportedRequest,
+    };
+}
+
 fn writeU8(output: []u8, value: u8) void { output[0] = value; }
 fn writeU16(output: []u8, value: u16) void { std.mem.writeInt(u16, output[0..2], value, .little); }
 fn writeU32(output: []u8, value: u32) void { std.mem.writeInt(u32, output[0..4], value, .little); }
 fn writeU64(output: []u8, value: u64) void { std.mem.writeInt(u64, output[0..8], value, .little); }
+fn readU16(input: []const u8) u16 { return std.mem.readInt(u16, input[0..2], .little); }
+fn readU32(input: []const u8) u32 { return std.mem.readInt(u32, input[0..4], .little); }
+fn readU64(input: []const u8) u64 { return std.mem.readInt(u64, input[0..8], .little); }
 
 pub const Backend = struct {
     surface: Surface,
@@ -200,4 +218,9 @@ test "backend request wire encoding is pointer-free" {
     const title_length = try encodeRequest(.{ .create_window = .{ .width = 100, .height = 80, .title = "FILES" } }, &wire);
     try std.testing.expectEqual(@as(usize, 12), title_length);
     try std.testing.expectEqualStrings("FILES", wire[7..12]);
+    switch (try decodeRequest(wire[0..title_length])) {
+        .create_window => |window| try std.testing.expectEqualStrings("FILES", window.title),
+        else => return error.UnexpectedBackendCommand,
+    }
+    try std.testing.expectError(error.InvalidMessage, decodeRequest(wire[0..title_length - 1]));
 }
