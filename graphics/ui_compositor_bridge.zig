@@ -61,7 +61,20 @@ test "bridge forwards present and resize without DOM knowledge" {
         fn close(_: ?*anyopaque, _: u32) void {}
     };
     var bridge = Bridge.init(&backend, .{ .userdata = &presents, .present = Hooks.present, .resize = Hooks.resize, .close = Hooks.close });
-    try std.testing.expect(backend.enqueueRequest(.{ .present = .{ .surface_id = 3, .generation = 0, .damage = .{ .x = 0, .y = 0, .width = 2, .height = 2 } } }));
+    try std.testing.expect(backend.enqueueRequest(.{ .hello = .{ .version = ui.protocol_version, .capabilities = ui.supported_capabilities } }));
+    try std.testing.expectEqual(@as(usize, 1), bridge.pump());
+    switch (backend.nextResponse().?) {
+        .hello_ack => |ack| try std.testing.expectEqual(ui.supported_capabilities, ack.capabilities),
+        else => return error.UnexpectedBridgeResponse,
+    }
+    try std.testing.expect(backend.enqueueRequest(.{ .create_window = .{ .width = 2, .height = 2, .title = "demo" } }));
+    try std.testing.expectEqual(@as(usize, 1), bridge.pump());
+    switch (backend.nextResponse().?) {
+        .surface_created => |info| try std.testing.expectEqual(@as(u16, 2), info.width),
+        else => return error.UnexpectedBridgeResponse,
+    }
+    presents = 0;
+    try std.testing.expect(backend.enqueueRequest(.{ .present = .{ .surface_id = 3, .generation = 1, .damage = .{ .x = 0, .y = 0, .width = 2, .height = 2 } } }));
     try std.testing.expectEqual(@as(usize, 1), bridge.pump());
     try std.testing.expectEqual(@as(usize, 1), presents);
     bridge.sink.userdata = &resizes;
