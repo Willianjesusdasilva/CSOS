@@ -250,5 +250,8 @@ pub fn main() !void {
     if (app_backend.surface.width != 640 or app_backend.surface.height != 480) return error.AppResizeMismatch;
     const resize_focus = app_backend.nextEvent() orelse return error.AppResizeFocusMissing;
     if (resize_focus != .focus) return error.AppResizeFocusRoutingFailed;
+    if (!app_backend.destroySurface()) return error.AppDestroyFailed;
+    if (app_backend.surface_alive) return error.AppDestroyStateMismatch;
+    if (app_backend.present(.{ .x = 0, .y = 0, .width = 640, .height = 480 })) return error.AppPresentAfterDestroy;
     std.debug.print("Zig HTML UI slice passed (provider CPU={s}, surfaces=desktop+apps)\n", .{ cpu });
 }
