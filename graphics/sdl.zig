@@ -495,6 +495,8 @@ pub fn drawReferenceDesktop(window: *Window) void {
     window.fillRect(178, 66, @min(@as(usize, 690), width -| 198), 40, 0x17253fdd);
     window.drawText(198, 80, "●  ●  ●", 0xb0b8d0ff);
     window.drawText(290, 80, "⌂  /home/willian", 0xe5efffff);
+    window.drawText(178 + @min(@as(usize, 690), width -| 198) -| 112, 80, "FILES", 0x9eb5d8ff);
+    window.fillRect(178 + @min(@as(usize, 690), width -| 198) -| 18, 66 + @min(@as(usize, 400), height -| 150) -| 18, 12, 12, 0x8aa1c0cc);
     window.drawText(204, 128, "Recentes", 0x9eb5d8ff);
     window.drawText(204, 158, "Home", 0xf1f6ffff);
     window.drawText(204, 188, "Documentos", 0xb9c9e5ff);
@@ -554,6 +556,8 @@ pub fn drawReferenceDesktop(window: *Window) void {
     window.fillRect(dock_x, dock_y, dock_width, 58, 0x273958ee);
     const dock_labels = [_][]const u8{ "Finder", "Apps", "Files", "Terminal", "Browser", "Music", "Steam", "⚙" };
     for (dock_labels, 0..) |label, index| window.drawText(dock_x + 18 + index * 72, dock_y + 22, label, 0xf1f6ffff);
+    window.fillRect(dock_x + 18 + 2 * 72, dock_y + 48, 34, 3, 0x70d0ffff);
+    window.fillRect(dock_x + 18 + 3 * 72, dock_y + 48, 34, 3, 0x70d0ffff);
     window.invalidate();
 }
 
