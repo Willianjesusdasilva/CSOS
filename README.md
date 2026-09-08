@@ -2099,4 +2099,5 @@ O driver FAT16 suporta enumeração e travessia de subdiretórios, e o VFS já a
 e lista diretórios reais da raiz. A resolução e leitura de arquivos em caminhos
 FAT aninhados já funciona em múltiplos níveis. Criação, remoção, renomeação e
 escrita multi-cluster de arquivos nesses caminhos estão disponíveis e validados
-no build/teste host; melhorias adicionais de semântica POSIX continuam pendentes.
+no build/teste host. `mkdirat` também cria diretórios FAT reais, incluindo os
+clusters e entradas `.`/`..`; melhorias adicionais de semântica POSIX continuam pendentes.

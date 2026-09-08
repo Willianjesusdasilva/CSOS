@@ -1154,3 +1154,5 @@ de subdiretórios e expõe busca de entradas aninhadas ao driver. O VFS reconhec
 diretórios FAT da raiz em `openAt`, `infoAt` e `getDents`. Leitura e `stat` já funcionam para
 arquivos em caminhos FAT com múltiplos componentes. Criação, `unlink`, rename e
 escrita multi-cluster também estão disponíveis, com validação host completa.
+`mkdirat` agora cria diretórios FAT reais (inclusive aninhados), alocando o
+cluster, inicializando `.`/`..` e expondo a operação pela ABI Linux.
