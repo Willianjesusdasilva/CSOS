@@ -7,7 +7,7 @@ $workspace = Split-Path -Parent $PSScriptRoot
 if (-not $Zig) {
     $Zig = Join-Path $env:LOCALAPPDATA 'Temp/csos-zig/zig-x86_64-windows-0.15.2/zig.exe'
 }
-& $Zig run --dep ui_backend "-Mroot=$(Join-Path $workspace 'userspace/ui_slice.zig')" "-Mui_backend=$(Join-Path $workspace 'graphics/ui_backend.zig')"
+& $Zig run --dep ui_backend --dep ui_kernel_transport "-Mroot=$(Join-Path $workspace 'userspace/ui_slice.zig')" "-Mui_backend=$(Join-Path $workspace 'graphics/ui_backend.zig')" "-Mui_kernel_transport=$(Join-Path $workspace 'userspace/ui_kernel_transport.zig')"
 if ($LASTEXITCODE -ne 0) { throw "Zig HTML UI vertical slice failed with exit code $LASTEXITCODE" }
 Write-Output 'Zig HTML UI vertical slice passed'
 & $Zig run --dep ui_backend "-Mroot=$(Join-Path $workspace 'userspace/ui_ipc_loopback.zig')" "-Mui_backend=$(Join-Path $workspace 'graphics/ui_backend.zig')"

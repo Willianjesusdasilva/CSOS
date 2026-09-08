@@ -1,5 +1,15 @@
 const std = @import("std");
 const ui = @import("ui_backend");
+const kernel_transport = @import("ui_kernel_transport");
+
+fn mockUiSyscall(number: u64, _: u64, _: u64, _: u64) callconv(.c) u64 {
+    return switch (number) {
+        kernel_transport.syscall_ui_channel_create => 1,
+        kernel_transport.syscall_ui_channel_send => 2,
+        kernel_transport.syscall_ui_channel_receive => 0,
+        else => 0,
+    };
+}
 
 var active_io: ?std.Io = null;
 
@@ -75,6 +85,9 @@ pub fn main() !void {
     try contains(engine, "backend=csos_ui_backend");
     try contains(engine, "transport=wire");
     try contains(engine, "fallback=bootstrap");
+    var kernel_transport_probe = kernel_transport.Transport{ .syscall = mockUiSyscall };
+    if (!kernel_transport_probe.open()) return error.KernelUiChannelOpenFailed;
+    if (!kernel_transport_probe.send(&[_]u8{ 9, 2 })) return error.KernelUiChannelSendFailed;
     const apps_manifest = try readFile(allocator, "system/ui/interface/apps.manifest");
     const variables = try readFile(allocator, "system/ui/variables.conf");
     const template_name = try manifestValue(manifest, "template=");
