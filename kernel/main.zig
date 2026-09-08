@@ -55,6 +55,9 @@ const SystemSurfaceStatus = struct { storage_blocks: u64, input_devices: usize, 
 var system_surface_cache: ?SystemSurfaceStatus = null;
 var system_html_active: bool = false;
 var system_html_focus: usize = 0;
+var system_html_document: html.Document = undefined;
+var system_html_document_active: bool = false;
+var system_html_document_ready: bool = false;
 var desktop_menu_open: u8 = 0;
 // Keep the compositor's fixed-capacity window table off the UEFI boot stack.
 // kernel.start already coordinates the entire bring-up and must not grow with
@@ -2891,8 +2894,12 @@ fn launchDesktopWindow(manager: *display.WindowManager, application_id: u32, app
 
 fn drawSystemSurface(window: *sdl.Window, storage_blocks: u64, input_devices: usize, audio_endpoints: usize) void {
     window.clear(0x14201cff);
-    const document = if (system_html_active) html.Document.parse("<h1>CSOS SYSTEM</h1><button>ACTIVE</button><button class=danger>RESET</button><a class=accent href=/terminal>TERMINAL</a><a class=accent href=/monitor>MONITOR</a><a class=accent href=/files>FILES</a><p class=muted>ONLINE</p>") else html.Document.parse("<h1>CSOS SYSTEM</h1><button>READY</button><button class=danger>RESET</button><a class=accent href=/terminal>TERMINAL</a><a class=accent href=/monitor>MONITOR</a><a class=accent href=/files>FILES</a><p class=muted>ONLINE</p>");
-    window.drawHtmlFocused(&document, 4, 2, 1 + system_html_focus);
+    if (!system_html_document_ready or system_html_document_active != system_html_active) {
+        system_html_document = if (system_html_active) html.Document.parse("<h1>CSOS SYSTEM</h1><button>ACTIVE</button><button class=danger>RESET</button><a class=accent href=/terminal>TERMINAL</a><a class=accent href=/monitor>MONITOR</a><a class=accent href=/files>FILES</a><p class=muted>ONLINE</p>") else html.Document.parse("<h1>CSOS SYSTEM</h1><button>READY</button><button class=danger>RESET</button><a class=accent href=/terminal>TERMINAL</a><a class=accent href=/monitor>MONITOR</a><a class=accent href=/files>FILES</a><p class=muted>ONLINE</p>");
+        system_html_document_active = system_html_active;
+        system_html_document_ready = true;
+    }
+    window.drawHtmlFocused(&system_html_document, 4, 2, 1 + system_html_focus);
     window.drawText(4, 48, "DISK BLOCKS", 0xa0b8d0ff);
     drawSurfaceNumber(window, 108, 48, storage_blocks, 0xe0e8f0ff);
     window.drawText(4, 66, "USB INPUT", 0xa0b8d0ff);
