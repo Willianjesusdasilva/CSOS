@@ -628,6 +628,24 @@ pub const WindowManager = struct {
         return true;
     }
 
+    pub fn hitTest(self: *const WindowManager, x: i32, y: i32) ?usize {
+        var index = self.count;
+        while (index > 0) {
+            index -= 1;
+            const position = self.positions[index];
+            if (x >= position.x and y >= position.y and
+                x - position.x < @as(i32, @intCast(self.windows[index].width)) and
+                y - position.y < @as(i32, @intCast(self.windows[index].height))) return index;
+        }
+        return null;
+    }
+
+    pub fn click(self: *WindowManager, x: i32, y: i32) ?*Window {
+        const index = self.hitTest(x, y) orelse return null;
+        _ = self.raise(index);
+        return self.focusedWindow();
+    }
+
     pub fn focusedWindow(self: *const WindowManager) ?*Window {
         return if (self.count == 0) null else self.windows[self.focused];
     }
