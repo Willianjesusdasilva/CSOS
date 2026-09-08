@@ -232,6 +232,8 @@ pub fn openAt(directory_fd: i64, path: []const u8, flags: u64) !usize {
         const created = try volume.findDirectoryEntry(parent_cluster, &child_name);
         descriptors[fd] = .{ .generation = try newGeneration(), .kind = .file, .node = .disk, .size = created.size, .fat_name = created.name, .fat_parent_cluster = parent_cluster };
         descriptors[fd].close_on_exec = (flags & 0x80000) != 0;
+        descriptors[fd].writable = (flags & 0x3) != 0;
+        descriptors[fd].append = (flags & 0x400) != 0;
         return fd;
     };
     if (disk) |volume| if (resolveFatPath(volume, path)) |resolved| {
@@ -239,10 +241,11 @@ pub fn openAt(directory_fd: i64, path: []const u8, flags: u64) !usize {
             if ((flags & 0x3) != 0 or (flags & 0x200) != 0) return error.IsDirectory;
             descriptors[fd] = .{ .generation = try newGeneration(), .kind = .directory, .node = .fat_directory, .fat_cluster = resolved.entry.first_cluster };
         } else {
-            if ((flags & 0x40) != 0 or (flags & 0x200) != 0 or (flags & 0x3) != 0) return error.ReadOnly;
             descriptors[fd] = .{ .generation = try newGeneration(), .kind = .file, .node = .disk, .size = resolved.entry.size, .fat_name = resolved.entry.name, .fat_parent_cluster = resolved.parent_cluster };
         }
         descriptors[fd].close_on_exec = (flags & 0x80000) != 0;
+        descriptors[fd].writable = (flags & 0x3) != 0;
+        descriptors[fd].append = (flags & 0x400) != 0;
         return fd;
     } else |_| {};
     if (disk) |volume| if (splitNestedPath(path)) |parts| {
@@ -257,6 +260,8 @@ pub fn openAt(directory_fd: i64, path: []const u8, flags: u64) !usize {
                 if ((flags & 0x40) != 0 or (flags & 0x200) != 0 or (flags & 0x3) != 0) return error.ReadOnly;
                 descriptors[fd] = .{ .generation = try newGeneration(), .kind = .file, .node = .disk, .size = child.size, .fat_name = child.name, .fat_parent_cluster = parent.first_cluster };
                 descriptors[fd].close_on_exec = (flags & 0x80000) != 0;
+                descriptors[fd].writable = (flags & 0x3) != 0;
+                descriptors[fd].append = (flags & 0x400) != 0;
                 return fd;
             } else |_| {};
     };
@@ -416,7 +421,10 @@ pub fn write(fd: usize, input: []const u8) !usize {
     @memcpy(contents[descriptor.offset .. descriptor.offset + input.len], input);
     const new_offset = descriptor.offset + input.len;
     const new_size = @max(descriptor.size, new_offset);
-    try volume.writeRootFile(&descriptor.fat_name, contents[0..new_size]);
+    if (descriptor.fat_parent_cluster != 0)
+        try volume.writeDirectoryFile(descriptor.fat_parent_cluster, &descriptor.fat_name, contents[0..new_size])
+    else
+        try volume.writeRootFile(&descriptor.fat_name, contents[0..new_size]);
     descriptor.offset = new_offset;
     descriptor.size = new_size;
     return input.len;
