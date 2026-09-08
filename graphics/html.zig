@@ -220,11 +220,10 @@ pub const Session = struct {
     }
 
     /// Handles keyboard activation commands for the currently focused control.
-    pub fn activateKey(self: *const Session, key: u8) ?[]const u8 {
+    pub fn activateKey(self: *Session, key: u8) ?[]const u8 {
         if (key != 13 and key != 32) return null;
         if (self.focused) |index| if (self.document.isCheckbox(index)) {
-            // Activation is handled by the mutable event path; this const
-            // helper intentionally reports no action for a checkbox.
+            _ = self.document.toggleChecked(index);
             return null;
         };
         return self.activateFocused();

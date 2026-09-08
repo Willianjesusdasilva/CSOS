@@ -557,12 +557,12 @@ pub const Application = struct {
         return null;
     }
 
-    pub fn activateHtmlKey(self: *const Application, key: u8) ?[]const u8 {
+    pub fn activateHtmlKey(self: *Application, key: u8) ?[]const u8 {
         if (self.html_session) |session| return session.activateKey(key);
         return null;
     }
 
-    pub fn activateHtmlEventKey(self: *const Application, key: u8) html.Activation {
+    pub fn activateHtmlEventKey(self: *Application, key: u8) html.Activation {
         if (self.html_session) |session| {
             return if (session.activateKey(key)) |target| .{ .action = target } else .none;
         }
