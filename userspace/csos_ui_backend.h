@@ -177,6 +177,21 @@ static inline uint8_t csos_ui_encode_present(uint8_t *out, uint8_t capacity,
     return 22;
 }
 
+static inline uint8_t csos_ui_encode_create_window(uint8_t *out, uint8_t capacity,
+                                                    uint16_t width, uint16_t height,
+                                                    const char *title, uint8_t title_length) {
+    if (!out || !title || title_length > 128 || capacity < (uint8_t)(7 + title_length)) return 0;
+    out[0] = CSOS_UI_CREATE_WINDOW; out[1] = (uint8_t)(7 + title_length);
+    csos_ui_put16(out + 2, width); csos_ui_put16(out + 4, height); out[6] = title_length;
+    for (uint8_t i = 0; i != title_length; ++i) out[7 + i] = (uint8_t)title[i];
+    return (uint8_t)(7 + title_length);
+}
+
+static inline uint8_t csos_ui_encode_destroy_window(uint8_t *out, uint8_t capacity, uint32_t id) {
+    if (!out || capacity < 6) return 0;
+    out[0] = CSOS_UI_DESTROY_WINDOW; out[1] = 6; csos_ui_put32(out + 2, id); return 6;
+}
+
 static inline uint8_t csos_ui_encode_surface_created(uint8_t *out, uint8_t capacity,
                                                      struct csos_ui_surface surface) {
     if (!out || capacity < 27) return 0;
@@ -241,6 +256,20 @@ static inline int csos_ui_client_present(struct csos_ui_client *client, uint32_t
                                          uint64_t generation, struct csos_ui_damage damage) {
     uint8_t message[22];
     if (!client || !client->ready || csos_ui_encode_present(message, sizeof(message), surface_id, generation, damage) == 0) return -1;
+    return csos_ui_transport_send(&client->transport, message, sizeof(message));
+}
+
+static inline int csos_ui_client_create_window(struct csos_ui_client *client, uint16_t width,
+                                               uint16_t height, const char *title, uint8_t title_length) {
+    uint8_t message[135];
+    const uint8_t length = csos_ui_encode_create_window(message, sizeof(message), width, height, title, title_length);
+    if (!client || !client->ready || length == 0) return -1;
+    return csos_ui_transport_send(&client->transport, message, length);
+}
+
+static inline int csos_ui_client_destroy_window(struct csos_ui_client *client, uint32_t id) {
+    uint8_t message[6];
+    if (!client || !client->ready || csos_ui_encode_destroy_window(message, sizeof(message), id) == 0) return -1;
     return csos_ui_transport_send(&client->transport, message, sizeof(message));
 }
 
