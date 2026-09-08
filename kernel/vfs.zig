@@ -219,6 +219,7 @@ pub fn openAt(directory_fd: i64, path: []const u8, flags: u64) !usize {
     if (toFatName(path)) |fat_name| if (disk) |volume| {
         if (volume.findRootEntry(&fat_name)) |entry| {
             if (entry.directory) {
+                if ((flags & 0x3) != 0 or (flags & 0x200) != 0) return error.IsDirectory;
                 descriptors[fd] = .{ .generation = try newGeneration(), .kind = .directory, .node = .fat_directory, .fat_cluster = entry.first_cluster };
                 descriptors[fd].close_on_exec = (flags & 0x80000) != 0;
                 return fd;
