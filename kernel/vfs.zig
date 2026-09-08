@@ -492,7 +492,9 @@ pub fn getDents(fd: usize, output: []u8) !usize {
         var written: usize = 0;
         while (descriptors[fd].offset < count) {
             const entry = entries[descriptors[fd].offset];
-            const name: []const u8 = &entry.name;
+            var display_name: [12]u8 = undefined;
+            const name_length = formatFatName(&entry.name, &display_name);
+            const name = display_name[0..name_length];
             const record_length = (19 + name.len + 1 + 7) & ~@as(usize, 7);
             if (written > output.len or record_length > output.len - written) break;
             @memset(output[written .. written + record_length], 0);
@@ -534,6 +536,28 @@ pub fn getDents(fd: usize, output: []u8) !usize {
         descriptors[fd].offset += 1;
     }
     return written;
+}
+
+fn formatFatName(fat_name: *const [11]u8, output: *[12]u8) usize {
+    var length: usize = 0;
+    var index: usize = 0;
+    while (index < 8 and fat_name[index] != ' ') : (index += 1) {
+        output[length] = fat_name[index];
+        length += 1;
+    }
+    var extension_length: usize = 0;
+    var extension_index: usize = 8;
+    while (extension_index < 11 and fat_name[extension_index] != ' ') : (extension_index += 1) extension_length += 1;
+    if (extension_length != 0) {
+        output[length] = '.';
+        length += 1;
+        index = 8;
+        while (index < 11 and fat_name[index] != ' ') : (index += 1) {
+            output[length] = fat_name[index];
+            length += 1;
+        }
+    }
+    return length;
 }
 
 fn resolve(directory_fd: i64, path: []const u8) !Node {
