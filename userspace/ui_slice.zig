@@ -38,6 +38,15 @@ fn configuredPath(config: []const u8, name: []const u8) ![]const u8 {
     return config[start..end];
 }
 
+fn manifestValue(manifest: []const u8, key: []const u8) ![]const u8 {
+    var lines = std.mem.splitScalar(u8, manifest, '\n');
+    while (lines.next()) |raw| {
+        const line = std.mem.trim(u8, raw, " \r\t");
+        if (std.mem.startsWith(u8, line, key)) return line[key.len..];
+    }
+    return error.MissingManifestEntry;
+}
+
 fn validateActions(document: []const u8) !void {
     const allowed = [_][]const u8{ "open_files", "open_terminal", "open_browser", "open_settings", "open_monitor", "open_store", "focus_files", "focus_terminal", "focus_browser", "pause_media" };
     var rest = document;
@@ -60,7 +69,9 @@ pub fn main() !void {
     const allocator = arena.allocator();
     const manifest = try readFile(allocator, "system/ui/interface/desktop.manifest");
     const variables = try readFile(allocator, "system/ui/variables.conf");
-    const desktop = try readFile(allocator, "system/ui/interface/desktop.html");
+    const template_name = try manifestValue(manifest, "template=");
+    if (template_name.len == 0 or std.mem.indexOf(u8, template_name, "..") != null or std.mem.startsWith(u8, template_name, "/")) return error.InvalidTemplatePath;
+    const desktop = try readFile(allocator, try std.fmt.allocPrint(allocator, "system/ui/interface/{s}", .{template_name}));
     const topbar = try readFile(allocator, "system/ui/interface/topbar.html");
     const dock = try readFile(allocator, "system/ui/interface/dock.html");
     const launcher = try readFile(allocator, "system/ui/interface/launcher.html");
