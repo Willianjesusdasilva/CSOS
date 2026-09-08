@@ -593,7 +593,12 @@ pub fn start(info: BootInfo) noreturn {
     vfs.validateRuntimeLibraryAliasesSelfTest() catch panic("VFS runtime library alias self-test failed");
     vfs.mount(&volume);
     vfs.reset();
-    process.runUiRuntime(mapper.root, &pages) catch panic("userspace UI runtime failed");
+    process.runUiRuntime(mapper.root, &pages) catch |err| {
+        serial.write("UI runtime error: ");
+        serial.write(@errorName(err));
+        serial.write("\n");
+        panic("userspace UI runtime failed");
+    };
     var ui_boot_frame: [255]u8 = undefined;
     const ui_boot_frame_len = syscalls.receiveUiBootFrame(&ui_boot_frame) orelse panic("userspace UI IPC hello missing");
     if (ui_boot_frame_len < 2 or ui_boot_frame[0] != 1) panic("userspace UI IPC hello invalid");
