@@ -32,6 +32,9 @@ pub fn main() !void {
     var backend = ui.Backend.init(.{ .id = 1, .buffer_handle = 1, .width = 1920, .height = 1080, .stride = 1920, .pixels = &pixels });
     if (!backend.start() or !backend.negotiate(ui.protocol_version, ui.Capability.surface | ui.Capability.input)) return error.BackendStartup;
     pixels[0] = 0x17294fff;
+    if (!backend.enqueueEvent(.{ .pointer = .{ .x = 24, .y = 20, .buttons = 1 } })) return error.InputQueueFailed;
+    const pointer = backend.nextEvent() orelse return error.MissingPointerEvent;
+    if (pointer != .pointer or pointer.pointer.buttons != 1) return error.PointerRoutingFailed;
     if (!backend.present(.{ .x = 0, .y = 0, .width = 1920, .height = 1080 })) return error.PresentFailed;
     std.debug.print("Zig HTML UI slice passed (provider CPU={s}, surface={d}x{d})\n", .{ cpu, backend.surface.width, backend.surface.height });
 }
