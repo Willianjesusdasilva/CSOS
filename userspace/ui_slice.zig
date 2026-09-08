@@ -236,5 +236,10 @@ pub fn main() !void {
     const pointer = backend.nextEvent() orelse return error.MissingPointerEvent;
     if (pointer != .pointer or pointer.pointer.buttons != 1) return error.PointerRoutingFailed;
     if (!backend.present(.{ .x = 0, .y = 0, .width = 1920, .height = 1080 })) return error.PresentFailed;
-    std.debug.print("Zig HTML UI slice passed (provider CPU={s}, surface={d}x{d})\n", .{ cpu, backend.surface.width, backend.surface.height });
+    const app_pixels = try allocator.alloc(u32, 800 * 600);
+    paintSurface(app_pixels, 800, 600, apps_expanded);
+    var app_backend = ui.Backend.init(.{ .id = 2, .buffer_handle = 2, .width = 800, .height = 600, .stride = 800, .pixels = app_pixels });
+    if (!app_backend.start() or !app_backend.negotiate(ui.protocol_version, ui.Capability.surface | ui.Capability.input)) return error.AppBackendStartup;
+    if (!app_backend.present(.{ .x = 0, .y = 0, .width = 800, .height = 600 })) return error.AppPresentFailed;
+    std.debug.print("Zig HTML UI slice passed (provider CPU={s}, surfaces=desktop+apps)\n", .{ cpu });
 }
