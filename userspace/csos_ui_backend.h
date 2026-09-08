@@ -142,6 +142,16 @@ static inline int csos_ui_decode_key(const uint8_t *message, uint8_t length,
     out->code = csos_ui_get32(message + 2); out->pressed = message[6]; out->modifiers = message[7]; return 1;
 }
 
+static inline int csos_ui_decode_wheel(const uint8_t *message, uint8_t length, int32_t *delta) {
+    if (!delta || !csos_ui_event_valid(message, length) || message[0] != CSOS_UI_WHEEL) return 0;
+    *delta = (int32_t)csos_ui_get32(message + 2); return 1;
+}
+
+static inline int csos_ui_decode_focus(const uint8_t *message, uint8_t length, int *focused) {
+    if (!focused || !csos_ui_event_valid(message, length) || message[0] != CSOS_UI_FOCUS) return 0;
+    *focused = message[2] != 0; return 1;
+}
+
 /* Return the encoded byte count, or zero when capacity is insufficient. */
 static inline uint8_t csos_ui_encode_hello(uint8_t *out, uint8_t capacity,
                                            uint16_t version, uint64_t capabilities) {
