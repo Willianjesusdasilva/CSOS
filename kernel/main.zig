@@ -3306,18 +3306,11 @@ fn drawDesktopChrome(framebuffer: Framebuffer) void {
     if (framebuffer.base == 0 or framebuffer.width < 240 or framebuffer.height < 120) return;
     const pixels: [*]volatile u32 = @ptrFromInt(framebuffer.base);
     const top_height: usize = @min(28, framebuffer.height);
-    var y: usize = 0;
-    while (y < top_height) : (y += 1) {
-        var x: usize = 0;
-        while (x < framebuffer.width) : (x += 1) pixels[y * framebuffer.stride + x] = 0x18253fff;
-    }
+    _ = pixels;
+    drawGlassPanel(framebuffer, 0, 0, framebuffer.width, top_height, 0x18253fd8, 0x9db8e860, 0);
     const dock_height: usize = @min(52, framebuffer.height / 4);
     const dock_top = framebuffer.height - dock_height;
-    y = dock_top;
-    while (y < framebuffer.height) : (y += 1) {
-        var x: usize = 0;
-        while (x < framebuffer.width) : (x += 1) pixels[y * framebuffer.stride + x] = 0x18253fbb;
-    }
+    drawGlassPanel(framebuffer, 8, dock_top, framebuffer.width - 16, dock_height - 4, 0x18253fbb, 0x8ea8d080, 14);
     const icon_size: usize = 28;
     const gap: usize = 10;
     const total = 7 * icon_size + 6 * gap;
@@ -3335,10 +3328,41 @@ fn drawDesktopChrome(framebuffer: Framebuffer) void {
         const menu_left = 44 + (@as(usize, desktop_menu_open) - 1) * 72;
         const menu_right = @min(framebuffer.width, menu_left + 128);
         const menu_bottom = @min(framebuffer.height, top_height + 92);
-        y = top_height;
-        while (y < menu_bottom) : (y += 1) {
-            var x = menu_left;
-            while (x < menu_right) : (x += 1) pixels[y * framebuffer.stride + x] = 0x283b5ee8;
+        drawGlassPanel(framebuffer, menu_left, top_height, menu_right - menu_left, menu_bottom - top_height, 0x283b5ee8, 0xadc5f0a0, 8);
+    }
+}
+
+fn blendRgb(dst: u32, src: u32, alpha: u32) u32 {
+    const inv = 255 - alpha;
+    const r = (((dst >> 16) & 0xff) * inv + ((src >> 16) & 0xff) * alpha) / 255;
+    const g = (((dst >> 8) & 0xff) * inv + ((src >> 8) & 0xff) * alpha) / 255;
+    const b = ((dst & 0xff) * inv + (src & 0xff) * alpha) / 255;
+    return (r << 16) | (g << 8) | b;
+}
+
+fn drawGlassPanel(framebuffer: Framebuffer, left: usize, top: usize, width: usize, height: usize, fill: u32, border: u32, radius: usize) void {
+    if (framebuffer.base == 0 or width == 0 or height == 0 or left >= framebuffer.width or top >= framebuffer.height) return;
+    const pixels: [*]volatile u32 = @ptrFromInt(framebuffer.base);
+    const right = @min(framebuffer.width, left + width);
+    const bottom = @min(framebuffer.height, top + height);
+    const r = @min(radius, @min((right - left) / 2, (bottom - top) / 2));
+    const fill_alpha = (fill >> 24) & 0xff;
+    const border_alpha = (border >> 24) & 0xff;
+    for (top..bottom) |y| {
+        for (left..right) |x| {
+            var inside = true;
+            if (r > 0) {
+                const ix = if (x < left + r) left + r - x else if (x >= right - r) x - (right - r - 1) else 0;
+                const iy = if (y < top + r) top + r - y else if (y >= bottom - r) y - (bottom - r - 1) else 0;
+                if (ix != 0 and iy != 0) inside = ix * ix + iy * iy <= r * r;
+            }
+            if (!inside) continue;
+            const offset = y * framebuffer.stride + x;
+            if ((offset + 1) * 4 > framebuffer.size) return;
+            const edge = x == left or y == top or x + 1 == right or y + 1 == bottom;
+            const source = if (edge) border else fill;
+            const alpha = if (edge) border_alpha else fill_alpha;
+            pixels[offset] = blendRgb(pixels[offset], source, alpha);
         }
     }
 }
