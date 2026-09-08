@@ -2,6 +2,7 @@ const std = @import("std");
 
 pub const Surface = struct {
     id: u32,
+    buffer_handle: u32 = 0,
     width: u16,
     height: u16,
     stride: u32,
@@ -203,6 +204,15 @@ pub const Backend = struct {
         return self.enqueueEvent(.{ .focus = self.focused });
     }
 
+    pub fn attachBuffer(self: *Backend, buffer_handle: u32, pixels: []u32, stride: u32) bool {
+        if (!self.surface_alive or buffer_handle == 0 or stride < self.surface.width or pixels.len < @as(usize, stride) * self.surface.height) return false;
+        self.surface.buffer_handle = buffer_handle;
+        self.surface.stride = stride;
+        self.surface.pixels = pixels;
+        self.surface.generation +|= 1;
+        return true;
+    }
+
     pub fn enqueueEvent(self: *Backend, event: Event) bool {
         if (self.event_write - self.event_read >= self.events.len) return false;
         self.events[self.event_write % self.events.len] = event;
@@ -372,4 +382,13 @@ test "destroyed surface rejects later resize and present" {
     try std.testing.expect(backend.destroySurface());
     try std.testing.expect(!backend.resize(2, 2, &pixels));
     try std.testing.expect(!backend.present(.{ .x = 0, .y = 0, .width = 1, .height = 1 }));
+}
+
+test "backend attaches an opaque shared buffer handle" {
+    var pixels = [_]u32{0} ** 16;
+    var backend = Backend.init(.{ .id = 10, .width = 4, .height = 4, .stride = 4, .pixels = &pixels });
+    try std.testing.expect(backend.attachBuffer(0x44, &pixels, 4));
+    try std.testing.expectEqual(@as(u32, 0x44), backend.surface.buffer_handle);
+    try std.testing.expect(!backend.attachBuffer(0, &pixels, 4));
+    try std.testing.expect(!backend.attachBuffer(0x45, pixels[0..4], 4));
 }
