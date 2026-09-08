@@ -52,6 +52,10 @@ int main(void) {
     if (csos_ui_encode_surface_created(message, sizeof(message), surface) != 27 ||
         !csos_ui_response_valid(message, 27) || csos_ui_get32(message + 6) != 0x55)
         return 6;
+    surface.stride = 1;
+    if (csos_ui_encode_surface_created(message, sizeof(message), surface) != 0)
+        return 6;
+    surface.stride = 640;
     struct csos_ui_surface decoded_surface;
     if (!csos_ui_decode_surface_created(message, 27, &decoded_surface) || decoded_surface.width != 640 || decoded_surface.format != CSOS_UI_BGRA8888)
         return 7;

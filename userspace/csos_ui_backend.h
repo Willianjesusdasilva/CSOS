@@ -274,7 +274,8 @@ static inline uint8_t csos_ui_encode_resize(uint8_t *out, uint8_t capacity, uint
 
 static inline uint8_t csos_ui_encode_surface_created(uint8_t *out, uint8_t capacity,
                                                      struct csos_ui_surface surface) {
-    if (!out || capacity < 27) return 0;
+    if (!out || capacity < 27 || surface.width == 0 || surface.height == 0 || surface.stride < surface.width ||
+        surface.format < CSOS_UI_RGBA8888 || surface.format > CSOS_UI_ARGB8888) return 0;
     out[0] = CSOS_UI_SURFACE_CREATED; out[1] = 27;
     csos_ui_put32(out + 2, surface.id); csos_ui_put32(out + 6, surface.buffer_handle);
     csos_ui_put16(out + 10, surface.width); csos_ui_put16(out + 12, surface.height);
