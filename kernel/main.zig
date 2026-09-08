@@ -614,7 +614,7 @@ pub fn start(info: BootInfo) noreturn {
     if (build_options.radv_loader_probe and !build_options.radv_probe_after_gpu) {
         validateRadvProbe(mapper.root, &pages);
     }
-    const persist_arguments = [_][]const u8{ "/bin/busybox", "sh", "-c", "echo userspace-persisted > /user.txt" };
+    const persist_arguments = [_][]const u8{ "/bin/busybox", "sh", "-c", "echo userspace-persisted > USER.TXT" };
     process.runBusyBox(mapper.root, &pages, &persist_arguments) catch panic("userspace filesystem failed");
     mapper.activate();
     var persisted: [64]u8 = undefined;
