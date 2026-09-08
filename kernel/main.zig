@@ -28,6 +28,8 @@ const syscalls = @import("syscalls");
 const vfs = @import("vfs");
 const build_options = @import("build_options");
 
+var ui_present_pixel: u32 = 0;
+
 var thread_a_runs: usize = 0;
 var thread_b_runs: usize = 0;
 var preempt_a: usize = 0;
@@ -612,6 +614,7 @@ pub fn start(info: BootInfo) noreturn {
     if (ui_present_len != 22 or ui_boot_frame[0] != 1) panic("userspace UI present request invalid");
     const ui_pixel_len = syscalls.receiveUiBootFrame(&ui_boot_frame) orelse panic("userspace UI pixel frame missing");
     if (ui_pixel_len != 10 or ui_boot_frame[0] != 12) panic("userspace UI pixel frame invalid");
+    ui_present_pixel = @as(u32, ui_boot_frame[6]) | (@as(u32, ui_boot_frame[7]) << 8) | (@as(u32, ui_boot_frame[8]) << 16) | (@as(u32, ui_boot_frame[9]) << 24);
     serial.write("userspace UI surface present accepted\n");
     serial.write("userspace file-backed UI runtime ready\n");
     if (build_options.radv_runtime) {
@@ -1615,6 +1618,7 @@ pub fn start(info: BootInfo) noreturn {
     const gpu_identity = gpu_adapter.identifyChip() catch panic("GPU chipset identification failed");
     const gpu_register_probe = gpu_identity.boot0 orelse gpu_adapter.readRegister(0) catch panic("GPU register MMIO read failed");
     var screen = display.Context.init(info.framebuffer, display_device, &pages) catch panic("display initialization failed");
+    @as([*]u32, @ptrFromInt(screen.backbuffer))[0] = ui_present_pixel;
     var sdl_events = sdl.EventQueue{};
     const desktop_surface_pixels_count = std.math.mul(usize, screen.framebuffer.stride, screen.framebuffer.height) catch panic("HTML desktop surface size overflow");
     const desktop_surface_pages = (desktop_surface_pixels_count * @sizeOf(u32) + 4095) / 4096;
