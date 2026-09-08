@@ -604,3 +604,34 @@ test "empty present damage is rejected" {
     wire[0] = 1; wire[1] = 22;
     try std.testing.expectError(error.InvalidMessage, decodeRequest(&wire));
 }
+
+const PumpProbe = struct { request: [255]u8 = undefined, request_len: usize = 0, response: [255]u8 = undefined, response_len: usize = 0 };
+
+fn pumpSend(context: *anyopaque, message: []const u8) bool {
+    const probe: *PumpProbe = @ptrCast(@alignCast(context));
+    @memcpy(probe.request[0..message.len], message);
+    probe.request_len = message.len;
+    const request = decodeRequest(message) catch return false;
+    probe.response_len = encodeResponse(switch (request) { .hello => |hello| .{ .hello_ack = .{ .version = hello.version, .capabilities = hello.capabilities } }, else => .{ .failure = 1 } }, &probe.response) catch return false;
+    return true;
+}
+
+fn pumpReceive(context: *anyopaque, output: []u8) ?usize {
+    const probe: *PumpProbe = @ptrCast(@alignCast(context));
+    if (probe.response_len == 0 or output.len < probe.response_len) return null;
+    @memcpy(output[0..probe.response_len], probe.response[0..probe.response_len]);
+    const length = probe.response_len;
+    probe.response_len = 0;
+    return length;
+}
+
+test "generic transport pump moves validated wire messages" {
+    var pixels = [_]u32{0} ** 4;
+    var backend = Backend.init(.{ .id = 20, .width = 2, .height = 2, .stride = 2, .pixels = &pixels });
+    var probe = PumpProbe{};
+    const transport = WireTransport{ .context = &probe, .send = pumpSend, .receive = pumpReceive };
+    try std.testing.expect(backend.negotiate(protocol_version, Capability.surface));
+    try std.testing.expect(try backend.pumpTransport(transport));
+    switch (backend.nextResponse().?) { .hello_ack => |ack| try std.testing.expectEqual(protocol_version, ack.version), else => return error.UnexpectedBackendResponse }
+    try std.testing.expect(probe.request_len == 12);
+}
