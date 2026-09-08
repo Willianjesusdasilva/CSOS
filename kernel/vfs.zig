@@ -507,7 +507,12 @@ pub fn write(fd: usize, input: []const u8) !usize {
     const descriptor = &descriptors[fd];
     if (descriptor.append) descriptor.offset = descriptor.size;
     if (descriptor.offset > contents.len or input.len > contents.len - descriptor.offset or descriptor.size > contents.len) return error.FileTooLarge;
-    if (descriptor.size != 0) _ = try volume.readRootFile(&descriptor.fat_name, contents[0..descriptor.size]);
+    if (descriptor.size != 0) {
+        _ = if (descriptor.fat_parent_cluster != 0)
+            try volume.readDirectoryFileAt(descriptor.fat_parent_cluster, &descriptor.fat_name, contents[0..descriptor.size], 0)
+        else
+            try volume.readRootFileAt(&descriptor.fat_name, contents[0..descriptor.size], 0);
+    }
     if (descriptor.offset > descriptor.size) @memset(contents[descriptor.size..descriptor.offset], 0);
     @memcpy(contents[descriptor.offset .. descriptor.offset + input.len], input);
     const new_offset = descriptor.offset + input.len;
