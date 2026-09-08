@@ -146,6 +146,9 @@ pub fn main() !void {
         const action_file = try readFile(allocator, action_path);
         const declaration = try std.fmt.allocPrint(allocator, "action={s}", .{action_name});
         try contains(action_file, declaration);
+        try contains(action_file, "capability=");
+        if (std.mem.indexOf(u8, action_file, "exec=") != null or std.mem.indexOf(u8, action_file, "command=") != null)
+            return error.ArbitraryActionCommand;
     }
     if (!std.mem.eql(u8, cpu, "32")) return error.ProviderMismatch;
 
