@@ -366,6 +366,7 @@ static inline int csos_ui_client_present(struct csos_ui_client *client, uint32_t
                                          uint64_t generation, struct csos_ui_damage damage) {
     uint8_t message[22];
     if (!client || !client->ready ||
+        damage.width == 0 || damage.height == 0 ||
         (client->surface_valid && (surface_id != client->surface.id || generation != client->surface.generation)) ||
         csos_ui_encode_present(message, sizeof(message), surface_id, generation, damage) == 0) return -1;
     return csos_ui_transport_send(&client->transport, message, sizeof(message));

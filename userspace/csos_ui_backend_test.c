@@ -94,6 +94,8 @@ int main(void) {
     if (csos_ui_client_present(&surface_client, 4, 8, (struct csos_ui_damage){ 0, 0, 1, 1 }) != -1 ||
         csos_ui_client_present(&surface_client, 4, 9, (struct csos_ui_damage){ 0, 0, 1, 1 }) != 0)
         return 9;
+    if (csos_ui_client_present(&client, 4, 9, (struct csos_ui_damage){ 0, 0, 0, 1 }) != -1)
+        return 9;
     if (csos_ui_client_present(&client, 4, 9, (struct csos_ui_damage){ 0, 0, 8, 8 }) != 0)
         return 10;
     if (csos_ui_client_create_window(&client, 320, 200, "FILES", 5) != 0 ||
