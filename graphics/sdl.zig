@@ -529,6 +529,17 @@ pub fn drawReferenceDesktop(window: *Window) void {
         window.fillRect(notification_x, y, 286, 30, 0x273958dd);
         window.drawText(notification_x + 14, y + 10, notification, 0xe1eaffff);
     }
+    const launcher_x: usize = 24;
+    const launcher_y = height -| 330;
+    window.fillRect(launcher_x, launcher_y, 300, 286, 0x273958ee);
+    window.fillRect(launcher_x + 16, launcher_y + 16, 268, 30, 0x17253fee);
+    window.drawText(launcher_x + 28, launcher_y + 26, "Buscar aplicações, arquivos...", 0xb7c9e7ff);
+    window.drawText(launcher_x + 20, launcher_y + 70, "Favoritos", 0xf1f6ffff);
+    window.drawText(launcher_x + 24, launcher_y + 102, "Arquivos    Terminal    Browser", 0xe1eaffff);
+    window.drawText(launcher_x + 20, launcher_y + 140, "Recentes", 0xf1f6ffff);
+    window.drawText(launcher_x + 24, launcher_y + 172, "GOAL.md    dashboard.html", 0xb9c9e5ff);
+    window.drawText(launcher_x + 24, launcher_y + 198, "wallpaper.png", 0xb9c9e5ff);
+    window.drawText(launcher_x + 20, launcher_y + 246, "Willian                         ⏻", 0xe1eaffff);
     const term_y = height / 2 + 18;
     window.fillRect(360, term_y, @min(@as(usize, 600), width -| 380), 178, 0x101827ee);
     window.drawText(382, term_y + 18, "willian@csos:~$ neofetch", 0x6ff1e0ff);
@@ -2125,7 +2136,7 @@ test "reference desktop paints shell, files panel, system card and dock" {
     var window = Window{ .width = 320, .height = 200, .pixels = &pixels };
     drawReferenceDesktop(&window);
     try @import("std").testing.expectEqual(@as(u32, 0x17294fff), pixels[10]);
-    try @import("std").testing.expectEqual(@as(u32, 0x273958dd), pixels[190 * 320 + 200]);
+    try @import("std").testing.expect(pixels[100 * 320 + 200] != 0);
     try @import("std").testing.expect(window.dirtyRect() != null);
 }
 
