@@ -487,6 +487,18 @@ pub fn pread(fd: usize, output: []u8, offset: usize) !usize {
     return count;
 }
 
+pub fn pwrite(fd: usize, input: []const u8, offset: usize) !usize {
+    if (fd >= descriptors.len or descriptors[fd].kind != .file) return error.BadFd;
+    const saved = descriptors[fd].offset;
+    descriptors[fd].offset = offset;
+    const result = write(fd, input) catch |err| {
+        descriptors[fd].offset = saved;
+        return err;
+    };
+    descriptors[fd].offset = saved;
+    return result;
+}
+
 pub fn write(fd: usize, input: []const u8) !usize {
     if (fd >= descriptors.len or descriptors[fd].kind != .file or descriptors[fd].node != .disk) return error.BadFd;
     if (!descriptors[fd].writable) return error.AccessDenied;

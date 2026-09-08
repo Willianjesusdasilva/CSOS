@@ -385,6 +385,8 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         // Linux ioctl's command is unsigned int. musl passes its signed int
         // API argument sign-extended; upper register bits are not command bits.
         16 => ioctl(arg1, @truncate(arg2), arg3),
+        17 => pread64(arg1, arg2, arg3, arg4),
+        18 => pwrite64(arg1, arg2, arg3, arg4),
         19 => readv(arg1, arg2, arg3),
         20 => writev(arg1, arg2, arg3),
         21 => access(arg1, @truncate(arg2)),
@@ -2814,6 +2816,18 @@ fn readlinkat(directory_fd: i64, path_address: u64, output_address: u64, length:
 fn lseek(fd: u64, raw_offset: u64, whence: u64) u64 {
     const offset: i64 = @bitCast(raw_offset);
     return vfs.seek(@intCast(fd), offset, whence) catch |err| vfsError(err);
+}
+
+fn pread64(fd: u64, address: u64, length: u64, offset: u64) u64 {
+    if (!validUserSlice(address, length)) return errno(14);
+    const output: [*]u8 = @ptrFromInt(address);
+    return vfs.pread(@intCast(fd), output[0..@intCast(length)], @intCast(offset)) catch |err| vfsError(err);
+}
+
+fn pwrite64(fd: u64, address: u64, length: u64, offset: u64) u64 {
+    if (!validUserSlice(address, length)) return errno(14);
+    const input: [*]const u8 = @ptrFromInt(address);
+    return vfs.pwrite(@intCast(fd), input[0..@intCast(length)], @intCast(offset)) catch |err| vfsError(err);
 }
 
 fn getdents(fd: u64, address: u64, length: u64) u64 {
