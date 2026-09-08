@@ -2736,7 +2736,7 @@ fn seedUiFilesystem(volume: *fat16.Volume) !void {
     const styles_name: [11]u8 = "STYLES     ".*;
     const providers_name: [11]u8 = "PROVIDERS  ".*;
     const variables_name: [11]u8 = "VARIABLESCF".*;
-    const manifest_name: [11]u8 = "DESKTOP UI ".*;
+    const manifest_name: [11]u8 = "DESKTOP MAN".*;
     const desktop_name: [11]u8 = "DESKTOP HTM".*;
     const css_name: [11]u8 = "DESKTOP CSS".*;
     const system_cluster = volume.createDirectory(0, &system_name) catch |err| if (err == error.AlreadyExists) (try volume.findRootEntry(&system_name)).first_cluster else return err;
