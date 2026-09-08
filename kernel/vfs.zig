@@ -509,6 +509,29 @@ pub fn write(fd: usize, input: []const u8) !usize {
     return input.len;
 }
 
+pub fn truncate(fd: usize, length: usize) !void {
+    if (fd >= descriptors.len or descriptors[fd].kind != .file or descriptors[fd].node != .disk) return error.BadFd;
+    if (!descriptors[fd].writable) return error.AccessDenied;
+    if (length > 8192) return error.FileTooLarge;
+    const volume = disk orelse return error.NotFound;
+    var contents: [8192]u8 = undefined;
+    const descriptor = &descriptors[fd];
+    const old_size = descriptor.size;
+    if (old_size != 0) {
+        _ = if (descriptor.fat_parent_cluster != 0)
+            try volume.readDirectoryFileAt(descriptor.fat_parent_cluster, &descriptor.fat_name, contents[0..old_size], 0)
+        else
+            try volume.readRootFileAt(&descriptor.fat_name, contents[0..old_size], 0);
+    }
+    if (length > old_size) @memset(contents[old_size..length], 0);
+    if (descriptor.fat_parent_cluster != 0)
+        try volume.writeDirectoryFile(descriptor.fat_parent_cluster, &descriptor.fat_name, contents[0..length])
+    else
+        try volume.writeRootFile(&descriptor.fat_name, contents[0..length]);
+    descriptor.size = length;
+    if (descriptor.offset > length) descriptor.offset = length;
+}
+
 pub fn unlinkAt(directory_fd: i64, path: []const u8) !void {
     if (disk) |volume| if (directory_fd >= 3 and @as(usize, @intCast(directory_fd)) < descriptors.len and
         descriptors[@intCast(directory_fd)].node == .fat_directory and std.mem.indexOfScalar(u8, path, '/') == null)

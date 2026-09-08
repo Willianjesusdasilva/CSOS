@@ -412,6 +412,8 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         72 => fcntl(arg1, arg2, arg3),
         74 => syncFile(arg1),
         75 => syncFile(arg1),
+        76 => truncatePath(arg1, arg2),
+        77 => ftruncate(arg1, arg2),
         79 => getcwd(arg1, arg2),
         83 => mkdirLegacy(arg1, arg2),
         84 => rmdirLegacy(arg1),
@@ -2684,6 +2686,21 @@ fn unlinkLegacy(path_address: u64) u64 {
 fn creatLegacy(path_address: u64, mode: u64) u64 {
     _ = mode;
     return openat(@bitCast(@as(i64, -100)), path_address, 0x241);
+}
+
+fn ftruncate(fd: u64, length: u64) u64 {
+    if (length > std.math.maxInt(usize)) return errno(22);
+    vfs.truncate(@intCast(fd), @intCast(length)) catch |err| return vfsError(err);
+    return 0;
+}
+
+fn truncatePath(path_address: u64, length: u64) u64 {
+    if (length > std.math.maxInt(usize)) return errno(22);
+    const fd = openat(@bitCast(@as(i64, -100)), path_address, 2);
+    if (fd >= std.math.maxInt(u64) - 4096) return fd;
+    const result = ftruncate(fd, length);
+    vfs.close(@intCast(fd)) catch {};
+    return result;
 }
 
 fn renameat(old_directory_fd: u64, old_path_address: u64, new_path_address: u64, flags: u64) u64 {
