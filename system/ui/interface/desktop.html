@@ -1,3 +1,12 @@
-<main class="desktop">
-  <!-- runtime composes topbar.html, dock.html, launcher.html and alt-tab.html -->
+<main class="desktop" data-surface="primary">
+  {% include "wallpaper.html" %}
+  {% include "topbar.html" %}
+  {% include "sidebar.html" %}
+  {% include "widgets.html" %}
+  {% include "status.html" %}
+  {% include "media.html" %}
+  {% include "notifications.html" %}
+  {% include "launcher.html" %}
+  {% include "terminal.html" %}
+  {% include "dock.html" %}
 </main>
