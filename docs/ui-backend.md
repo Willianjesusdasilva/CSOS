@@ -96,3 +96,7 @@ Application chrome is declared independently in
 HTML fragments and `apps.css`, expands the same read-only providers, and applies
 the same action/capability allow-list without coupling application layout to
 the compositor.
+
+The Zig proof also exercises an independent application surface through input,
+present, resize/focus, and destroy lifecycle transitions; the compositor-facing
+backend remains visual-engine neutral.
