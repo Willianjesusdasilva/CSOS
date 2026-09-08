@@ -12,6 +12,8 @@ pub const Surface = struct {
 };
 
 pub const PixelFormat = enum(u8) { rgba8888 = 1, bgra8888 = 2, argb8888 = 3 };
+pub const SurfaceInfo = struct { id: u32, buffer_handle: u32, width: u16, height: u16, stride: u32, format: PixelFormat, generation: u64 };
+pub const Response = union(enum) { surface_created: SurfaceInfo, surface_destroyed: u32, error: u16 };
 
 pub const Damage = struct { x: u16, y: u16, width: u16, height: u16 };
 
@@ -141,6 +143,9 @@ pub const Backend = struct {
     requests: [64]Request = undefined,
     request_read: usize = 0,
     request_write: usize = 0,
+    responses: [32]Response = undefined,
+    response_read: usize = 0,
+    response_write: usize = 0,
     running: bool = false,
     focused: bool = false,
     clipboard: [1024]u8 = undefined,
@@ -173,7 +178,7 @@ pub const Backend = struct {
     pub fn destroySurface(self: *Backend) bool {
         if (!self.surface_alive) return false;
         self.surface_alive = false;
-        return self.enqueueRequest(.{ .destroy_window = self.surface.id });
+        return self.enqueueRequest(.{ .destroy_window = self.surface.id }) and self.enqueueResponse(.{ .surface_destroyed = self.surface.id });
     }
 
     pub fn createWindow(self: *Backend, width: u16, height: u16, title: []const u8) bool {
@@ -249,6 +254,24 @@ pub const Backend = struct {
         const request = self.requests[self.request_read % self.requests.len];
         self.request_read += 1;
         return request;
+    }
+
+    pub fn enqueueResponse(self: *Backend, response: Response) bool {
+        if (self.response_write - self.response_read >= self.responses.len) return false;
+        self.responses[self.response_write % self.responses.len] = response;
+        self.response_write += 1;
+        return true;
+    }
+
+    pub fn nextResponse(self: *Backend) ?Response {
+        if (self.response_read == self.response_write) return null;
+        const response = self.responses[self.response_read % self.responses.len];
+        self.response_read += 1;
+        return response;
+    }
+
+    pub fn surfaceInfo(self: *const Backend) SurfaceInfo {
+        return .{ .id = self.surface.id, .buffer_handle = self.surface.buffer_handle, .width = self.surface.width, .height = self.surface.height, .stride = self.surface.stride, .format = self.surface.format, .generation = self.surface.generation };
     }
 
     pub fn submitRequestWire(self: *Backend, message: []const u8) WireError!bool {
@@ -410,4 +433,20 @@ test "backend exposes an explicit pixel format" {
     try std.testing.expectEqual(PixelFormat.bgra8888, backend.surface.format);
     try std.testing.expect(backend.destroySurface());
     try std.testing.expect(!backend.setFormat(.argb8888));
+}
+
+test "backend returns opaque surface lifecycle responses" {
+    var pixels = [_]u32{0} ** 4;
+    var backend = Backend.init(.{ .id = 12, .width = 2, .height = 2, .stride = 2, .pixels = &pixels });
+    backend.surface.buffer_handle = 0x55;
+    try std.testing.expect(backend.enqueueResponse(.{ .surface_created = backend.surfaceInfo() }));
+    switch (backend.nextResponse().?) {
+        .surface_created => |info| { try std.testing.expectEqual(@as(u32, 0x55), info.buffer_handle); },
+        else => return error.UnexpectedBackendResponse,
+    }
+    try std.testing.expect(backend.destroySurface());
+    switch (backend.nextResponse().?) {
+        .surface_destroyed => |id| try std.testing.expectEqual(@as(u32, 12), id),
+        else => return error.UnexpectedBackendResponse,
+    }
 }
