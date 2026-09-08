@@ -2092,3 +2092,9 @@ hardware → kernel → Vulkan → Counter-Strike 2
 ```
 
 Todo o restante precisa justificar sua existência.
+
+### Estado do filesystem
+
+O driver FAT16 suporta enumeração e travessia de subdiretórios, e o VFS já abre
+e lista diretórios reais da raiz. A resolução de arquivos em caminhos aninhados
+continua como próxima etapa.
