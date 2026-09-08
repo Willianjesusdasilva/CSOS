@@ -198,10 +198,14 @@ pub const Backend = struct {
 
     pub fn negotiate(self: *Backend, version: u16, capabilities: u64) bool {
         if (version != protocol_version) return false;
+        if (self.request_write - self.request_read >= self.requests.len or self.response_write - self.response_read >= self.responses.len) return false;
         self.negotiated_version = protocol_version;
         self.negotiated_capabilities = capabilities & supported_capabilities;
-        if (!self.enqueueRequest(.{ .hello = .{ .version = protocol_version, .capabilities = self.negotiated_capabilities } })) return false;
-        return self.enqueueResponse(.{ .hello_ack = .{ .version = self.negotiated_version, .capabilities = self.negotiated_capabilities } });
+        self.requests[self.request_write % self.requests.len] = .{ .hello = .{ .version = protocol_version, .capabilities = self.negotiated_capabilities } };
+        self.request_write += 1;
+        self.responses[self.response_write % self.responses.len] = .{ .hello_ack = .{ .version = self.negotiated_version, .capabilities = self.negotiated_capabilities } };
+        self.response_write += 1;
+        return true;
     }
 
     pub fn stop(self: *Backend) bool {
@@ -394,6 +398,15 @@ test "negotiation emits a confirmed hello acknowledgement" {
         .hello_ack => |ack| { try std.testing.expectEqual(protocol_version, ack.version); try std.testing.expectEqual(supported_capabilities, ack.capabilities); },
         else => return error.UnexpectedBackendResponse,
     }
+}
+
+test "negotiation does not enqueue hello without acknowledgement capacity" {
+    var pixels = [_]u32{0} ** 4;
+    var backend = Backend.init(.{ .id = 17, .width = 2, .height = 2, .stride = 2, .pixels = &pixels });
+    var i: usize = 0;
+    while (i < backend.responses.len) : (i += 1) try std.testing.expect(backend.enqueueResponse(.{ .failure = 1 }));
+    try std.testing.expect(!backend.negotiate(protocol_version, supported_capabilities));
+    try std.testing.expectEqual(@as(usize, 0), backend.request_write);
 }
 
 test "backend request wire encoding is pointer-free" {
