@@ -300,6 +300,32 @@ struct csos_ui_transport {
     csos_ui_receive_fn receive;
 };
 
+#define CSOS_UI_RING_SLOTS 8
+#define CSOS_UI_RING_MESSAGE_MAX 255
+struct csos_ui_ring {
+    uint8_t messages[CSOS_UI_RING_SLOTS][CSOS_UI_RING_MESSAGE_MAX];
+    uint8_t lengths[CSOS_UI_RING_SLOTS];
+    uint8_t read_index, write_index, count;
+};
+
+static inline void csos_ui_ring_init(struct csos_ui_ring *ring) {
+    if (ring) { ring->read_index = 0; ring->write_index = 0; ring->count = 0; }
+}
+static inline int csos_ui_ring_send(void *userdata, const void *message, uint8_t length) {
+    struct csos_ui_ring *ring = (struct csos_ui_ring *)userdata;
+    if (!ring || !message || length < 2 || ring->count == CSOS_UI_RING_SLOTS) return -1;
+    for (uint8_t i = 0; i < length; ++i) ring->messages[ring->write_index][i] = ((const uint8_t *)message)[i];
+    ring->lengths[ring->write_index] = length;
+    ring->write_index = (uint8_t)((ring->write_index + 1) % CSOS_UI_RING_SLOTS); ring->count++; return 0;
+}
+static inline int csos_ui_ring_receive(void *userdata, void *message, uint8_t capacity) {
+    struct csos_ui_ring *ring = (struct csos_ui_ring *)userdata;
+    if (!ring || !message || ring->count == 0 || ring->lengths[ring->read_index] > capacity) return -1;
+    const uint8_t length = ring->lengths[ring->read_index];
+    for (uint8_t i = 0; i < length; ++i) ((uint8_t *)message)[i] = ring->messages[ring->read_index][i];
+    ring->read_index = (uint8_t)((ring->read_index + 1) % CSOS_UI_RING_SLOTS); ring->count--; return length;
+}
+
 struct csos_ui_client {
     struct csos_ui_transport transport;
     uint16_t version;

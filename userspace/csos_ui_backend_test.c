@@ -36,6 +36,12 @@ static int receive_surface_destroyed(void *userdata, void *message, uint8_t capa
 
 int main(void) {
     uint8_t message[32];
+    struct csos_ui_ring ring;
+    csos_ui_ring_init(&ring);
+    struct csos_ui_transport ring_transport = { &ring, csos_ui_ring_send, csos_ui_ring_receive };
+    if (csos_ui_encode_close(message, sizeof(message)) != 2 || csos_ui_transport_send(&ring_transport, message, 2) != 0 ||
+        csos_ui_transport_receive(&ring_transport, message, sizeof(message)) != 2 || message[0] != CSOS_UI_CLOSE)
+        return 1;
     struct csos_ui_damage damage = { 1, 2, 8, 9 };
     if (csos_ui_encode_hello(message, sizeof(message), CSOS_UI_PROTOCOL_VERSION,
                              CSOS_UI_CAP_SURFACE | CSOS_UI_CAP_INPUT) != 12)
