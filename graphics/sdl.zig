@@ -532,6 +532,8 @@ pub const Application = struct {
     last_event: ?Event = null,
     processed_events: u64 = 0,
     last_html_activation: ?[]const u8 = null,
+    html_origin_x: usize = 0,
+    html_origin_y: usize = 0,
 
     pub const reference_desktop_source = "<style>body{color:#e5efff}h1{color:#70d0ff}button{accent}</style><h1>CSOS</h1><input value=Buscar aplicações, arquivos...><p muted>● Sistema Online</p><p>Recentes   Home   Documentos   Downloads   Imagens   Música   Vídeos</p><p>Pastas</p><button action=projetos accent>Projetos</button><button action=csos accent>CSOS</button><button action=downloads accent>Downloads</button><button action=imagens accent>Imagens</button><p>Arquivos</p><button action=goal>GOAL.md</button><button action=readme>README.md</button><button action=config>config.sys</button><p>CPU 32%   RAM 48%   GPU 12%   Rede 125 MB/s</p><button action=files accent>Arquivos</button><button action=terminal>Terminal</button><button action=browser>Browser</button><button action=settings>Configurações</button><button action=music>Música</button><button action=steam>Steam</button>";
 
@@ -570,7 +572,7 @@ pub const Application = struct {
                         _ = backend.enqueueEvent(if (mouse.wheel != 0) .{ .wheel = .{ .delta = mouse.wheel } } else .{ .pointer = .{ .x = mouse.x, .y = mouse.y, .buttons = mouse.buttons } });
                     }
                     if ((mouse.buttons & 1) != 0) switch (self.activateHtmlEvent(
-                        @intCast(@max(mouse.x, 0)), @intCast(@max(mouse.y, 0)), 0, 0,
+                        @intCast(@max(mouse.x, 0)), @intCast(@max(mouse.y, 0)), self.html_origin_x, self.html_origin_y,
                     )) {
                         .action => |target| self.last_html_activation = target,
                         else => {},
@@ -584,6 +586,8 @@ pub const Application = struct {
     pub fn takeHtmlActivation(self: *Application) ?[]const u8 {
         const target = self.last_html_activation;
         self.last_html_activation = null;
+        self.html_origin_x = 0;
+        self.html_origin_y = 0;
         return target;
     }
 
@@ -621,6 +625,8 @@ pub const Application = struct {
     /// The native shell remains the fallback backdrop; controls are owned by
     /// the existing HTML session and therefore keep keyboard/mouse behavior.
     pub fn startReferenceDesktop(self: *Application) void {
+        self.html_origin_x = 196;
+        self.html_origin_y = 92;
         self.startHtml(reference_desktop_source);
     }
 
@@ -628,7 +634,7 @@ pub const Application = struct {
     pub fn renderReferenceDesktop(self: *Application) bool {
         if (!self.running) return false;
         drawReferenceDesktop(&self.window);
-        if (self.html_session) |*session| self.window.drawHtmlFocused(&session.document, 196, 92, session.focused);
+        if (self.html_session) |*session| self.window.drawHtmlFocused(&session.document, self.html_origin_x, self.html_origin_y, session.focused);
         if (self.backend) |*backend| _ = backend.present(.{ .x = 0, .y = 0, .width = @intCast(self.window.width), .height = @intCast(self.window.height) });
         return true;
     }
