@@ -622,7 +622,7 @@ pub const WindowManager = struct {
         return true;
     }
 
-    pub fn move(self: *WindowManager, index: usize, x: i32, y: i32) bool {
+    pub fn moveTo(self: *WindowManager, index: usize, x: i32, y: i32) bool {
         if (index >= self.count) return false;
         self.positions[index] = .{ .x = x, .y = y };
         return true;
