@@ -33,15 +33,21 @@ int main(void) {
         return 7;
     if (csos_ui_transport_receive(&transport, message, sizeof(message)) != 2 || message[0] != CSOS_UI_CLOSE)
         return 8;
+    struct csos_ui_client client;
+    csos_ui_client_init(&client, transport);
+    if (csos_ui_client_hello(&client, CSOS_UI_PROTOCOL_VERSION, CSOS_UI_CAP_SURFACE) != 0 || !client.ready)
+        return 9;
+    if (csos_ui_client_receive_response(&client, message, sizeof(message)) != -1)
+        return 10;
     struct csos_ui_pointer pointer;
     uint8_t pointer_message[11] = { CSOS_UI_POINTER, 11, 0xfc, 0xff, 0xff, 0xff, 9, 0, 0, 0, 1 };
     if (!csos_ui_decode_pointer(pointer_message, sizeof(pointer_message), &pointer) || pointer.x != -4 || pointer.buttons != 1)
-        return 9;
+        return 11;
     int32_t wheel = 0;
     if (!csos_ui_decode_wheel((uint8_t[]){ CSOS_UI_WHEEL, 6, 0xfc, 0xff, 0xff, 0xff }, 6, &wheel) || wheel != -4)
-        return 10;
+        return 12;
     int focused = 0;
     if (!csos_ui_decode_focus((uint8_t[]){ CSOS_UI_FOCUS, 3, 1 }, 3, &focused) || !focused)
-        return 11;
-    return csos_ui_event_valid((uint8_t[]){ CSOS_UI_FOCUS, 3, 1 }, 3) ? 0 : 12;
+        return 13;
+    return csos_ui_event_valid((uint8_t[]){ CSOS_UI_FOCUS, 3, 1 }, 3) ? 0 : 14;
 }

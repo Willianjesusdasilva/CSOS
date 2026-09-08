@@ -204,6 +204,13 @@ struct csos_ui_transport {
     csos_ui_receive_fn receive;
 };
 
+struct csos_ui_client {
+    struct csos_ui_transport transport;
+    uint16_t version;
+    uint64_t capabilities;
+    int ready;
+};
+
 static inline int csos_ui_transport_send(const struct csos_ui_transport *transport,
                                          const void *message, uint8_t length) {
     if (!transport || !transport->send || !message || length < 2) return -1;
@@ -214,6 +221,27 @@ static inline int csos_ui_transport_receive(const struct csos_ui_transport *tran
                                             void *message, uint8_t capacity) {
     if (!transport || !transport->receive || !message || capacity < 2) return -1;
     return transport->receive(transport->userdata, message, capacity);
+}
+
+static inline void csos_ui_client_init(struct csos_ui_client *client,
+                                       struct csos_ui_transport transport) {
+    if (!client) return;
+    client->transport = transport; client->version = 0; client->capabilities = 0; client->ready = 0;
+}
+
+static inline int csos_ui_client_hello(struct csos_ui_client *client,
+                                       uint16_t version, uint64_t capabilities) {
+    uint8_t message[12];
+    if (!client || csos_ui_encode_hello(message, sizeof(message), version, capabilities) == 0) return -1;
+    if (csos_ui_transport_send(&client->transport, message, sizeof(message)) != 0) return -1;
+    client->version = version; client->capabilities = capabilities; client->ready = 1; return 0;
+}
+
+static inline int csos_ui_client_receive_response(struct csos_ui_client *client,
+                                                   void *message, uint8_t capacity) {
+    if (!client || !client->ready) return -1;
+    const int length = csos_ui_transport_receive(&client->transport, message, capacity);
+    return length >= 2 && csos_ui_response_valid((const uint8_t *)message, (uint8_t)length) ? length : -1;
 }
 
 #endif
