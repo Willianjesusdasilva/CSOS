@@ -58,6 +58,8 @@ enum csos_ui_pixel_format {
 struct CSOS_UI_PACKED csos_ui_message_header { uint8_t kind; uint8_t total_length; };
 
 struct CSOS_UI_PACKED csos_ui_damage { uint16_t x, y, width, height; };
+struct csos_ui_pointer { int32_t x, y; uint8_t buttons; };
+struct csos_ui_key { uint32_t code; uint8_t pressed, modifiers; };
 struct CSOS_UI_PACKED csos_ui_hello { uint16_t version; uint64_t capabilities; };
 struct CSOS_UI_PACKED csos_ui_present { uint32_t surface_id; uint64_t generation; struct csos_ui_damage damage; };
 struct CSOS_UI_PACKED csos_ui_surface { uint32_t id, buffer_handle; uint16_t width, height; uint32_t stride; uint8_t format; uint64_t generation; };
@@ -125,6 +127,19 @@ static inline int csos_ui_response_valid(const uint8_t *message, uint8_t length)
     case CSOS_UI_FAILURE: return length == 4;
     default: return 0;
     }
+}
+
+static inline int csos_ui_decode_pointer(const uint8_t *message, uint8_t length,
+                                         struct csos_ui_pointer *out) {
+    if (!out || !csos_ui_event_valid(message, length) || message[0] != CSOS_UI_POINTER) return 0;
+    out->x = (int32_t)csos_ui_get32(message + 2); out->y = (int32_t)csos_ui_get32(message + 6);
+    out->buttons = message[10]; return 1;
+}
+
+static inline int csos_ui_decode_key(const uint8_t *message, uint8_t length,
+                                     struct csos_ui_key *out) {
+    if (!out || !csos_ui_event_valid(message, length) || message[0] != CSOS_UI_KEY) return 0;
+    out->code = csos_ui_get32(message + 2); out->pressed = message[6]; out->modifiers = message[7]; return 1;
 }
 
 /* Return the encoded byte count, or zero when capacity is insufficient. */
