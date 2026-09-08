@@ -1157,3 +1157,4 @@ escrita multi-cluster também estão disponíveis, com validação host completa
 `mkdirat` agora cria diretórios FAT reais (inclusive aninhados), alocando o
 cluster, inicializando `.`/`..` e expondo a operação pela ABI Linux.
 `unlinkat` com `AT_REMOVEDIR` remove diretórios FAT vazios e libera sua cadeia.
+Descritores de diretório preservam navegação relativa com `.` e `..` em múltiplos níveis.
