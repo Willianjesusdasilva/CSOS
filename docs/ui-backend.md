@@ -68,3 +68,16 @@ por socket, canal IPC ou shared ring sem alterar a aplicação:
 zig cc -std=c11 -Wall -Werror userspace/csos_ui_demo.c -I userspace -o csos_ui_demo
 ./csos_ui_demo
 ```
+
+## HTML/CSS desktop vertical slice
+
+`userspace/csos_ui_html_demo.c` is the first file-backed UI proof. It loads
+`system/ui/interface/desktop.html`, the external stylesheet, registered
+read-only providers and the allow-listed `open_files` action before creating a
+surface and sending `present` through `csos_ui_backend`. No layout or theme is
+defined in `kernel/main.zig` for this slice.
+
+```text
+zig cc -std=c11 -Wall -Werror userspace/csos_ui_html_demo.c -I userspace -o csos_ui_html_demo
+./csos_ui_html_demo
+```
