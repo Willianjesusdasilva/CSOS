@@ -612,6 +612,7 @@ pub fn start(info: BootInfo) noreturn {
     if (ui_present_len != 22 or ui_boot_frame[0] != 1) panic("userspace UI present request invalid");
     const ui_pixel_len = syscalls.receiveUiBootFrame(&ui_boot_frame) orelse panic("userspace UI pixel frame missing");
     if (ui_pixel_len != 10 or ui_boot_frame[0] != 12) panic("userspace UI pixel frame invalid");
+    serial.write("userspace UI surface present accepted\n");
     serial.write("userspace file-backed UI runtime ready\n");
     if (build_options.radv_runtime) {
         vfs.validateRuntimeLibrariesSelfTest() catch panic("VFS RADV runtime files self-test failed");
