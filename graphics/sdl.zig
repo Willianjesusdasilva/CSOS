@@ -598,14 +598,18 @@ pub const Application = struct {
                 },
                 .key => |key| if (key.pressed) {
                     if (self.backend) |*backend| _ = backend.enqueueEvent(.{ .key = .{ .code = key.scancode, .pressed = key.pressed, .modifiers = key.modifiers } });
+                    if (key.scancode == 0x29) {
+                        self.startReferenceDesktop();
+                        continue;
+                    }
                     if (key.scancode == 0x2b) _ = self.focusHtmlNext((key.modifiers & 0x01) == 0);
-                    if (self.activateHtmlEventKey(key.scancode)) |activation| switch (activation) {
+                    switch (self.activateHtmlEventKey(key.scancode)) {
                         .action => |target| {
                             self.last_html_activation = target;
                             _ = self.dispatchReferenceAction(target);
                         },
                         else => {},
-                    };
+                    }
                 },
                 .mouse => |mouse| {
                     if (self.backend) |*backend| {
@@ -771,7 +775,7 @@ pub const Application = struct {
     }
 
     pub fn activateHtmlEventKey(self: *Application, key: u8) html.Activation {
-        if (self.html_session) |session| {
+        if (self.html_session) |*session| {
             return if (session.activateKey(key)) |target| .{ .action = target } else .none;
         }
         return .none;
@@ -2241,6 +2245,11 @@ test "reference desktop dispatches launcher actions into HTML apps" {
     try @import("std").testing.expect(!application.dispatchReferenceAction("unknown"));
     try @import("std").testing.expectEqualStrings("terminal", application.dispatchReferenceDock(20 + 18 + 3 * 72 + 4, 200 - 82 + 20).?);
     try @import("std").testing.expectEqualStrings("settings", Application.dispatchReferenceShortcut(30, 72 + 74 + 8).?);
+    try @import("std").testing.expect(application.dispatchReferenceAction("terminal"));
+    var events = EventQueue{};
+    try @import("std").testing.expect(events.pushKeyboard(0x29, true, 0));
+    application.pumpHtml(&events);
+    try @import("std").testing.expectEqualStrings("CSOS", application.html_session.?.document.elements[0].text);
 }
 
 test "SDL application persists and edits HTML session" {
