@@ -56,11 +56,17 @@ pub fn main() !void {
     try contains(launcher, "Buscar aplicações");
     try contains(alt_tab, "focus_files");
     try append(&composed, &composed_len, desktop);
-    try append(&composed, &composed_len, topbar);
-    try append(&composed, &composed_len, dock);
-    try append(&composed, &composed_len, launcher);
-    try append(&composed, &composed_len, alt_tab);
-    try append(&composed, &composed_len, css);
+    var manifest_lines = std.mem.splitScalar(u8, manifest, '\n');
+    while (manifest_lines.next()) |raw_line| {
+        const line = std.mem.trim(u8, raw_line, " \r\t");
+        if (std.mem.startsWith(u8, line, "fragment=")) {
+            const name = line[9..];
+            const path = try std.fmt.allocPrint(allocator, "system/ui/interface/{s}", .{name});
+            try append(&composed, &composed_len, try readFile(allocator, path));
+        } else if (std.mem.startsWith(u8, line, "stylesheet=")) {
+            try append(&composed, &composed_len, css);
+        }
+    }
     try contains(composed[0..composed_len], "data-action=\"open_files\"");
     try contains(composed[0..composed_len], ".launcher");
     const variable_names = [_][]const u8{ "CPU_USAGE", "RAM_USAGE", "GPU_USAGE", "NETWORK_IP", "CURRENT_FPS", "FRAME_TIME" };
