@@ -240,6 +240,15 @@ pub const Backend = struct {
         return try encodeRequest(request, output);
     }
 
+    pub fn dispatchRequests(self: *Backend, handler: *const fn (Request) void) usize {
+        var dispatched: usize = 0;
+        while (self.nextRequest()) |request| {
+            handler(request);
+            dispatched += 1;
+        }
+        return dispatched;
+    }
+
     pub fn submitEventWire(self: *Backend, message: []const u8) WireError!bool {
         return self.enqueueEvent(try decodeEvent(message));
     }
@@ -341,4 +350,17 @@ test "backend clips damage to the shared surface" {
         else => return error.UnexpectedBackendCommand,
     }
     try std.testing.expect(!backend.present(.{ .x = 4, .y = 0, .width = 1, .height = 1 }));
+}
+
+var dispatched_requests: usize = 0;
+fn countDispatchedRequest(_: Request) void { dispatched_requests += 1; }
+
+test "backend dispatches requests without knowing the window manager" {
+    var pixels = [_]u32{0} ** 4;
+    var backend = Backend.init(.{ .id = 8, .width = 2, .height = 2, .stride = 2, .pixels = &pixels });
+    _ = backend.createWindow(10, 10, "APP");
+    _ = backend.present(.{ .x = 0, .y = 0, .width = 2, .height = 2 });
+    dispatched_requests = 0;
+    try std.testing.expectEqual(@as(usize, 2), backend.dispatchRequests(&countDispatchedRequest));
+    try std.testing.expectEqual(@as(usize, 2), dispatched_requests);
 }
