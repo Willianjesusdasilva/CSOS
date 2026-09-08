@@ -90,6 +90,7 @@ pub fn main() !void {
     const action = try readFile(allocator, "system/ui/scripts/open_files");
     var composed: [16384]u8 = undefined;
     var composed_len: usize = 0;
+    var template_count: usize = 0;
     try contains(manifest, "template=desktop.html");
     try contains(manifest, "stylesheet=../styles/desktop.css");
     try contains(manifest, "fragment=topbar.html");
@@ -123,7 +124,11 @@ pub fn main() !void {
     var manifest_lines = std.mem.splitScalar(u8, manifest, '\n');
     while (manifest_lines.next()) |raw_line| {
         const line = std.mem.trim(u8, raw_line, " \r\t");
-        if (std.mem.startsWith(u8, line, "fragment=")) {
+        if (line.len == 0) continue;
+        if (std.mem.startsWith(u8, line, "template=")) {
+            template_count += 1;
+            if (template_count != 1) return error.DuplicateTemplate;
+        } else if (std.mem.startsWith(u8, line, "fragment=")) {
             const name = line[9..];
             if (name.len == 0 or std.mem.indexOf(u8, name, "..") != null or std.mem.startsWith(u8, name, "/")) return error.InvalidFragmentPath;
             const path = try std.fmt.allocPrint(allocator, "system/ui/interface/{s}", .{name});
@@ -133,8 +138,9 @@ pub fn main() !void {
             if (!std.mem.startsWith(u8, name, "../styles/") or std.mem.indexOf(u8, name[10..], "..") != null) return error.InvalidStylesheetPath;
             const path = try std.fmt.allocPrint(allocator, "system/ui/styles/{s}", .{name[10..]});
             try append(&composed, &composed_len, try readFile(allocator, path));
+        } else return error.UnknownManifestDirective;
         }
-    }
+    if (template_count != 1) return error.MissingTemplate;
     try contains(composed[0..composed_len], "data-action=\"open_files\"");
     try contains(composed[0..composed_len], ".launcher");
     try contains(composed[0..composed_len], ".terminal-window");
