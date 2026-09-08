@@ -546,10 +546,12 @@ pub fn drawReferenceDesktop(window: *Window) void {
     const notification_x = width -| 312;
     const notification_y = @min(height -| 154, player_y + 122);
     const notifications = [_][]const u8{ "Sistema iniciado", "Rede conectada", "Download concluído", "Steam pronto" };
+    const notification_colors = [_]u32{ 0x59d878ff, 0x5ca9ffff, 0x9b7dffff, 0x9b6dffff };
     for (notifications, 0..) |notification, index| {
         const y = notification_y + index * 38;
         window.fillRect(notification_x, y, 286, 30, 0x273958dd);
-        window.drawText(notification_x + 14, y + 10, notification, 0xe1eaffff);
+        window.fillRect(notification_x + 10, y + 5, 20, 20, notification_colors[index]);
+        window.drawText(notification_x + 42, y + 10, notification, 0xe1eaffff);
     }
     const launcher_x: usize = 24;
     const launcher_y = height -| 330;
