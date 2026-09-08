@@ -64,6 +64,13 @@ static size_t render_template(const char *input, char *out, size_t capacity) {
     out[used < capacity ? used : capacity - 1] = 0; return used;
 }
 
+static int authorized_action(const char *name) {
+    char path[128], expected[96];
+    (void)snprintf(path, sizeof(path), "system/ui/scripts/%s", name);
+    (void)snprintf(expected, sizeof(expected), "action=%s", name);
+    return file_contains(path, expected);
+}
+
 int main(void) {
     struct server server = { 0 }; struct csos_ui_transport transport;
     struct csos_ui_client client; uint8_t message[64]; uint8_t kind = 0;
@@ -84,7 +91,8 @@ int main(void) {
     used = append_text(rendered, used, sizeof(rendered), topbar);
     used = append_text(rendered, used, sizeof(rendered), dock);
     if (strstr(rendered, "{{ CPU_USAGE }}") || !strstr(rendered, "CPU 32%") ||
-        !strstr(rendered, "data-action=\"open_files\"")) return 1;
+        !strstr(rendered, "data-action=\"open_files\"") || !authorized_action("open_files") ||
+        authorized_action("run_arbitrary_command")) return 1;
     transport = (struct csos_ui_transport){ &server, send_message, receive_message };
     csos_ui_client_init(&client, transport);
     if (csos_ui_client_hello(&client, CSOS_UI_PROTOCOL_VERSION, CSOS_UI_CAP_SURFACE | CSOS_UI_CAP_INPUT) != 0 ||
