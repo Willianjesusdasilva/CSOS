@@ -404,6 +404,12 @@ test "file offsets reject arithmetic overflow" {
 
 pub fn infoAt(directory_fd: i64, path: []const u8) !Info {
     if (toFatName(path)) |fat_name| if (disk) |volume| {
+        if (volume.findRootEntry(&fat_name)) |entry| {
+            if (entry.directory) return .{ .mode = 0o040755, .size = 0, .directory = true };
+        } else |err| switch (err) {
+            error.NotFound => {},
+            else => return err,
+        }
         return .{ .mode = 0o100644, .size = try volume.fileSize(&fat_name), .directory = false };
     };
     return nodeInfo(try resolve(directory_fd, path));
