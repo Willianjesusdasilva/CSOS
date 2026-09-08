@@ -69,6 +69,8 @@ pub fn main() !void {
         const configured = try configuredPath(variables, name);
         const path = if (std.mem.startsWith(u8, configured, "/")) configured[1..] else configured;
         const value = std.mem.trim(u8, try readFile(allocator, path), "\r\n");
+        if (std.mem.indexOf(u8, value, "action=") != null or std.mem.indexOf(u8, value, "exec=") != null)
+            return error.ProviderContainsAction;
         expanded = try std.mem.replaceOwned(u8, allocator, expanded, try std.fmt.allocPrint(allocator, "{{{{ {s} }}}}", .{name}), value);
     }
     if (std.mem.indexOf(u8, expanded, "{{") != null) return error.UnresolvedProvider;
