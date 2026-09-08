@@ -527,6 +527,13 @@ pub const Application = struct {
         return null;
     }
 
+    pub fn activateHtmlEventKey(self: *const Application, key: u8) html.Activation {
+        if (self.html_session) |session| {
+            return if (session.activateKey(key)) |target| .{ .action = target } else .none;
+        }
+        return .none;
+    }
+
     pub fn focusHtmlNext(self: *Application, forward: bool) ?usize {
         if (self.html_session) |*session| return session.focusNext(forward);
         return null;
