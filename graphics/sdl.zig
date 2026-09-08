@@ -533,6 +533,8 @@ pub const Application = struct {
     processed_events: u64 = 0,
     last_html_activation: ?[]const u8 = null,
 
+    pub const reference_desktop_source = "<style>body{color:#e5efff}h1{color:#70d0ff}button{accent}</style><h1>CSOS</h1><p muted>Sistema Online</p><p>Pastas</p><button action=files accent>Arquivos</button><button action=terminal>Terminal</button><button action=browser>Browser</button><p>CPU 32%   RAM 48%   GPU 12%</p>";
+
     pub fn pump(self: *Application, events: *EventQueue, on_event: *const fn (*Application, Event) void) void {
         while (events.poll()) |event| {
             self.last_event = event;
@@ -613,6 +615,13 @@ pub const Application = struct {
         self.backend = ui_backend.Backend.init(.{ .id = 1, .width = @intCast(self.window.width), .height = @intCast(self.window.height), .stride = @intCast(self.window.width), .pixels = self.window.pixels });
         _ = self.backend.?.start();
         self.window.invalidate();
+    }
+
+    /// Starts the PNG-inspired desktop through the engine-neutral HTML path.
+    /// The native shell remains the fallback backdrop; controls are owned by
+    /// the existing HTML session and therefore keep keyboard/mouse behavior.
+    pub fn startReferenceDesktop(self: *Application) void {
+        self.startHtml(reference_desktop_source);
     }
 
     pub fn handleHtmlKey(self: *Application, key: u8) bool {
@@ -2081,6 +2090,15 @@ test "reference desktop paints shell, files panel, system card and dock" {
     try @import("std").testing.expectEqual(@as(u32, 0x17294fff), pixels[10]);
     try @import("std").testing.expectEqual(@as(u32, 0x273958dd), pixels[190 * 320 + 200]);
     try @import("std").testing.expect(window.dirtyRect() != null);
+}
+
+test "reference desktop starts through HTML session backend" {
+    var pixels = [_]u32{0} ** (64 * 32);
+    var application = Application{ .window = .{ .width = 64, .height = 32, .pixels = &pixels } };
+    application.startReferenceDesktop();
+    try @import("std").testing.expect(application.html_session != null);
+    try @import("std").testing.expect(application.backend != null);
+    try @import("std").testing.expect(application.html_session.?.document.count > 0);
 }
 
 test "SDL application persists and edits HTML session" {
