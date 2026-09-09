@@ -73,6 +73,9 @@ var descriptors: [max_fds]Descriptor = .{Descriptor{}} ** max_fds;
 var next_generation: u32 = 1;
 var generations_exhausted = false;
 var disk: ?*fat16.Volume = null;
+var current_directory_fd: i64 = -100;
+var current_directory_path: [256]u8 = undefined;
+var current_directory_length: usize = 1;
 pub const UiTree = struct { system: u16 = 0, ui: u16 = 0, interface: u16 = 0, styles: u16 = 0, providers: u16 = 0, scripts: u16 = 0 };
 var ui_tree: UiTree = .{};
 
@@ -195,9 +198,44 @@ pub fn reset() void {
     descriptors = .{Descriptor{}} ** max_fds;
     next_generation = 1;
     generations_exhausted = false;
+    current_directory_fd = -100;
+    current_directory_path[0] = '/';
+    current_directory_length = 1;
     descriptors[0].kind = .console;
     descriptors[1].kind = .console;
     descriptors[2].kind = .console;
+}
+
+fn effectiveDirectoryFd(directory_fd: i64) i64 {
+    return if (directory_fd == -100) current_directory_fd else directory_fd;
+}
+
+pub fn currentWorkingDirectory() []const u8 {
+    return current_directory_path[0..current_directory_length];
+}
+
+pub fn changeDirectory(path: []const u8) !void {
+    const fd = try openAt(-100, path, 0);
+    if (descriptors[fd].kind != .directory) {
+        close(fd) catch {};
+        return error.NotDirectory;
+    }
+    if (current_directory_fd >= 3) close(@intCast(current_directory_fd)) catch {};
+    current_directory_fd = @intCast(fd);
+    if (path.len != 0 and path[0] == '/') {
+        const length = @min(path.len, current_directory_path.len - 1);
+        @memcpy(current_directory_path[0..length], path[0..length]);
+        current_directory_length = if (length == 0) 1 else length;
+        if (length == 0) current_directory_path[0] = '/';
+    } else if (!(path.len == 1 and path[0] == '.')) {
+        const length = current_directory_length;
+        if (length > 1) current_directory_path[length] = '/';
+        const start = if (length > 1) length + 1 else 1;
+        const available = current_directory_path.len - start;
+        const copy_length = @min(path.len, available);
+        @memcpy(current_directory_path[start .. start + copy_length], path[0..copy_length]);
+        current_directory_length = start + copy_length;
+    }
 }
 
 fn newGeneration() !u32 {
@@ -246,7 +284,8 @@ pub fn descriptorGeneration(fd: usize) !u32 {
     return descriptors[fd].generation;
 }
 
-pub fn openAt(directory_fd: i64, path: []const u8, flags: u64) !usize {
+pub fn openAt(directory_fd_in: i64, path: []const u8, flags: u64) !usize {
+    const directory_fd = effectiveDirectoryFd(directory_fd_in);
     var fd: usize = 3;
     while (fd < descriptors.len and descriptors[fd].kind != .unused) : (fd += 1) {}
     if (fd == descriptors.len) return error.TooManyFiles;
@@ -604,7 +643,8 @@ pub fn truncate(fd: usize, length: usize) !void {
     if (descriptor.offset > length) descriptor.offset = length;
 }
 
-pub fn unlinkAt(directory_fd: i64, path: []const u8) !void {
+pub fn unlinkAt(directory_fd_in: i64, path: []const u8) !void {
+    const directory_fd = effectiveDirectoryFd(directory_fd_in);
     if (disk) |volume| if (directory_fd >= 3 and @as(usize, @intCast(directory_fd)) < descriptors.len and
         descriptors[@intCast(directory_fd)].node == .fat_directory and std.mem.indexOfScalar(u8, path, '/') == null)
     {
@@ -624,7 +664,8 @@ pub fn unlinkAt(directory_fd: i64, path: []const u8) !void {
     return error.ReadOnly;
 }
 
-pub fn mkdirAt(directory_fd: i64, path: []const u8, mode: u64) !void {
+pub fn mkdirAt(directory_fd_in: i64, path: []const u8, mode: u64) !void {
+    const directory_fd = effectiveDirectoryFd(directory_fd_in);
     _ = mode;
     if (disk) |volume| {
         if (directory_fd >= 3 and @as(usize, @intCast(directory_fd)) < descriptors.len and
@@ -657,7 +698,8 @@ pub fn mkdirAt(directory_fd: i64, path: []const u8, mode: u64) !void {
     return error.ReadOnly;
 }
 
-pub fn rmdirAt(directory_fd: i64, path: []const u8) !void {
+pub fn rmdirAt(directory_fd_in: i64, path: []const u8) !void {
+    const directory_fd = effectiveDirectoryFd(directory_fd_in);
     if (disk) |volume| {
         if (directory_fd >= 3 and @as(usize, @intCast(directory_fd)) < descriptors.len and
             descriptors[@intCast(directory_fd)].node == .fat_directory and std.mem.indexOfScalar(u8, path, '/') == null)
@@ -672,7 +714,8 @@ pub fn rmdirAt(directory_fd: i64, path: []const u8) !void {
     return error.ReadOnly;
 }
 
-pub fn renameAt(directory_fd: i64, old_path: []const u8, new_path: []const u8) !void {
+pub fn renameAt(directory_fd_in: i64, old_path: []const u8, new_path: []const u8) !void {
+    const directory_fd = effectiveDirectoryFd(directory_fd_in);
     if (disk) |volume| if (directory_fd >= 3 and @as(usize, @intCast(directory_fd)) < descriptors.len and
         descriptors[@intCast(directory_fd)].node == .fat_directory and
         std.mem.indexOfScalar(u8, old_path, '/') == null and std.mem.indexOfScalar(u8, new_path, '/') == null)
@@ -739,7 +782,8 @@ test "file offsets reject arithmetic overflow" {
     try std.testing.expectError(error.FileTooLarge, advanceOffset(&offset, 1));
 }
 
-pub fn infoAt(directory_fd: i64, path: []const u8) !Info {
+pub fn infoAt(directory_fd_in: i64, path: []const u8) !Info {
+    const directory_fd = effectiveDirectoryFd(directory_fd_in);
     if (disk) |volume| if (directory_fd >= 3 and @as(usize, @intCast(directory_fd)) < descriptors.len and
         descriptors[@intCast(directory_fd)].node == .fat_directory and std.mem.indexOfScalar(u8, path, '/') == null)
     {
@@ -806,7 +850,8 @@ pub fn infoFd(fd: usize) !Info {
     return nodeInfo(descriptors[fd].node);
 }
 
-pub fn readLinkAt(directory_fd: i64, path: []const u8, output: []u8) !usize {
+pub fn readLinkAt(directory_fd_in: i64, path: []const u8, output: []u8) !usize {
+    const directory_fd = effectiveDirectoryFd(directory_fd_in);
     const node = try resolve(directory_fd, path);
     if (node != .drm_subsystem) return error.Invalid;
     const target = "../../../../bus/pci";
@@ -952,6 +997,14 @@ fn nodeInfo(node: Node) Info {
 
 fn toFatName(path: []const u8) ?[11]u8 {
     if (runtimeLibraryFatAlias(path)) |alias| return alias;
+    // Git uses a handful of names that do not fit the FAT 8.3 spelling used
+    // by the bootstrap volume. Keep the userspace path names stable while
+    // assigning deterministic on-disk aliases.
+    if (std.mem.eql(u8, path, "config.lock")) return "CONFIG  LCK".*;
+    if (std.mem.eql(u8, path, "HEAD.lock")) return "HEAD    LCK".*;
+    if (std.mem.eql(u8, path, "index.lock")) return "INDEX   LCK".*;
+    if (std.mem.eql(u8, path, "packed-refs")) return "PACKED  REF".*;
+    if (std.mem.eql(u8, path, "description")) return "DESCRIP ION".*;
     if (std.mem.eql(u8, path, "/system/ui/interface/desktop.manifest") or std.mem.eql(u8, path, "system/ui/interface/desktop.manifest") or std.mem.eql(u8, path, "desktop.manifest")) return "DESKTOP MAN".*;
     if (std.mem.eql(u8, path, "/system/ui/interface/desktop.html") or std.mem.eql(u8, path, "system/ui/interface/desktop.html") or std.mem.eql(u8, path, "desktop.html")) return "DESKTOP HTM".*;
     if (std.mem.eql(u8, path, "wallpaper.html")) return "WALLPAP HTM".*;

@@ -294,12 +294,12 @@ pub const Volume = struct {
                 const bytes: [*]const u8 = @ptrFromInt(self.buffer);
                 var offset: usize = 0;
                 while (offset < 512) : (offset += 32) {
-                    if (bytes[offset] == 0) return error.NotFound;
+                    if (bytes[offset] == 0) continue;
                     if (entryIsAllocated(bytes + offset) and !entryIsLongName(bytes + offset) and equal11(bytes + offset, new_name)) return error.AlreadyExists;
                 }
                 offset = 0;
                 while (offset < 512) : (offset += 32) {
-                    if (bytes[offset] == 0) return error.NotFound;
+                    if (bytes[offset] == 0) continue;
                     if (!entryIsRegularFile(bytes + offset) or !equal11(bytes + offset, old_name)) continue;
                     const entry: [*]u8 = @ptrFromInt(self.buffer + offset);
                     @memcpy(entry[0..11], new_name);

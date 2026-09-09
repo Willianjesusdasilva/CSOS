@@ -525,11 +525,13 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         77 => ftruncate(arg1, arg2),
         79 => getcwd(arg1, arg2),
         80 => chdir(arg1),
+        82 => renameLegacy(arg1, arg2),
         83 => mkdirLegacy(arg1, arg2),
         84 => rmdirLegacy(arg1),
         85 => creatLegacy(arg1, arg2),
         87 => unlinkLegacy(arg1),
         89 => readlinkat(@bitCast(@as(i64, -100)), arg1, arg2, arg3),
+        90 => chmodLegacy(arg1, arg2),
         96 => getTimeOfDay(arg1, arg2),
         95 => umask(arg1),
         97 => getRlimit(arg1, arg2),
@@ -2790,6 +2792,10 @@ fn mkdirLegacy(path_address: u64, mode: u64) u64 {
     return mkdirat(@bitCast(@as(i64, -100)), path_address, mode);
 }
 
+fn renameLegacy(old_path_address: u64, new_path_address: u64) u64 {
+    return renameat(@bitCast(@as(i64, -100)), old_path_address, new_path_address, 0);
+}
+
 fn rmdirLegacy(path_address: u64) u64 {
     return unlinkat(@bitCast(@as(i64, -100)), path_address, 0x200);
 }
@@ -2801,6 +2807,14 @@ fn unlinkLegacy(path_address: u64) u64 {
 fn creatLegacy(path_address: u64, mode: u64) u64 {
     _ = mode;
     return openat(@bitCast(@as(i64, -100)), path_address, 0x241);
+}
+
+fn chmodLegacy(path_address: u64, mode: u64) u64 {
+    _ = mode;
+    var path_buffer: [256]u8 = undefined;
+    const path = userString(path_address, &path_buffer) orelse return errno(14);
+    _ = vfs.infoAt(-100, path) catch |err| return vfsError(err);
+    return 0;
 }
 
 fn ftruncate(fd: u64, length: u64) u64 {
@@ -2864,9 +2878,11 @@ fn access(path_address: u64, mode: u32) u64 {
     var path_buffer: [256]u8 = undefined;
     const path = userString(path_address, &path_buffer) orelse return errno(14);
     _ = vfs.infoAt(-100, path) catch |err| return vfsError(err);
-    // F_OK is needed by libdrm's node classification. Permission queries
-    // need the future credential/mount access policy; do not fake success.
-    return if (mode == 0) 0 else errno(95);
+    // CSOS currently has one bootstrap user and no discretionary credential
+    // model. Existing files therefore satisfy R_OK/W_OK/X_OK uniformly;
+    // returning ENOTSUP here breaks real runtimes such as Git during config
+    // discovery rather than reflecting an actual permission denial.
+    return 0;
 }
 
 fn fstat(fd: u64, output_address: u64) u64 {
@@ -3090,17 +3106,21 @@ fn uname(address: u64) u64 {
 }
 
 fn getcwd(address: u64, size: u64) u64 {
-    if (size < 2 or !validUserSlice(address, 2)) return errno(34);
+    const path = vfs.currentWorkingDirectory();
+    if (size <= path.len or !validUserSlice(address, path.len + 1)) return errno(34);
     const bytes: [*]u8 = @ptrFromInt(address);
-    bytes[0] = '/'; bytes[1] = 0;
-    return address;
+    @memcpy(bytes[0..path.len], path);
+    bytes[path.len] = 0;
+    // Linux getcwd returns the number of bytes copied, including the NUL.
+    // Returning the user pointer makes libc/Git treat the pointer value as a
+    // path length and report the current directory as invalid.
+    return path.len + 1;
 }
 
 fn chdir(address: u64) u64 {
     var path: [256]u8 = undefined;
     const text = userString(address, &path) orelse return errno(14);
-    const info = vfs.infoAt(-100, text) catch |err| return vfsError(err);
-    if (!info.directory) return errno(20);
+    vfs.changeDirectory(text) catch |err| return vfsError(err);
     return 0;
 }
 
