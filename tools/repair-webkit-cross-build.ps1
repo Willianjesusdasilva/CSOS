@@ -5,7 +5,9 @@ param(
     [string]$IcuSource = (Join-Path $PSScriptRoot '..\.tools\icu-cross-src'),
     [string]$GlibSource = (Join-Path $PSScriptRoot '..\.tools\glib-src'),
     [string]$GlibBuild = (Join-Path $PSScriptRoot '..\zig-out\glib-linux8'),
-    [string]$JpegBuild = (Join-Path $PSScriptRoot '..\zig-out\jpeg-turbo-linux')
+    [string]$JpegBuild = (Join-Path $PSScriptRoot '..\zig-out\jpeg-turbo-linux'),
+    [string]$EpoxySource = (Join-Path $PSScriptRoot '..\.tools\libepoxy-src'),
+    [string]$EpoxyBuild = (Join-Path $PSScriptRoot '..\zig-out\libepoxy-linux')
 )
 
 $ErrorActionPreference = 'Stop'
@@ -21,7 +23,9 @@ $icu = [IO.Path]::GetFullPath($IcuSource)
 $glib = [IO.Path]::GetFullPath($GlibSource)
 $glibBuildPath = [IO.Path]::GetFullPath($GlibBuild)
 $jpegBuildPath = [IO.Path]::GetFullPath($JpegBuild)
-foreach ($path in @($build, $sysrootPath, $webkit, $icu, $glib, $glibBuildPath, $jpegBuildPath)) {
+$epoxySourcePath = [IO.Path]::GetFullPath($EpoxySource)
+$epoxyBuildPath = [IO.Path]::GetFullPath($EpoxyBuild)
+foreach ($path in @($build, $sysrootPath, $webkit, $icu, $glib, $glibBuildPath, $jpegBuildPath, $epoxySourcePath, $epoxyBuildPath)) {
     if (-not (Test-Path -LiteralPath $path)) { throw "Required WebKit cross-build path not found: $path" }
 }
 
@@ -274,4 +278,9 @@ Copy-Item -Force (Join-Path $glibBuildPath 'gmodule\gmoduleconf.h') (Join-Path $
 # libjpeg-turbo's generated configuration headers are not installed in the
 # shared sysroot, but jpeglib.h includes jconfig.h directly.
 Copy-Item -Force (Join-Path $jpegBuildPath 'jconfig.h'), (Join-Path $jpegBuildPath 'jconfigint.h'), (Join-Path $jpegBuildPath 'jversion.h') $include
+# libepoxy's public and generated GL headers are required by TextureMapperGL.
+$epoxyInclude = Join-Path $include 'epoxy'
+New-Item -ItemType Directory -Force -Path $epoxyInclude | Out-Null
+Copy-Item -Force (Join-Path $epoxySourcePath 'include\epoxy\*.h') $epoxyInclude
+Copy-Item -Force (Join-Path $epoxyBuildPath 'include\epoxy\*.h') $epoxyInclude
 Write-Output "WebKit cross build repaired: $build"
