@@ -98,6 +98,15 @@ $ffiLib = ((Join-Path $sysrootPath 'lib\libffi.a').Replace('\','/'))
 $ninjaText = $ninjaText.Replace("$glibLib C:/git/csos/zig-out/mesa-sysroot/usr/lib/libz.so", "$glibLib $gmoduleLib $pcre2Lib $ffiLib C:/git/csos/zig-out/mesa-sysroot/usr/lib/libz.so")
 $zlib = 'C:/git/csos/zig-out/mesa-sysroot/usr/lib/libz.so'
 $ninjaText = [regex]::Replace($ninjaText, ([regex]::Escape($glibLib) + '\s+' + [regex]::Escape($zlib)), "$glibLib $gmoduleLib $pcre2Lib $ffiLib $zlib")
+$rules = Join-Path $build 'CMakeFiles\rules.ninja'
+if (Test-Path -LiteralPath $rules) {
+    $rulesText = [IO.File]::ReadAllText($rules)
+    $rulesText = $rulesText.Replace('`n', [Environment]::NewLine)
+    $compilePattern = '(?m)^  command = (?<prefix>.*zig\.exe c\+\+ -target x86_64-linux-musl )\$DEFINES \$INCLUDES \$FLAGS -MD -MT \$out -MF \$DEP_FILE -o \$out -c \$in\r?$'
+    $compileReplacement = '  rspfile = $out.rsp' + [Environment]::NewLine + '  rspfile_content = $DEFINES $INCLUDES $FLAGS -MD -MT $out -MF $DEP_FILE' + [Environment]::NewLine + '  command = ${prefix}@$out.rsp -o $out -c $in'
+    $rulesText = [regex]::Replace($rulesText, $compilePattern, $compileReplacement)
+    [IO.File]::WriteAllText($rules, $rulesText, [Text.UTF8Encoding]::new($false))
+}
 $generatedScripts = Get-ChildItem $build -Recurse -File -Filter '*.bat' -ErrorAction SilentlyContinue
 foreach ($script in $generatedScripts) {
     $scriptText = [IO.File]::ReadAllText($script.FullName)
