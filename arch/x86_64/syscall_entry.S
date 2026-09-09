@@ -5,12 +5,15 @@
 syscall_entry:
     movq %rsp, syscall_user_rsp(%rip)
     movq syscall_kernel_rsp(%rip), %rsp
+    cmpb $0, user_threads_enabled(%rip)
+    jne .Ldispatch
     cmpq $60, %rax
     je .Lprocess_exit
     cmpq $231, %rax
     je .Lprocess_exit
     cmpq $24, %rax
     je .Lprocess_pause
+.Ldispatch:
     pushq %rcx
     pushq %r11
     pushq %r15
@@ -39,6 +42,11 @@ syscall_entry:
     movq 24(%r12), %r8
     movq 0(%r12), %r9
     callq user_syscall_dispatch
+    movq %rax, %rdx
+    movq %r12, %rcx
+    callq user_thread_resume
+    cmpb $0, user_threads_done(%rip)
+    jne user_exit_trampoline
     movq %r12, %rsp
     popq %rdx
     popq %rbx

@@ -67,19 +67,49 @@ de executar e juntar a filha com TLS preservado.
 .\.tools\zig-x86_64-windows-0.16.0\zig.exe build run -Dwebkit-runtime-probe=zig-out/webkit-runtime-probe -- -ResetDisk -SmokeTestSeconds 40 -ExpectSerial 'CSOS WebKit prerequisite PASS:'
 ```
 
-**Resultado atual: FAIL, `pthread_create errno=11`.** A execução de diagnóstico
+**Resultado inicial: FAIL, `pthread_create errno=11`.** A execução de diagnóstico
 esperou explicitamente o marcador FAIL e encerrou QEMU. O exit 0 desse runner
 significa apenas que observou a falha esperada, não que o gate passou. O programa
 retornou 21 e o kernel registrou `ProcessFailed`.
 Log local: `zig-out/smoke-e66add5667ae47a8a04e80c08d247489.serial.log`.
 
-A inspeção do dispatcher confirma ausência de `clone` (56) e `clone3` (435).
-O `futex` atual nunca coloca um waiter para dormir; `gettid` é fixo em 1.
+A inspeção inicial do dispatcher confirmou ausência de `clone` (56) e `clone3` (435).
+O `futex` inicial nunca colocava um waiter para dormir; `gettid` era fixo em 1.
 O scheduler de threads do kernel não basta: `process.runImage` tem contexto
-ativo e bookkeeping globais e executa uma entrada userspace por vez. Próxima
-implementação necessária: contextos de threads userspace (registradores/TLS/
-stack/TID), clone compartilhando address space, saída individual, clear_tid e
-espera/acordar futex. Não corrigir isso retornando sucesso fictício.
+ativo e bookkeeping globais. A implementação abaixo adiciona threads dentro
+do mesmo processo; não representa suporte a múltiplos processos concorrentes.
+
+### Avanço funcional: pthread/mutex/condition/TLS
+
+Implementados o clone realmente observado (`0x7d0f00`), contextos SYSRET,
+stack individual, FS/TLS, estado FPU, TID, clear_child_tid, saída individual
+e escalonamento cooperativo dentro do mesmo address space. VM e descritores
+são compartilhados por esse subset de clone. FUTEX_WAIT/WAKE (inclusive
+PRIVATE) bloqueiam e acordam tasks; não reenviam WAIT em busy loop.
+
+A musl solicitou 8.663.040 bytes de stack/TLS e falhava antes de clone porque
+o mmap arena antigo tinha 4 MiB. O arena mmap agora tem 64 MiB, separado de brk.
+É uma reserva física fixa de bootstrap, não memória virtual sob demanda.
+
+Validação real em QEMU, log
+`zig-out/smoke-977ebc1c9ac142a3931d25d80941d979.serial.log`:
+
+- pthread_create e pthread_join com execução da filha passaram;
+- três workers, mutex e condition variable produziram contador 300;
+- cada worker manteve TLS distinto após trocas de contexto;
+- o kernel registrou **209 bloqueios e 209 despertares**;
+- saída de filha não encerrou o processo; o boot continuou depois do probe;
+- QEMU foi encerrado pelo runner; `zig build test` passou.
+
+Para exigir também o gate de bloqueio no kernel, usar
+`-ExpectSerial 'CSOS WebKit futex transitions PASS:'` no comando acima.
+
+Limites explícitos: até 16 contextos, escalonamento cooperativo, sem clone de
+processo, sem timers de futex, sem preempção userspace e sem recuperação de
+robust mutex pelo kernel. Uma situação sem tasks runnable termina com erro
+de deadlock; ainda não há espera por produtores externos. O port WebKit não
+está concluído por esse avanço. Próximos gates: GLib mínimo e event loop,
+implementando as capacidades adicionais que sua execução exigir.
 
 Upstream fixado para investigação: **WPE WebKit 2.52.6**, commit
 `3bcefb149bd7e5645d18c3f0b9abd515b274649f` (tag anotada resolvida).

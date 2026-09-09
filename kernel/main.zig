@@ -485,6 +485,13 @@ pub fn start(info: BootInfo) noreturn {
             panic("WebKit prerequisite probe failed; engine not integrated");
         };
         mapper.activate();
+        if (syscalls.user_futex_blocks == 0 or syscalls.user_futex_wakes == 0)
+            panic("WebKit thread probe did not exercise blocking futex");
+        serial.write("CSOS WebKit futex transitions PASS: blocks=");
+        serial.writeDecimal(syscalls.user_futex_blocks);
+        serial.write(" wakes=");
+        serial.writeDecimal(syscalls.user_futex_wakes);
+        serial.write("\n");
     }
     if (build_options.libdrm_probe and !build_options.libdrm_probe_after_gpu) {
         process.runLibdrmProbe(mapper.root, &pages) catch |err| {

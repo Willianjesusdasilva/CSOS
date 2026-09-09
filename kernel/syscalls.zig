@@ -230,6 +230,96 @@ var sockets: [4]Socket = .{Socket{}} ** 4;
 var unknown_seen: [512]bool = .{false} ** 512;
 pub export var syscall_kernel_rsp: u64 = 0;
 pub export var syscall_user_rsp: u64 = 0;
+pub export var user_threads_enabled: bool = false;
+pub export var user_threads_done: bool = false;
+const UserThread = struct {
+    state: enum { unused, runnable, blocked, exited } = .unused,
+    frame: [14]u64 = @splat(0),
+    rsp: u64 = 0, result: u64 = 0, fs: u64 = 0,
+    clear_tid: u64 = 0, wait_address: u64 = 0,
+    robust: u64 = 0, robust_size: u64 = 0,
+    fx: [512]u8 align(16) = @splat(0),
+};
+var user_threads: [16]UserThread = @splat(.{});
+var current_thread: usize = 0;
+var pending_clone: ?struct { slot: usize, stack: u64, tls: u64 } = null;
+var thread_switch_requested: bool = false;
+pub var user_futex_blocks: u64 = 0;
+pub var user_futex_wakes: u64 = 0;
+
+fn wakeUserThreads(address: u64, maximum: u64) u64 {
+    var count: u64 = 0;
+    for (&user_threads) |*thread| {
+        if (count == maximum) break;
+        if (thread.state == .blocked and thread.wait_address == address) {
+            thread.state = .runnable;
+            thread.result = 0;
+            user_futex_wakes += 1;
+            count += 1;
+        }
+    }
+    return count;
+}
+
+fn cloneThread(flags: u64, stack: u64, parent_tid: u64, child_tid: u64, tls: u64) u64 {
+    serial.write("userspace clone flags: "); serial.writeDecimal(flags); serial.write("\n");
+    // musl pthread_create: VM, FS, FILES, SIGHAND, THREAD, SYSVSEM,
+    // SETTLS, PARENT_SETTID, CHILD_CLEARTID and obsolete DETACHED.
+    if (flags != 0x7d0f00) return errno(22);
+    if (stack < 8 or !validUserSlice(stack, 8) or !validUserSlice(tls, 8) or
+        !validUserSlice(parent_tid, 4) or !validUserSlice(child_tid, 4)) return errno(14);
+    for (1..user_threads.len) |slot| {
+        if (user_threads[slot].state != .unused and user_threads[slot].state != .exited) continue;
+        user_threads[slot] = .{ .state = .runnable, .clear_tid = child_tid };
+        const tid: u32 = @intCast(slot + 1);
+        const out: *align(1) u32 = @ptrFromInt(parent_tid); out.* = tid;
+        if (!user_threads_enabled) {
+            user_threads[0].state = .runnable;
+            user_threads[0].clear_tid = clear_tid_address;
+        }
+        user_threads_enabled = true;
+        pending_clone = .{ .slot = slot, .stack = stack, .tls = tls };
+        return tid;
+    }
+    return errno(11);
+}
+
+// Called while still on the syscall stack. Save the complete SYSRET frame;
+// cooperative scheduling switches only at yield, blocking wait and exit.
+export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
+    if (!user_threads_enabled) return result;
+    const old = &user_threads[current_thread];
+    old.frame = frame.*; old.rsp = syscall_user_rsp; old.result = result;
+    old.fs = readMsr(0xc0000100);
+    asm volatile ("fxsave64 (%[p])" : : [p] "r" (&old.fx) : .{ .memory = true });
+    if (pending_clone) |child| {
+        user_threads[child.slot].frame = frame.*;
+        user_threads[child.slot].rsp = child.stack;
+        user_threads[child.slot].fs = child.tls;
+        user_threads[child.slot].fx = old.fx;
+        pending_clone = null;
+    }
+    if (user_threads_done) return result;
+    if (thread_switch_requested or old.state != .runnable) {
+        thread_switch_requested = false;
+        var selected: ?usize = null;
+        for (1..user_threads.len + 1) |step| {
+            const slot = (current_thread + step) % user_threads.len;
+            if (user_threads[slot].state == .runnable) { selected = slot; break; }
+        }
+        if (selected) |slot| { current_thread = slot; } else {
+            // No runnable task or external futex producer in this initial
+            // single-process scheduler. Fail explicitly, never spin a waiter.
+            serial.write("userspace thread deadlock: no runnable thread\n");
+            process_exit_status = 125; user_threads_done = true; return result;
+        }
+    }
+    const next = &user_threads[current_thread];
+    frame.* = next.frame; syscall_user_rsp = next.rsp;
+    writeMsr(0xc0000100, next.fs);
+    asm volatile ("fxrstor64 (%[p])" : : [p] "r" (&next.fx) : .{ .memory = true });
+    return next.result;
+}
 
 pub const Pause = struct { instruction: u64, stack: u64 };
 pub const Framebuffer = struct { base: u64 = 0, size: u32 = 0, width: u32 = 0, height: u32 = 0, stride: u32 = 0, pixel_format: u32 = 0 };
@@ -264,6 +354,14 @@ fn cpuid(leaf: u32) Cpuid {
 }
 
 pub fn configure(base: u64, size: u64, stack: u64, stack_length: u64, initial_break: u64, maximum_break: u64, mmap_start: u64, mmap_end: u64) void {
+    user_threads_enabled = false;
+    user_threads_done = false;
+    user_threads = @splat(.{});
+    current_thread = 0;
+    pending_clone = null;
+    thread_switch_requested = false;
+    user_futex_blocks = 0;
+    user_futex_wakes = 0;
     user_base = base;
     user_size = size;
     stack_base = stack;
@@ -415,7 +513,8 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         52 => socketName(arg1, arg2, arg3, true),
         54 => setSocketOption(arg1, arg2, arg3, arg4, arg5),
         55 => getSocketOption(arg1, arg2, arg3, arg4, arg5),
-        60 => exitSyscall(arg1),
+        56 => cloneThread(arg1, arg2, arg3, arg4, arg5),
+        60 => exitThread(arg1),
         62 => kill(arg1, arg2),
         61 => wait4(arg1, arg2, arg3, arg4),
         63 => uname(arg1),
@@ -473,7 +572,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         // The current userspace model has one kernel thread per process.  Keep
         // gettid consistent with getpid so musl's thread-local setup does not
         // fall through to ENOSYS while loading real shared libraries.
-        186 => 1,
+        186 => current_thread + 1,
         202 => futex(arg1, arg2, arg3),
         203 => schedSetAffinity(arg1, arg2, arg3),
         204 => schedGetAffinity(arg1, arg2, arg3),
@@ -3265,13 +3364,29 @@ fn unsupported(number: u64) u64 {
 }
 
 fn schedYield() u64 {
+    if (user_threads_enabled) { thread_switch_requested = true; return 0; }
     if (idle_hook) |hook| hook();
     return 0;
 }
 
 fn exitSyscall(status: u64) u64 {
     process_exit_status = status;
+    if (user_threads_enabled) user_threads_done = true;
     return 0;
+}
+
+fn exitThread(status: u64) u64 {
+    if (!user_threads_enabled) return exitSyscall(status);
+    const thread = &user_threads[current_thread];
+    if (thread.clear_tid != 0 and validUserSlice(thread.clear_tid, 4)) {
+        @as(*align(1) u32, @ptrFromInt(thread.clear_tid)).* = 0;
+        _ = wakeUserThreads(thread.clear_tid, ~@as(u64, 0));
+    }
+    thread.state = .exited;
+    for (user_threads) |other| {
+        if (other.state == .runnable or other.state == .blocked) return 0;
+    }
+    return exitSyscall(status);
 }
 
 fn kill(pid: u64, signal: u64) u64 {
@@ -3430,10 +3545,17 @@ fn futex(address: u64, operation: u64, expected: u64) u64 {
     switch (command) {
         0 => { // FUTEX_WAIT: never sleep indefinitely in the single-thread core.
             if (word.* != @as(u32, @truncate(expected))) return errno(11);
+            if (user_threads_enabled) {
+                user_threads[current_thread].state = .blocked;
+                user_futex_blocks += 1;
+                user_threads[current_thread].wait_address = address;
+                thread_switch_requested = true;
+                return 0;
+            }
             if (idle_hook) |hook| hook();
             return errno(11);
         },
-        1 => return 0, // FUTEX_WAKE: no blocked waiter exists yet.
+        1 => return wakeUserThreads(address, expected),
         else => return errno(38),
     }
 }
@@ -3512,7 +3634,8 @@ fn schedRrInterval(pid: u64, output: u64) u64 {
 fn setTidAddress(address: u64) u64 {
     if (address != 0 and !validUserSlice(address, 4)) return errno(14);
     clear_tid_address = address;
-    return 1;
+    user_threads[current_thread].clear_tid = address;
+    return current_thread + 1;
 }
 
 fn umask(value: u64) u64 {
@@ -3720,17 +3843,20 @@ fn getResGid(real: u64, effective: u64, saved: u64) u64 {
 }
 
 fn setRobustList(head: u64, length: u64) u64 {
-    if (length != 24 or !validUserSlice(head, length)) return errno(22);
+    if (length != 24 or (head != 0 and !validUserSlice(head, length))) return errno(22);
     robust_head = head;
     robust_len = length;
+    user_threads[current_thread].robust = head;
+    user_threads[current_thread].robust_size = length;
     return 0;
 }
 
 fn getRobustList(pid: u64, head_address: u64, length_address: u64, _: u64) u64 {
-    if (pid != 0 and pid != 1) return errno(3);
+    const slot = if (pid == 0) current_thread else pid - 1;
+    if (slot >= user_threads.len or (slot != current_thread and user_threads[slot].state != .runnable and user_threads[slot].state != .blocked)) return errno(3);
     if (!validUserSlice(head_address, 8) or !validUserSlice(length_address, 8)) return errno(14);
-    @as(*align(1) u64, @ptrFromInt(head_address)).* = robust_head;
-    @as(*align(1) u64, @ptrFromInt(length_address)).* = robust_len;
+    @as(*align(1) u64, @ptrFromInt(head_address)).* = user_threads[slot].robust;
+    @as(*align(1) u64, @ptrFromInt(length_address)).* = user_threads[slot].robust_size;
     return 0;
 }
 

@@ -5,6 +5,17 @@ extern "c" fn pthread_create(*usize, ?*const anyopaque, *const fn (?*anyopaque) 
 extern "c" fn pthread_join(usize, *?*anyopaque) c_int;
 extern "c" fn write(c_int, [*]const u8, usize) isize;
 extern "c" fn _exit(c_int) noreturn;
+extern "c" fn pthread_mutex_lock(*anyopaque) c_int;
+extern "c" fn pthread_mutex_unlock(*anyopaque) c_int;
+extern "c" fn pthread_cond_wait(*anyopaque, *anyopaque) c_int;
+extern "c" fn pthread_cond_broadcast(*anyopaque) c_int;
+extern "c" fn sched_yield() c_int;
+// x86_64 musl ABI, zero initializers are PTHREAD_*_INITIALIZER.
+var mutex: [40]u8 align(8) = @splat(0);
+var condition: [48]u8 align(8) = @splat(0);
+var ready: usize = 0;
+var go: bool = false;
+var counter: usize = 0;
 threadlocal var tls_value: usize = 0;
 var child_ran: bool = false;
 
@@ -21,6 +32,28 @@ fn child(_: ?*anyopaque) callconv(.c) ?*anyopaque {
     tls_value = 73;
     child_ran = true;
     return @ptrFromInt(73);
+}
+fn worker(argument: ?*anyopaque) callconv(.c) ?*anyopaque {
+    const id = @intFromPtr(argument);
+    if (tls_value != 0) _exit(31);
+    tls_value = id;
+    if (pthread_mutex_lock(&mutex) != 0) _exit(32);
+    ready += 1;
+    if (pthread_cond_broadcast(&condition) != 0) _exit(33);
+    while (!go) {
+        if (pthread_cond_wait(&condition, &mutex) != 0) _exit(34);
+    }
+    if (pthread_mutex_unlock(&mutex) != 0) _exit(35);
+    for (0..100) |_| {
+        if (pthread_mutex_lock(&mutex) != 0) _exit(36);
+        const previous = counter;
+        // Force a switch while holding the lock: other workers must block.
+        if (sched_yield() != 0) _exit(37);
+        counter = previous + 1;
+        if (tls_value != id) _exit(38);
+        if (pthread_mutex_unlock(&mutex) != 0) _exit(39);
+    }
+    return argument;
 }
 pub fn main() void {
     output("CSOS WebKit prerequisite probe: musl pthread/TLS/join\n");
@@ -43,4 +76,20 @@ pub fn main() void {
         _exit(23);
     }
     output("CSOS WebKit prerequisite PASS: pthread/TLS/join only\n");
+    var workers: [3]usize = undefined;
+    for (&workers, 0..) |*thread_id, i| {
+        if (pthread_create(thread_id, null, worker, @ptrFromInt(100 + i)) != 0) _exit(40);
+    }
+    if (pthread_mutex_lock(&mutex) != 0) _exit(41);
+    while (ready != workers.len) {
+        if (pthread_cond_wait(&condition, &mutex) != 0) _exit(42);
+    }
+    go = true;
+    if (pthread_cond_broadcast(&condition) != 0) _exit(43);
+    if (pthread_mutex_unlock(&mutex) != 0) _exit(44);
+    for (workers, 0..) |thread_id, i| {
+        if (pthread_join(thread_id, &result) != 0 or @intFromPtr(result) != 100 + i) _exit(45);
+    }
+    if (counter != 300 or tls_value != 41) _exit(46);
+    output("CSOS WebKit threads PASS: mutex/condition/shared-memory/TLS/join counter=300\n");
 }
