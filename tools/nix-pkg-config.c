@@ -78,7 +78,7 @@ int main(int argc, char **argv) {
     if (is_git2 && want_cflags) { puts("-IC:/git/csos/zig-out/nix-sysroot-wsl/usr/include"); return 0; }
     if (is_git2 && want_libs) { puts("-LC:/git/csos/zig-out/nix-sysroot-wsl/usr/lib -lgit2"); return 0; }
     if (is_edit && want_cflags) { puts("-IC:/git/csos/zig-out/nix-sysroot-wsl/usr/include -IC:/git/csos/zig-out/nix-sysroot-wsl/usr/include/editline"); return 0; }
-    if (is_edit && want_libs) { puts("-LC:/git/csos/zig-out/nix-sysroot-wsl/usr/lib -ledit"); return 0; }
+    if (is_edit && want_libs) { puts("-LC:/git/csos/zig-out/nix-sysroot-wsl/usr/lib -leditline"); return 0; }
     if (is_toml && want_cflags) { puts("-IC:/git/csos/zig-out/nix-sysroot-wsl/usr/include"); return 0; }
     if (is_toml && want_libs) { puts(""); return 0; }
     if (is_sodium && want_cflags) { puts("-IC:/git/csos/zig-out/nix-sysroot-wsl/usr/include"); return 0; }
