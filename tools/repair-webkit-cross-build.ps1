@@ -235,6 +235,18 @@ Get-ChildItem $soupInstalled -File -Filter '*.h' | ForEach-Object {
     $includeName = "libsoup/$((Get-RelativePathCompat $soupInstalled $_.FullName).Replace('\','/'))"
     [IO.File]::WriteAllText($wrapper, "#pragma once`n#include <$includeName>`n", [Text.UTF8Encoding]::new($false))
 }
+# Some upstream server headers reuse names from the common public tree and
+# include websocket headers without a directory qualifier. Make those paths
+# wrappers to the canonical copies instead of exposing duplicate definitions.
+[IO.File]::WriteAllText((Join-Path $soupInstalled 'server\soup-message-body.h'), "#pragma once`n#include <libsoup/soup-message-body.h>`n", [Text.UTF8Encoding]::new($false))
+Get-ChildItem (Join-Path $soupInstalled 'websocket') -File -Filter '*.h' | ForEach-Object {
+    $rootWrapper = Join-Path $soupInstalledRoot $_.Name
+    $serverWrapper = Join-Path $soupInstalled 'server' $_.Name
+    $includeName = "libsoup/websocket/$($_.Name)"
+    $text = "#pragma once`n#include <$includeName>`n"
+    [IO.File]::WriteAllText($rootWrapper, $text, [Text.UTF8Encoding]::new($false))
+    [IO.File]::WriteAllText($serverWrapper, $text, [Text.UTF8Encoding]::new($false))
+}
 $dependencySuffix = " $gmoduleLib $pcre2Lib $ffiLib"
 Get-ChildItem $build -Recurse -File -Filter '*.rsp' -ErrorAction SilentlyContinue | ForEach-Object {
     $rspText = [IO.File]::ReadAllText($_.FullName)
