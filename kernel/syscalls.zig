@@ -2984,6 +2984,7 @@ fn writev(fd: u64, address: u64, count: u64) u64 {
         const item: [*]const u8 = @ptrFromInt(address + index * 16);
         const base = read64(item);
         const length = read64(item + 8);
+        if (length == 0) continue;
         const result = write(fd, base, length);
         if (@as(i64, @bitCast(result)) < 0) return result;
         total += result;
@@ -3000,6 +3001,7 @@ fn readv(fd: u64, address: u64, count: u64) u64 {
         const item: [*]const u8 = @ptrFromInt(address + index * 16);
         const base = read64(item);
         const length = read64(item + 8);
+        if (length == 0) continue;
         const result = read(fd, base, length);
         if (@as(i64, @bitCast(result)) < 0) return if (total == 0) result else total;
         total += result;

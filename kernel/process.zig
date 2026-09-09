@@ -127,8 +127,11 @@ pub fn runGlibRuntimeProbe(kernel_root: u64, pages: *physical.Allocator) !void {
 
 pub fn runGitRuntime(kernel_root: u64, pages: *physical.Allocator) !void {
     image = @embedFile("git_runtime_elf");
-    const arguments = [_][]const u8{"/bin/git", "--version"};
-    return runImage(kernel_root, pages, &arguments);
+    const init_arguments = [_][]const u8{"/bin/git", "init", "--bare", "/data/repo8"};
+    try runImage(kernel_root, pages, &init_arguments);
+    image = @embedFile("git_runtime_elf");
+    const verify_arguments = [_][]const u8{"/bin/git", "--git-dir=/data/repo8", "rev-parse", "--is-bare-repository"};
+    return runImage(kernel_root, pages, &verify_arguments);
 }
 
 pub fn runHelloPie(kernel_root: u64, pages: *physical.Allocator) !void {
