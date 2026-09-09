@@ -132,6 +132,12 @@ biblioteca estática de 8 bits. `tools/build-pcre2-linux.ps1` reproduz a
 configuração e instala header, archive e pkg-config no sysroot CSOS. O erro
 seguinte ainda é libffi; GLib não foi declarado compilado.
 
+Libffi 3.2.9999 também foi compilada para o mesmo target com as rotinas x86_64
+de ABI e staged no sysroot. `tools/build-libffi-linux.ps1` reproduz esse passo.
+Com PCRE2 e libffi presentes, a próxima configuração do GLib deve chegar ao
+build da biblioteca; ainda será necessário executar o probe GLib dentro do
+QEMU antes de fechar os gates de event loop.
+
 Upstream fixado para investigação: **WPE WebKit 2.52.6**, commit
 `3bcefb149bd7e5645d18c3f0b9abd515b274649f` (tag anotada resolvida).
 `tools/fetch-webkit.ps1` prepara esse checkout sem descartar mudanças locais.
