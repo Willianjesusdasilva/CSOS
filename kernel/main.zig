@@ -626,6 +626,8 @@ pub fn start(info: BootInfo) noreturn {
         serial.write("\n");
         panic("file-backed UI filesystem seed failed");
     };
+    const state_root_name: [11]u8 = "STATE   TXT".*;
+    volume.writeRootFile(&state_root_name, state) catch panic("VFS large file seed failed");
     vfs.validateRuntimeLibraryAliasesSelfTest() catch panic("VFS runtime library alias self-test failed");
     vfs.mount(&volume);
     vfs.reset();

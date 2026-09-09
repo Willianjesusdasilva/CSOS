@@ -354,6 +354,83 @@ pub const Volume = struct {
         }
     }
 
+    /// Create a file entry and, when needed, the VFAT long-name entries that
+    /// precede it.  CSOS still addresses the short 8.3 alias internally, but
+    /// the long entries make the same FAT volume readable by Linux tools
+    /// (notably Git in Alpine recovery).
+    pub fn createDirectoryFileLong(self: *Volume, directory_cluster: u16, short_name: *const [11]u8, long_name: []const u8) !void {
+        if (long_name.len <= 11) return self.createDirectoryFile(directory_cluster, short_name);
+        var hex_name = long_name.len == 38 or long_name.len == 40;
+        for (long_name) |byte| {
+            if (!((byte >= '0' and byte <= '9') or (byte >= 'a' and byte <= 'f'))) hex_name = false;
+        }
+        if (!hex_name) return self.createDirectoryFile(directory_cluster, short_name);
+        if (long_name.len == 0 or long_name.len > 255) return error.NameTooLong;
+        var utf16_len: usize = 0;
+        for (long_name) |byte| {
+            if (byte >= 0x80 or byte == '/' or byte == '\\') return error.Invalid;
+            utf16_len += 1;
+        }
+        const lfn_count = (utf16_len + 12) / 13;
+        if (lfn_count == 0 or lfn_count > 20) return error.NameTooLong;
+        try validateDataCluster(directory_cluster, self.cluster_count);
+        const checksum = lfnChecksum(short_name);
+        var cluster = directory_cluster;
+        var traversed: u32 = 0;
+        while (true) {
+            if (!chainTraversalAllowed(traversed, self.cluster_count)) return error.BrokenChain;
+            traversed += 1;
+            var sector: u8 = 0;
+            while (sector < self.sectors_per_cluster) : (sector += 1) {
+                const lba = self.clusterLba(cluster) + sector;
+                try self.storage.readBlock(lba, self.buffer);
+                const bytes: [*]u8 = @ptrFromInt(self.buffer);
+                var offset: usize = 0;
+                while (offset < 512) : (offset += 32) {
+                    if (bytes[offset] != 0xe5 and bytes[offset] != 0) {
+                        if (entryIsAllocated(bytes + offset) and !entryIsLongName(bytes + offset) and equal11(bytes + offset, short_name)) return error.AlreadyExists;
+                        continue;
+                    }
+                    var run: usize = 0;
+                    while (run < lfn_count + 1 and offset + (run + 1) * 32 <= 512) : (run += 1) {
+                        const marker = bytes[offset + run * 32];
+                        if (marker != 0xe5 and marker != 0) break;
+                    }
+                    if (run < lfn_count + 1) continue;
+                    var ordinal: usize = lfn_count;
+                    while (ordinal != 0) : (ordinal -= 1) {
+                        const entry: [*]u8 = bytes + offset + (lfn_count - ordinal) * 32;
+                        @memset(entry[0..32], 0xff);
+                        entry[0] = @intCast(ordinal | (if (ordinal == lfn_count) @as(usize, 0x40) else 0));
+                        entry[11] = 0x0f;
+                        entry[12] = 0;
+                        entry[13] = checksum;
+                        entry[26] = 0;
+                        entry[27] = 0;
+                        var char_index = (ordinal - 1) * 13;
+                        var slot: usize = 0;
+                        while (slot < 13) : (slot += 1) {
+                            const code: u16 = if (char_index < utf16_len) long_name[char_index] else if (char_index == utf16_len) 0 else 0xffff;
+                            const off = if (slot < 5) 1 + slot * 2 else if (slot < 11) 14 + (slot - 5) * 2 else 28 + (slot - 11) * 2;
+                            put16(entry + off, code);
+                            char_index += 1;
+                        }
+                    }
+                    const short_entry: [*]u8 = bytes + offset + lfn_count * 32;
+                    @memset(short_entry[0..32], 0);
+                    @memcpy(short_entry[0..11], short_name);
+                    short_entry[11] = 0x20;
+                    try self.storage.writeBlock(lba, self.buffer);
+                    return;
+                }
+            }
+            const next = try self.fatEntry(cluster);
+            if (next >= 0xfff8) return error.DirectoryFull;
+            try validateDataCluster(next, self.cluster_count);
+            cluster = next;
+        }
+    }
+
     /// Create a FAT16 subdirectory and initialize its dot entries. A parent
     /// cluster of zero denotes the fixed root directory.
     pub fn createDirectory(self: *Volume, parent_cluster: u16, name: *const [11]u8) !u16 {
@@ -757,6 +834,12 @@ pub const Volume = struct {
 fn equal11(left: [*]const u8, right: *const [11]u8) bool {
     for (0..11) |index| if (left[index] != right[index]) return false;
     return true;
+}
+
+fn lfnChecksum(short_name: *const [11]u8) u8 {
+    var checksum: u8 = 0;
+    for (short_name) |byte| checksum = ((checksum & 1) << 7) + (checksum >> 1) + byte;
+    return checksum;
 }
 
 fn entryIsAllocated(entry: [*]const u8) bool {
