@@ -209,6 +209,14 @@ Get-ChildItem $soupSource -Directory | ForEach-Object {
     Copy-Item -Force -Recurse $_.FullName $soupInstalledRoot
 }
 Copy-Item -Force (Join-Path $soupSource 'server\*.h') $soupInstalledRoot
+$soupVersionGenerator = Join-Path $soupSource 'generate-version-header.py'
+$soupVersionTemplate = Join-Path $soupSource 'soup-version.h.in'
+foreach ($soupVersionOutput in @(
+    (Join-Path $soupInstalledRoot 'soup-version.h'),
+    (Join-Path $soupInstalled 'soup-version.h'))) {
+    & python $soupVersionGenerator $soupVersionTemplate $soupVersionOutput '3.6.5'
+    if ($LASTEXITCODE -ne 0) { throw "Could not generate libsoup version header" }
+}
 $dependencySuffix = " $gmoduleLib $pcre2Lib $ffiLib"
 Get-ChildItem $build -Recurse -File -Filter '*.rsp' -ErrorAction SilentlyContinue | ForEach-Object {
     $rspText = [IO.File]::ReadAllText($_.FullName)
