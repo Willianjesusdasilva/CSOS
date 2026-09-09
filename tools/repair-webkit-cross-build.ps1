@@ -91,6 +91,7 @@ $ninjaText = $ninjaText.Replace('"' + $zig + '" -E', '"' + $wrapper + '"')
 $ninjaText = $ninjaText.Replace('\"' + $zig + '\" -E', '\"' + $wrapper + '\"')
 $lolInclude = ((Join-Path $webkit 'Source\JavaScriptCore\lol').Replace('\','/'))
 $soupInclude = ((Join-Path $repo '.tools\libsoup-src\libsoup').Replace('\','/'))
+$soupServerInclude = ((Join-Path $repo '.tools\libsoup-src\libsoup\server').Replace('\','/'))
 $soupGeneratedInclude = ((Join-Path $repo 'zig-out\libsoup-linux\libsoup').Replace('\','/'))
 $badInspectorDir = ((Join-Path $build 'WebInspectorUI\DerivedSources\InspectorResources\WebInspectorUI').Replace('\','/'))
 $intermediateInspectorDir = ((Join-Path $build 'WebInspectorUI\DerivedSources\InspectorResources').Replace('\','/'))
@@ -152,6 +153,9 @@ if (-not $ninjaText.Contains("-I$lolInclude ")) {
 if (-not $ninjaText.Contains("-I$soupInclude ")) {
     $ninjaText = $ninjaText.Replace('INCLUDES = ', "INCLUDES = -I$soupInclude ")
 }
+if (-not $ninjaText.Contains("-I$soupServerInclude ")) {
+    $ninjaText = $ninjaText.Replace('INCLUDES = ', "INCLUDES = -I$soupServerInclude ")
+}
 if (-not $ninjaText.Contains("-I$soupGeneratedInclude ")) {
     $ninjaText = $ninjaText.Replace('INCLUDES = ', "INCLUDES = -I$soupGeneratedInclude ")
 }
@@ -159,6 +163,33 @@ if (-not $ninjaText.Contains('-DSIMDUTF_IMPLEMENTATION_ICELAKE=0')) {
     $ninjaText = $ninjaText.Replace('FLAGS = ', 'FLAGS = -DSIMDUTF_IMPLEMENTATION_ICELAKE=0 ')
 }
 [IO.File]::WriteAllText($ninja, $ninjaText, [Text.UTF8Encoding]::new($false))
+$cairoFeatures = Join-Path $sysrootPath 'include\cairo\cairo-features.h'
+if (-not (Test-Path -LiteralPath $cairoFeatures)) {
+    New-Item -ItemType Directory -Force -Path (Split-Path $cairoFeatures) | Out-Null
+    $cairoText = @'
+#ifndef CAIRO_FEATURES_H
+#define CAIRO_FEATURES_H
+#define CAIRO_HAS_IMAGE_SURFACE 1
+#define CAIRO_HAS_RECORDING_SURFACE 1
+#define CAIRO_HAS_PNG_FUNCTIONS 1
+#define CAIRO_HAS_FT_FONT 1
+#define CAIRO_HAS_FC_FONT 1
+#define CAIRO_HAS_USER_FONT 1
+#define CAIRO_HAS_MESH 1
+#define CAIRO_HAS_RASTER_SOURCE 1
+#define CAIRO_HAS_SCRIPT_SURFACE 0
+#define CAIRO_HAS_PDF_SURFACE 0
+#define CAIRO_HAS_PS_SURFACE 0
+#define CAIRO_HAS_SVG_SURFACE 0
+#define CAIRO_HAS_XLIB_SURFACE 0
+#define CAIRO_HAS_XCB_SURFACE 0
+#define CAIRO_HAS_QUARTZ_SURFACE 0
+#define CAIRO_HAS_WIN32_SURFACE 0
+#define CAIRO_HAS_OPENGL_SURFACE 0
+#endif
+'@
+    [IO.File]::WriteAllText($cairoFeatures, $cairoText.TrimStart(), [Text.UTF8Encoding]::new($false))
+}
 $dependencySuffix = " $gmoduleLib $pcre2Lib $ffiLib"
 Get-ChildItem $build -Recurse -File -Filter '*.rsp' -ErrorAction SilentlyContinue | ForEach-Object {
     $rspText = [IO.File]::ReadAllText($_.FullName)
