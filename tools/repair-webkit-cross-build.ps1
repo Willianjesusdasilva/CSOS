@@ -159,9 +159,7 @@ if (-not $ninjaText.Contains("-I$soupServerInclude ")) {
 }
 $ninjaText = $ninjaText.Replace("-I$soupInclude ", '').Replace("-I$soupServerInclude ", '')
 $ninjaText = $ninjaText.Replace('-IC:/w/.tools/libsoup-src/libsoup ', '').Replace('-IC:/w/.tools/libsoup-src/libsoup/server ', '')
-if (-not $ninjaText.Contains("-I$soupGeneratedInclude ")) {
-    $ninjaText = $ninjaText.Replace('INCLUDES = ', "INCLUDES = -I$soupGeneratedInclude ")
-}
+$ninjaText = $ninjaText.Replace('-IC:/git/csos/zig-out/libsoup-linux/libsoup ', '').Replace('-IC:/w/zig-out/libsoup-linux/libsoup ', '')
 if (-not $ninjaText.Contains('-DSIMDUTF_IMPLEMENTATION_ICELAKE=0')) {
     $ninjaText = $ninjaText.Replace('FLAGS = ', 'FLAGS = -DSIMDUTF_IMPLEMENTATION_ICELAKE=0 ')
 }
@@ -214,8 +212,12 @@ Copy-Item -Force (Join-Path $soupSource 'server\*.h') $soupInstalledRoot
 $dependencySuffix = " $gmoduleLib $pcre2Lib $ffiLib"
 Get-ChildItem $build -Recurse -File -Filter '*.rsp' -ErrorAction SilentlyContinue | ForEach-Object {
     $rspText = [IO.File]::ReadAllText($_.FullName)
+    $rspText = $rspText.Replace('-IC:/git/csos/zig-out/libsoup-linux/libsoup ', '').Replace('-IC:/w/zig-out/libsoup-linux/libsoup ', '')
+    $rspText = $rspText.Replace('-IC:/w/.tools/libsoup-src/libsoup ', '').Replace('-IC:/w/.tools/libsoup-src/libsoup/server ', '')
     if ($rspText.Contains('libglib-2.0.a') -and -not $rspText.Contains('libpcre2-8.a')) {
         [IO.File]::WriteAllText($_.FullName, ($rspText.TrimEnd() + $dependencySuffix + "`n"), [Text.UTF8Encoding]::new($false))
+    } else {
+        [IO.File]::WriteAllText($_.FullName, $rspText, [Text.UTF8Encoding]::new($false))
     }
 }
 
