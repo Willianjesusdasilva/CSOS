@@ -541,7 +541,6 @@ pub fn start(info: BootInfo) noreturn {
     serial.writeDecimal(pages.reclaimed_pages);
     serial.write("\nCSOS M17 process reclaim ready\n");
     serial.write("BusyBox applets returned\n");
-
     serial.write("PCI devices: ");
     serial.writeDecimal(inventory.count);
     serial.write("\n");
@@ -630,6 +629,16 @@ pub fn start(info: BootInfo) noreturn {
     vfs.validateRuntimeLibraryAliasesSelfTest() catch panic("VFS runtime library alias self-test failed");
     vfs.mount(&volume);
     vfs.reset();
+    if (build_options.git_runtime) {
+        process.runGitRuntime(mapper.root, &pages) catch |err| {
+            serial.write("Git runtime error: ");
+            serial.write(@errorName(err));
+            serial.write("\n");
+            panic("upstream Git runtime failed");
+        };
+        mapper.activate();
+        serial.write("CSOS Git runtime ready\n");
+    }
     process.runUiRuntime(mapper.root, &pages) catch |err| {
         serial.write("UI runtime error: ");
         serial.write(@errorName(err));

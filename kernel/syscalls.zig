@@ -524,6 +524,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         76 => truncatePath(arg1, arg2),
         77 => ftruncate(arg1, arg2),
         79 => getcwd(arg1, arg2),
+        80 => chdir(arg1),
         83 => mkdirLegacy(arg1, arg2),
         84 => rmdirLegacy(arg1),
         85 => creatLegacy(arg1, arg2),
@@ -3095,6 +3096,14 @@ fn getcwd(address: u64, size: u64) u64 {
     return address;
 }
 
+fn chdir(address: u64) u64 {
+    var path: [256]u8 = undefined;
+    const text = userString(address, &path) orelse return errno(14);
+    const info = vfs.infoAt(-100, text) catch |err| return vfsError(err);
+    if (!info.directory) return errno(20);
+    return 0;
+}
+
 fn userString(address: u64, buffer: []u8) ?[]const u8 {
     var length: usize = 0;
     while (length < buffer.len) : (length += 1) {
@@ -3112,7 +3121,7 @@ fn userString(address: u64, buffer: []u8) ?[]const u8 {
 fn vfsError(err: anyerror) u64 {
     if (err == error.WouldBlock) return errno(11);
     if (err == error.Overflow) return errno(75);
-    return switch (err) { error.NotFound => errno(2), error.BadFd => errno(9), error.NotDirectory => errno(20), error.TooManyFiles => errno(24), else => errno(22) };
+    return switch (err) { error.NotFound => errno(2), error.AlreadyExists => errno(17), error.BadFd => errno(9), error.NotDirectory => errno(20), error.TooManyFiles => errno(24), else => errno(22) };
 }
 
 fn put32(target: [*]u8, value: u32) void { var i: usize = 0; while (i < 4) : (i += 1) target[i] = @truncate(value >> @intCast(i * 8)); }

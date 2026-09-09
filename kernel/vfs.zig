@@ -29,6 +29,7 @@ const Node = enum {
     busybox,
     hello,
     framebuffer,
+    null_device,
     drm,
     render,
     disk,
@@ -376,7 +377,7 @@ pub fn openAt(directory_fd: i64, path: []const u8, flags: u64) !usize {
     };
     const node = try resolve(directory_fd, path);
     const info = nodeInfo(node);
-    descriptors[fd] = .{ .generation = try newGeneration(), .kind = if (info.directory) .directory else if (node == .framebuffer or node == .drm or node == .render) .device else .file, .node = node, .size = @intCast(info.size) };
+    descriptors[fd] = .{ .generation = try newGeneration(), .kind = if (info.directory) .directory else if (node == .framebuffer or node == .null_device or node == .drm or node == .render) .device else .file, .node = node, .size = @intCast(info.size) };
     descriptors[fd].close_on_exec = (flags & 0x80000) != 0;
     descriptors[fd].append = false;
     descriptors[fd].writable = (flags & 0x3) != 0;
@@ -504,7 +505,8 @@ pub fn duplicateMinimum(old_fd: usize, minimum: usize) !usize {
 }
 
 pub fn read(fd: usize, output: []u8) !usize {
-    if (fd >= descriptors.len or descriptors[fd].kind != .file) return error.BadFd;
+    if (fd >= descriptors.len or (descriptors[fd].kind != .file and !(descriptors[fd].kind == .device and descriptors[fd].node == .null_device))) return error.BadFd;
+    if (descriptors[fd].node == .null_device) return 0;
     if (descriptors[fd].node == .disk) {
         const volume = disk orelse return error.NotFound;
         const count = if (descriptors[fd].fat_parent_cluster != 0)
@@ -523,7 +525,8 @@ pub fn read(fd: usize, output: []u8) !usize {
 }
 
 pub fn pread(fd: usize, output: []u8, offset: usize) !usize {
-    if (fd >= descriptors.len or descriptors[fd].kind != .file) return error.BadFd;
+    if (fd >= descriptors.len or (descriptors[fd].kind != .file and !(descriptors[fd].kind == .device and descriptors[fd].node == .null_device))) return error.BadFd;
+    if (descriptors[fd].node == .null_device) return 0;
     if (descriptors[fd].node == .disk) {
         const volume = disk orelse return error.NotFound;
         return if (descriptors[fd].fat_parent_cluster != 0)
@@ -551,7 +554,8 @@ pub fn pwrite(fd: usize, input: []const u8, offset: usize) !usize {
 }
 
 pub fn write(fd: usize, input: []const u8) !usize {
-    if (fd >= descriptors.len or descriptors[fd].kind != .file or descriptors[fd].node != .disk) return error.BadFd;
+    if (fd >= descriptors.len or (descriptors[fd].kind != .file and !(descriptors[fd].kind == .device and descriptors[fd].node == .null_device))) return error.BadFd;
+    if (descriptors[fd].node == .null_device) return input.len;
     if (!descriptors[fd].writable) return error.AccessDenied;
     const volume = disk orelse return error.NotFound;
     var contents: [8192]u8 = undefined;
@@ -839,7 +843,7 @@ pub fn getDents(fd: usize, output: []u8) !usize {
     const entries = switch (descriptors[fd].node) {
         .root => &[_][]const u8{ "bin", "dev", "sys", "hello.txt" },
         .bin => &[_][]const u8{ "busybox", "sh", "ls", "cat", "echo" },
-        .dev => &[_][]const u8{ "dri", "fb0" },
+        .dev => &[_][]const u8{ "null", "dri", "fb0" },
         .dri => &[_][]const u8{ "card0", "renderD128" },
         .sys => &[_][]const u8{"dev"},
         .sys_dev => &[_][]const u8{"char"},
@@ -900,6 +904,7 @@ fn resolve(directory_fd: i64, path: []const u8) !Node {
     if (equal(path, "/") or equal(path, ".")) return .root;
     if (equal(path, "/bin") or equal(path, "bin")) return .bin;
     if (equal(path, "/dev") or equal(path, "dev")) return .dev;
+    if (equal(path, "/dev/null") or equal(path, "dev/null")) return .null_device;
     if (equal(path, "/dev/dri")) return .dri;
     if (equal(path, "/dev/dri/card0")) return .drm;
     if (equal(path, "/dev/dri/renderD128")) return .render;
@@ -933,6 +938,7 @@ fn nodeInfo(node: Node) Info {
         .busybox => .{ .mode = 0o100755, .size = busybox.len, .directory = false },
         .hello => .{ .mode = 0o100644, .size = hello.len, .directory = false },
         .framebuffer => .{ .mode = 0o020600, .size = 0, .directory = false },
+        .null_device => .{ .mode = 0o020666, .size = 0, .directory = false },
         .drm => .{ .mode = 0o020660, .size = 0, .directory = false, .rdev = 0xe200 },
         .render => .{ .mode = 0o020660, .size = 0, .directory = false, .rdev = 0xe280 },
         .drm_subsystem => .{ .mode = 0o120777, .size = "../../../../bus/pci".len, .directory = false },

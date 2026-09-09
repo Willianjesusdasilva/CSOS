@@ -4,6 +4,7 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
     const webkit_runtime_probe = b.option([]const u8, "webkit-runtime-probe", "Opt-in musl pthread prerequisite probe ELF; not the WebKit engine");
     const glib_runtime_probe = b.option([]const u8, "glib-runtime-probe", "Opt-in upstream GLib userspace ELF");
+    const git_runtime = b.option([]const u8, "git-runtime", "Opt-in upstream Git ELF for local system updates");
     const libdrm_probe = b.option([]const u8, "libdrm-probe", "Path to the static upstream libdrm probe ELF (opt-in Ring 3 validation)");
     const libdrm_probe_after_gpu = b.option(bool, "libdrm-probe-after-gpu", "Run the supplied probe after GPU initialization; does not enable hardware gates") orelse false;
     if (libdrm_probe_after_gpu and libdrm_probe == null) @panic("-Dlibdrm-probe-after-gpu requires -Dlibdrm-probe");
@@ -34,6 +35,7 @@ pub fn build(b: *std.Build) void {
     const build_options = b.addOptions();
     build_options.addOption(bool, "webkit_runtime_probe", webkit_runtime_probe != null);
     build_options.addOption(bool, "glib_runtime_probe", glib_runtime_probe != null);
+    build_options.addOption(bool, "git_runtime", git_runtime != null);
     build_options.addOption(bool, "libdrm_probe", libdrm_probe != null);
     build_options.addOption(bool, "radv_runtime", radv_runtime != null);
     build_options.addOption(bool, "radv_loader_probe", radv_loader_probe != null);
@@ -473,6 +475,7 @@ pub fn build(b: *std.Build) void {
     if (libdrm_probe) |path| process_module.addAnonymousImport("libdrm_probe_elf", .{ .root_source_file = b.path(path) });
     if (webkit_runtime_probe) |path| process_module.addAnonymousImport("webkit_runtime_probe_elf", .{ .root_source_file = b.path(path) });
     if (glib_runtime_probe) |path| process_module.addAnonymousImport("glib_runtime_probe_elf", .{ .root_source_file = b.path(path) });
+    if (git_runtime) |path| process_module.addAnonymousImport("git_runtime_elf", .{ .root_source_file = b.path(path) }) else process_module.addAnonymousImport("git_runtime_elf", .{ .root_source_file = dynamic_hello.getEmittedBin() });
     if (radv_loader_probe) |path|
         process_module.addAnonymousImport("radv_loader_probe_elf", .{ .root_source_file = b.path(path) })
     else
