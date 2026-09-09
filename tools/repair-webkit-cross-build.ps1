@@ -222,6 +222,15 @@ foreach ($soupVersionOutput in @(
     & python $soupVersionGenerator $soupVersionTemplate $soupVersionOutput '3.6.5'
     if ($LASTEXITCODE -ne 0) { throw "Could not generate libsoup version header" }
 }
+# The upstream headers have no include guards.  Keep one canonical copy under
+# libsoup/ and make the flat include directory wrappers; otherwise a mix of
+# <soup-foo.h> and <libsoup/soup-foo.h> defines every type twice.
+Get-ChildItem $soupInstalledRoot -File -Filter '*.h' | Remove-Item -Force
+Get-ChildItem $soupInstalled -Recurse -File -Filter '*.h' | ForEach-Object {
+    $wrapper = Join-Path $soupInstalledRoot $_.Name
+    $includeName = "libsoup/$([IO.Path]::GetRelativePath($soupInstalled, $_.FullName).Replace('\','/'))"
+    [IO.File]::WriteAllText($wrapper, "#pragma once`n#include <$includeName>`n", [Text.UTF8Encoding]::new($false))
+}
 $dependencySuffix = " $gmoduleLib $pcre2Lib $ffiLib"
 Get-ChildItem $build -Recurse -File -Filter '*.rsp' -ErrorAction SilentlyContinue | ForEach-Object {
     $rspText = [IO.File]::ReadAllText($_.FullName)
