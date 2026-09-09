@@ -133,6 +133,9 @@ pub fn runGitRuntime(kernel_root: u64, pages: *physical.Allocator) !void {
     const add_arguments = [_][]const u8{"/bin/git", "--git-dir=/data/repo8", "--work-tree=/system", "add", "CONFIG/DEFAULTS/README.TXT"};
     try runImage(kernel_root, pages, &add_arguments);
     image = @embedFile("git_runtime_elf");
+    const commit_arguments = [_][]const u8{"/bin/git", "-c", "user.name=CSOS", "-c", "user.email=csos@local", "--git-dir=/data/repo8", "--work-tree=/system", "commit", "-m", "bootstrap"};
+    try runImage(kernel_root, pages, &commit_arguments);
+    image = @embedFile("git_runtime_elf");
     const status_arguments = [_][]const u8{"/bin/git", "--git-dir=/data/repo8", "--work-tree=/system", "status", "--porcelain"};
     return runImage(kernel_root, pages, &status_arguments);
 }
