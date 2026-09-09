@@ -585,11 +585,17 @@ pub fn start(info: BootInfo) noreturn {
     }
     serial.write("NVMe read/write ready\n");
     var volume = fat16.Volume.mount(&storage, &pages) catch panic("FAT16 mount failed");
+    const persistent_layout = seedPersistentFilesystem(&volume) catch |err| {
+        serial.write("persistent filesystem seed error: ");
+        serial.write(@errorName(err));
+        serial.write("\n");
+        panic("persistent filesystem layout seed failed");
+    };
     const boot_state_name: [11]u8 = "BOOTSTATCSC".*;
     const boot_starting = "starting\n";
     const boot_ready = "ready\n";
     var previous_boot_state: [16]u8 = undefined;
-    const previous_boot_length = volume.readRootFile(&boot_state_name, &previous_boot_state) catch |err| switch (err) {
+    const previous_boot_length = volume.readDirectoryFileAt(persistent_layout.data_config, &boot_state_name, &previous_boot_state, 0) catch |err| switch (err) {
         error.NotFound => 0,
         else => panic("boot recovery state read failed"),
     };
@@ -598,16 +604,19 @@ pub fn start(info: BootInfo) noreturn {
         scheduler.setMode(.normal);
         serial.write("recovery: previous boot incomplete, safe defaults active\n");
     }
-    volume.writeRootFile(&boot_state_name, boot_starting) catch panic("boot recovery state write failed");
+    volume.createDirectoryFile(persistent_layout.data_config, &boot_state_name) catch |err| if (err != error.AlreadyExists) panic("boot recovery state create failed");
+    volume.writeDirectoryFile(persistent_layout.data_config, &boot_state_name, boot_starting) catch panic("boot recovery state write failed");
     var file_data: [128]u8 = undefined;
     const file_size = volume.readRootFile("BOOT    TXT", &file_data) catch panic("FAT16 read failed");
     serial.write(file_data[0..file_size]);
     const state = "persistent CSOS state\n" ** 600;
-    volume.writeRootFile("STATE   TXT", state) catch panic("FAT16 write failed");
+    const state_name: [11]u8 = "STATE   TXT".*;
+    volume.createDirectoryFile(persistent_layout.data_config, &state_name) catch |err| if (err != error.AlreadyExists) panic("persistent state create failed");
+    volume.writeDirectoryFile(persistent_layout.data_config, &state_name, state) catch panic("FAT16 write failed");
     var state_readback: [1024]u8 = undefined;
     var state_offset: usize = 0;
     while (state_offset < state.len) {
-        const state_size = volume.readRootFileAt("STATE   TXT", &state_readback, state_offset) catch panic("FAT16 ranged read failed");
+        const state_size = volume.readDirectoryFileAt(persistent_layout.data_config, &state_name, &state_readback, state_offset) catch panic("FAT16 ranged read failed");
         if (state_size == 0 or !equalBytes(state[state_offset .. state_offset + state_size], state_readback[0..state_size])) panic("FAT16 ranged data mismatch");
         state_offset += state_size;
     }
@@ -2028,21 +2037,22 @@ pub fn start(info: BootInfo) noreturn {
     }) catch panic("hardware profile generation failed");
     const install_name: [11]u8 = "INSTALL CSC".*;
     var stored_install: [64]u8 = undefined;
-    const stored_install_length = volume.readRootFile(&install_name, &stored_install) catch |err| switch (err) {
+    const stored_install_length = volume.readDirectoryFileAt(persistent_layout.data_config, &install_name, &stored_install, 0) catch |err| switch (err) {
         error.NotFound => 0,
         else => panic("installation state read failed"),
     };
     const installation_current = installer_state.matches(stored_install[0..stored_install_length], current_profile.signature);
     if (!installation_current) {
-        volume.writeRootFile(&install_name, installer_state.installing) catch panic("installation transaction start failed");
+        volume.createDirectoryFile(persistent_layout.data_config, &install_name) catch |err| if (err != error.AlreadyExists) panic("installation transaction create failed");
+        volume.writeDirectoryFile(persistent_layout.data_config, &install_name, installer_state.installing) catch panic("installation transaction start failed");
         var installation_started: [16]u8 = undefined;
-        const started_length = volume.readRootFile(&install_name, &installation_started) catch panic("installation transaction verification failed");
+        const started_length = volume.readDirectoryFileAt(persistent_layout.data_config, &install_name, &installation_started, 0) catch panic("installation transaction verification failed");
         if (!equalBytes(installation_started[0..started_length], installer_state.installing)) panic("installation transaction state mismatch");
         serial.write("CSOS first installation started\n");
     }
     const hardware_name: [11]u8 = "HARDWARECSC".*;
     var stored_profile: [2048]u8 = undefined;
-    const stored_length = volume.readRootFile(&hardware_name, &stored_profile) catch |err| switch (err) {
+    const stored_length = volume.readDirectoryFileAt(persistent_layout.data_config, &hardware_name, &stored_profile, 0) catch |err| switch (err) {
         error.NotFound => 0,
         else => panic("hardware profile read failed"),
     };
@@ -2101,9 +2111,12 @@ pub fn start(info: BootInfo) noreturn {
     serial.write(" p99: ");
     serial.writeDecimal(tcp_latency.p99);
     serial.write(if (installation_current and profile_reused) "\nCSOS M18 boot validation ready\n" else "\nCSOS M18 install profiling baseline ready\n");
-    if (!profile_reused) volume.writeRootFile(&hardware_name, current_profile.text()) catch panic("hardware profile write failed");
+    if (!profile_reused) {
+        volume.createDirectoryFile(persistent_layout.data_config, &hardware_name) catch |err| if (err != error.AlreadyExists) panic("hardware profile create failed");
+        volume.writeDirectoryFile(persistent_layout.data_config, &hardware_name, current_profile.text()) catch panic("hardware profile write failed");
+    }
     var verified_profile: [2048]u8 = undefined;
-    const verified_length = volume.readRootFile(&hardware_name, &verified_profile) catch panic("hardware profile verification read failed");
+    const verified_length = volume.readDirectoryFileAt(persistent_layout.data_config, &hardware_name, &verified_profile, 0) catch panic("hardware profile verification read failed");
     if (!hardware_profile.matchesPersistedProfile(verified_profile[0..verified_length], current_profile.signature))
         panic("hardware profile verification failed");
     if (!profile_reused and (!containsBytes(verified_profile[0..verified_length], "[baseline_cycles]") or
@@ -2112,7 +2125,7 @@ pub fn start(info: BootInfo) noreturn {
         panic("hardware baseline persistence failed");
     serial.write("hardware signature: ");
     serial.writeDecimal(current_profile.signature);
-    serial.write(if (profile_reused) "\nhardware.csc reused\n" else "\nhardware.csc generated\n");
+    serial.write(if (profile_reused) "\nhardware.csc reused from /data/config\n" else "\nhardware.csc generated in /data/config\n");
     serial.write("CSOS M16 hardware profile ready\n");
     if (usb.audioReady()) {
         usb.audioPrime(&pages) catch |err| switch (err) {
@@ -2121,14 +2134,14 @@ pub fn start(info: BootInfo) noreturn {
         };
         serial.write("USB audio stream started\n");
     }
-    volume.writeRootFile(&boot_state_name, boot_ready) catch panic("boot ready state write failed");
+    volume.writeDirectoryFile(persistent_layout.data_config, &boot_state_name, boot_ready) catch panic("boot ready state write failed");
     var verified_boot_state: [16]u8 = undefined;
-    const verified_boot_length = volume.readRootFile(&boot_state_name, &verified_boot_state) catch panic("boot ready state read failed");
+    const verified_boot_length = volume.readDirectoryFileAt(persistent_layout.data_config, &boot_state_name, &verified_boot_state, 0) catch panic("boot ready state read failed");
     if (!equalBytes(verified_boot_state[0..verified_boot_length], boot_ready)) panic("boot ready state verification failed");
     const completed_install = installer_state.completed(current_profile.signature);
-    if (!installation_current) volume.writeRootFile(&install_name, completed_install.text()) catch panic("installation completion write failed");
+    if (!installation_current) volume.writeDirectoryFile(persistent_layout.data_config, &install_name, completed_install.text()) catch panic("installation completion write failed");
     var verified_install: [64]u8 = undefined;
-    const verified_install_length = volume.readRootFile(&install_name, &verified_install) catch panic("installation completion read failed");
+    const verified_install_length = volume.readDirectoryFileAt(persistent_layout.data_config, &install_name, &verified_install, 0) catch panic("installation completion read failed");
     if (!installer_state.matches(verified_install[0..verified_install_length], current_profile.signature)) panic("installation completion verification failed");
     serial.write(if (installation_current) "CSOS installation reused\n" else "CSOS installation completed\n");
     serial.write(if (recovering) "CSOS recovery completed\n" else "CSOS boot health ready\n");
@@ -2775,6 +2788,50 @@ fn seedUiFile(volume: *fat16.Volume, parent: u16, name: anytype, contents: []con
         if (err != error.AlreadyExists) return err;
     };
     try volume.writeDirectoryFile(parent, name, contents);
+}
+
+const PersistentLayout = struct {
+    data_config: u16,
+};
+
+fn ensureDirectory(volume: *fat16.Volume, parent: u16, name: *const [11]u8) !u16 {
+    return volume.createDirectory(parent, name) catch |err| if (err == error.AlreadyExists)
+        (if (parent == 0) (try volume.findRootEntry(name)).first_cluster else (try volume.findDirectoryEntry(parent, name)).first_cluster)
+    else
+        err;
+}
+
+/// Seed the split between versioned system content and machine/user state.
+/// The FAT volume is deliberately used as the persistence boundary here:
+/// `/system` contains reproducible defaults while `/data`, `/home`, and
+/// `/nix` are independent trees that survive replacement of system files.
+fn seedPersistentFilesystem(volume: *fat16.Volume) !PersistentLayout {
+    const system_name: [11]u8 = "SYSTEM     ".*;
+    const config_name: [11]u8 = "CONFIG     ".*;
+    const defaults_name: [11]u8 = "DEFAULTS   ".*;
+    const data_name: [11]u8 = "DATA       ".*;
+    const data_config_name: [11]u8 = "CONFIG     ".*;
+    const home_name: [11]u8 = "HOME       ".*;
+    const nix_name: [11]u8 = "NIX        ".*;
+    const defaults_readme: [11]u8 = "README  TXT".*;
+
+    const system_cluster = try ensureDirectory(volume, 0, &system_name);
+    serial.write("persistent /system\n");
+    const config_cluster = try ensureDirectory(volume, system_cluster, &config_name);
+    serial.write("persistent /system/config\n");
+    const defaults_cluster = try ensureDirectory(volume, config_cluster, &defaults_name);
+    serial.write("persistent /system/config/defaults\n");
+    try seedUiFile(volume, defaults_cluster, &defaults_readme,
+        "Versioned CSOS defaults. Machine state belongs under /data.\n");
+
+    const data_cluster = try ensureDirectory(volume, 0, &data_name);
+    serial.write("persistent /data\n");
+    const data_config_cluster = try ensureDirectory(volume, data_cluster, &data_config_name);
+    serial.write("persistent /data/config\n");
+    _ = try ensureDirectory(volume, 0, &home_name);
+    _ = try ensureDirectory(volume, 0, &nix_name);
+    serial.write("persistent layout ready: /system/config/defaults /data/config /home /nix\n");
+    return .{ .data_config = data_config_cluster };
 }
 
 fn seedUiFilesystem(volume: *fat16.Volume) !void {
