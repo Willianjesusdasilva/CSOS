@@ -162,7 +162,18 @@ libxml2 2.13.8, libpng 1.6.43 e libwebp 1.4.0 (incluindo demux). O gate atual
 build. Os diretórios `.tools` e `zig-out` são artefatos locais ignorados;
 scripts de build devem manter as mesmas opções e o sysroot para permitir
 reprodução limpa. Cairo 1.18.0 também foi compilado com Pixman e PNG; o CMake
-já o aceita. O gate seguinte é Fontconfig (com FreeType/Expat no runtime).
+já o aceita. Fontconfig 2.15.0, FreeType 2.13.3 e Expat 2.6.4 agora também
+estão compilados e staged estaticamente. O gperf host (3.1) e unifdef host
+foram preparados para as etapas de geração. Com esses componentes, a
+configuração CMake do WPE WebKit fecha e enumera 6.426 unidades de compilação,
+incluindo JavaScriptCore, WebCore e WebKit.
+
+O build ainda não terminou: o host Windows não permite symlinks sem privilégio
+de Developer Mode, e a cópia de headers gerados provoca duplicação de alguns
+headers sem include guard. A solução definitiva é executar a geração com
+symlinks habilitados (ou habilitar Developer Mode no host); não é um bloqueio
+de dependência do engine. O próximo gate é completar a compilação e então
+ligar um launcher WPE headless ao mailbox/IPC do CSOS.
 
 ## Referências upstream
 
