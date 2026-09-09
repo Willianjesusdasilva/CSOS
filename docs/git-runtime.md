@@ -18,8 +18,10 @@ bounded `git --version` probe. The QEMU smoke test marker is
 `CSOS Git runtime ready`.
 
 The current milestone proves that the real upstream Git ELF can be loaded and
-started inside CSOS. It does not yet claim full repository operations: the
-userspace filesystem still needs complete working-directory and path
-semantics, and HTTPS transport still needs the curl/OpenSSL dependency chain.
-Those remain open before the Git update gate (`status`, `log`, `diff`,
-`show`, `fetch`, `switch`, `reset`, and `pull`) can be marked complete.
+started inside CSOS. Basic Linux filesystem ABI contracts used by Git now
+include working-directory reporting, `chdir`, `rename`, `access`, and
+`chmod`; a bounded `git init --bare` probe reached the repository config-lock
+cycle before exposing the next FAT/VFS lock-file compatibility issue. Full
+repository operations and the update gate (`status`, `log`, `diff`, `show`,
+`fetch`, `switch`, `reset`, and `pull`) remain open. HTTPS transport also
+still needs the curl/OpenSSL dependency chain.
