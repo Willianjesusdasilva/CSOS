@@ -32,6 +32,14 @@ try {
     [BitConverter]::GetBytes([uint32]$sectorCount).CopyTo($boot, 32)
     $boot[21] = 0xF8
     [BitConverter]::GetBytes([uint16]$fatSectors).CopyTo($boot, 22)
+    # Complete the conventional FAT16 BPB fields so an external recovery
+    # system (Alpine/Linux) can mount the same volume used by CSOS.
+    [BitConverter]::GetBytes([uint16]63).CopyTo($boot, 24)
+    [BitConverter]::GetBytes([uint16]255).CopyTo($boot, 26)
+    [BitConverter]::GetBytes([uint32]0).CopyTo($boot, 28)
+    $boot[36] = 0x80
+    $boot[38] = 0x29
+    [BitConverter]::GetBytes([uint32]0x43534f53).CopyTo($boot, 39)
     [Text.Encoding]::ASCII.GetBytes('CSOS DISK  ') | ForEach-Object -Begin { $i = 43 } -Process { $boot[$i++] = $_ }
     [Text.Encoding]::ASCII.GetBytes('FAT16   ') | ForEach-Object -Begin { $i = 54 } -Process { $boot[$i++] = $_ }
     $boot[510] = 0x55; $boot[511] = 0xAA
