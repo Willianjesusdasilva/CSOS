@@ -291,11 +291,17 @@ pub const Volume = struct {
             while (sector < self.sectors_per_cluster) : (sector += 1) {
                 const lba = self.clusterLba(cluster) + sector;
                 try self.storage.readBlock(lba, self.buffer);
-                const bytes: [*]const u8 = @ptrFromInt(self.buffer);
+                const bytes: [*]u8 = @ptrFromInt(self.buffer);
                 var offset: usize = 0;
                 while (offset < 512) : (offset += 32) {
                     if (bytes[offset] == 0) continue;
-                    if (entryIsAllocated(bytes + offset) and !entryIsLongName(bytes + offset) and equal11(bytes + offset, new_name)) return error.AlreadyExists;
+                    if (entryIsAllocated(bytes + offset) and !entryIsLongName(bytes + offset) and equal11(bytes + offset, new_name)) {
+                        if (equal11(bytes + offset, old_name)) return;
+                        const target_cluster = get16(bytes + offset + 26);
+                        bytes[offset] = 0xe5;
+                        try self.storage.writeBlock(lba, self.buffer);
+                        if (target_cluster >= 2) try self.freeChain(target_cluster);
+                    }
                 }
                 offset = 0;
                 while (offset < 512) : (offset += 32) {

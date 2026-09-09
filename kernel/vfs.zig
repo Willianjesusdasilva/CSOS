@@ -726,9 +726,6 @@ pub fn renameAt(directory_fd_in: i64, old_path: []const u8, new_path: []const u8
     };
     if (disk) |volume| if (resolveFatPath(volume, old_path)) |old_resolved| {
         if (old_resolved.parent_cluster == 0 or old_resolved.entry.directory) return error.ReadOnly;
-        if (resolveFatPath(volume, new_path)) |_| {
-            return error.AlreadyExists;
-        } else |_| {}
         if (toFatName(lastPathComponent(new_path))) |new_name|
             return volume.renameDirectoryFile(old_resolved.parent_cluster, &old_resolved.entry.name, &new_name);
     } else |_| {};
