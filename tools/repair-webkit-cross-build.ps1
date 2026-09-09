@@ -208,7 +208,7 @@ Get-ChildItem $soupSource -Directory | ForEach-Object {
     Copy-Item -Force -Recurse $_.FullName $soupInstalled
     Copy-Item -Force -Recurse $_.FullName $soupInstalledRoot
 }
-Copy-Item -Force (Join-Path $soupSource 'server\*.h') $soupInstalledRoot
+Copy-Item -Force (Join-Path $soupSource '*.h') $soupInstalled
 $soupEnumHeader = Join-Path $repo 'zig-out\libsoup-linux\libsoup\soup-enum-types.h'
 if (Test-Path -LiteralPath $soupEnumHeader) {
     Copy-Item -Force $soupEnumHeader $soupInstalledRoot
@@ -226,7 +226,7 @@ foreach ($soupVersionOutput in @(
 # libsoup/ and make the flat include directory wrappers; otherwise a mix of
 # <soup-foo.h> and <libsoup/soup-foo.h> defines every type twice.
 Get-ChildItem $soupInstalledRoot -File -Filter '*.h' | Remove-Item -Force
-Get-ChildItem $soupInstalled -Recurse -File -Filter '*.h' | ForEach-Object {
+Get-ChildItem $soupInstalled -File -Filter '*.h' | ForEach-Object {
     $wrapper = Join-Path $soupInstalledRoot $_.Name
     $includeName = "libsoup/$((Get-RelativePathCompat $soupInstalled $_.FullName).Replace('\','/'))"
     [IO.File]::WriteAllText($wrapper, "#pragma once`n#include <$includeName>`n", [Text.UTF8Encoding]::new($false))
