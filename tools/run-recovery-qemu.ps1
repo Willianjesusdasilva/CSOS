@@ -1,8 +1,8 @@
 param(
     [string]$Disk = (Join-Path $PSScriptRoot '..\zig-out\nvme.img'),
     [string]$Kernel = (Join-Path $PSScriptRoot '..\zig-out\recovery\alpine-extract\vmlinuz-virt'),
-    [string]$Initramfs = (Join-Path $PSScriptRoot '..\zig-out\recovery\alpine-extract\initramfs-virt'),
-    [string]$Append = 'console=ttyS0 init=/bin/sh'
+    [string]$Initramfs = (Join-Path $PSScriptRoot '..\zig-out\recovery\initramfs-recovery'),
+    [string]$Append = 'console=ttyS0 rdinit=/init-recovery'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -13,5 +13,5 @@ foreach ($path in @($qemu, $Disk, $Kernel, $Initramfs)) {
 
 & $qemu -machine q35 -m 1024 -kernel (Resolve-Path -LiteralPath $Kernel).Path `
     -initrd (Resolve-Path -LiteralPath $Initramfs).Path -append $Append `
-    -drive "file=$((Resolve-Path -LiteralPath $Disk).Path),format=raw,if=virtio" `
+    -drive "file=$((Resolve-Path -LiteralPath $Disk).Path),format=raw,if=ide" `
     -display none -serial stdio -no-reboot
