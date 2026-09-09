@@ -283,4 +283,14 @@ $epoxyInclude = Join-Path $include 'epoxy'
 New-Item -ItemType Directory -Force -Path $epoxyInclude | Out-Null
 Copy-Item -Force (Join-Path $epoxySourcePath 'include\epoxy\*.h') $epoxyInclude
 Copy-Item -Force (Join-Path $epoxyBuildPath 'include\epoxy\*.h') $epoxyInclude
+# The generated JS binding is omitted when video support is disabled, while
+# WebCore's unified source list still contains its custom implementation.
+# Guard that implementation to match the feature configuration.
+$mediaCustom = Join-Path $webkit 'Source\WebCore\bindings\js\JSHTMLMediaElementCustom.cpp'
+$mediaText = [IO.File]::ReadAllText($mediaCustom)
+if (-not $mediaText.Contains('#if ENABLE(VIDEO)')) {
+    $mediaText = $mediaText.Replace('namespace WebCore {', '#if ENABLE(VIDEO)`nnamespace WebCore {')
+    $mediaText = $mediaText.Replace('} // namespace WebCore', '} // namespace WebCore`n#endif')
+    [IO.File]::WriteAllText($mediaCustom, $mediaText, [Text.UTF8Encoding]::new($false))
+}
 Write-Output "WebKit cross build repaired: $build"
