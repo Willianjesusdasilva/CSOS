@@ -302,4 +302,16 @@ if (-not $mediaText.Contains('#if ENABLE(VIDEO)')) {
 } else {
     [IO.File]::WriteAllText($mediaCustom, $mediaText, [Text.UTF8Encoding]::new($false))
 }
+# Zig 0.16's bundled libc++ does not yet provide the C++23
+# std::optional::transform member used by current WebCore sources. Keep the
+# source portable by spelling these two small transformations explicitly.
+$intersection = Join-Path $webkit 'Source\WebCore\page\IntersectionObserver.cpp'
+$intersectionText = [IO.File]::ReadAllText($intersection)
+$nl = [Environment]::NewLine
+$intersectionText = $intersectionText.Replace('            return visibleRects.transform([] (auto&& repaintRects) { return repaintRects.clippedOverflowRect; } );', "            if (!visibleRects)$nl                return std::nullopt;$nl            return std::make_optional(visibleRects->clippedOverflowRect);")
+[IO.File]::WriteAllText($intersection, $intersectionText, [Text.UTF8Encoding]::new($false))
+$localFrameView = Join-Path $webkit 'Source\WebCore\page\LocalFrameView.cpp'
+$localFrameText = [IO.File]::ReadAllText($localFrameView)
+$localFrameText = $localFrameText.Replace('    return rects.transform([] (const auto& repaintRects) { return repaintRects.clippedOverflowRect; });', "    if (!rects)$nl        return std::nullopt;$nl    return std::make_optional(rects->clippedOverflowRect);")
+[IO.File]::WriteAllText($localFrameView, $localFrameText, [Text.UTF8Encoding]::new($false))
 Write-Output "WebKit cross build repaired: $build"
