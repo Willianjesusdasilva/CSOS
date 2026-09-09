@@ -308,6 +308,7 @@ if (-not $mediaText.Contains('#if ENABLE(VIDEO)')) {
 $intersection = Join-Path $webkit 'Source\WebCore\page\IntersectionObserver.cpp'
 $intersectionText = [IO.File]::ReadAllText($intersection)
 $nl = [Environment]::NewLine
+$intersectionText = $intersectionText.Replace('        [&] (const RenderElement* renderer) {', '        [&] (const RenderElement* renderer) -> std::optional<LayoutRect> {')
 $intersectionText = $intersectionText.Replace('            return visibleRects.transform([] (auto&& repaintRects) { return repaintRects.clippedOverflowRect; } );', "            if (!visibleRects)$nl                return std::nullopt;$nl            return std::make_optional(visibleRects->clippedOverflowRect);")
 [IO.File]::WriteAllText($intersection, $intersectionText, [Text.UTF8Encoding]::new($false))
 $localFrameView = Join-Path $webkit 'Source\WebCore\page\LocalFrameView.cpp'
