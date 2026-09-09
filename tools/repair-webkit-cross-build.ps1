@@ -151,11 +151,14 @@ if (-not $ninjaText.Contains("-I$lolInclude ")) {
     $ninjaText = $ninjaText.Replace('INCLUDES = ', "INCLUDES = -I$lolInclude ")
 }
 if (-not $ninjaText.Contains("-I$soupInclude ")) {
-    $ninjaText = $ninjaText.Replace('INCLUDES = ', "INCLUDES = -I$soupInclude ")
+    # The installed libsoup headers must remain the canonical include tree;
+    # mixing the source tree with it causes duplicate GLib autoptr symbols.
 }
 if (-not $ninjaText.Contains("-I$soupServerInclude ")) {
-    $ninjaText = $ninjaText.Replace('INCLUDES = ', "INCLUDES = -I$soupServerInclude ")
+    # Server-only headers are staged below instead of adding a second tree.
 }
+$ninjaText = $ninjaText.Replace("-I$soupInclude ", '').Replace("-I$soupServerInclude ", '')
+$ninjaText = $ninjaText.Replace('-IC:/w/.tools/libsoup-src/libsoup ', '').Replace('-IC:/w/.tools/libsoup-src/libsoup/server ', '')
 if (-not $ninjaText.Contains("-I$soupGeneratedInclude ")) {
     $ninjaText = $ninjaText.Replace('INCLUDES = ', "INCLUDES = -I$soupGeneratedInclude ")
 }
@@ -190,6 +193,17 @@ if (-not (Test-Path -LiteralPath $cairoFeatures)) {
 '@
     [IO.File]::WriteAllText($cairoFeatures, $cairoText.TrimStart(), [Text.UTF8Encoding]::new($false))
 }
+# The cross sysroot carries the public FreeType headers but not its generated
+# config subtree.  Stage that subtree so <freetype/config/ftheader.h> resolves.
+$freetypeConfig = Join-Path $sysrootPath 'include\freetype2\freetype\config'
+New-Item -ItemType Directory -Force -Path $freetypeConfig | Out-Null
+Copy-Item -Force -Recurse (Join-Path $repo '.tools\freetype-src\include\freetype\config\*') $freetypeConfig
+# libsoup's generated public tree omits server-only headers on this host.
+# Copy those headers into the installed tree rather than adding a duplicate
+# -I path that would redefine every common soup type.
+$soupInstalled = Join-Path $sysrootPath 'include\libsoup-3.0\libsoup'
+New-Item -ItemType Directory -Force -Path $soupInstalled | Out-Null
+Copy-Item -Force (Join-Path $repo '.tools\libsoup-src\libsoup\server\*.h') $soupInstalled
 $dependencySuffix = " $gmoduleLib $pcre2Lib $ffiLib"
 Get-ChildItem $build -Recurse -File -Filter '*.rsp' -ErrorAction SilentlyContinue | ForEach-Object {
     $rspText = [IO.File]::ReadAllText($_.FullName)
