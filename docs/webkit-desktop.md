@@ -149,6 +149,17 @@ A compilação do engine e sua execução ainda não foram realizadas.
 sysroot musl com Zig. O gate confirmou os headers EGL/KHR exigidos pelo
 backend WPE; ainda falta compilar o WebKit/WPE e ligar o backend CSOS.
 
+### Dependências WPE/WebKit destravadas (cross build)
+
+O sysroot agora contém builds estáticos verificáveis de ICU 76.1, HarfBuzz
+10.4.0, libjpeg-turbo 3.0.4, Epoxy 1.5.10, libgcrypt 1.11.0,
+libgpg-error 1.50, libnghttp2 1.64.0, libpsl 0.21.5, SQLite 3.49.1 e
+libsoup 3.6.5, todos compilados para `x86_64-linux-musl` com Zig. A
+configuração CMake do WPE WebKit 2.52.6 já encontra esses componentes; o
+próximo gate observado é libtasn1. Os diretórios `.tools` e `zig-out` são
+artefatos locais ignorados; scripts de build devem manter as mesmas opções e
+o sysroot para permitir reprodução limpa.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de
