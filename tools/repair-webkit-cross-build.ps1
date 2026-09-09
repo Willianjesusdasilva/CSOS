@@ -288,6 +288,18 @@ $epoxyInclude = Join-Path $include 'epoxy'
 New-Item -ItemType Directory -Force -Path $epoxyInclude | Out-Null
 Copy-Item -Force (Join-Path $epoxySourcePath 'include\epoxy\*.h') $epoxyInclude
 Copy-Item -Force (Join-Path $epoxyBuildPath 'include\epoxy\*.h') $epoxyInclude
+# Some Meson configurations disable EGL discovery and therefore omit
+# libepoxy's generated EGL header even though WebCore includes epoxy/egl.h.
+# Generate it directly from the bundled Khronos registry when absent.
+$epoxyEglHeader = Join-Path $epoxyInclude 'egl_generated.h'
+if (-not (Test-Path -LiteralPath $epoxyEglHeader)) {
+    $epoxyGenerator = Join-Path $epoxySourcePath 'src\gen_dispatch.py'
+    $epoxyRegistry = Join-Path $epoxySourcePath 'registry\egl.xml'
+    & python $epoxyGenerator --no-source --header --outputdir $epoxyInclude $epoxyRegistry
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $epoxyEglHeader)) {
+        throw 'Could not generate libepoxy EGL dispatch header'
+    }
+}
 # The generated JS binding is omitted when video support is disabled, while
 # WebCore's unified source list still contains its custom implementation.
 # Guard that implementation to match the feature configuration.
