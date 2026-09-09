@@ -123,6 +123,15 @@ e `read()==1`, emitindo `CSOS WebKit prerequisite PASS: eventfd/poll` antes
 dos testes de threads. A evidência está em
 `zig-out/smoke-77ee2b5b060242629416990a2cf84fe1.serial.log`.
 
+### Dependência de build destravada: PCRE2
+
+O primeiro erro terminal do Meson foi `libpcre2-8 >= 10.32` ausente. PCRE2
+10.44 foi baixado do release upstream e compilado para `x86_64-linux-musl`
+com CMake/Ninja e Zig, com Unicode habilitado, JIT desabilitado e apenas a
+biblioteca estática de 8 bits. `tools/build-pcre2-linux.ps1` reproduz a
+configuração e instala header, archive e pkg-config no sysroot CSOS. O erro
+seguinte ainda é libffi; GLib não foi declarado compilado.
+
 Upstream fixado para investigação: **WPE WebKit 2.52.6**, commit
 `3bcefb149bd7e5645d18c3f0b9abd515b274649f` (tag anotada resolvida).
 `tools/fetch-webkit.ps1` prepara esse checkout sem descartar mudanças locais.
