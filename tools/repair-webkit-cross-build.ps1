@@ -45,6 +45,25 @@ Get-ChildItem $private -File -ErrorAction SilentlyContinue | ForEach-Object {
     }
 }
 
+# Apply the same Windows copy/symlink repair to WebCore private headers.
+$webCorePrivate = Join-Path $build 'WebCore\PrivateHeaders\WebCore'
+$webCoreDerived = Join-Path $build 'WebCore\DerivedSources'
+Get-ChildItem $webCorePrivate -File -ErrorAction SilentlyContinue | ForEach-Object {
+    $raw = [IO.File]::ReadAllText($_.FullName)
+    if ($raw.StartsWith("#pragma once`n#include ")) { return }
+    $privateHash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash
+    $candidate = Get-ChildItem (Join-Path $webkit 'Source\WebCore') -Recurse -File -Filter $_.Name -ErrorAction SilentlyContinue |
+        Where-Object { (Get-FileHash $_.FullName -Algorithm SHA256).Hash -eq $privateHash } |
+        Select-Object -First 1 -ExpandProperty FullName
+    if (-not $candidate) {
+        $candidate = Get-ChildItem $webCoreDerived -Recurse -File -Filter $_.Name -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
+    }
+    if ($candidate) {
+        $relative = [IO.Path]::GetRelativePath($webCorePrivate, $candidate).Replace('\', '/')
+        [IO.File]::WriteAllText($_.FullName, "#pragma once`n#include `"$relative`"`n", [Text.UTF8Encoding]::new($false))
+    }
+}
+
 # The generated target currently inherits the nested private-header include
 # directory, which reintroduces the duplicate path on a Windows configure.
 $ninja = Join-Path $build 'build.ninja'
@@ -52,6 +71,8 @@ if (-not (Test-Path -LiteralPath $ninja)) { throw "Ninja file not found: $ninja"
 $ninjaText = [IO.File]::ReadAllText($ninja)
 $nested = ((Join-Path $build 'JavaScriptCore\PrivateHeaders\JavaScriptCore').Replace('\','/'))
 $ninjaText = $ninjaText.Replace("-I$nested ", '')
+$webCoreNested = ((Join-Path $build 'WebCore\PrivateHeaders\WebCore').Replace('\','/'))
+$ninjaText = $ninjaText.Replace("-I$webCoreNested ", '')
 # WebKit's Perl binding generator appends preprocessor flags itself.  A direct
 # `zig.exe -E` is invalid, and embedding `c++` in the command is stripped by
 # the generator's Windows argument parser.  Use the versioned wrapper so the
@@ -64,6 +85,7 @@ $ninjaText = $ninjaText.Replace('\"' + $zig + '\" c++ -E', '\"' + $wrapper + '\"
 $ninjaText = $ninjaText.Replace('"' + $zig + '" -E', '"' + $wrapper + '"')
 $ninjaText = $ninjaText.Replace('\"' + $zig + '\" -E', '\"' + $wrapper + '\"')
 $lolInclude = ((Join-Path $webkit 'Source\JavaScriptCore\lol').Replace('\','/'))
+$soupInclude = ((Join-Path $repo '.tools\libsoup-src\libsoup').Replace('\','/'))
 $badInspectorDir = ((Join-Path $build 'WebInspectorUI\DerivedSources\InspectorResources\WebInspectorUI').Replace('\','/'))
 $intermediateInspectorDir = ((Join-Path $build 'WebInspectorUI\DerivedSources\InspectorResources').Replace('\','/'))
 $goodInspectorDir = ((Join-Path $build 'WebInspectorUI').Replace('\','/'))
@@ -94,6 +116,9 @@ foreach ($script in $generatedScripts) {
 }
 if (-not $ninjaText.Contains("-I$lolInclude ")) {
     $ninjaText = $ninjaText.Replace('INCLUDES = ', "INCLUDES = -I$lolInclude ")
+}
+if (-not $ninjaText.Contains("-I$soupInclude ")) {
+    $ninjaText = $ninjaText.Replace('INCLUDES = ', "INCLUDES = -I$soupInclude ")
 }
 if (-not $ninjaText.Contains('-DSIMDUTF_IMPLEMENTATION_ICELAKE=0')) {
     $ninjaText = $ninjaText.Replace('FLAGS = ', 'FLAGS = -DSIMDUTF_IMPLEMENTATION_ICELAKE=0 ')
