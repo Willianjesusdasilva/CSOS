@@ -143,6 +143,12 @@ Upstream fixado para investigação: **WPE WebKit 2.52.6**, commit
 `tools/fetch-webkit.ps1` prepara esse checkout sem descartar mudanças locais.
 A compilação do engine e sua execução ainda não foram realizadas.
 
+## WPE platform bootstrap
+
+`tools/build-libwpe-linux.ps1` compila o `libwpe` upstream 1.16.3 para o
+sysroot musl com Zig. O gate confirmou os headers EGL/KHR exigidos pelo
+backend WPE; ainda falta compilar o WebKit/WPE e ligar o backend CSOS.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de
