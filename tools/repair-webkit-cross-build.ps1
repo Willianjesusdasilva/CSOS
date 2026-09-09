@@ -209,6 +209,11 @@ Get-ChildItem $soupSource -Directory | ForEach-Object {
     Copy-Item -Force -Recurse $_.FullName $soupInstalledRoot
 }
 Copy-Item -Force (Join-Path $soupSource 'server\*.h') $soupInstalledRoot
+$soupEnumHeader = Join-Path $repo 'zig-out\libsoup-linux\libsoup\soup-enum-types.h'
+if (Test-Path -LiteralPath $soupEnumHeader) {
+    Copy-Item -Force $soupEnumHeader $soupInstalledRoot
+    Copy-Item -Force $soupEnumHeader $soupInstalled
+}
 $soupVersionGenerator = Join-Path $soupSource 'generate-version-header.py'
 $soupVersionTemplate = Join-Path $soupSource 'soup-version.h.in'
 foreach ($soupVersionOutput in @(
