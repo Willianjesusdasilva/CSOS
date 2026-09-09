@@ -9,6 +9,11 @@ $changes = & git -C $source status --porcelain --untracked-files=no
 if ($LASTEXITCODE -ne 0 -or $changes) { throw 'GLib tracked sources must be clean.' }
 $meson = Join-Path $workspace '.tools/mesa-build-env/Scripts/meson.exe'
 $buildDir = Join-Path $workspace 'zig-out/glib-linux'
+# pkgconf-pypi intentionally ignores host search paths unless explicitly forced.
+# Keep dependency discovery deterministic for the staged musl sysroot.
+$env:FORCE_PKGCONF_PYPI = '1'
+$env:PKG_CONFIG_PATH = Join-Path $workspace 'zig-out/mesa-sysroot/usr/lib/pkgconfig'
+$env:PKG_CONFIG_LIBDIR = $env:PKG_CONFIG_PATH
 $setupFlags = @()
 if (Test-Path -LiteralPath "$buildDir/meson-private/coredata.dat") { $setupFlags += '--reconfigure' }
 & $meson setup $buildDir $source @setupFlags --cross-file "$workspace/tools/glib-linux-cross.ini" `
