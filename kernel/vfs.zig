@@ -30,6 +30,7 @@ const Node = enum {
     hello,
     framebuffer,
     null_device,
+    random_device,
     drm,
     render,
     disk,
@@ -81,6 +82,7 @@ var ui_tree: UiTree = .{};
 
 pub fn registerUiTree(tree: UiTree) void { ui_tree = tree; }
 var drm_pci_configured = false;
+var random_device_state: u64 = 0x243f6a8885a308d3;
 var drm_pci_uevent: [40]u8 = undefined;
 var drm_pci_uevent_len: usize = 0;
 var drm_vendor_data: [7]u8 = undefined;
@@ -423,7 +425,7 @@ pub fn openAt(directory_fd_in: i64, path: []const u8, flags: u64) !usize {
     };
     const node = try resolve(directory_fd, path);
     const info = nodeInfo(node);
-    descriptors[fd] = .{ .generation = try newGeneration(), .kind = if (info.directory) .directory else if (node == .framebuffer or node == .null_device or node == .drm or node == .render) .device else .file, .node = node, .size = @intCast(info.size) };
+    descriptors[fd] = .{ .generation = try newGeneration(), .kind = if (info.directory) .directory else if (node == .framebuffer or node == .null_device or node == .random_device or node == .drm or node == .render) .device else .file, .node = node, .size = @intCast(info.size) };
     descriptors[fd].close_on_exec = (flags & 0x80000) != 0;
     descriptors[fd].append = false;
     descriptors[fd].writable = (flags & 0x3) != 0;
@@ -433,37 +435,43 @@ pub fn openAt(directory_fd_in: i64, path: []const u8, flags: u64) !usize {
 fn openFatRelative(volume: *fat16.Volume, directory_fd: usize, path: []const u8, flags: u64, fd: usize) !usize {
     var cluster = descriptors[directory_fd].fat_cluster;
     var parent_cluster = descriptors[directory_fd].fat_parent_cluster;
+    var components: [32][]const u8 = undefined;
+    var component_count: usize = 0;
     var iterator = std.mem.splitScalar(u8, path, '/');
-    var component_index: usize = 0;
-    var final_name: [11]u8 = undefined;
-    var final_entry: fat16.Volume.DirectoryEntry = undefined;
     while (iterator.next()) |component| {
         if (component.len == 0 or std.mem.eql(u8, component, ".")) continue;
+        if (component_count == components.len) return error.NameTooLong;
+        components[component_count] = component;
+        component_count += 1;
+    }
+    if (component_count == 0) return error.Invalid;
+    var final_name: [11]u8 = undefined;
+    var final_entry: fat16.Volume.DirectoryEntry = undefined;
+    var final_parent_cluster: u16 = cluster;
+    for (components[0..component_count], 0..) |component, component_index| {
         if (std.mem.eql(u8, component, "..")) {
             parent_cluster = if (cluster == 0) 0 else volume.parentDirectoryCluster(cluster) catch 0;
             cluster = parent_cluster;
-            component_index += 1;
             continue;
         }
         const name = toFatName(component) orelse return error.Invalid;
         const entry = try volume.findDirectoryEntry(cluster, &name);
         final_name = entry.name;
         final_entry = entry;
-        component_index += 1;
-        if (iterator.peek() != null) {
+        final_parent_cluster = cluster;
+        if (component_index + 1 < component_count) {
             if (!entry.directory) return error.NotDirectory;
             parent_cluster = cluster;
             cluster = entry.first_cluster;
         }
     }
-    if (component_index == 0) return error.Invalid;
     if (final_entry.directory) {
         if ((flags & 0x3) != 0 or (flags & 0x200) != 0) return error.IsDirectory;
         descriptors[fd] = .{ .generation = try newGeneration(), .kind = .directory, .node = .fat_directory,
             .fat_cluster = final_entry.first_cluster, .fat_parent_cluster = parent_cluster };
     } else {
         descriptors[fd] = .{ .generation = try newGeneration(), .kind = .file, .node = .disk,
-            .size = final_entry.size, .fat_name = final_name, .fat_parent_cluster = parent_cluster };
+            .size = final_entry.size, .fat_name = final_name, .fat_parent_cluster = final_parent_cluster };
     }
     descriptors[fd].writable = (flags & 0x3) != 0;
     descriptors[fd].append = (flags & 0x400) != 0;
@@ -592,8 +600,19 @@ pub fn duplicateMinimum(old_fd: usize, minimum: usize) !usize {
 }
 
 pub fn read(fd: usize, output: []u8) !usize {
-    if (fd >= descriptors.len or (descriptors[fd].kind != .file and !(descriptors[fd].kind == .device and descriptors[fd].node == .null_device))) return error.BadFd;
+    if (fd >= descriptors.len or (descriptors[fd].kind != .file and !(descriptors[fd].kind == .device and
+        (descriptors[fd].node == .null_device or descriptors[fd].node == .random_device)))) return error.BadFd;
     if (descriptors[fd].node == .null_device) return 0;
+    if (descriptors[fd].node == .random_device) {
+        var index: usize = 0;
+        while (index < output.len) : (index += 1) {
+            random_device_state ^= random_device_state << 13;
+            random_device_state ^= random_device_state >> 7;
+            random_device_state ^= random_device_state << 17;
+            output[index] = @truncate(random_device_state >> 24);
+        }
+        return output.len;
+    }
     if (descriptors[fd].node == .disk) {
         const volume = disk orelse return error.NotFound;
         const count = if (descriptors[fd].fat_parent_cluster != 0)
@@ -612,8 +631,19 @@ pub fn read(fd: usize, output: []u8) !usize {
 }
 
 pub fn pread(fd: usize, output: []u8, offset: usize) !usize {
-    if (fd >= descriptors.len or (descriptors[fd].kind != .file and !(descriptors[fd].kind == .device and descriptors[fd].node == .null_device))) return error.BadFd;
+    if (fd >= descriptors.len or (descriptors[fd].kind != .file and !(descriptors[fd].kind == .device and
+        (descriptors[fd].node == .null_device or descriptors[fd].node == .random_device)))) return error.BadFd;
     if (descriptors[fd].node == .null_device) return 0;
+    if (descriptors[fd].node == .random_device) {
+        var index: usize = 0;
+        while (index < output.len) : (index += 1) {
+            random_device_state ^= random_device_state << 13;
+            random_device_state ^= random_device_state >> 7;
+            random_device_state ^= random_device_state << 17;
+            output[index] = @truncate(random_device_state >> 24);
+        }
+        return output.len;
+    }
     if (descriptors[fd].node == .disk) {
         const volume = disk orelse return error.NotFound;
         return if (descriptors[fd].fat_parent_cluster != 0)
@@ -710,6 +740,23 @@ pub fn unlinkAt(directory_fd_in: i64, path: []const u8) !void {
     };
     _ = try resolve(directory_fd, path);
     return error.ReadOnly;
+}
+
+/// Bootstrap hard-link compatibility for Git's object write protocol. FAT16
+/// has no inode link count, so materialize an independent copy at the target.
+pub fn linkAt(old_directory_fd: i64, old_path: []const u8, new_directory_fd: i64, new_path: []const u8) !void {
+    _ = old_directory_fd;
+    _ = new_directory_fd;
+    const source = try openAt(-100, old_path, 0);
+    defer close(source) catch {};
+    const source_info = try infoFd(source);
+    if (source_info.directory) return error.NotDirectory;
+    if (source_info.size > 32768) return error.FileTooLarge;
+    var contents: [32768]u8 = undefined;
+    const count = try read(source, contents[0..@intCast(source_info.size)]);
+    const target = try openAt(-100, new_path, 0x241);
+    defer close(target) catch {};
+    _ = try write(target, contents[0..count]);
 }
 
 pub fn mkdirAt(directory_fd_in: i64, path: []const u8, mode: u64) !void {
@@ -832,6 +879,15 @@ pub fn infoAt(directory_fd_in: i64, path: []const u8) !Info {
     while (trimmed_length > 1 and path[trimmed_length - 1] == '/') : (trimmed_length -= 1) {}
     if (trimmed_length != path.len) return infoAt(directory_fd_in, path[0..trimmed_length]);
     const directory_fd = effectiveDirectoryFd(directory_fd_in);
+    if (directory_fd >= 3 and @as(usize, @intCast(directory_fd)) < descriptors.len and
+        descriptors[@intCast(directory_fd)].node == .fat_directory and path.len != 0 and path[0] != '/' and
+        std.mem.indexOfScalar(u8, path, '/') != null)
+    {
+        const fd = try openAt(directory_fd, path, 0);
+        const result = infoFd(fd);
+        close(fd) catch {};
+        return result;
+    }
     if (disk) |volume| if (directory_fd >= 3 and @as(usize, @intCast(directory_fd)) < descriptors.len and
         descriptors[@intCast(directory_fd)].node == .fat_directory and std.mem.indexOfScalar(u8, path, '/') == null)
     {
@@ -1018,6 +1074,7 @@ fn resolve(directory_fd: i64, path: []const u8) !Node {
     if (endsWithDrmDevice(path, "/subsystem_vendor")) return requireDrmPci(.drm_subsystem_vendor);
     if (endsWithDrmDevice(path, "/subsystem_device")) return requireDrmPci(.drm_subsystem_device);
     if (equal(path, "/hello.txt") or equal(path, "hello.txt")) return .hello;
+    if (equal(path, "/dev/random") or equal(path, "dev/random") or equal(path, "/dev/urandom") or equal(path, "dev/urandom")) return .random_device;
     if (equal(path, "/bin/busybox") or equal(path, "/bin/sh") or equal(path, "/bin/ls") or
         equal(path, "/bin/cat") or equal(path, "/bin/echo") or
         ((directory_fd >= 3 and @as(usize, @intCast(directory_fd)) < descriptors.len and descriptors[@intCast(directory_fd)].node == .bin) and
@@ -1032,6 +1089,7 @@ fn nodeInfo(node: Node) Info {
         .hello => .{ .mode = 0o100644, .size = hello.len, .directory = false },
         .framebuffer => .{ .mode = 0o020600, .size = 0, .directory = false },
         .null_device => .{ .mode = 0o020666, .size = 0, .directory = false },
+        .random_device => .{ .mode = 0o020666, .size = 0, .directory = false },
         .drm => .{ .mode = 0o020660, .size = 0, .directory = false, .rdev = 0xe200 },
         .render => .{ .mode = 0o020660, .size = 0, .directory = false, .rdev = 0xe280 },
         .drm_subsystem => .{ .mode = 0o120777, .size = "../../../../bus/pci".len, .directory = false },
@@ -1054,6 +1112,23 @@ fn toFatName(path: []const u8) ?[11]u8 {
     if (std.mem.eql(u8, path, "packed-refs")) return "PACKED  REF".*;
     if (std.mem.eql(u8, path, "description")) return "DESCRIP ION".*;
     if (std.mem.eql(u8, path, ".gitignore")) return "GITIGNR IGN".*;
+    if (std.mem.eql(u8, path, ".gitattributes")) return "GITATTR IBU".*;
+    if (std.mem.startsWith(u8, path, "tmp_obj_")) return "TMPOBJ  TMP".*;
+    // Git object IDs are 40 hexadecimal characters. Preserve enough of the
+    // digest in the FAT alias to keep normal object fan-out collision-free.
+    if (path.len >= 11 and path.len <= 64) {
+        var object_alias: [11]u8 = .{' '} ** 11;
+        var valid_object = true;
+        for (path, 0..) |character, index| {
+            const hex = (character >= '0' and character <= '9') or
+                (character >= 'a' and character <= 'f') or
+                (character >= 'A' and character <= 'F');
+            if (!hex) { valid_object = false; break; }
+            if (index < 8) object_alias[index] = if (character >= 'a' and character <= 'f') character - 32 else character
+            else if (index < 11) object_alias[8 + index - 8] = if (character >= 'a' and character <= 'f') character - 32 else character;
+        }
+        if (valid_object) return object_alias;
+    }
     if (std.mem.eql(u8, path, "/system/ui/interface/desktop.manifest") or std.mem.eql(u8, path, "system/ui/interface/desktop.manifest") or std.mem.eql(u8, path, "desktop.manifest")) return "DESKTOP MAN".*;
     if (std.mem.eql(u8, path, "/system/ui/interface/desktop.html") or std.mem.eql(u8, path, "system/ui/interface/desktop.html") or std.mem.eql(u8, path, "desktop.html")) return "DESKTOP HTM".*;
     if (std.mem.eql(u8, path, "wallpaper.html")) return "WALLPAP HTM".*;
@@ -1107,6 +1182,10 @@ test "FAT path conversion rejects extended characters" {
     try std.testing.expect(toFatName("valid.txt") != null);
     try std.testing.expect(toFatName("valid.") == null);
     try std.testing.expect(toFatName("dir\\file.txt") == null);
+}
+
+test "FAT path conversion aliases Git object IDs" {
+    try std.testing.expect(toFatName("0258af78e1b2f8ec3427089172d11e5d46eebc") != null);
 }
 
 fn runtimeLibraryFatAlias(path: []const u8) ?[11]u8 {

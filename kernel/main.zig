@@ -2832,6 +2832,11 @@ fn seedPersistentFilesystem(volume: *fat16.Volume) !PersistentLayout {
     serial.write("persistent /system/config/defaults\n");
     try seedUiFile(volume, defaults_cluster, &defaults_readme,
         "Versioned CSOS defaults. Machine state belongs under /data.\n");
+    var defaults_probe: [96]u8 = undefined;
+    _ = volume.readDirectoryFileAt(defaults_cluster, &defaults_readme, &defaults_probe, 0) catch |err| {
+        serial.write("persistent defaults readback error: "); serial.write(@errorName(err)); serial.write("\n");
+        return err;
+    };
 
     const data_cluster = try ensureDirectory(volume, 0, &data_name);
     serial.write("persistent /data\n");

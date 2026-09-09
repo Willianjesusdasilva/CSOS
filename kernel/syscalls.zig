@@ -529,6 +529,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         83 => mkdirLegacy(arg1, arg2),
         84 => rmdirLegacy(arg1),
         85 => creatLegacy(arg1, arg2),
+        86 => linkLegacy(arg1, arg2),
         87 => unlinkLegacy(arg1),
         88 => symlinkLegacy(arg1, arg2),
         89 => readlinkat(@bitCast(@as(i64, -100)), arg1, arg2, arg3),
@@ -593,6 +594,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         258 => mkdirat(arg1, arg2, arg3),
         263 => unlinkat(arg1, arg2, arg3),
         264 => renameat(arg1, arg2, arg3, arg4),
+        265 => linkat(arg1, arg2, arg3, arg4, arg5),
         262 => stat(arg2, arg3, @bitCast(arg1)),
         267 => readlinkat(@bitCast(arg1), arg2, arg3, arg4),
         247 => waitId(arg1, arg2, arg3, arg4),
@@ -2804,6 +2806,25 @@ fn rmdirLegacy(path_address: u64) u64 {
 
 fn unlinkLegacy(path_address: u64) u64 {
     return unlinkat(@bitCast(@as(i64, -100)), path_address, 0);
+}
+
+fn linkLegacy(old_path_address: u64, new_path_address: u64) u64 {
+    var old_buffer: [256]u8 = undefined;
+    var new_buffer: [256]u8 = undefined;
+    const old_path = userString(old_path_address, &old_buffer) orelse return errno(14);
+    const new_path = userString(new_path_address, &new_buffer) orelse return errno(14);
+    vfs.linkAt(-100, old_path, -100, new_path) catch |err| return vfsError(err);
+    return 0;
+}
+
+fn linkat(old_directory_fd: u64, old_path_address: u64, new_directory_fd: u64, new_path_address: u64, flags: u64) u64 {
+    if (flags != 0) return errno(22);
+    var old_buffer: [256]u8 = undefined;
+    var new_buffer: [256]u8 = undefined;
+    const old_path = userString(old_path_address, &old_buffer) orelse return errno(14);
+    const new_path = userString(new_path_address, &new_buffer) orelse return errno(14);
+    vfs.linkAt(@bitCast(old_directory_fd), old_path, @bitCast(new_directory_fd), new_path) catch |err| return vfsError(err);
+    return 0;
 }
 
 fn symlinkLegacy(target_address: u64, link_address: u64) u64 {
