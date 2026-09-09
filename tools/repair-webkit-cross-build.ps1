@@ -198,12 +198,15 @@ if (-not (Test-Path -LiteralPath $cairoFeatures)) {
 $freetypeConfig = Join-Path $sysrootPath 'include\freetype2\freetype\config'
 New-Item -ItemType Directory -Force -Path $freetypeConfig | Out-Null
 Copy-Item -Force -Recurse (Join-Path $repo '.tools\freetype-src\include\freetype\config\*') $freetypeConfig
-# libsoup's generated public tree omits server-only headers on this host.
-# Copy those headers into the installed tree rather than adding a duplicate
-# -I path that would redefine every common soup type.
+# libsoup's generated public tree omits headers from its auth/content/server
+# subtrees on this host. Copy the subdirectories into the installed tree
+# rather than adding a duplicate -I path that would redefine common types.
 $soupInstalled = Join-Path $sysrootPath 'include\libsoup-3.0\libsoup'
 New-Item -ItemType Directory -Force -Path $soupInstalled | Out-Null
-Copy-Item -Force (Join-Path $repo '.tools\libsoup-src\libsoup\server\*.h') $soupInstalled
+$soupSource = Join-Path $repo '.tools\libsoup-src\libsoup'
+Get-ChildItem $soupSource -Directory | ForEach-Object {
+    Copy-Item -Force -Recurse $_.FullName $soupInstalled
+}
 $dependencySuffix = " $gmoduleLib $pcre2Lib $ffiLib"
 Get-ChildItem $build -Recurse -File -Filter '*.rsp' -ErrorAction SilentlyContinue | ForEach-Object {
     $rspText = [IO.File]::ReadAllText($_.FullName)
