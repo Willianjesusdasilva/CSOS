@@ -209,6 +209,10 @@ Get-ChildItem $soupSource -Directory | ForEach-Object {
     Copy-Item -Force -Recurse $_.FullName $soupInstalledRoot
 }
 Copy-Item -Force (Join-Path $soupSource '*.h') $soupInstalled
+# soup-server.h uses an unqualified websocket include; mirror those public
+# headers beside the server headers so that the installed tree resolves it
+# without adding a second, conflicting include root.
+Copy-Item -Force (Join-Path $soupSource 'websocket\*.h') (Join-Path $soupInstalled 'server')
 $soupEnumHeader = Join-Path $repo 'zig-out\libsoup-linux\libsoup\soup-enum-types.h'
 if (Test-Path -LiteralPath $soupEnumHeader) {
     Copy-Item -Force $soupEnumHeader $soupInstalledRoot
