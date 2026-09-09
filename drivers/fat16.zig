@@ -134,7 +134,7 @@ pub const Volume = struct {
         var cluster = first_cluster;
         var traversed: u32 = 0;
         var count: usize = 0;
-        while (true) {
+    while (true) {
             if (!chainTraversalAllowed(traversed, self.cluster_count)) return error.BrokenChain;
             traversed += 1;
             var sector: u8 = 0;
@@ -176,7 +176,7 @@ pub const Volume = struct {
         try validateDataCluster(first_cluster, self.cluster_count);
         var cluster = first_cluster;
         var traversed: u32 = 0;
-        while (true) {
+    while (true) {
             if (!chainTraversalAllowed(traversed, self.cluster_count)) return error.BrokenChain;
             traversed += 1;
             var sector: u8 = 0;
@@ -287,6 +287,7 @@ pub const Volume = struct {
         while (true) {
             if (!chainTraversalAllowed(traversed, self.cluster_count)) return error.BrokenChain;
             traversed += 1;
+            var replaced_cluster: u16 = 0;
             var sector: u8 = 0;
             while (sector < self.sectors_per_cluster) : (sector += 1) {
                 const lba = self.clusterLba(cluster) + sector;
@@ -297,10 +298,9 @@ pub const Volume = struct {
                     if (bytes[offset] == 0) continue;
                     if (entryIsAllocated(bytes + offset) and !entryIsLongName(bytes + offset) and equal11(bytes + offset, new_name)) {
                         if (equal11(bytes + offset, old_name)) return;
-                        const target_cluster = get16(bytes + offset + 26);
+                        replaced_cluster = get16(bytes + offset + 26);
                         bytes[offset] = 0xe5;
                         try self.storage.writeBlock(lba, self.buffer);
-                        if (target_cluster >= 2) try self.freeChain(target_cluster);
                     }
                 }
                 offset = 0;
@@ -310,6 +310,7 @@ pub const Volume = struct {
                     const entry: [*]u8 = @ptrFromInt(self.buffer + offset);
                     @memcpy(entry[0..11], new_name);
                     try self.storage.writeBlock(lba, self.buffer);
+                    if (replaced_cluster >= 2) try self.freeChain(replaced_cluster);
                     return;
                 }
             }

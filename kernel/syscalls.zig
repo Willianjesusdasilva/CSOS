@@ -530,6 +530,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         84 => rmdirLegacy(arg1),
         85 => creatLegacy(arg1, arg2),
         87 => unlinkLegacy(arg1),
+        88 => symlinkLegacy(arg1, arg2),
         89 => readlinkat(@bitCast(@as(i64, -100)), arg1, arg2, arg3),
         90 => chmodLegacy(arg1, arg2),
         96 => getTimeOfDay(arg1, arg2),
@@ -834,7 +835,8 @@ fn fcntl(fd: u64, command: u64, argument: u64) u64 {
             vfs.setDescriptorFlags(@intCast(fd), @truncate(argument)) catch |err| break :blk vfsError(err);
             break :blk 0;
         },
-        3, 4 => 0,
+        3 => if (vfs.isDiskFile(@intCast(fd))) 2 else 0,
+        4 => if (vfs.isDiskFile(@intCast(fd))) 0 else 0,
         else => errno(22),
     };
 }
@@ -2802,6 +2804,14 @@ fn rmdirLegacy(path_address: u64) u64 {
 
 fn unlinkLegacy(path_address: u64) u64 {
     return unlinkat(@bitCast(@as(i64, -100)), path_address, 0);
+}
+
+fn symlinkLegacy(target_address: u64, link_address: u64) u64 {
+    // FAT bootstrap storage has no symlink inode yet. Report the real
+    // capability boundary so Git can use its regular-file fallback.
+    _ = target_address;
+    _ = link_address;
+    return errno(95);
 }
 
 fn creatLegacy(path_address: u64, mode: u64) u64 {
