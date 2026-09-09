@@ -2770,7 +2770,7 @@ pub fn start(info: BootInfo) noreturn {
     }
 }
 
-fn seedUiFile(volume: *fat16.Volume, parent: u32, name: anytype, contents: []const u8) !void {
+fn seedUiFile(volume: *fat16.Volume, parent: u16, name: anytype, contents: []const u8) !void {
     volume.createDirectoryFile(parent, name) catch |err| {
         if (err != error.AlreadyExists) return err;
     };
