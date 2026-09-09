@@ -1,99 +1,542 @@
 # CSOS
 
-## Interface: requisito de WebKit
+**CSOS** é um sistema operacional experimental x86-64 escrito principalmente em **Zig**, projetado em torno de um objetivo principal:
 
-O desktop solicitado deve ser implementado em **HTML, CSS e JavaScript**, com
-**WebKit executando em userspace do CSOS**. A base escolhida para investigar o
-port é WPE WebKit; o kernel e a integração específica do SO continuam
-prioritariamente Zig. O código C/C++ do WebKit será reutilizado, não reescrito.
+> Executar Counter-Strike 2 com o menor overhead possível do sistema operacional, priorizando frametime consistente, baixa latência de input e previsibilidade.
 
-**Estado real:** WebKit ainda não está integrado. A composição nativa atual,
-o parser HTML limitado e o teste que abre arquivos não executam WebKit nem
-JavaScript. Declarações anteriores de interface HTML pronta não constituem
-validação desse requisito. Prévia no Windows/Linux também não comprova execução
-no CSOS. Veja [o contrato de entrega](docs/webkit-desktop.md).
+O CSOS não pretende ser uma distribuição Linux genérica.
 
-**CSOS** é um sistema operacional experimental x86-64 escrito principalmente em **Zig**, projetado em torno de um único objetivo:
-
-> Executar Counter-Strike 2 com o menor overhead possível do sistema operacional.
-
-Em vez de construir um sistema operacional genérico, o CSOS concentra sua arquitetura no caminho que realmente importa para jogos:
+Ele utiliza seu próprio kernel e implementa a compatibilidade Linux necessária para executar software Linux existente, reutilizando componentes maduros quando isso for tecnicamente mais sensato do que reescrevê-los.
 
 ```text
 Hardware
    ↓
 Kernel CSOS
    ↓
-Userspace compatível com Linux
+Linux-compatible userspace ABI
    ↓
-GPU AMD/RADV ou NVIDIA/NVK (backend independente)
+Mesa / drivers / Vulkan
    ↓
-Vulkan
+Steam Runtime
    ↓
 Steam
    ↓
 Counter-Strike 2
 ```
 
-O projeto explora como seria um sistema operacional onde performance em jogos, consistência de frametime e latência de input são prioridades arquiteturais desde o início.
+Steam e Counter-Strike 2 são deliberadamente etapas finais.
+
+Antes deles, o CSOS deve funcionar como um sistema operacional utilizável em hardware real.
 
 ---
 
-## Filosofia
+# Filosofia
 
-O CSOS segue uma regra simples:
+A regra principal do projeto é:
 
 ```text
 funciona > simples > rápido > bonito
 ```
 
-O projeto evita complexidade desnecessária.
+O CSOS evita complexidade que não produza benefício real.
 
-Sem arquitetura enterprise.
+Isso significa:
 
-Sem abstrações apenas por abstração.
-
-Sem frameworks internos gigantes.
-
-Sem tentar reproduzir todos os recursos do Linux.
-
-Sem reescrever componentes maduros apenas para dizer que o sistema é 100% Zig.
+* sem arquitetura enterprise desnecessária;
+* sem abstrações apenas por abstração;
+* sem frameworks internos gigantes;
+* sem tentar reproduzir todos os recursos do Linux;
+* sem reescrever componentes maduros apenas para dizer que tudo é Zig;
+* sem otimizações baseadas apenas em teoria;
+* sem declarar suporte de hardware sem validação real;
+* sem esconder o funcionamento do sistema atrás de componentes opacos.
 
 Toda implementação deve responder:
 
-> Isso aproxima Steam/CS2 de funcionar ou melhora sua execução de forma mensurável?
+> Isso aproxima o CSOS de ser um sistema utilizável ou aproxima Steam/CS2 de funcionar corretamente e com boa performance?
 
-Se não, provavelmente não pertence ao CSOS.
+Se não, provavelmente não é prioridade.
 
 ---
 
-# Objetivos
+# Sistema experimental por design
 
-Ordem de implementação e validação:
+O CSOS é deliberadamente um sistema:
 
-1. SO funcional e estável: boot, memória, processos, armazenamento, entrada, rede, áudio e recuperação
-2. Display e Vulkan em AMD Radeon e NVIDIA GeForce suportadas
-3. SDL, autoconfiguração e interface utilizável do SO
-4. Steam Runtime, Steam e Counter-Strike 2, somente após a base funcional
-5. Frametime consistente, baixa latência de input e melhores 1% / 0.1% lows
-6. FPS médio, boot e consumo mínimos
+```text
+aberto
+hackável
+auditável
+modificável
+experimental
+```
 
-AMD é o primeiro caminho de validação gráfica; NVIDIA é obrigatória antes de
-concluir M14, não uma extensão opcional para depois de Steam/CS2.
+Durante o desenvolvimento, estabilidade absoluta não é um requisito.
 
-Decisão de produto: uma GeForce suportada deve conseguir instalar, iniciar e
-usar o CSOS sem uma Radeon presente. O suporte NVIDIA só será considerado
-funcional depois de uma prova reproduzível em hardware real que cubra display,
-memória, filas, sincronização e um triângulo Vulkan. Detecção PCI, framebuffer,
-build do NVK ou testes executados apenas no host não satisfazem esse requisito.
+Uma atualização pode quebrar o sistema.
 
-O CSOS não pretende se tornar uma distribuição Linux de uso geral.
+Um commit pode impedir o boot.
+
+Um driver experimental pode falhar.
+
+Isso é aceitável desde que exista um caminho simples, previsível e independente para recuperar a máquina.
+
+A arquitetura de desenvolvimento é baseada em três componentes:
+
+```text
+Git
+│
+├── versão e atualização do CSOS
+│
+Nix
+│
+├── aplicações e dependências adicionais
+│
+Alpine Linux
+│
+└── recuperação independente
+```
+
+Em resumo:
+
+> Git atualiza o sistema.
+> Nix instala software.
+> Alpine recupera a máquina.
+
+---
+
+# Git como parte do sistema operacional
+
+O próprio CSOS deve permanecer exposto através de Git.
+
+Kernel, drivers, userspace específico, interface, scripts, configurações padrão e infraestrutura necessária para reproduzir uma versão devem ser derivados do repositório.
+
+O objetivo é que o usuário consiga inspecionar o sistema instalado usando comandos Git normais.
+
+```bash
+git status
+git log
+git diff
+git show
+```
+
+A atualização do CSOS deve ser simples:
+
+```bash
+git pull
+reboot
+```
+
+Não é objetivo criar um updater proprietário que esconda o Git.
+
+O Git é deliberadamente parte da experiência do sistema.
+
+---
+
+# Atualização
+
+Uma máquina de desenvolvimento deve conseguir atualizar o CSOS aproximadamente assim:
+
+```bash
+cd /system
+git pull
+reboot
+```
+
+O commit atualmente instalado deve ser identificável.
+
+O usuário também deve poder utilizar branches diferentes:
+
+```bash
+git switch dev
+git pull
+reboot
+```
+
+ou selecionar uma versão específica:
+
+```bash
+git checkout <commit>
+reboot
+```
+
+Para restaurar completamente o estado oficial da branch:
+
+```bash
+git fetch origin
+git reset --hard origin/main
+reboot
+```
+
+A intenção é permitir que uma máquina CSOS acompanhe diretamente o desenvolvimento do projeto.
+
+```text
+desenvolvimento
+      ↓
+commit
+      ↓
+push
+      ↓
+git pull no CSOS
+      ↓
+reboot
+      ↓
+nova versão
+```
+
+---
+
+# Separação entre sistema e dados
+
+Arquivos controlados pelo Git são considerados reconstruíveis.
+
+Dados do usuário e estado específico da máquina não são.
+
+Conceitualmente:
+
+```text
+/system
+│
+├── kernel
+├── drivers
+├── userspace
+├── ui
+├── build
+└── config/defaults
+
+/home
+/data
+/nix
+```
+
+O conteúdo versionado pertence ao sistema.
+
+O conteúdo persistente pertence à máquina ou ao usuário.
+
+Uma operação como:
+
+```bash
+git reset --hard origin/main
+```
+
+não pode destruir:
+
+```text
+documentos
+saves
+downloads
+configuração pessoal
+pacotes Nix
+estado persistente
+configuração específica da máquina
+```
+
+Princípio:
+
+> O sistema pode ser descartado e reconstruído. Os dados do usuário não.
+
+---
+
+# Alpine Linux Recovery
+
+Instalações bare-metal destinadas ao desenvolvimento devem possuir um pequeno ambiente **Alpine Linux** independente.
+
+Exemplo de layout:
+
+```text
+NVMe
+│
+├── EFI
+├── CSOS
+├── Alpine Recovery
+├── /home
+├── /data
+└── /nix
+```
+
+O Alpine não participa da execução normal do CSOS.
+
+Quando o CSOS está funcionando:
+
+```text
+Alpine CPU usage = 0
+Alpine RAM usage = 0
+```
+
+porque ele simplesmente não está executando.
+
+Sua função é ser o paraquedas do sistema experimental.
+
+---
+
+# Recuperando uma atualização quebrada
+
+Exemplo:
+
+```text
+CSOS funcionando
+       ↓
+git pull
+       ↓
+commit experimental
+       ↓
+reboot
+       ↓
+CSOS quebra
+       ↓
+boot Alpine Recovery
+       ↓
+monta CSOS
+       ↓
+Git
+       ↓
+corrige/restaura
+       ↓
+reboot
+       ↓
+CSOS
+```
+
+No Alpine:
+
+```bash
+mount /dev/nvme0n1pX /mnt/csos
+
+cd /mnt/csos
+
+git status
+git log
+git fetch
+```
+
+Se uma correção já estiver disponível:
+
+```bash
+git pull
+```
+
+Ou para restaurar a versão oficial:
+
+```bash
+git fetch origin
+git reset --hard origin/main
+```
+
+Depois:
+
+```bash
+reboot
+```
+
+---
+
+# Recovery via SSH
+
+O Alpine Recovery pode possuir SSH.
+
+Isso permite transformar um notebook CSOS em uma máquina de desenvolvimento bare-metal remotamente acessível.
+
+```text
+PC / agente de desenvolvimento
+             │
+            SSH
+             ↓
+      notebook CSOS
+```
+
+Se o CSOS funcionar:
+
+```text
+SSH → CSOS
+```
+
+Se o CSOS quebrar:
+
+```text
+boot Alpine
+     ↓
+SSH → Alpine
+     ↓
+montar CSOS
+     ↓
+Git
+     ↓
+corrigir sistema
+```
+
+Isso permite que um desenvolvedor ou agente autorizado continue trabalhando mesmo quando uma alteração quebra o sistema principal.
+
+---
+
+# Nix
+
+O CSOS pretende utilizar **Nix** como camada preferencial para aplicações e dependências adicionais.
+
+Nix não substitui Git.
+
+As responsabilidades são diferentes:
+
+```text
+Git
+└── CSOS
+
+Nix
+└── aplicações e dependências
+
+Alpine
+└── recovery
+```
+
+O próprio sistema operacional continua versionado pelo Git.
+
+Software adicional pode ser instalado pelo Nix.
+
+Exemplo pretendido:
+
+```bash
+nix profile install nixpkgs#git
+nix profile install nixpkgs#curl
+nix profile install nixpkgs#htop
+```
+
+Os pacotes e suas dependências ficam principalmente em:
+
+```text
+/nix/store
+```
+
+Isso evita transformar o CSOS em uma distribuição responsável por empacotar manualmente milhares de programas.
+
+---
+
+# Nix e musl
+
+O sistema base do CSOS utiliza componentes construídos para seu userspace, atualmente com forte uso de `musl`.
+
+Isso não significa que todos os programas instalados precisem utilizar a mesma libc.
+
+Um pacote Nix pode carregar suas próprias bibliotecas em:
+
+```text
+/nix/store
+```
+
+incluindo outra libc quando necessário.
+
+Conceitualmente:
+
+```text
+CSOS
+│
+├── kernel
+│
+├── userspace base / musl
+│
+└── Linux ABI
+       │
+       ├── programa musl
+       │
+       └── programa Nix
+              └── glibc própria
+```
+
+As duas continuam utilizando a ABI Linux fornecida pelo kernel CSOS.
+
+---
+
+# Critério de suporte ao Nix
+
+Nix só será considerado funcional quando executar dentro do próprio CSOS.
+
+Executar Nix no host Windows/Linux utilizado para compilar o projeto não conta.
+
+O smoke test mínimo deve validar:
+
+```text
+filesystem
+/proc
+/sys
+/dev
+processos
+exec
+pipes
+permissões
+mmap
+futex
+sockets
+rede
+DNS
+TLS
+certificados
+```
+
+Depois:
+
+```bash
+nix profile install nixpkgs#hello
+hello
+```
+
+e:
+
+```bash
+nix profile install nixpkgs#curl
+curl https://example.com
+```
+
+também devem funcionar dentro do CSOS.
+
+Após reboot:
+
+```text
+/nix/store
+```
+
+e os profiles instalados devem continuar disponíveis.
+
+Não implementar compatibilidade preventivamente apenas porque Nix pode precisar dela.
+
+A regra continua sendo:
+
+> implementar requisitos reais encontrados durante execução real.
+
+---
+
+# Nix não significa Steam pronto
+
+Fazer Nix funcionar não significa automaticamente que Steam funcionará.
+
+Steam possui requisitos adicionais relacionados a:
+
+```text
+Linux ABI
+FHS
+namespaces
+processos
+IPC
+GPU
+Vulkan
+áudio
+input
+runtime
+filesystem
+```
+
+Portanto:
+
+```text
+Nix funcionando
+      ≠
+Steam funcionando
+```
+
+Steam continua sendo uma milestone posterior.
 
 ---
 
 # Arquitetura
 
-O CSOS utiliza seu próprio kernel enquanto fornece a compatibilidade Linux necessária para Steam e Counter-Strike 2.
+O CSOS utiliza seu próprio kernel enquanto fornece a compatibilidade Linux necessária às aplicações.
 
 ```text
                     ┌──────────────┐
@@ -106,41 +549,56 @@ O CSOS utiliza seu próprio kernel enquanto fornece a compatibilidade Linux nece
                            │
           ┌────────────────┼────────────────┐
           │                │                │
-       Memória         Scheduler         Drivers
+       Memory          Scheduler         Drivers
           │                │                │
           └────────────────┼────────────────┘
                            │
-                    Userspace Linux
-                       compatível
+                  Linux-compatible ABI
                            │
-                    ┌──────▼───────┐
-                    │    Vulkan    │
-                    └──────┬───────┘
+             ┌─────────────┴─────────────┐
+             │                           │
+       CSOS userspace                  Nix
+             │                           │
+             └─────────────┬─────────────┘
                            │
-                    ┌──────▼───────┐
-                    │    Steam     │
-                    └──────┬───────┘
+                         Vulkan
                            │
-                    ┌──────▼───────┐
-                    │     CS2      │
-                    └──────────────┘
+                         Steam
+                           │
+                          CS2
 ```
 
-A compatibilidade Linux é implementada conforme os requisitos reais das aplicações, em vez de tentar reproduzir todo o kernel Linux.
+A compatibilidade Linux é implementada conforme requisitos reais.
+
+O objetivo não é reproduzir todo o kernel Linux.
 
 ---
 
 # Linguagem
 
-Código novo do CSOS é escrito principalmente em:
+Código novo específico do CSOS é escrito principalmente em:
 
 ```text
 Zig
 ```
 
-Componentes maduros existentes em C/C++ podem ser reutilizados quando reescrevê-los não trouxer benefício relevante.
+Isso não significa que todo software utilizado pelo sistema precisa ser reescrito em Zig.
 
-Componentes como Mesa, RADV, NVK, firmware e drivers complexos de GPU AMD/NVIDIA não precisam ser reescritos apenas para tornar o projeto inteiramente Zig.
+Componentes maduros existentes em C/C++ podem e devem ser reutilizados quando uma reimplementação não trouxer benefício mensurável.
+
+Exemplos:
+
+```text
+WebKit
+Mesa
+RADV
+NVK
+libdrm
+musl
+bibliotecas de userspace
+```
+
+A linguagem é uma ferramenta, não um objetivo.
 
 ---
 
@@ -164,46 +622,86 @@ AMD Radeon
 NVIDIA GeForce
 ```
 
-AMD Radeon continua como o primeiro backend de referência devido ao ecossistema aberto de AMDGPU, Mesa e RADV. NVIDIA GeForce é igualmente um requisito oficial do produto, reutilizando a stack madura disponível — driver aberto/Nouveau, NVK ou componentes oficiais redistribuíveis quando tecnicamente necessários e compatíveis com o projeto.
+O objetivo inicial não é suportar todo hardware existente.
 
-A instalação deve detectar o fabricante presente e selecionar automaticamente o
-backend suportado. Uma máquina NVIDIA não pode depender da presença de uma GPU
-AMD, e uma máquina AMD não pode depender da presença de uma GPU NVIDIA. Sistemas
-híbridos devem escolher explicitamente a GPU de display/jogo sem anunciar uma
-combinação que ainda não tenha sido validada em hardware real.
-
-O trabalho compartilhado de DRM/KMS, memória, sincronização e ABI deve ser reutilizado pelos dois backends. O segundo backend não deve atrasar a construção do primeiro caminho Vulkan funcional, mas M14 só estará completo após validar hardware AMD e NVIDIA suportado.
-
-Ordem de implementação: primeiro obter um triângulo AMD/RADV em hardware real;
-depois adaptar e validar NVIDIA/NVK ou stack compatível. Essa ordem define
-sequenciamento, não prioridade de produto: o suporte NVIDIA não é opcional.
-
-O alvo não é apenas detectar uma placa NVIDIA ou obter framebuffer. Suporte
-NVIDIA significa inicialização, gerenciamento de memória, filas, sincronização
-e um triângulo Vulkan em uma GeForce real suportada. Até essa validação existir,
-o backend permanece experimental e não pode ser anunciado como funcional.
-O instalador e o sistema instalado devem funcionar em uma máquina somente com
-GPU NVIDIA, sem depender de firmware, hardware ou inicialização AMD. A família
-GeForce e a combinação de driver/backend Vulkan efetivamente validadas devem
-ser registradas; outras famílias permanecem experimentais até repetirem a mesma
-prova em hardware real.
-
-O requisito NVIDIA não implica compatibilidade com todas as GeForce. A matriz
-de suporte deve distinguir modelos validados, experimentais e não suportados,
-com evidências reproduzíveis para cada modelo anunciado como funcional.
-
-Estado em 2026-09-07: o caminho NVIDIA está **0% validado em hardware**. A
-infraestrutura compartilhada existente não conta como suporte NVIDIA entregue.
-M14 continuará aberta até uma GeForce real suportada concluir inicialização,
-display, memória, filas, sincronização e triângulo Vulkan reproduzível usando
-Nouveau/NVK ou outra stack compatível e legalmente redistribuível. Esse gate é
-anterior a Steam Runtime, Steam e CS2.
+O suporte deve crescer baseado em hardware real e casos concretos.
 
 ---
 
-# Autoconfiguração de Hardware
+# AMD e NVIDIA
 
-O CSOS foi projetado para configurar-se para a máquina onde foi instalado.
+AMD Radeon e NVIDIA GeForce são requisitos oficiais.
+
+AMD permanece como primeiro backend de referência devido ao ecossistema aberto envolvendo:
+
+```text
+AMDGPU
+Mesa
+RADV
+```
+
+NVIDIA deve utilizar a stack madura tecnicamente apropriada, como:
+
+```text
+Nouveau
+NVK
+```
+
+ou componentes oficiais redistribuíveis quando necessários e compatíveis com o projeto.
+
+A ordem de implementação é:
+
+```text
+infraestrutura DRM/KMS compartilhada
+              ↓
+AMD/RADV
+              ↓
+triângulo Vulkan em AMD real
+              ↓
+NVIDIA/NVK
+              ↓
+triângulo Vulkan em NVIDIA real
+```
+
+Essa ordem não torna NVIDIA opcional.
+
+---
+
+# O que significa suporte de GPU
+
+Detectar uma GPU no PCI não significa suportá-la.
+
+Framebuffer também não significa suporte Vulkan.
+
+Uma GPU somente será considerada suportada depois de validar em hardware real:
+
+```text
+inicialização
+display
+memória
+filas
+sincronização
+command submission
+Vulkan
+```
+
+O gate final mínimo é:
+
+```text
+triângulo Vulkan real
+```
+
+A máquina NVIDIA deve funcionar sem uma Radeon presente.
+
+A máquina AMD deve funcionar sem uma NVIDIA presente.
+
+Sistemas híbridos devem escolher explicitamente a GPU utilizada.
+
+---
+
+# Autoconfiguração de hardware
+
+O CSOS deve configurar-se para a máquina onde foi instalado.
 
 Durante a instalação:
 
@@ -214,21 +712,35 @@ detecção de topologia
         ↓
 benchmarks limitados
         ↓
-seleção das melhores políticas
+seleção de políticas
         ↓
 hardware.csc
 ```
 
-O perfil da máquina fica em:
+Configurações padrão ficam versionadas:
 
 ```text
-/system/config/hardware.csc
+/system/config/defaults/
 ```
 
-Ele pode armazenar decisões relacionadas a:
+Configurações específicas da máquina ficam fora do checkout Git:
 
 ```text
-topologia da CPU
+/data/config/hardware.csc
+```
+
+Isso permite:
+
+```bash
+git reset --hard
+```
+
+sem destruir o tuning daquela máquina.
+
+O perfil pode armazenar decisões relacionadas a:
+
+```text
+CPU
 scheduler
 IRQ
 input
@@ -239,146 +751,156 @@ GPU
 display
 ```
 
-Descoberta pesada e benchmarks devem acontecer durante a instalação, não em todo boot.
+Benchmarks pesados não devem executar em todo boot.
 
-O boot normal deve principalmente:
+Boot normal:
 
 ```text
 validar hardware
-        ↓
+      ↓
 carregar hardware.csc
-        ↓
+      ↓
 aplicar configuração
 ```
 
-Se algum hardware mudar, apenas os componentes afetados devem precisar de novo tuning.
+Se o hardware mudar, apenas os componentes afetados devem precisar de novo tuning.
 
 ---
 
-# Modos de Jogo
+# Interface: WebKit obrigatório
 
-O CSOS possui três modos:
-
-```text
-NORMAL
-GAME
-MATCH
-```
-
-### NORMAL
-
-Funcionamento normal do sistema.
-
-Downloads, diagnósticos, serviços em background e interface completa podem funcionar normalmente.
-
-### GAME
-
-Quando um jogo estiver rodando, o CSOS reduz atividades desnecessárias e prioriza:
-
-```text
-jogo
-input
-network
-áudio
-display
-```
-
-### MATCH
-
-Modo competitivo.
-
-O objetivo passa a ser:
-
-```text
-mínima interferência possível do sistema
-```
-
-Trabalho não essencial pode ser congelado, atrasado ou desligado.
-
----
-
-# Standby de Aplicações
-
-Aplicações que não estão sendo utilizadas não precisam necessariamente continuar consumindo CPU.
-
-O CSOS utiliza um ciclo de vida:
-
-```text
-RUNNING
-   ↓
-BACKGROUND
-   ↓
-FROZEN
-   ↓
-STANDBY
-   ↓
-RESUMING
-   ↓
-RUNNING
-```
-
-Uma aplicação congelada deixa de participar normalmente do scheduler enquanto seu estado necessário permanece preservado.
-
-O modo `STANDBY` também pode liberar memória que seja seguramente reconstruível.
-
-Por exemplo, páginas limpas baseadas em arquivos podem ser descartadas e posteriormente recuperadas através de page faults normais.
-
-```text
-STANDBY
-   ↓
-usuário seleciona aplicação
-   ↓
-RESUMING
-   ↓
-RUNNING
-   ↓
-páginas são recuperadas sob demanda
-```
-
-A ideia é trazer para desktop um comportamento semelhante ao gerenciamento de aplicações de sistemas mobile, sem perder a compatibilidade necessária.
-
-Durante `MATCH`, aplicações elegíveis em background podem ser suspensas agressivamente para não competir com o CS2.
-
----
-
-# Interface Baseada em HTML
-
-Toda a interface do CSOS é projetada em:
+O desktop do CSOS deve ser implementado em:
 
 ```text
 HTML
 CSS
-Jinja
-JavaScript mínimo
+JavaScript
 ```
 
-HTML é a linguagem utilizada para construir a interface.
+com **WebKit executando dentro do userspace do CSOS**.
 
-Isso **não significa** que o CSOS precise executar um navegador tradicional ou servidor web.
-
-Arquitetura:
+A base escolhida é:
 
 ```text
-estado do sistema
-     ↓
-providers
-     ↓
-ui-runtime
-     ↓
-Jinja
-     ↓
-HTML + CSS
-     ↓
-renderer
-     ↓
-display
+WPE WebKit
 ```
 
-Os arquivos ficam em:
+O WebKit existente será reutilizado.
+
+Não será reescrito em Zig.
+
+O kernel e a integração específica do CSOS continuam prioritariamente Zig.
+
+---
+
+# Critério real de WebKit
+
+Não conta como integração:
+
+```text
+abrir um arquivo HTML
+parser HTML próprio
+renderizar tags manualmente
+mostrar preview no Windows
+mostrar preview no Linux host
+desenhar HTML sem WebKit
+```
+
+WebKit só será considerado integrado quando executar dentro do próprio CSOS.
+
+A validação deve comprovar pelo menos:
+
+```text
+WebKit executando
+      ↓
+HTML
+      ↓
+CSS
+      ↓
+JavaScript
+      ↓
+DOM
+      ↓
+input real
+      ↓
+backend CSOS
+```
+
+O runtime HTML próprio existente permanece apenas como bootstrap/fallback enquanto essa integração não estiver concluída.
+
+---
+
+# Estado do port WPE WebKit
+
+O trabalho atual está construindo a cadeia necessária para executar WPE WebKit no userspace alvo do CSOS.
+
+A cadeia cross-compilada para `x86_64-linux-musl` já avançou por componentes como:
+
+```text
+GLib
+libffi
+PCRE2
+libWPE
+libsoup
+ICU
+HarfBuzz
+libjpeg-turbo
+Epoxy
+libgcrypt
+libgpg-error
+nghttp2
+libpsl
+SQLite
+libtasn1
+xkbcommon
+libxml2
+libpng
+libwebp
+```
+
+Ferramentas host necessárias durante a geração do build também fazem parte da separação host/target.
+
+O gate `glib-compile-resources` já foi atravessado no ambiente de desenvolvimento atual.
+
+O próximo gate identificado pelo CMake é:
+
+```text
+Cairo >= 1.16
+```
+
+A progressão esperada é:
+
+```text
+dependências
+      ↓
+CMake WebKit completo
+      ↓
+WTF
+      ↓
+JavaScriptCore
+      ↓
+WebCore
+      ↓
+WPE
+      ↓
+primeiro processo WebKit no CSOS
+```
+
+Adicionar dependências somente é progresso quando o erro/gate do WebKit realmente avança.
+
+---
+
+# Interface baseada em HTML
+
+A interface do CSOS deve permanecer editável sem recompilar o kernel.
+
+Estrutura conceitual:
 
 ```text
 /system/ui/
+│
 ├── variables.conf
+├── engine.conf
 ├── providers/
 ├── scripts/
 ├── interface/
@@ -388,13 +910,27 @@ Os arquivos ficam em:
 └── styles/
 ```
 
-Isso permite alterar completamente a interface sem recompilar o kernel.
+Arquitetura:
+
+```text
+estado do sistema
+      ↓
+providers
+      ↓
+backend CSOS
+      ↓
+WPE WebKit
+      ↓
+HTML + CSS + JavaScript
+      ↓
+display
+```
 
 ---
 
-# Variáveis da Interface
+# Variáveis da interface
 
-Informações do sistema são disponibilizadas através do `variables.conf`.
+Informações do sistema são expostas através de providers controlados.
 
 Exemplo:
 
@@ -406,7 +942,7 @@ FRAME_TIME="/system/ui/providers/frame_time"
 DISPLAY_REFRESH="/system/ui/providers/display_refresh"
 ```
 
-Na interface:
+A interface pode utilizar:
 
 ```jinja
 {{ CPU_TEMP }}
@@ -425,19 +961,17 @@ Exemplo:
 </div>
 ```
 
-Templates não podem executar comandos arbitrários.
-
-Somente providers previamente registrados ficam disponíveis.
+Templates não devem executar comandos arbitrários.
 
 ---
 
-# Ações da Interface
+# Ações da interface
 
-Leitura e alteração do estado do sistema são separadas:
+Leitura e escrita são separadas:
 
 ```text
-providers → LEITURA
-scripts   → AÇÃO
+providers → leitura
+scripts   → ação
 ```
 
 Exemplo:
@@ -453,29 +987,19 @@ Exemplo:
 └── shutdown
 ```
 
-O HTML solicita uma ação autorizada:
+HTML/JavaScript solicita uma ação autorizada.
 
-```html
-<button data-action="launch_cs2">
-    JOGAR
-</button>
-```
+O backend decide se ela pode ser executada.
 
-O `ui-runtime` resolve essa ação para um script autorizado.
-
-O contrato editável do engine userspace fica em `/system/ui/engine.conf`:
-ele seleciona o backend genérico `csos_ui_backend`, o transporte wire e o
-fallback bootstrap sem colocar configuração visual no kernel.
-
-Comandos arbitrários vindos de HTML ou JavaScript não são permitidos.
+Comandos arbitrários vindos da página não são permitidos.
 
 ---
 
 # Alt+Tab
 
-O Alt+Tab do CSOS também faz parte do gerenciamento de aplicações.
+O Alt+Tab também faz parte do gerenciamento de aplicações.
 
-Ele pode apresentar:
+Exemplo:
 
 ```text
 CS2       RUNNING
@@ -484,9 +1008,34 @@ Discord   FROZEN
 Settings  STANDBY
 ```
 
-Ao selecionar uma aplicação:
+A interface visual pode ser implementada em HTML/CSS/JavaScript.
+
+O compositor continua responsável por:
 
 ```text
+surfaces
+foco
+input
+damage
+apresentação
+lifecycle
+```
+
+---
+
+# Standby de aplicações
+
+Aplicações não utilizadas não precisam continuar competindo com o jogo.
+
+Lifecycle:
+
+```text
+RUNNING
+   ↓
+BACKGROUND
+   ↓
+FROZEN
+   ↓
 STANDBY
    ↓
 RESUMING
@@ -494,60 +1043,146 @@ RESUMING
 RUNNING
 ```
 
-A própria interface do Alt+Tab pode ser construída em HTML/CSS/Jinja.
+Uma aplicação congelada deixa de competir normalmente pelo scheduler.
+
+Páginas reconstruíveis podem ser descartadas.
+
+```text
+STANDBY
+   ↓
+selecionar aplicação
+   ↓
+RESUMING
+   ↓
+page faults
+   ↓
+estado reconstruído
+   ↓
+RUNNING
+```
+
+O objetivo é aproximar o gerenciamento de aplicações desktop da eficiência encontrada em sistemas mobile sem quebrar compatibilidade necessária.
 
 ---
 
-# Processamento do Sistema na GPU
+# Modos do sistema
 
-O CSOS também explora utilizar capacidade ociosa da GPU para workloads adequados do próprio sistema.
-
-A prioridade é:
+O CSOS possui três modos:
 
 ```text
-CS2 > Display > Sistema Interativo > Compute do Sistema > Background
+NORMAL
+GAME
+MATCH
 ```
 
-O processamento não deve ficar dentro do kernel.
+## NORMAL
 
-Um worker em userspace será responsável:
+Sistema completo.
+
+Podem executar normalmente:
 
 ```text
-Sistema
-   ↓
+downloads
+Nix
+Git
+diagnósticos
+serviços
+interface
+background tasks
+```
+
+## GAME
+
+Quando um jogo está executando, o sistema prioriza:
+
+```text
+jogo
+input
+network
+áudio
+display
+```
+
+Atividades desnecessárias são reduzidas.
+
+## MATCH
+
+Modo competitivo.
+
+Objetivo:
+
+```text
+mínima interferência possível do sistema
+```
+
+Processos não essenciais podem ser:
+
+```text
+congelados
+atrasados
+suspensos
+desativados
+```
+
+Git, Nix e mecanismos de atualização não devem executar automaticamente durante MATCH.
+
+---
+
+# Processamento do sistema na GPU
+
+O CSOS pode explorar capacidade ociosa da GPU para workloads adequados.
+
+Prioridade:
+
+```text
+CS2
+ >
+Display
+ >
+Sistema interativo
+ >
+Compute do sistema
+ >
+Background
+```
+
+Compute do sistema deve ocorrer em userspace.
+
+```text
+CSOS
+ ↓
 gpu_worker
-   ↓
+ ↓
 Vulkan Compute
-   ↓
+ ↓
 GPU
 ```
 
 Possíveis workloads:
 
 ```text
-hashing de grandes volumes
+hashing
 processamento de imagens
-pré-processamento de assets
-compressão/descompressão
-outros workloads altamente paralelos
+assets
+compressão
+descompressão
+tarefas altamente paralelas
 ```
 
-Somente tarefas que realmente apresentarem vantagem devem utilizar GPU.
+Nenhuma tarefa deve ser enviada à GPU apenas porque a GPU está aparentemente ociosa.
 
-O custo completo precisa ser considerado:
+Devem ser medidos:
 
 ```text
 RAM ↔ VRAM
 PCIe
 sincronização
 latência
-uso de VRAM
-impacto no frametime
+VRAM
+frametime
 ```
 
-Uma GPU mostrando baixa utilização não significa automaticamente que toda capacidade restante esteja disponível sem custo.
-
-Durante uma partida competitiva:
+Durante MATCH:
 
 ```text
 system GPU compute = OFF
@@ -555,15 +1190,11 @@ system GPU compute = OFF
 
 por padrão.
 
-O CS2 tem prioridade.
-
 ---
 
 # Linux ABI
 
-O CSOS implementa a ABI Linux x86-64 necessária às aplicações.
-
-Syscalls são adicionadas conforme requisitos reais.
+O CSOS implementa a ABI Linux x86-64 conforme necessidades reais.
 
 Exemplos:
 
@@ -579,29 +1210,217 @@ brk
 exit
 clock_gettime
 futex
-poll / ppoll / epoll
+poll
+ppoll
+epoll
 sockets
 ioctl
 ```
 
-O contrato atual também cobre o lifecycle Linux usado pelos runtimes:
-afinidade e política do scheduler, limites de recursos, grupos/sessões,
-credenciais, robust-list, sinais básicos, `wait4`/`waitid`, `prctl` para nome
-de processo, operações vetorizadas de arquivo (`readv`/`writev`), `statx`,
-`statfs`/`fstatfs` e mutações FAT por `unlinkat`/`renameat`/`renameat2`,
-`sysinfo`, `getrandom`, `rseq` e epoll bounded (`epoll_create1`, `epoll_ctl`,
-`epoll_wait`, até 16 watches). `getrandom` atualmente usa uma fonte
-determinística de bootstrap; entropia física ainda depende da plataforma.
+Outros contratos necessários incluem progressivamente:
+
+```text
+scheduler
+afinidade
+resource limits
+credenciais
+sinais
+wait
+prctl
+readv/writev
+statx
+statfs
+getrandom
+rseq
+filesystem mutations
+```
 
 Regra:
 
-> Não implementar uma syscall porque o Linux possui. Implementar porque algum software necessário ao CSOS precisa dela.
+> Não implementar uma syscall porque Linux possui. Implementar porque algum software necessário ao CSOS precisa dela.
+
+Nix, WebKit, Mesa, Steam e CS2 serão importantes fontes reais para descobrir essas necessidades.
+
+---
+
+# SSH e desenvolvimento em hardware real
+
+Uma instalação CSOS destinada ao desenvolvimento deve eventualmente oferecer SSH.
+
+Isso permite:
+
+```text
+agente / desenvolvedor
+        ↓
+       SSH
+        ↓
+      CSOS
+        ↓
+logs / build / testes
+        ↓
+hardware real
+```
+
+O objetivo é reduzir a dependência de testes exclusivamente em QEMU.
+
+Hardware real é especialmente importante para:
+
+```text
+ACPI
+NVMe
+USB
+Ethernet
+Wi-Fi
+áudio
+GPU
+Vulkan
+suspend
+battery
+touchpad
+```
+
+---
+
+# Ciclo remoto de desenvolvimento
+
+O fluxo desejado é:
+
+```text
+alterar código
+     ↓
+commit
+     ↓
+push
+     ↓
+SSH notebook
+     ↓
+git pull
+     ↓
+reboot
+     ↓
+CSOS
+     ↓
+smoke tests
+     ↓
+logs
+```
+
+Se quebrar:
+
+```text
+CSOS não inicia
+      ↓
+Alpine Recovery
+      ↓
+SSH
+      ↓
+Git
+      ↓
+restaurar/corrigir
+      ↓
+reboot
+```
+
+Isso transforma uma máquina física em um laboratório bare-metal para desenvolvimento contínuo.
+
+---
+
+# Instalação bare-metal
+
+O objetivo mínimo do instalador é:
+
+```text
+USB UEFI
+   ↓
+CSOS installer
+   ↓
+detectar NVMe
+   ↓
+particionar
+   ↓
+instalar CSOS
+   ↓
+instalar Alpine Recovery
+   ↓
+configurar boot
+   ↓
+hardware discovery
+   ↓
+hardware.csc
+   ↓
+reboot
+```
+
+Depois:
+
+```text
+UEFI
+│
+├── CSOS
+└── CSOS Recovery
+```
+
+O boot padrão é CSOS.
+
+Recovery somente é utilizado quando necessário.
+
+---
+
+# Critério de instalação funcional
+
+Uma instalação bare-metal não está concluída apenas porque arquivos foram copiados.
+
+Deve validar:
+
+```text
+instalar
+↓
+reboot
+↓
+CSOS inicia pelo NVMe
+↓
+filesystem funciona
+↓
+input funciona
+↓
+rede funciona
+↓
+Git funciona
+↓
+SSH funciona
+↓
+git pull
+↓
+reboot
+↓
+nova versão inicia
+```
+
+Também deve existir teste negativo:
+
+```text
+versão quebrada
+↓
+CSOS não inicia
+↓
+boot Alpine
+↓
+montar CSOS
+↓
+Git
+↓
+restaurar versão funcional
+↓
+reboot
+↓
+CSOS inicia
+```
 
 ---
 
 # Roadmap
 
-O desenvolvimento é dividido em milestones:
+O desenvolvimento é dividido em milestones.
 
 ```text
 M0   Build
@@ -618,1510 +1437,492 @@ M10  Filesystem
 M11  USB/xHCI
 M12  Network
 M13  Audio
+
 M14  GPU AMD/NVIDIA + Vulkan
 M15  SDL
-M16  Hardware Discovery / Autotune (parcial: perfil gerado/verificado no boot; validação física e retuning ainda pendentes)
+M16  Hardware Discovery / Autotune
 M17  Gaming Optimization
 M18  Process Lifecycle
 M19  Standby / Memory Reclaim
-M20  HTML UI Runtime
-M21  UI Actions
+
+M20  WPE WebKit Runtime
+M21  UI Actions / Backend
 M22  Alt+Tab / Application UI
 M23  Dynamic UI
+
 M24  GPU Accelerated Shell
 M25  GPU System Worker
 M26  GPU Autotune
-M27  Steam Runtime
-M28  Steam
-M29  CS2
-M30  Final Integration
+
+M27  Bare-metal Install + Git Update + Alpine Recovery
+M28  Nix
+M29  Steam Runtime
+M30  Steam
+M31  Counter-Strike 2
+M32  Final Integration
 ```
 
-Steam Runtime, Steam e CS2 são deliberadamente as últimas etapas funcionais. Antes delas, o sistema deve estar utilizável, estável e validado com display, GPU AMD/NVIDIA, SDL, hardware discovery, ciclo de processos, standby, UI e otimizações mensuráveis.
-
-O arquivo `GOAL.md` é a fonte de verdade técnica do roadmap e das prioridades de implementação.
-
-Estimativa de progresso em 2026-09-07: **aproximadamente 40% concluído e 60% a
-fazer**. É uma estimativa ponderada por funcionalidade, não uma simples contagem
-de milestones: M0–M13 possuem fundações implementadas, mas M14 ainda não tem
-command submission nem triângulo Vulkan validados em AMD ou NVIDIA, e M15–M30
-continuam majoritariamente pendentes. O frame, dispatcher e caminho restrito do
-ioctl GFX11 já existem e são testados no host; isso não conta como validação de
-hardware.
-
-Prioridade atual: a validação de GPU física AMD/NVIDIA está temporariamente em
-standby por falta de máquina/mídia dedicada. O desenvolvimento segue no QEMU
-para SDL e interface gráfica funcional. O framebuffer já inclui um
-`WindowManager` software com janelas, foco, hit-test, composição, Alt+Tab,
-arrasto pela barra de título e fechamento por botão/`Esc`; o requisito físico de ambas as GPUs
-continua obrigatório antes de Steam/CS2.
-
-Atalhos já suportados na sessão emulada: `Alt+Tab` troca o foco, `Ctrl+M`
-minimiza/restaura, e `Ctrl+W` ou `Esc` fecha a janela focada. A barra de tarefas
-software permite restaurar janelas minimizadas.
-Enquanto Alt permanece pressionado, `Alt+Tab` mostra um switcher sobreposto com
-todas as janelas e destaque da seleção. Soltar Alt confirma; `Esc` fecha somente
-o switcher. O atalho não é encaminhado à aplicação SDL focada.
-O botão quadrado na barra de título maximiza/restaura a janela, preservando sua
-geometria anterior; `Ctrl+Seta para cima` oferece a mesma ação pelo teclado.
-O botão com traço minimiza a janela; o foco passa para a janela visível superior
-ou fica vazio, e o botão correspondente na barra de tarefas permite restaurar.
-Uma alça no canto inferior direito permite redimensionar janelas com o mouse,
-respeitando tamanho mínimo, limites da tela e a área da barra de tarefas.
-O botão `CS` da barra de tarefas abre um lançador software para `APP1` e
-`MONITOR`; aplicativos fechados podem ser criados novamente, enquanto os já
-abertos são restaurados e recebem foco.
-O lançador também é controlável por teclado: `Super` ou `Ctrl+Espaço`
-abre/fecha, setas selecionam, `Enter` inicia/restaura e `Esc` fecha somente o
-menu. O atalho alternativo evita a interceptação da tecla Super pelo host.
-O estado fixo do compositor usa armazenamento estático, evitando que a evolução
-do desktop esgote a stack inicial fornecida pelo firmware UEFI.
-O contrato SDL software inicial em `graphics/sdl.zig` já define janela/superfície
-RGBA, fila de eventos e dispositivo de áudio com validação de especificação; a
-integração completa com hardware e aplicações SDL ainda está em andamento. O
-dispositivo de áudio já expõe profundidade/disponibilidade, pausa, drenagem e
-limpeza de fila para o futuro ciclo de vida do backend.
-O formato pode ser reconfigurado com a fila vazia; trocas incompatíveis com
-frames pendentes são recusadas para preservar a integridade do áudio.
-Reaplicar o mesmo formato é permitido mesmo com frames pendentes.
-O método de reset limpa fila e pausa para reabrir uma aplicação sem estado residual.
-O boot inclui uma aplicação SDL software mínima que desenha uma superfície e a
-apresenta dentro da janela `APP1` via `blitSurface`. A aplicação consome a fila
-SDL no loop gráfico: teclado altera seu indicador superior, movimento do mouse
-atualiza uma barra, roda e botões recebem feedback visual, e `Ctrl+Q` envia o
-evento de encerramento. Os eventos são entregues apenas quando `APP1` possui
-foco. Isso valida roteamento de input e renderização em QEMU.
-`APP1` também possui entrada de texto ASCII editável: caracteres são exibidos
-com fonte bitmap completa, Backspace remove e setas esquerda/direita movem o
-cursor lógico.
-O campo também oferece `TextInput.clear()` e `Terminal.cancel()` para cancelar
-edições sem poluir histórico ou saída; cursores restaurados fora dos limites são
-normalizados antes de qualquer acesso ao buffer.
-Essa aplicação agora funciona como terminal gráfico não bloqueante: `Enter`
-executa os comandos internos `help`, `status`, `version`, `whoami`, `pwd`, `ls`,
-`echo [texto]`, `history`, `clear` e `reset`, mantendo a saída na
-janela sem interromper mouse, compositor ou outras aplicações.
-`Ctrl+R` recupera a entrada anterior do histórico quando o terminal está focado.
-O comando `cat /hello.txt` lê o arquivo virtual do initramfs e caminhos
-desconhecidos retornam erro explícito; `CAT` também aparece no help.
-Durante o boot, o terminal é conectado à VFS real por `openAt` e `read`, em vez
-de responder somente com conteúdo embutido na aplicação.
-`ls` também usa `vfs.getDents` no boot para mostrar entradas reais do diretório
-raiz.
-`stat <arquivo>` consulta `vfs.infoAt` para exibir tipo e tamanho reais no
-terminal.
-O comando `run ...` inicia applets BusyBox pelo loader de userspace real, por
-exemplo `run echo pronto` ou `run ls /`.
-`run http` também inicia o cliente HTTP userspace integrado; sua resposta
-validada é encaminhada ao terminal SDL.
-`run framebuffer` e `run drm` iniciam os probes userspace correspondentes pelo
-mesmo caminho do terminal, permitindo validar a ABI gráfica sem sair da sessão
-desktop.
-`run libdrm` e `run radv` expõem os probes de libdrm e do carregador RADV pelo
-mesmo fluxo, mantendo a preparação Vulkan/DRM exercitável dentro do desktop.
-`run gpu` executa ambos em sequência como um diagnóstico único da pilha gráfica
-userspace.
-O teste userspace de rede também publica `HTTP GET userspace ready` depois de
-enviar um GET HTTP/1.0 e receber dados pela conexão TCP emulada; a resposta é
-validada pelo prefixo `HTTP/` antes do marcador ser emitido, e os bytes da
-resposta são encaminhados ao stdout userspace para consumo por aplicações.
-Durante a execução foreground, stdout e stderr dos applets são duplicados para
-o buffer do terminal SDL e continuam disponíveis no console serial, permitindo
-usar `run` como um terminal de aplicações real.
-O status de saída também é propagado: o prompt exibe `PROGRAM EXITED N` para
-o código retornado pelo processo, ou `PROGRAM FAILED` quando o carregamento
-falha.
-Argumentos de `run` podem ser agrupados entre aspas simples ou duplas, por
-exemplo `run echo "hello world"`.
-O harness QEMU também oferece `-SmokeTerminalRun` para injetar esse fluxo pelo
-teclado e verificar o marcador serial do lançamento.
-`echo texto > arquivo` usa `openAt`/`write` para criar ou truncar um arquivo FAT
-real, tornando o terminal capaz de persistir dados durante a sessão.
-O formato `echo texto >> arquivo` preserva o conteúdo existente e acrescenta uma
-nova linha, usando o modo append do VFS.
-O runtime HTML inicial em `graphics/html.zig` já converte `h1`, `p`, `button` e
-links `a` acionáveis; links preservam o destino `href` para o gerenciador de
-navegação, separado do texto mostrado ao usuário.
-em elementos ordenados, sem alocação dinâmica, formando a base testável para
-a futura UI HTML/CSS do desktop.
-O renderer SDL reconhece as classes visuais `accent`, `muted` e `danger`;
-`SYSTEM` usa essas classes no launcher de `TERMINAL`, `MONITOR`, `FILES` e
-no botão `RESET`, mantendo foco, hit-test e ativação pelo compositor.
-`rm arquivo` remove um arquivo regular do diretório FAT raiz e devolve seus
-clusters ao espaço livre.
-`cp origem destino` copia arquivos regulares entre entradas do FAT usando as
-operações reais de leitura e escrita do VFS.
-Arquivos maiores que 8 KiB são copiados em múltiplos blocos até EOF.
-`mv origem destino` renomeia a entrada FAT diretamente, preservando seus dados.
-`touch arquivo` cria um arquivo regular vazio usando `openAt`/`write` no VFS.
-No aplicativo FILES, a tecla Delete remove o item selecionado e atualiza a lista
-sem fechar a janela.
-Espaços e tabulações nas bordas do comando são ignorados, permitindo, por
-exemplo, executar `  status  ` sem gerar um comando desconhecido.
-Setas para cima/baixo percorrem o histórico, Home/End movem o cursor, Delete
-remove à frente, `Esc` cancela a edição e `Ctrl+L` limpa a saída sem apagar o
-histórico; `Ctrl+A`/`Ctrl+E` saltam para o início/fim da linha e `Ctrl+U` limpa a
-linha atual, `Ctrl+K` remove até o fim, `Ctrl+Backspace` remove a palavra
-anterior, `Ctrl+D` apaga à direita, `Ctrl+Seta` navega entre palavras e
-`Ctrl+C` cancela a edição.
-A saída acompanha
-automaticamente as seis linhas mais novas.
-Regiões privadas de `mmap` permanecem graváveis enquanto o COW não está
-disponível, permitindo que o ELF PIE conclua seu ciclo real no QEMU.
-Superfícies SDL são compostas dentro da camada de sua própria janela, com
-clipping pela área de conteúdo. Assim, respeitam sobreposição, foco,
-minimização e redimensionamento sem desenhar sobre janelas superiores.
-Aplicações SDL podem ser relançadas com `Application.reset()`, que restaura o
-estado de execução, descarta o último evento e invalida a superfície para um
-redesenho completo.
-O backend converte RGBA8888 para a ordem nativa do framebuffer e faz alpha
-blending por pixel; cores e transparência deixam de depender acidentalmente do
-layout de bytes do GOP/QEMU.
-Um frontbuffer sombra mantém a última imagem apresentada. Após o primeiro frame
-completo, `present` compara a região suja e evita escritas MMIO para pixels
-inalterados, registrando separadamente pixels examinados e efetivamente escritos.
-`MONITOR` agora é uma segunda aplicação SDL real: mostra frames, pixels
-examinados, escritas no framebuffer e a porcentagem economizada pelo shadow
-buffer, atualizando junto com os eventos do desktop.
-Movimentos de mouse consecutivos são coalescidos quando a fila SDL está cheia,
-evitando saturação desnecessária do input.
-A posição do cursor é limitada à extensão atual antes de aplicar cada delta, e
-um evento SDL `quit` substitui o item mais antigo quando a fila está cheia para
-que a aplicação continue podendo encerrar sob carga.
-A fila HID xHCI também coalesce deltas consecutivos quando cheia, antes da fila
-SDL, sem fundir mudanças de botão ou teclado. Contadores separados expõem
-eventos coalescidos e descartes inevitáveis no log serial.
-O reclaim de standby descarta somente páginas limpas da imagem principal;
-páginas de intérprete e bibliotecas compartilhadas ficam residentes para não
-serem restauradas com cabeçalhos ELF incorretos.
-O caminho de rede correlaciona IDs DNS e sequências ICMP e descarta respostas ARP
-com MAC de emissor inválido.
-
-Verificação atual: `zig build` recompilou o EFI em `14/14` etapas e
-`zig build test` passou `41/41` etapas e `199/199` testes. O
-boot interativo agora entrega o input diretamente à sessão gráfica, sem ficar
-bloqueado pelo shell BusyBox, e publica `CSOS graphical session ready`. O shell
-será reintegrado como uma aplicação de terminal não bloqueante; isso ainda não
-é prova de Vulkan em hardware AMD/NVIDIA.
-No launcher, hover do mouse e seleção de teclado são estados separados, evitando
-que apontar para um item esconda a seleção feita por setas ou roda.
-No FILES, mover o ponteiro realça a linha sob o cursor e o clique abre o preview.
-O botão `BACK` do preview recebe realce de hover antes do clique de retorno.
-
-O NVMe não confunde mais o campo `NN` do Identify Controller com quantidade de
-discos anexados. O driver consulta a lista de namespaces ativos, rejeita NSIDs
-fora do limite anunciado e usa o primeiro NSID descoberto nos comandos de
-Identify Namespace e leitura/escrita. No QEMU, o inventário passou de 256
-slots suportados para 1 namespace realmente ativo, preservando o FAT16 e a
-sessão gráfica.
-
-A geometria do namespace também é validada antes de abrir o volume: capacidade
-zero ou maior que `NSZE`, metadata por LBA e blocos fora de 512–4096 bytes são
-recusados. A capacidade utilizável fica registrada no controlador e todo I/O
-faz verificação de limite antes de publicar um comando na fila. O disco de smoke
-test reportou `131072 blocks x 512 bytes`.
-
-O mount FAT16 passou a validar integralmente o BPB antes de navegar no disco:
-assinatura, setor de 512 bytes, cluster em potência de dois, regiões obrigatórias,
-capacidade das FATs, faixa de clusters FAT16 e tamanho total limitado pelo
-namespace NVMe. Imagens corrompidas deixam de induzir leituras além do volume.
-
-A substituição de arquivos na raiz preserva a cadeia antiga até a nova cadeia
-estar alocada, gravada e publicada no diretório. Falhas antes do commit liberam
-os clusters novos; somente depois do diretório persistir a cadeia anterior é
-recuperada. A travessia de liberação também é limitada pelo tamanho do volume,
-evitando loop infinito em uma FAT cíclica.
-
-O limite artificial de 32 clusters por escrita foi removido. A nova cadeia é
-alocada e preenchida incrementalmente, mantendo apenas seus extremos em estado;
-assim, a stack não cresce com o arquivo e o limite passa a ser a capacidade do
-volume FAT16 e o tamanho de arquivo de 32 bits.
-
-Entradas FAT agora são classificadas antes de abrir ou substituir conteúdo:
-LFNs, diretórios, rótulos e entradas apagadas não passam como arquivo regular.
-Arquivos vazios podem ser lidos como zero bytes, e uma colisão de nome com um
-objeto não regular é rejeitada sem alterar o diretório.
-
-Pacotes HID que combinam deslocamento e transição de botão agora atualizam o
-cursor antes do hit-test. Isso elimina o clique calculado na coordenada do
-pacote anterior; a movimentação compartilhada satura corretamente nas quatro
-bordas e possui cobertura de host.
-
-O launcher gráfico agora identifica corretamente `TERMINAL`, mantém `MONITOR`
-e inclui uma terceira aplicação SDL, `SYSTEM`. Ela mostra estado READY,
-capacidade em blocos do NVMe, quantidade de dispositivos USB de input e
-endpoints de áudio, podendo ser aberta/restaurada tanto por mouse quanto por
-teclado e fechada pelo mesmo lifecycle das outras janelas.
-Sua superfície é redesenhada durante o loop gráfico para refletir o estado
-atual observado, não apenas os valores do boot.
-Atalhos `Ctrl+Alt+T/M/S/F` abrem diretamente TERMINAL, MONITOR, SYSTEM e FILES;
-no FILES, o último atalho também atualiza a enumeração.
-`Ctrl+Alt+L` alterna diretamente o launcher.
-Com MONITOR focado, `Ctrl+R` zera a telemetria para iniciar uma nova medição.
-
-O FAT16 expõe agora enumeração limitada da raiz, e o launcher inclui `FILES`,
-uma quarta aplicação SDL que apresenta nomes 8.3, tamanhos reais e filtro
-case-insensitive editável por teclado. O boot QEMU
-encontrou sete arquivos no volume e publicou a superfície antes da sessão
-gráfica ficar pronta.
-
-Esse incremento expôs um estouro latente da stack UEFI no autoteste de rollback
-GART. Captura, aplicação e restauração deixaram de copiar grandes snapshots e
-transactions por valor no boot; o teste usa o workspace global já reservado e
-operações in-place. Marcadores individuais tornam futuras falhas localizáveis.
-
-`FILES` deixou de ser um snapshot limitado às primeiras sete linhas: coleta até
-32 entradas, oferece viewport de sete linhas e move a seleção com setas ou roda
-do mouse. Enter registra o nome/tamanho selecionado. O boot mais recente
-enumerou as 14 entradas reais do volume e manteve a sessão gráfica pronta.
-
-Enter agora abre uma prévia real do arquivo selecionado, lendo de forma limitada
-os primeiros 192 bytes pelo FAT16. Texto preserva linhas e bytes binários ou de
-controle são sanitizados; Esc retorna à lista sem fechar a janela, formando o
-ciclo básico listar → abrir → voltar.
-
-As linhas de `FILES` também possuem hit-test no conteúdo da janela. Um clique
-seleciona a linha visível correspondente mesmo depois de rolar o viewport, sem
-transformar o gesto em arraste; linhas vazias e o espaço entre linhas são
-ignorados com segurança.
-
-O fluxo de arquivos não depende mais do teclado: clicar numa linha abre sua
-prévia, e o botão `BACK` da própria superfície retorna à lista. O hit-test do
-botão é recortado pela área útil da janela, inclusive após move, resize ou
-maximize.
-
-`FILES` relê a raiz FAT16 ao ser aberta ou restaurada e também por F5 ou
-`Ctrl+R`. A seleção
-e o início do viewport são preservados quando ainda válidos e reduzidos para a
-nova contagem quando arquivos desaparecem; voltar ao launcher nunca mostra uma
-lista permanentemente obsoleta.
-No launcher, `1`–`4` selecionam diretamente as aplicações; `Alt+F4` fecha a
-janela focada e `Alt+F10` alterna maximização.
-`Space` também confirma a aplicação selecionada, como alternativa a `Enter`.
-
-Prévia de arquivo agora é paginada sem carregar o objeto inteiro: Page Down,
-Page Up, Home e roda do mouse navegam blocos de 192 bytes, com limites no início
-e no EOF. O cabeçalho mostra o offset atual, permitindo inspecionar arquivos
-maiores mantendo consumo fixo de memória.
-
-O runner QEMU possui `-SmokeDesktopFiles`: após o marcador de sessão pronta,
-abre um monitor HMP local efêmero e injeta a sequência launcher → FILES →
-prévia → Page Down → Page Up → Esc. O teste exige simultaneamente launch do app
-4, arquivo selecionado, offsets 192/0 e prévia fechada no serial, e sempre
-encerra o emulador. Esse fluxo substitui o boot passivo em `test-system.ps1`.
-O mesmo runner aceita `-SmokeDesktopMouse`: conecta um mouse USB emulado,
-injeta movimento relativo em múltiplos passos, um evento de roda e um ciclo
-esquerdo pressionar/soltar, exigindo os marcadores de movimento, roda e ambos
-os estados no serial. O smoke combinado
-de `test-system.ps1` cobre teclado e mouse no mesmo boot e encerra o QEMU.
-
-O loader ELF valida o fim do trecho de arquivo e os endereços de destino e
-origem usados na cópia de cada página PT_LOAD. Isso mantém carga e retomada de
-páginas fora dos limites como falhas explícitas, sem depender de hardware
-físico.
-
-O scheduler contabiliza o sono de um grupo apenas para threads realmente
-`sleeping`; timers preservados em threads congeladas não aparecem como tempo
-restante falso.
-A pilha inicial ELF valida reservas de strings, bootstrap e vetores
-`argv`/`auxv` antes de escrever, retornando `InitialStackOverflow` quando o
-espaço não é suficiente.
-Antes de calcular `AT_PHDR`, ela valida tamanho, multiplicação e limites da
-tabela de programas, rejeitando cabeçalhos fora da imagem.
-O loader também valida as somas de base dos construtores e os limites dos
-headers e da string do interpretador antes de produzir ponteiros executáveis.
-A busca de `DT_NEEDED` valida a tabela de programas e a soma dos offsets de
-strings antes de consultar a imagem.
-As regiões bloom/bucket/chain de `.gnu.hash` agora usam multiplicações e somas
-checked antes de serem indexadas.
-O contador de símbolos também rejeita overflow ao avançar pelas chains, em vez
-de permitir embrulho e loop infinito.
-Falhas de leitura de objetos compartilhados agora fecham o descritor antes de
-retornar, preservando recursos do processo.
-A resolução de caminhos DRM evita overflow ao comparar prefixos e sufixos
-fornecidos pelo processo antes de criar slices.
-O linker de símbolos também usa soma checked para bases de consumidor e
-provedor antes de aplicar relocations.
-Relocations com índice fora da tabela são rejeitadas antes de ler entradas de
-24 bytes, incluindo overflow na conversão do offset para `usize`.
-O parser dinâmico também valida o tamanho da tabela contra o buffer e protege
-os saltos e offsets das tabelas de versões.
-As leituras de `versym` passaram a validar o endereço completo e o tamanho
-restante do buffer antes de acessar o índice de versão.
-O primeiro offset da lista auxiliar de versões também é validado antes do
-primeiro acesso.
-Staging e carregamento de firmware GPU agora verificam a soma de arredondamento
-de 4095 bytes antes de calcular páginas DMA.
-O handoff PSP usa aritmética checked para a reserva e registra seus campos antes
-de validar o intervalo alinhado, evitando vazamento em falhas intermediárias.
-`amdGpuVmTableBytes` também valida explicitamente a multiplicação e o
-arredondamento do tamanho da tabela.
-A enumeração PCI agora valida ponteiros `next` de capabilities, aceitando apenas
-offsets alinhados dentro da região padrão.
-Na inicialização E1000, anéis RX/TX e buffers individuais passam por validação
-de endereço DMA antes de qualquer programação MMIO.
-A inicialização xHCI aplica o mesmo gate aos quatro blocos DMA fundamentais
-antes de configurar os registradores de rings.
-Os caminhos HID e áudio repetem a validação para rings, buffers de relatório e
-contexts específicos de cada endpoint.
-A enumeração de dispositivos aplica o gate aos contexts de slot/input, transfer
-ring e descriptor antes de enviá-los ao controlador.
-Buffers de áudio alocados sob demanda repetem a validação DMA e não vazam a
-página quando um endereço inválido é detectado.
-
-Mapeamentos anônimos fazem rollback transacional quando uma página falha: os
-mapeamentos parciais são removidos e a memória física é devolvida ao allocator.
-O caminho de MMIO (`mapDevice`) também desfaz mapeamentos anteriores se uma
-página posterior não puder ser instalada.
-`protectMmap` e `unmapMmap` pré-validam toda a região antes da primeira mudança,
-evitando permissões ou desmontagens aplicadas apenas a um prefixo.
-Os passos são espaçados para que o dispositivo USB não coalesça toda a trajetória
-em um único relatório; cada movimento aceito registra posição e delta no serial.
-
-O inventário do host também encontrou uma AMD Radeon(TM) Graphics (`1002:164e`)
-e uma NVIDIA GeForce RTX 4060 Ti (`10de:2803`), ambas ativas. Isso viabiliza a
-próxima validação física, mas detecção no host não é evidência de suporte do
-CSOS: cada GPU ainda precisa inicializar o SO e concluir seu próprio triângulo
-Vulkan, em ordem AMD e depois NVIDIA.
+A numeração pode evoluir conforme milestones existentes forem reorganizadas, mas a dependência lógica deve permanecer.
 
 ---
 
-# Estratégia de Desenvolvimento
+# Ordem real de prioridade
 
-O desenvolvimento deve seguir:
+A ordem conceitual é:
 
 ```text
-identificar bloqueio atual
-        ↓
-implementar menor solução
-        ↓
-build
-        ↓
-boot / executar
-        ↓
-observar
-        ↓
-corrigir
-        ↓
-commit pequeno
-        ↓
-continuar
+BOOT
+ ↓
+MEMÓRIA
+ ↓
+PROCESSOS
+ ↓
+FILESYSTEM
+ ↓
+INPUT
+ ↓
+REDE
+ ↓
+ÁUDIO
+ ↓
+DISPLAY
+ ↓
+UI / WEBKIT
+ ↓
+INSTALAÇÃO BARE-METAL
+ ↓
+GIT UPDATE
+ ↓
+ALPINE RECOVERY
+ ↓
+SSH
+ ↓
+NIX
+ ↓
+GPU / VULKAN COMPLETAMENTE VALIDADO
+ ↓
+OTIMIZAÇÕES
+ ↓
+STEAM RUNTIME
+ ↓
+STEAM
+ ↓
+CS2
 ```
 
-Não implementar dez milestones futuras antecipadamente.
+Algumas dessas frentes podem avançar em paralelo quando não houver dependência técnica direta.
 
-Código funcional não deve ser refatorado apenas porque outra arquitetura parece mais bonita.
+Steam e CS2 não devem antecipar a construção de um sistema operacional utilizável.
 
-Otimização começa com medição.
+---
+
+# Estado atual
+
+O CSOS já possui fundações significativas de:
+
+```text
+boot UEFI
+memória
+CPU/SMP
+scheduler
+userspace
+Linux ABI inicial
+BusyBox
+PCIe
+NVMe
+filesystem FAT
+USB/xHCI
+HID
+rede
+áudio inicial
+DRM/GPU infrastructure
+SDL software
+compositor
+janelas
+input gráfico
+terminal gráfico
+FILES
+HTML bootstrap
+```
+
+Existem testes host e QEMU cobrindo diversas partes dessas fundações.
+
+Isso não significa que todas estejam completamente validadas em hardware físico.
+
+---
+
+# Sessão gráfica atual
+
+O caminho gráfico experimental já possui conceitos como:
+
+```text
+WindowManager
+janelas
+foco
+hit-test
+composição
+mouse
+teclado
+Alt+Tab
+minimize
+maximize
+resize
+launcher
+terminal
+monitor
+system
+files
+```
+
+Esse compositor nativo não substitui o requisito final de WebKit.
+
+Ele é infraestrutura do sistema e bootstrap para permitir desenvolvimento enquanto o WPE WebKit é portado.
+
+---
+
+# Terminal
+
+O terminal gráfico já evoluiu de uma demonstração para um frontend de operações reais do sistema.
+
+A direção é que ele permita executar ferramentas reais do userspace.
+
+Exemplos existentes ou planejados:
+
+```text
+ls
+cat
+stat
+rm
+cp
+mv
+touch
+echo
+run
+```
+
+O objetivo final é permitir também:
+
+```text
+git
+nix
+ssh
+diagnósticos
+build tools
+```
+
+conforme a ABI necessária estiver disponível.
+
+---
+
+# Filesystem
+
+O filesystem deve suportar de forma confiável operações necessárias ao próprio desenvolvimento.
+
+Isso inclui progressivamente:
+
+```text
+open
+read
+write
+append
+create
+delete
+rename
+copy
+directories
+metadata
+permissions
+links
+filesystem mounting
+```
+
+FAT continua útil para bootstrap e testes.
+
+O filesystem utilizado na instalação bare-metal final deve ser escolhido conforme os requisitos reais de Git, Nix, Steam e desenvolvimento.
 
 ---
 
 # Performance
 
-O CSOS não aceita:
+O CSOS não assume que possuir menos código automaticamente significa ser mais rápido.
+
+Performance precisa ser medida.
+
+As principais métricas são:
 
 ```text
-"parece mais rápido"
-```
-
-O processo correto é:
-
-```text
-baseline
-   ↓
-medir
-   ↓
-alterar
-   ↓
-medir novamente
-```
-
-Métricas relevantes:
-
-```text
-FPS
+input latency
+frametime
 1% low
 0.1% low
-frametime p50 / p95 / p99
-scheduler latency
-input latency
-network processing latency
-audio underruns
-CPU migrations
-freeze latency
-resume latency
-memória recuperada
+FPS médio
+scheduler jitter
+network latency
+DPC/IRQ equivalent cost
+memory pressure
+boot time
+background CPU
 ```
 
-A própria instrumentação não deve se tornar uma fonte relevante de overhead.
+A prioridade é:
+
+```text
+consistência
+   >
+latência
+   >
+1% lows
+   >
+FPS médio
+```
+
+Uma otimização que aumenta FPS médio mas piora frametime pode ser rejeitada.
 
 ---
 
-# Anti-Cheat
+# Baseline
 
-O objetivo do CSOS é fornecer compatibilidade legítima com Counter-Strike 2.
+O CSOS deve ser comparado contra sistemas reais.
 
-O projeto nunca deve tentar:
+Idealmente:
 
 ```text
-alterar VAC
-hookar VAC
-bypassar VAC
-spoofar VAC
-modificar CS2 para evitar verificações
+Windows
+Linux otimizado
+CSOS
 ```
 
-Compatibilidade e performance são os objetivos.
+utilizando:
 
-Contornar anti-cheat não é.
+```text
+mesmo hardware
+mesma resolução
+mesmas configurações
+mesmo mapa/cenário
+mesma versão do jogo
+```
+
+Sem baseline reproduzível não existe afirmação séria de ganho de performance.
 
 ---
 
-# Estado Atual
+# Princípio de validação
 
-O CSOS está em desenvolvimento experimental ativo.
-
-As fundações do sistema operacional em desenvolvimento já incluem:
+O projeto distingue:
 
 ```text
-boot UEFI
-gerenciamento de memória
-SMP
-scheduler
-userspace Ring 3
-execução de ELF Linux
-Linux ABI
-BusyBox
-PCIe
-NVMe
+IMPLEMENTADO
+TESTADO NO HOST
+TESTADO EM QEMU
+TESTADO EM HARDWARE
+VALIDADO
+```
+
+Esses estados não são equivalentes.
+
+Exemplo:
+
+```text
+GPU detectada
+≠
+GPU inicializada
+≠
+Vulkan funcionando
+≠
+Steam funcionando
+≠
+CS2 funcionando
+```
+
+A documentação deve refletir o estado real.
+
+---
+
+# Definition of Done
+
+O CSOS somente poderá ser considerado funcionalmente completo quando conseguir, em hardware real suportado:
+
+```text
+boot
+↓
+hardware discovery
+↓
 filesystem
-xHCI / USB HID
-Ethernet
-USB Audio
+↓
+input
+↓
+rede
+↓
+áudio
+↓
 display
-hardware profiling
-```
-
-O trabalho atual está em M14. A base DRM/KMS compartilhada já possui nós
-primary/render, buffers GEM page-backed, mmap, framebuffer, sincronização
-binária/timeline e início da ABI de alocação AMDGPU. A preparação AMD também já
-valida o catálogo de firmware, interpreta `ip_discovery.bin`, preserva as
-versões exatas dos blocos IP, escolhe a família de backend e prepara firmware
-de segurança em páginas físicas. Os pacotes PSP v1/v2 são decompostos em
-componentes tipados e validados — como SYS_DRV, SOS, KDB, TOC, SPL e RL — sem
-confundir o payload comum com a imagem que cada comando de boot consumirá. A
-política PSP mantém a revisão MP0 exata e
-distingue host boot, autoload e TMR de boot conforme o dispatcher upstream do
-AMDGPU. A seleção física de SYS/SOS também preserva o caminho auxiliar exigido
-pelo MP0 13.0.2 sem XGMI ligado à CPU; nessa revisão, topologia desconhecida é
-rejeitada em vez de escolher firmware por suposição. Nenhuma dessas etapas,
-isoladamente, representa aceleração 3D nem
-suporte Vulkan concluído.
-
-O backend NVIDIA ainda não foi implementado nem validado. Ele será iniciado
-depois do primeiro triângulo AMD/RADV real, reutilizando a infraestrutura
-DRM/KMS, memória e sincronização que for realmente compartilhável. Essa ordem
-reduz trabalho simultâneo incompleto, mas não rebaixa NVIDIA: M14 permanece
-aberto até os caminhos AMD e NVIDIA passarem em hardware real.
-
-Os nós DRM agora também expõem a identidade PCI Linux compartilhada exigida
-pelo libdrm: major/minor de `card0` e `renderD128`, árvore mínima em
-`/sys/dev/char`, `uevent`, IDs reais de vendor/device/subsystem e vínculo ao
-subsistema PCI por `readlink`/`readlinkat`. Testes de host e Ring 3 cobrem
-`fstat`, os dois números de dispositivo, leitura dos atributos sysfs e resolução
-do subsistema pela ABI Linux do CSOS. A descoberta pelo libdrm e o RADV reais
-ainda precisa ser validada em hardware, portanto isso não conta como triângulo
-Vulkan.
-
-A ABI AMDGPU inicial também preserva por BO tamanho, alinhamento, domínio e
-flags de criação. GEM aceita alinhamentos em potência de dois acima de 4 KiB,
-incluindo os 2 MiB exigidos pelo ring GFX11 do RADV. VRAM e GTT recebem o mesmo
-alinhamento normalizado; o allocator físico preserva o padding como memória
-livre. Testes de host cobrem o allocator e GEM VRAM, sem substituir validação
-do RADV real. A ABI implementa também
-`AMDGPU_GEM_METADATA` (set/get de até 256 bytes) e
-`AMDGPU_GEM_WAIT_IDLE`. Este último retorna idle e o domínio corrente porque a
-submissão aceita ainda espera o fence físico antes de retornar;
-`AMDGPU_INFO_ACCEL_WORKING` reflete a saúde do backend após o gate físico. A VM
-possui isolamento por VMID e page tables testadas no host, e o ring gráfico já
-passa o teste PM4 privado. O encoder de submissão produz até 192 pacotes GFX11
-`INDIRECT_BUFFER` para VMIDs 1–7 seguidos de `RELEASE_MEM` com fence de 64 bits.
-`AMDGPU_CTX` já aloca, consulta e libera contextos de prioridade não privilegiada;
-`AMDGPU_BO_LIST` cria, atualiza e destrói listas validadas, mantendo os BOs vivos.
-O parser de `AMDGPU_CS` aceita até 192 chunks IB GFX, o limite de uma submissão
-do RADV atual, e prova individualmente engine, instância, ring, flags, tamanho,
-alinhamento e cobertura GPUVA legível página a página antes de tocar o hardware.
-Além dos handles persistentes de `AMDGPU_BO_LIST`, ele aceita o chunk
-`AMDGPU_CHUNK_ID_BO_HANDLES` de 24 bytes emitido pelo RADV atual, copia e valida
-as entradas de 8 bytes apenas durante a submissão, limita prioridades ao máximo
-32 do AMDGPU e rejeita a presença simultânea das duas formas de lista. Um BO
-`VM_ALWAYS_VALID` mapeado na VM é considerado residente mesmo quando não aparece
-na lista temporária, coerente com seu vínculo estável até unmap ou close.
-Sem backend CP verificado ele termina em `EOPNOTSUPP`, sem inventar sequence
-number ou estado busy. Quando o gate completo de GART/PSP/RLC/MES/CP e o teste
-PM4 passam, o kernel instala um endpoint tipado que também exige o mesmo VMID
-ligado no MMHUB; somente então o ioctl pode publicar um handle monotônico do
-contexto, depois de observar o sequence escrito pelo fence real. `AMDGPU_WAIT_CS`
-aceita GFX/instance0/ring0 e responde apenas para handles já concluídos daquele
-contexto, incluindo as sentinelas `0` e `~0`; handle futuro ou engine diferente
-falham fechados. `AMDGPU_CS` também aceita os chunks binários oficiais
-`SYNCOBJ_IN` e `SYNCOBJ_OUT`: todas as dependências e saídas são validadas antes
-do doorbell, input não sinalizado retorna timeout e outputs só são sinalizados
-depois do fence físico. Os chunks timeline `SYNCOBJ_TIMELINE_WAIT/SIGNAL` também
-são aceitos em entradas oficiais de 16 bytes: waits exigem ponto já atingido,
-signals não podem regredir e ponto zero mantém semântica binária. Flags timeline
-de wait-for-submit ainda não implementadas são recusadas sem efeitos; duplicatas
-e mais de 16 outputs também falham.
-`DEPENDENCIES` e `SCHEDULED_DEPENDENCIES` aceitam até 16 referências oficiais
-de 24 bytes entre contextos. Cada referência precisa ser GFX/instance0/ring0 e
-apontar para handle já concluído; no executor síncrono atual, “scheduled” é
-deliberadamente tão estrito quanto “completed”, pois não há estado pendente
-intermediário confiável. O
-backend do ring já possui uma transação interna separada do ioctl: exige o ring
-ocioso no WPTR confirmado, grava em ordem quatro dwords por IB e oito dwords do
-fence final, com wrap em 1024 slots, publica WPTR somente após `mfence`, toca o
-doorbell autorizado e espera simultaneamente RPTR e fence de 64 bits. O frame
-máximo possui 776 dwords e cabe integralmente no ring. Sequence só avança após
-ambas as confirmações; falha de doorbell ou timeout marca a fila como parada e
-desativa o CP, sem publicar conclusão parcial.
-
-`zig build test` agora inclui um artefato host específico para a ABI DRM AMDGPU.
-Ele executa os handlers reais de CTX, BO_LIST, CS, WAIT_CS e syncobj em buffers
-UAPI montados byte a byte, usa um endpoint contador e comprova tanto o caminho
-de fence concluído quanto a rejeição de dependência não sinalizada sem dispatch
-ou efeito colateral. Isso complementa — sem substituir — a validação em Radeon.
-
-O chunk `AMDGPU_CHUNK_ID_FENCE` também é aceito no caminho GFX síncrono. O BO
-de user-fence deve ter exatamente 4 KiB, estar em GTT, constar na BO_LIST e ter
-offset de 64 bits alinhado dentro da página. O ponteiro é resolvido antes do
-dispatch, mas o handle contextual só é gravado atomicamente depois do fence
-físico; falhas anteriores não alteram a memória do usuário. O teste direto da
-ABI verifica a ordem conjunta de user-fence e `SYNCOBJ_OUT`.
-
-As consultas `AMDGPU_INFO_HW_IP_COUNT` e `AMDGPU_INFO_HW_IP_INFO` agora refletem
-somente o backend realmente exposto: sem endpoint CP verificado, GFX tem count
-zero; o endpoint sozinho também não basta sem o perfil físico. Com ambos, apenas
-GFX instance 0/ring 0 é anunciado, usando major, minor, revision e
-`ip_discovery_version` obtidos do IP discovery validado, com alinhamento de IB de
-4 bytes e nenhuma capability adicional. O perfil agora lê o revision strap do
-NBIO, exige que seu device ID coincida com o PCI e deriva `chip_rev`,
-`external_rev` e a família UAPI pelas mesmas regras de GFX11 usadas pelo Linux.
-`AMDGPU_INFO_DEV_INFO` mantém o prefixo físico de identidade de 20 bytes e agora
-também aceita o prefixo oficial de 120 bytes até `cu_bitmap`. A tabela ATOM
-`firmwareinfo` fornece os clocks de boot e a tabela `smu_info` fornece o
-`core_refclk`; como DPM ainda não está ativo, mínimo e máximo seguem o clock de
-boot, como no fallback upstream. Tabela ausente, valor zero ou overflow fecha o
-perfil em vez de publicar clocks inventados. Pedidos de outros tamanhos ainda
-falham com `EOPNOTSUPP` para impedir que Mesa veja memória ou VA zerados como
-dados reais. Compute, SDMA e demais IPs continuam com count zero. O caminho GFX11 agora resolve os registradores oficiais
-de harvesting, seleciona cada SE/SA, combina as máscaras de fábrica e usuário e
-publica internamente a contagem e o bitmap de CUs realmente ativos; o seletor é
-sempre restaurado ao modo broadcast. O mesmo snapshot lê agora
-`CC_RB_BACKEND_DISABLE` e `GC_USER_RB_BACKEND_DISABLE`, cruza o harvesting
-global de render backends com as SAs ativas e amplia o prefixo verificável de
-`DEV_INFO` para 132 bytes, incluindo máscara de RBs, total físico de pipes e os
-oito contextos de hardware definidos pelo GFX11 suportado. A enumeração PCI
-preserva ainda geração e largura máximas anunciadas por endpoints e bridges;
-o caminho até a GPU escolhe o menor limite de cada nível, detecta hierarquia
-ausente/cíclica e amplia `DEV_INFO` para 136 bytes com `pcie_gen`. A largura é
-retida no perfil para o campo UAPI posterior.
-
-A inicialização do Mesa também exige `AMDGPU_INFO_READ_MMR_REG` para
-`GB_ADDR_CONFIG` mesmo em GFX11. O boot lê o registro físico em `0x98f8`, rejeita
-bits reservados, interleave diferente dos 256 bytes exigidos por RDNA e uma
-capacidade de SE/RB incompatível com a topologia descoberta. O ioctl expõe
-somente o pedido oficial de um dword em `0x263e`, instância broadcast e flags
-zero; qualquer outra leitura MMR continua bloqueada. Assim o RADV recebe o valor
-real usado pelo addrlib para calcular tiling, sem transformar o ioctl em acesso
-arbitrário ao MMIO.
-
-O contrato GPUVA publicado é derivado do page walker já implementado: reserva
-inferior de 64 KiB, janela baixa até o hole canônico de 48 bits, alinhamento,
-fragmento PTE e página GART de 4 KiB. O teste em compile-time confirma a primeira
-e a última página anunciadas e rejeita o início do hole. Nenhuma capability IDS
-opcional é anunciada e `ce_ram_size` permanece zero no GFX11; com isso o prefixo
-verificável de `DEV_INFO` alcança 176 bytes sem antecipar o tipo de VRAM.
-
-O parser ATOM também consome agora `vram_info` 3.0 do GFX11 discreto. Ele exige
-tabela completa, 1–8 módulos, tipo conhecido e 1–32 canais; GDDR5, GDDR6,
-HBM2/2E/3 e HBM3E são convertidos para os enums UAPI oficiais, e a largura segue
-o cálculo upstream de 16 bits por canal. Tipo ou topologia inválidos fecham o
-perfil. Com `vram_type` e `vram_bit_width` físicos, o prefixo verificável de
-`DEV_INFO` alcança 184 bytes. VCE harvesting permanece zero porque GFX11 usa
-VCN, e `gc_double_offchip_lds_buf` vem do IP discovery validado; esses campos
-estendem o prefixo para 192 bytes.
-
-Os quatro endereços e quatro tamanhos de buffers NGG permanecem zero: o Linux
-atual também deixa esses campos zerados e o CSOS não alocou tais buffers. Após
-esse bloco, `wave_front_size` vem do IP discovery físico, ampliando o prefixo
-verificável de `DEV_INFO` para 244 bytes. O parser GC passou a preservar também
-`gc_num_gprs` e `gc_num_max_gs_thds`; junto de CU/SA, TCC, profundidades GS e a
-largura PCIe já comprovados, esses dados ampliam o prefixo para 272 bytes.
-
-No GFX11, o upstream não preenche `cu_ao_bitmap`; o CSOS também não anuncia
-CUs always-on. A faixa VA alta permanece zero porque apenas a metade baixa de
-48 bits está implementada, e `pa_sc_tile_steering_override` é zero como na
-inicialização oficial. O snapshot agora lê ainda `CGTS_TCC_DISABLE` e
-`CGTS_USER_TCC_DISABLE`, recompõe a máscara física de até 24 TCCs e rejeita bits
-fora da topologia ou todos os TCCs desabilitados. Com essa máscara e os clocks
-mínimos ATOM, o prefixo verificável de `DEV_INFO` alcança 384 bytes.
-
-Para GC table 1.2+, os caches finais também passam por validação estrita:
-TCP, SQC instruction/data, instâncias GL1, tamanho GL1 e GL2 precisam ser não
-zero; o total GL1 usa multiplicação com overflow verificado. Esses seis campos
-seguem o mapeamento upstream e ampliam o prefixo de `DEV_INFO` para 408 bytes.
-O próximo campo, `mall_size`, depende da tabela MALL separada.
-
-O parser do IP discovery agora conta instâncias UMC, aplica harvesting separado
-por instância e consome MALL v2.0 com assinatura, tamanho e checksum validados.
-`mall_size_per_umc × UMCs ativos` usa multiplicação de 64 bits com overflow
-verificado; MALL ausente ou zero fecha o perfil. A máscara alta de RB permanece
-zero porque o backend suportado possui menos de 32 pipes. Assim, `DEV_INFO`
-alcança 420 bytes.
-
-Os campos finais shadow/CSA só são preenchidos pelo upstream quando CP graphics
-shadowing está realmente habilitado. Esse mecanismo ainda não está ativo no
-CSOS, e user queues também não possuem ioctl utilizável; por isso tamanhos,
-alinhamentos e `userq_ip_mask` permanecem zero deliberadamente. O ioctl aceita
-agora a estrutura UAPI completa de 444 bytes e sua forma naturalmente alinhada
-de 448 bytes, mantendo o padding zerado. Isso completa o conteúdo de
-`AMDGPU_INFO_DEV_INFO` sem anunciar capacidades inexistentes.
-
-`AMDGPU_INFO_MEMORY` também implementa a estrutura UAPI oficial de 96 bytes.
-Ela publica a VRAM física descoberta pelo GMC, a porção visível pelo BAR e as
-reservas pinned realmente registradas. GEM agora aceita o domínio VRAM oficial
-`0x4`, aloca na janela visível selada e preserva separadamente o endereço CPU
-do BAR e o endereço MC consumido pela GPU. O GPUVM usa PTE VRAM sem os atributos
-`SYSTEM/SNOOPED`; mmap usa o endereço CPU, e fechamento do handle devolve a
-reserva ao allocator. `usable_heap_size`, `heap_usage` e `max_allocation` passam
-a acompanhar dinamicamente esse estado real. A heap GTT continua page-backed e
-é calculada a cada consulta a partir das páginas livres e dos BOs ativos.
-
-A auditoria do caminho de inicialização do Mesa/RADV em
-`ac_query_gpu_info()` mostrou que, depois de `DEV_INFO` e da enumeração de IP,
-as versões dos firmwares gráficos são obrigatórias. O kernel implementa agora
-`AMDGPU_INFO_FW_VERSION` para ME, MEC e PFP, retornando `ucode_version` e
-`feature_version` extraídos dos blobs GFX11 já selecionados e validados. Apenas
-instância e índice zero são aceitos, e a consulta permanece fechada até o
-backend GFX físico estar disponível; versões sintéticas não são publicadas.
-
-O `address32_hi` exigido pelo Mesa não é um ioctl: o libdrm o calcula a partir
-dos intervalos de VA devolvidos por `DEV_INFO`. Com o low-VA do CSOS começando
-em `0x10000` e alcançando pelo menos 4 GiB, seu `vamgr_32` produz corretamente
-`address32_hi = 0`; não existe dado adicional a inventar no kernel. O mesmo
-levantamento confirmou que o RADV atual exige DRM 3.54. O CSOS anuncia 3.54
-somente quando command submission, perfil físico, memória, firmware e allocator
-VRAM estão todos instalados; antes desse gate permanece em 3.0. O bit
-`AMDGPU_INFO_ACCEL_WORKING` exige também um callback de saúde instalado somente
-após o teste PM4 físico, com fila não parada, GART e runtime VM ativos. Sem o
-callback ou ao perder a fila, o bit retorna zero. Perfis incompletos de memória
-ou firmware também impedem ativação. Esse bit significa backend operacional,
-não triângulo Vulkan validado: o libdrm o exige antes de inicializar o RADV,
-então condicioná-lo ao triângulo impediria a própria validação. Testes de host
-cobrem ausência de callback, backend inativo, ativação, perda de firmware,
-perda de saúde e remoção do endpoint; não representam prova em Radeon real.
-A auditoria usa o [libdrm 773536b1](https://gitlab.freedesktop.org/mesa/drm/-/blob/773536b1e5dde694dd743815528aff8bb2cf2cc3/amdgpu/amdgpu_device.c).
-
-O parser do IP discovery também valida
-e consome agora a tabela GC v1.0–v1.3: assinatura, tamanho, checksum, SE, SA,
-WGP/CU máximo, RB, TCC, wave size, profundidades GS e caches. Esses máximos já
-fazem parte do perfil DRM e são obrigatórios para publicar GFX, mas não são
-confundidos com o bitmap de CUs realmente ativos após harvesting.
-`AMDGPU_GEM_OP_GET_GEM_CREATE_INFO` devolve o descritor de criação original por
-ponteiro de usuário validado, e `AMDGPU_GEM_LIST_HANDLES` enumera tamanho,
-domínio, flags e alinhamento dos BOs ainda abertos. Placement em VRAM visível e
-BO page-backed no domínio GTT podem entrar no GPUVM atual; VRAM não visível
-ainda não possui mecanismo de cópia/clear e não é anunciada como capacidade
-alocável.
-
-Os flags de criação usados pelo RADV possuem comportamento explícito.
-`NO_CPU_ACCESS` impede tanto `GEM_MMAP` quanto mapeamento direto por offset;
-`VRAM_CLEARED` é satisfeito pelo clear integral feito antes de publicar o
-handle; `EXPLICIT_SYNC` corresponde ao caminho que usa apenas dependências e
-fences declarados; e `DISCARDABLE` é preservado como autorização de descarte,
-embora o CSOS ainda não faça eviction. `VM_ALWAYS_VALID` é aceito somente para
-domínios acessíveis pela GPU: no modelo atual de uma VM por processo, sem
-migração e com page tables estáveis, o BO permanece válido até unmap ou close.
-Solicitar acesso e não acesso de CPU simultaneamente, ou `VM_ALWAYS_VALID` em
-memória somente CPU, é rejeitado.
-
-O núcleo do GPUVM direto agora possui um allocator para VMIDs 1–7 (VMID0
-permanece reservado ao sistema); VMIDs 8–15 ficam reservados ao MES conforme
-o particionamento GMC11 upstream. Cada VM rastreia as 4096 páginas necessárias
-para mapear integralmente um GEM máximo de 16 MiB. Map valida alinhamento de
-4 KiB, limites do BO, flags R/W/X, overflow e o VA hole de 48 bits; overlap é
-rejeitado dentro da VM, enquanto o mesmo VA pode existir isoladamente em outra
-VM. Release remove todos os mappings antes de reciclar o VMID.
-`AMDGPU_GEM_VA` aceita as estruturas UAPI atual (64 bytes) e legada (40 bytes)
-para MAP/UNMAP imediato de páginas GTT ou VRAM conforme o backing do BO. MAP é
-transacional entre todas as
-páginas pedidas e aceita apenas R/W/X já codificados pelo GFX11; timeline,
-delayed update, PRT, MTYPE e operações CLEAR/REPLACE retornam erro enquanto não
-forem reais. UNMAP pré-valida o intervalo inteiro, e fechar um BO ainda mapeado
-retorna busy. Sem o gate real, os context registers permanecem desabilitados.
-O plano de vínculo para MMHUB 3.0/GMC11 exige o contexto previamente
-desabilitado, escreve o PD address da raiz com
-`VALID|SYSTEM|SNOOPED|BFS=9`, cobre o intervalo PFN de 48 bits, habilita
-profundidade 3 e os faults-default, e invalida somente o VMID selecionado. Bind
-e unbind possuem snapshot, readback e rollback inclusive quando o ACK de
-invalidação expira. O ioctl não autoriza MMIO quando o GART não está ativo.
-Depois que o gate explícito confirma PCI ID,
-firmware, PSP, GART e ACK, o kernel publica ao DRM uma sessão de hardware. O
-primeiro MAP faz bind da raiz; MAP/UNMAP posteriores invalidam apenas seu VMID;
-o último UNMAP ou teardown faz unbind antes de liberar as páginas. Falha de
-sincronização reverte as mudanças software e preserva o estado bound para nova
-tentativa. Sem esse gate, `GEM_VA` continua somente como preparação lógica e
-não toca MMIO. As páginas GPUVM e BOs page-backed também ficam abaixo da
-máscara DMA coerente de 44 bits usada pelo GMC11. A execução desse lifecycle em
-Radeon real ainda precisa ser validada.
-O firmware gráfico GFX11 deixou de ser tratado apenas como uma contagem de
-arquivos: a seleção agora distingue e exige PFP, ME, MEC, RLC, scheduler MES e
-MES KIQ. As imagens MES têm seus offsets e tamanhos de código/dados validados
-antes de qualquer preparação de execução. O primeiro contrato de ring segue o
-upstream com 1024 dwords, MQD alinhado a página, EOP de 2048 bytes, ponteiros de
-64 bits e doorbell obrigatório. O preflight permanece fechado enquanto
-qualquer um desses recursos, PSP, GART ou GPUVM não estiver pronto; ele ainda
-não programa o ring nem autoriza command submission.
-PFP, ME, MEC e RLC também possuem agora seleção e parsing próprios para o
-caminho pós-sOS. O formato legado separa a jump table MEC; o formato RS64
-separa instruções e stacks e exige que PFP/ME/MEC usem o mesmo formato. O
-staging físico produz payloads alinhados a 4 KiB com os tipos PSP oficiais,
-incluindo duas stacks de PFP/ME, quatro de MEC e os componentes adicionais dos
-cabeçalhos RLC 2.1–2.5. Alocação parcial é revertida e a máscara DMA de 44 bits
-é obrigatória.
-Como o protocolo PSP consome endereços GPU virtuais, esses payloads também são
-agora mapeados no GART depois das filas, firmware e página de controle MES. O
-bootstrap do ring KM/GPCOM para PSP 13.0.2 resolve C2PMSG 64/67/69/70/71 a
-partir do `ip_discovery`, exige o sOS pronto e prepara endereço, tamanho e
-comando de inicialização. O encoder `LOAD_IP_FW` reproduz o command buffer de
-1024 bytes, o frame de 64 bytes, o fence e o wrap do WPTR em dwords.
-O gate `-Damd-psp-ring=true` exige GART ativo, PCI ID exato e sOS confirmado;
-ele cria o ring, submete todos os payloads em sequência e espera um fence por
-comando. Falha de write/readback ou timeout destrói o ring e o bootstrap
-restaura seus registradores. Respostas PSP não zero são contabilizadas como
-warning, acompanhando o comportamento upstream para hardware físico. Sem o
-gate não há escrita. O passo seguinte do fluxo PSP, `rlc_resume`, agora possui
-um gate próprio (`-Damd-rlc-resume=true`). Ele constrói o Clear State Block
-GFX11 oficial de 960 dwords em uma página física abaixo da máscara DMA,
-mapeia essa página após os payloads CP/RLC e programa `RLC_CSIB_ADDR_HI/LO`,
-`RLC_CSIB_LENGTH` e `RLC_SRM_CNTL`. Cada escrita tem readback; falha restaura
-os quatro registradores. O gate exige GART ativo, PCI ID exato e todos os
-payloads PSP carregados. MES também exige esse resume concluído. A transação
-está testada no host, mas ainda não foi validada em Radeon real. Os estágios
-posteriores de CP e submissão descritos abaixo também dependem dessa validação;
-portanto isso não constitui aceleração 3D.
-O caminho de `cp_resume` também deixou de reutilizar incorretamente as filas
-MES: o ring gráfico 0 recebe uma página própria de 1024 dwords e outra para
-RPTR/WPTR, ambas zeradas, transacionais e mapeadas no GART após o CSB. O layout
-preserva o doorbell SOC21 `gfx_ring0=0x08B`, convertido para o índice 64-bit
-`0x116` e offset `0x458`. O gate `-Damd-cp-gfx=true` só abre depois de GART,
-PSP, RLC e recursos MES completos. Com ME/PFP previamente halted, ele programa
-os ranges de doorbell, `CP_RB0`, contexto e device ID, libera ME/PFP, publica o
-CSB de 960 dwords e exige RPTR=960. Em seguida, reproduz o teste obrigatório
-do upstream: um pacote `SET_UCONFIG_REG` no mesmo ring deve alterar
-`SCRATCH_REG0` de `0xCAFEDEAD` para `0xDEADBEEF` e avançar RPTR até 963. Falha
-MMIO, doorbell ou timeout restaura os registradores ou desativa o ring e força
-ME/PFP de volta a halt. O fluxo está host-tested, mas ainda requer validação
-Radeon; somente após esse teste o endpoint restrito de command submission pode
-ser instalado na ABI.
-As duas filas exigidas pelo bootstrap — scheduler MES ring0 e KIQ ring1 — agora
-recebem, cada uma, páginas físicas separadas para ring, MQD, EOP e ponteiros.
-As oito páginas nascem zeradas abaixo da máscara DMA de 44 bits e são liberadas
-em ordem reversa se qualquer alocação ou limpeza falhar. O GART reserva oito
-entradas após as três páginas PSP e fornece endereços MC distintos às filas.
-Os MQDs de 512 dwords codificam bases, EOP, RPTR/WPTR e os doorbells reservados
-`0x0b/0x0c` conforme SOC21, mas preservam `HQD_ACTIVE=0`. O preflight pode
-confirmar que os recursos estão completos sem ativar fila, tocar o doorbell ou
-autorizar command submission.
-A seleção MES agora segue a preferência upstream de GFX11: `mes_2` para o
-scheduler, com fallback explícito para `mes`, e `mes1` separado para a KIQ.
-Cada cabeçalho fornece versões, endereços de início e fatias independentes de
-código/dados; valores vazios, offsets fora da imagem e IP diferente de 11 são
-rejeitados. Os quatro payloads são copiados para alocações físicas
-transacionais e recebem entradas GART a partir da página 11, respeitando o
-limite total de 512 entradas. Isso ainda é staging: nenhum microcontrolador MES
-é iniciado por esse passo.
-O resolvedor GFX11 também localiza o bloco de registradores MES pela base GC
-correta do `ip_discovery`. Uma leitura de `CP_MES_CNTL` só considera a unidade
-seguramente parada quando os dois pipes estão em reset, ambos inativos e
-`MES_HALT` está ligado. Apenas nesse estado são construídos write-sets para
-selecionar ME3/pipe0 ou ME3/pipe1 e programar PC, bases e limites de instrução e
-dados. Os planos sempre restauram o seletor GRBM e não são executados: não há
-unhalt nem ativação escondida neste checkpoint.
-Uma transação de carga por pipe agora captura todos os registradores após
-selecionar o pipe, aplica cada write com readback e restaura o snapshot em
-ordem reversa diante de falha. O segundo pipe só é carregado depois do primeiro;
-se ele falhar, o primeiro também é restaurado. Escritas reais exigem
-simultaneamente `-Damd-gart-mmio=true`, `-Damd-mes-mmio=true` e o PCI ID exato
-em `-Damd-gart-device=0xNNNN`, além de GART ativo e nova confirmação de que MES
-continua halted. Mesmo com esse gate, a transação apenas carrega bases/PC:
-unhalt, ativação dos pipes e doorbells permanecem proibidos.
-O unhalt dos dois pipes ganhou uma transação separada e opt-in por
-`-Damd-mes-activate=true`, que só é aceita junto dos gates de carga MES, GART e
-PCI ID. A transação reprograva os PCs com MES ainda halted, libera pipe0/pipe1
-simultaneamente e consulta `CP_MES_GP3_LO` sob seleção ME3 para cada pipe. Só
-considera o handshake concluído quando scheduler e KIQ publicam versões não
-zero. Timeout ou readback incoerente restaura imediatamente reset+halt e o
-seletor GRBM neutro. Esse handshake prova vida dos microcontroladores, mas não
-inicializa HQD, não toca doorbell e ainda não habilita command submission.
-A KIQ possui agora um gate posterior, `-Damd-mes-kiq=true`. O plano deriva do
-MQD validado e seleciona exclusivamente `ME3/pipe1/queue0`: força HQD inativo,
-desabilita o doorbell, programa VMID0, bases MQD/ring, RPTR/WPTR, controle e
-estado persistente, reabilita o doorbell e grava `HQD_ACTIVE=1` por último.
-Quatorze registradores distintos são capturados antes das escritas; cada valor
-tem readback e qualquer falha restaura tudo em ordem reversa. Se a ativação da
-KIQ falhar, os dois pipes MES também retornam a reset+halt. Este estágio ainda
-não considera o scheduler pronto.
-Um gate ainda mais restrito, `-Damd-mes-kiq-test=true`, envia somente o teste
-privado de ring usado pelo upstream GFX11: cinco dwords `WRITE_DATA` escrevem
-`0xDEADBEEF` em `SCRATCH_REG0`. O kernel zera ring/RPTR, publica WPTR=5 com
-ordenação atômica, toca apenas o doorbell 64-bit da KIQ e espera a scratch com
-timeout. A abertura do doorbell valida aperture e offset exatos. Falha de
-escrita ou timeout restaura a transação HQD e força MES para reset+halt. O
-teste está coberto no host, mas ainda precisa ser executado em Radeon real;
-ele não expõe command submission à ABI e não torna aceleração disponível.
-Depois desse fence, `-Damd-mes-scheduler-map=true` pode emitir pela mesma KIQ
-o `MAP_QUEUES` de sete dwords usado pelo upstream para a fila MES scheduler
-(`ME2/pipe0/queue0`, engine 5). O MQD alvo precisa continuar com
-`HQD_ACTIVE=0`, e o ring KIQ precisa estar comprovadamente ocioso em
-RPTR=WPTR=5. O pacote é seguido por outro teste de scratch; somente scratch
-confirmada e RPTR=WPTR=17 contam como sucesso. Timeout restaura a HQD KIQ e
-leva MES a reset+halt. `SET_RESOURCES` não é usado aqui porque pertence ao
-caminho KCQ legado, não ao bootstrap da fila MES scheduler.
-O próximo frame do scheduler, `SET_HW_RSRC`, também já possui preparação
-fail-closed, mas ainda não é emitido. Uma página física zerada é mapeada no
-primeiro slot GART após o firmware e separa contexto do scheduler, query fence,
-completion fence da API e fence final. O encoder reproduz o frame upstream de
-64 dwords, preserva as três listas de bases IP e recusa VMID0 nas máscaras ou
-um conjunto HQD vazio. O plano agora deriva do `ip_discovery` as bases
-GC/MMHUB/OSSSYS, valida GFX11/MMHUB3/SDMA6 e aplica a geometria upstream:
-VMIDs `8–15`, duas GFX pipes com máscara `0x2`, quatro compute pipes com
-`0xC`, SDMA presente com `0xFC` e doorbells agregados `0x800..0x808` dentro
-do aperture. Um último gate, `-Damd-mes-scheduler-init=true`, constrói no ring
-scheduler dois frames consecutivos de 64 dwords: `SET_HW_RSRC` e
-`QUERY_SCHEDULER_STATUS`. Ele publica WPTR=128 no doorbell ring0 e só conclui
-quando o completion fence da primeira API, o fence da query e RPTR=128 forem
-observados. O timeout de 2,1 milhões de polls restaura a HQD KIQ e força MES a
-reset+halt. O caminho está host-tested e compila com toda a cadeia de gates,
-mas ainda requer Radeon real; ele não expõe command submission ao userspace.
-Para revisões MES `scheduler_version & 0xFFF >= 0x52`, o gate adicional
-`-Damd-mes-scheduler-resource1=true` executa o `SET_HW_RSRC_1` obrigatório.
-A página de controle reserva um cleaner-shader fence próprio; o frame habilita
-o contexto informativo sem inventar endereço SR-IOV e é seguido por outra
-`QUERY_SCHEDULER_STATUS`, agora com fence de sequência 2. O ring progride de
-WPTR/RPTR 128 para 256. Revisões anteriores ignoram corretamente esse estágio;
-timeout em revisão nova restaura KIQ e retorna MES a reset+halt. A validação em
-Radeon real permanece pendente.
-Para VA de 48 bits, o walker segue `PDB2[47:39] → PDB1[38:30] →
-PDB0[29:21] → PTB[20:12]`, com offset `[11:0]`. Cada nível possui até 512
-entradas de 64 bits e ocupa uma página de 4 KiB, conforme a geometria do
-AMDGPU VMPT upstream. O código já rejeita VA fora dos 48 bits; PDEs só serão
-emitidos depois que as quatro páginas físicas/VRAM do caminho forem alocadas.
-Um allocator transacional agora materializa essas quatro páginas, exige
-alinhamento de 4 KiB, rejeita endereço zero/duplicado, limpa cada página e
-libera em ordem reversa. Falha em qualquer nível devolve todos os níveis já
-alocados. O backend físico usa o allocator do kernel; o teste host injeta falha
-no terceiro nível e comprova ausência de leak.
-O lifecycle do VMID agora exige `allocate → materialize → map/unmap →
-dematerialize → release`: não é possível liberar VMID com tabelas vivas nem
-desmaterializar enquanto houver intervalos GPUVA ativos.
-O primeiro page path pode agora ser ligado: PDB2→PDB1 usa BFS=9,
-PDB1→PDB0 usa `TRANSLATE_FURTHER`, PDB0→PTB usa PDE base e a PTE final converte
-R/W/X da UAPI nos bits GFX11. Todos os níveis em RAM carregam
-VALID|SYSTEM|SNOOPED; endereços fora da máscara física, desalinhamento e
-colisão com entrada diferente são rejeitados antes de alterar a hierarquia.
-`mapSystemPage` coordena o intervalo lógico e a PTE como uma única operação:
-se path/PTE falhar, remove o mapping recém-criado. `unmapSystemPage` confirma
-flags e PTE esperada, zera a folha e só então remove o intervalo; uma PTE de
-outro BO nunca é apagada por engano.
-O planejamento dinâmico de branches agora compartilha PDB1/PDB0/PTB quando os
-índices superiores coincidem, mantém referências por página mapeada e poda
-PTB, PDB0 e PDB1 vazios durante unmap. A capacidade atual é explicitamente
-limitada a 32 PDB1, 64 PDB0 e 128 PTB por planejador, com erro em vez de
-sobrescrita ao esgotar. O manager agora materializa somente a raiz PDB2 e
-aloca as páginas PDB1, PDB0 e PTB sob demanda. Antes de publicar qualquer PDE,
-valida todos os links e a PTE; falha de alocação libera em ordem reversa as
-páginas novas e também desfaz o intervalo lógico. No último unmap de um nó, os
-links pais são zerados e as páginas vazias são devolvidas ao allocator. Testes
-host atravessam dois ramos PDB2, comprovam compartilhamento dentro do mesmo PTB
-e injetam falha durante a expansão sem deixar página ou mapping residual.
-
-O handoff PSP é mantido declarativo: KDB, SPL, SYS_DRV e SOS são ordenados como
-no fluxo upstream e apontam para suas fontes físicas validadas. Uma única área
-de transferência é reservada com alinhamento de 1 MiB, necessário para o
-endereço comunicado ao bootloader. A preparação não copia nem envia comandos
-ao mailbox; qualquer execução depende separadamente do backend MMIO, preflight
-e autorização exata do hardware no manifesto.
-
-Uma máquina de estados controla esse handoff: apenas uma imagem pode estar
-preparada ou submetida, cada submissão recebe deadline explícito e timeout torna
-o fluxo terminal. A conclusão é necessária para liberar a próxima imagem. O
-boot executa um autoteste com páginas físicas reais, compara as cópias SYS/SOS
-e valida a progressão completa sem acessar registradores da GPU.
-
-A progressão usa uma interface de transporte PSP separada, limitada a consultar
-se o sOS já está vivo, submeter um descritor preparado e observar seu estado.
-O autoteste fornece um transporte simulado e cobre conclusão, bypass de sOS já
-ativo e recusa de submissão. Adaptadores de mailbox por família ainda não estão
-habilitados; portanto essa interface não é evidência de aceleração ou boot PSP
-em hardware real.
-
-Os perfis declarativos de mailbox registram o protocolo lógico comprovado para
-as famílias com boot pelo host: endereço em C2PMSG 36, comando em C2PMSG 35 e
-sinal de vida do sOS em C2PMSG 81. SYS e SOS usam respectivamente `0x10000` e
-`0x20000`; KDB e SPL só são aceitos nas famílias cujos callbacks upstream os
-oferecem. Esses números ainda não são offsets MMIO: a tradução pelo mapa MP0
-específico da geração continua obrigatória antes de qualquer escrita.
-
-A base MP0 do IP discovery agora é obrigatória para o plano AMD. O kernel soma
-essa base aos dwords oficiais `0x63`, `0x64` e `0x91`, converte o resultado para
-offsets em bytes e rejeita overflow ou qualquer registrador que ultrapasse o
-BAR de MMIO. A resolução é somente declarativa; nenhuma escrita PSP é feita.
-
-Depois de mapear o BAR, o caminho AMD pode observar C2PMSG 35 e 81 e classificar
-o PSP como bootloader ocupado, bootloader pronto, sOS ativo ou falha reportada.
-Uma leitura `0xffffffff` é tratada como dispositivo/MMIO indisponível. Essa
-sondagem é estritamente somente leitura e não inicia o handoff.
-
-Existe agora um backend MMIO para a interface de transporte PSP, mas ele nasce
-desarmado. O arming exige um snapshot `bootloader_ready`; a submissão revalida o
-estado, escreve primeiro o endereço, aplica uma barreira de memória e só então
-escreve o comando. Falha de leitura, status de erro ou comando divergente
-desarma o transporte. Mapeamentos sem autorização apenas constroem a interface
-e mantêm `psp-write-armed: 0`, sem habilitar qualquer escrita.
-O arming também exige que o BAR tenha sido explicitamente marcado como
-uncached; apenas o caminho de mapeamento MMIO validado pode abrir esse gate.
-
-O mapeador x86-64 agora possui identity map uncached para MMIO. Quando o BAR já
-está coberto por uma página enorme write-back, ele divide somente aquela página
-de 2 MiB em folhas de 4 KiB, preserva os vizinhos e marca o intervalo solicitado
-com PCD+PWT e NX. NVMe, xHCI, Ethernet e o BAR de registradores da GPU usam esse
-caminho e verificam a política antes de acessar o dispositivo. Com essa garantia
-o backend PSP pode ser marcado `uncached`, embora continue desarmado por padrão.
-Como as folhas MMIO também são NX, o trampoline dos processadores secundários
-habilita `EFER.NXE` junto com Long Mode antes de ativar paginação.
-
-Escritas PSP exigem ainda uma autorização `psp-host-boot` na linha selecionada
-de `csos-gpu.conf`. O marcador só é aceito para AMD com device, revisão e
-subsystem IDs exatos e com os blocos `security` e `discovery` obrigatórios, por
-exemplo:
-
-```text
-1002:744c:cc@1da2:e471=amdgpu/navi31/|security,graphics,dma,discovery,psp-host-boot
-```
-
-Mapeamentos genéricos, NVIDIA ou sem os blocos necessários são rejeitados. Sem
-essa autorização o boot permanece somente leitura. Com ela, um mailbox pronto
-pode armar e executar o handoff limitado descrito abaixo; portanto o marcador
-só deve ser incluído para uma identidade Radeon deliberadamente habilitada.
-
-Antes do arming, um preflight sem efeitos colaterais valida em conjunto a área
-de transferência alinhada, a ordem SYS/SOS, todos os comandos exigidos pela
-família, o estado inicial do mailbox e os gates de MMIO/autorização. O resultado
-é exposto como `psp-preflight`; estados bloqueados continuam sem copiar payload
-para a área de transferência e sem escrever registradores.
-
-Quando o preflight retorna `ready`, o executor copia e submete uma imagem por
-vez, espera a conclusão antes da próxima e usa tanto deadline do timer APIC como
-limite de spins. Sucesso e falha desarmam o transporte; sOS já ativo encerra o
-handoff sem submissão. O arquivo padrão usado no QEMU não autoriza host boot.
-Se o primeiro snapshot autorizado encontrar o bootloader ocupado, o kernel faz
-polling estritamente somente leitura, também limitado pelo timer APIC e por
-spins, até observar `ready`, sOS ativo, erro ou timeout. O diagnóstico registra
-essa passagem em `psp-mailbox-waited`.
-
-O passo seguinte ao sOS não é TMR direto: o protocolo upstream submete TMR por
-um ring PSP com buffers de comando e fence em endereços MC válidos. Como base
-para isso, o plano GMC agora separa o BAR de registradores, o BAR 2 de doorbells
-e o aperture opcional de VRAM no BAR 0, rejeita sobreposição e mapeia somente o
-doorbell como MMIO uncached. `gtt-ready` permanece zero até page tables e
-endereços MC serem realmente programados; memória física da CPU não é anunciada
-como endereço de GPU.
-
-Uma página de tabela GTT pode agora ser preparada com PTEs de sistema
-`VALID|SYSTEM|SNOOPED|READABLE|WRITEABLE` para três páginas físicas separadas:
-ring PSP, buffer de comando e fence. A tabela e os buffers nascem zerados e o
-diagnóstico expõe `gtt-table`/`gtt-pages`, mas `active` continua falso e nenhum
-endereço MC é derivado antes da programação específica do GMC.
-
-O plano GART também preserva a diferença entre gerações observada no upstream:
-GMC 9/10 exigem GFXHUB e MMHUB, enquanto o caminho GMC 11 inicializa somente o
-MMHUB; GMC 12 volta a exigir ambos no plano atual. As bases dos hubs vêm do IP
-discovery e uma ausência é terminal. A tabela inicial cobre uma janela mínima
-de 2 MiB (512 páginas); `gart-active` permanece zero até os contextos VMID 0,
-invalidação de TLB e leitura de confirmação específicos da família existirem.
-
-Para GMC 11, o mapa MMHUB v3.0 agora resolve os registradores oficiais de
-`CONTEXT0_CNTL`, base/início/fim da page table, controles L1/L2 e invalidate
-engine 17 request/ack. Os índices em dwords são somados à base MMHUB descoberta,
-convertidos para offsets em bytes e rejeitados se excederem o BAR. A existência
-de `gart-registers` comprova somente o mapa; não ativa o contexto.
-
-O plano também distingue explicitamente o endereço físico da tabela na CPU do
-endereço MC que o MMHUB consumirá. O binding exige endereços alinhados a 4 KiB,
-uma janela sem overflow dentro dos 48 bits representáveis pelos registradores
-GMC 11 e rejeita rebinding. Enquanto nenhum mecanismo de VRAM/GTT fornecer um
-endereço MC comprovado, `gart-bound` e `gart-table-mc` permanecem zero; o kernel
-não reutiliza silenciosamente o endereço físico da CPU.
-
-A topologia GMC 11 passa a observar, sem escrita, os registradores MMHUB v3.0
-`MMMC_VM_FB_LOCATION_BASE` e `MMMC_VM_FB_OFFSET`. Os campos são convertidos das
-unidades oficiais de 16 MiB para `vram-mc-base` e `vram-mc-offset`; leituras
-`0xffffffff` são rejeitadas como MMIO indisponível. O tamanho da VRAM continua
-dependendo da descoberta NBIO e não é deduzido do tamanho do BAR 0, que representa
-somente a janela visível pela CPU. As versões NBIO 7.7, 7.9, 7.11 e NBIF 6.3.1
-usadas pelo dispatcher upstream resolvem `CONFIG_MEMSIZE` pelo terceiro base
-segment do IP discovery e convertem o valor em MiB para `vram-bytes`. Versão,
-base ausente, tamanho zero e MMIO indisponível são terminais. Mesmo com esse
-snapshot, o binding aguarda reservar uma tabela dentro de VRAM visível.
-
-A janela visível agora preserva a tradução usada pelo TTM upstream: offset zero
-do BAR 0 corresponde ao início MC da VRAM e `visible = min(BAR, VRAM real)`.
-O framebuffer entregue pelo firmware precisa caber integralmente nessa janela;
-se couber, sua faixa CPU é convertida e registrada como `framebuffer-mc`, nunca
-tratada como espaço livre. Isso ainda não escolhe uma página para a tabela: o
-AMDGPU original faz essa reserva por BO/TTM antes de copiar e piná-la.
-
-O allocator bootstrap de VRAM agora modela essa disciplina: inicia com o
-framebuffer reservado, normaliza intervalos de firmware sobrepostos/adjacentes e
-recusa qualquer alocação enquanto o mapa não estiver explicitamente selado.
-Depois do selo, aloca de cima para baixo com alinhamento power-of-two, registra
-cada faixa como pinned e devolve os endereços CPU e MC correspondentes. O boot
-ainda não sela o mapa, pois as demais reservas PSP/VBIOS não foram enumeradas;
-portanto nenhuma page table é copiada para VRAM nesta etapa.
-
-O mapa de boot GMC 11 também normaliza como ocupado todo o prefixo da VRAM até
-o fim do framebuffer pré-OS, seguindo a reserva VGA/scanout do upstream. Quando
-IP discovery usa TMR, os últimos 64 KiB da VRAM real também são reservados se
-caírem na janela CPU-visível; caudas fora do BAR já são inalocáveis por este
-allocator. O selo continua fechado até conhecer a reserva firmware completa.
-
-Como pré-requisito para importar `vram_usagebyfirmware`, a descoberta PCI sonda
-também o Expansion ROM BAR de dispositivos display header type 0. O kernel mapeia
-essa janela sem cache, habilita o decode somente durante uma cópia para RAM e
-restaura tanto o command register quanto o ROM BAR antes de interpretar qualquer
-byte. O boot confirma a restauração e libera o buffer temporário imediatamente;
-em QEMU, `rom-read: 1` e `rom-restored: 1` validam esse ciclo sem executar a ROM.
-
-O parser ATOM puro valida a assinatura PCI, o tamanho declarado da imagem, todos
-os limites dos headers ROM/master/data e decodifica
-`vram_usagebyfirmware` 2.1 e 2.2+. Por enquanto esses campos são apenas
-diagnóstico (`atom-fw-kib`/`atom-driver-kib`): a semântica upstream reserva as
-faixas estáticas sobretudo para SR-IOV, então o allocator bare-metal não deve
-tratar esses números indiscriminadamente como VRAM ocupada.
-
-O mesmo parser extrai `firmwareinfo` 3.4/3.5 e usa
-`fw_reserved_size_in_kb` para a cauda bare-metal do TMR; se o campo não existir
-ou for zero, aplica o fallback upstream de 64 KiB. Quando a capability de
-treinamento em dois estágios está presente, também reserva o bloco GDDR6 de
-4 KiB na posição alinhada usada pelo AMDGPU. Com scanout, TMR e treinamento
-enumerados, o mapa firmware é selado. A page table GART de 4 KiB então recebe
-uma alocação pinned na VRAM visível, é copiada pela janela CPU sem cache e o
-plano passa a carregar endereços CPU/MC distintos e a janela virtual alta. Isso
-ainda não ativa o GART nem escreve os registradores MMHUB.
-
-O mapa MMHUB v3.0 foi ampliado para toda a sequência de ativação usada pelo
-upstream: aperture AGP/sistema, páginas default e de fault, controles L1/L2,
-identity aperture, VMID 0–15 e ranges dos 18 engines de invalidação. O conjunto
-de 141 registradores mutáveis é enumerado sem duplicatas para formar o snapshot
-de rollback da futura transação. Os seis valores do aperture GART também são
-pré-calculados, incluindo o bit `AMDGPU_PTE_VALID` no endereço raiz e as unidades
-de página exigidas pelos registradores. O boot expõe
-`gart-aperture-ready`/`gart-rollback-registers`, mas mantém `gart-active: 0`.
-
-O system aperture agora também possui seus recursos reais: uma scratch page
-pinned de 4 KiB na VRAM visível e uma dummy page de 4 KiB na memória física.
-A tradução do endereço MC da scratch segue `mc - vram_start +
-vram_base_offset`; ambas são zeradas antes do uso e rejeitadas fora dos 48 bits
-aceitos pelo hardware. Falhas durante a preparação liberam a página física e a
-alocação VRAM pode ser removida do allocator selado sem afetar reservas de
-firmware. Os valores AGP desabilitado, limites da VRAM e endereços default/fault
-em unidades de página são pré-calculados em `gart-system-aperture-ready`, ainda
-sem qualquer escrita MMIO.
-
-A infraestrutura de transação do MMHUB captura os 141 registradores antes da
-primeira escrita, restringe cada operação a um offset incluído no snapshot e
-confirma o valor por readback com máscara. Em falha de escrita ou leitura, tenta
-restaurar todos os registradores em ordem reversa e depois verifica cada valor;
-uma falha persistente de rollback é reportada separadamente. O self-test de boot
-exercita sucesso, restauração explícita, falha transitória com rollback automático,
-falha persistente no meio do conjunto e falha de captura. O transporte usado no
-teste é inteiramente em memória; o transporte MMIO real permanece desarmado.
-
-O write-set de bootstrap contém 80 operações ordenadas. Ele programa a page
-table e a janela GART, system aperture, páginas default/fault, TLB L1, cache L2,
-VMID0, fechamento da identity aperture e os 18 ranges de invalidação. Campos
-RMW são calculados a partir do snapshot. Os VMIDs 1–15 são explicitamente
-mantidos desabilitados até existir o gerenciador de page directories de
-processos; registradores com bits de invalidação auto-limpáveis usam máscara de
-readback apropriada. O self-test aplica e restaura o write-set inteiro sem MMIO.
-Depois da programação, o handshake de invalidação usa o engine 0 e VMID0:
-publica `0x00f80001` (PTE, PDE0/1/2 e L1), espera o bit de ACK com limite de
-polls e retorna timeout explícito. O banco sintético cobre ACK tardio e timeout;
-o snapshot integral continua sendo a origem do rollback antes de qualquer
-ativação real. A ativação é atômica: aplica as 80 escritas, exige o ACK e, se o
-handshake falhar, restaura todos os registradores mutáveis em ordem reversa e
-zera o estado da transação. `zig build test` executa esse caminho no host sem
-depender da stack reduzida da entrada UEFI.
-
-O transporte MMIO GMC 11 agora é um gate separado do planejamento: ele só lê
-ou escreve quando a BAR de registradores é não-prefetchable, está mapeada como
-uncached, o dispositivo é AMD `0x1002`, a autorização foi concedida e `arm()`
-foi chamado explicitamente. A autorização exige que todos os firmwares
-selecionados tenham sido validados, que exista firmware de segurança, IP
-discovery GMC 11 compatível, tabela e janela GART vinculadas e os 141
-registradores de rollback enumerados. A autorização ocorre somente depois de
-PSP `sos_alive` ou do handoff host terminar, seguindo a dependência de segurança
-e TMR da sequência AMDGPU. Em Radeon elegível o boot concede essa
-autorização, mas mantém `gart-write-armed=0`; o teste nativo prova que firmware
-parcial, acessos antes de armar e tentativas sem autorização são rejeitados.
-
-Snapshot, conjunto de escritas e estado da transação vivem agora em um
-`AmdGmc11ActivationWorkspace` persistente, fora da stack de boot. A API separa
-`prepare`, `commit` e `rollback`: prepare captura os 141 registradores e monta
-as 80 escritas; commit só marca ativo depois do ACK; rollback restaura o
-snapshot. Timeout limpa `prepared/active` e não deixa uma transação fantasma.
-O workspace real nasce com `gart-activation-prepared=0` e
-`gart-activation-committed=0` até o gate de hardware real ser explicitamente
-armado.
-
-A execução real permanece opt-in e presa ao modelo exato. É necessário fornecer
-`-Damd-gart-mmio=true -Damd-gart-device=0xNNNN`; ID ausente ou diferente do PCI
-detectado causa panic antes de `arm()`. Só após todos os gates o caminho faz
-`arm → prepare → commit → disarm`; o plano só
-recebe `gart-active=1` depois do ACK. Falha de preparação desarma sem escrever;
-falha/timeout no commit restaura o snapshot antes do panic. Sem a opção (padrão),
-o caminho é compilado e testado, mas nenhuma escrita GMC é realizada.
-Um teste real também registra `gart-snapshot-digest`, `gart-write-digest` e
-`gart-invalidate-polls`; os digests FNV-1a permitem comparar exatamente o
-estado capturado e a transação entre boots sem despejar conteúdo sensível ou
-centenas de registradores na serial.
-
-Com a faixa real conhecida, o candidato `gart-window-start/end` segue a política
-`AMDGPU_GART_PLACEMENT_HIGH`: limita o espaço MC antes do VA hole de 48 bits,
-posiciona a janela no topo e alinha sua base a 4 GiB. Overflow, faixa VRAM
-inválida e sobreposição são rejeitados. Esse candidato ainda não define
-`gart-bound`, pois o endereço MC da própria page table continua ausente.
-
-As capacidades PSP são tratadas separadamente: `autoload_supported`, TMR de
-boot e presença de callbacks host para carregar SYS/SOS não são sinônimos. O
-handoff host só é construído para as famílias em que o `psp_funcs` upstream
-expõe `bootloader_load_*`. PSP v10, v11.0.8 e v15 seguem o caminho já iniciado
-pela plataforma e não são rejeitados por ausência de um pacote SOS combinado.
-
-Os próximos incrementos de GPU devem privilegiar adaptação e reutilização do
-AMDGPU/RADV e, depois, Nouveau/NVK compatíveis. O código Zig existente serve de
-ponte de kernel, DRM e plataforma; ele não autoriza reimplementar integralmente
-um driver Radeon ou NVIDIA moderno antes do primeiro frame Vulkan.
-
-AMD Radeon e NVIDIA GeForce são requisitos oficiais. AMD é o primeiro backend
-de referência; depois do primeiro triângulo RADV, o caminho NVIDIA deve ser
-validado com NVK/stack compatível em hardware explicitamente suportado. M14 não
-será considerada concluída com apenas um dos fabricantes.
-
-O instalador e o perfil `hardware.csc` deverão registrar fabricante, PCI ID,
-família, driver e backend Vulkan selecionados. O suporte NVIDIA não é um bônus
-pós-CS2: ele integra M14 e precisa estar funcional antes de SDL, interface e
-Steam/CS2 serem considerados concluídos no produto final.
-
-O suporte será registrado por fabricante, família de GPU e caminho Vulkan.
-Detecção PCI ou display básico não bastam: cada entrada só pode ser marcada
-como funcional depois de inicialização, memória, filas, sincronização e um
-triângulo Vulkan passarem em hardware real. Até lá, AMD e NVIDIA permanecem
-como trabalho de M14, e Steam/CS2 continuam bloqueados atrás das milestones do
-sistema operacional.
-
-O Mesa/RADV 26.3.0-devel fixado já possui um cross-build headless completo para
-Linux x86-64 musl: os 770 passos produziram `libvulkan_radeon.so` ELF64 com
-version script, runtime oficial de detecção de CPU e somente os três entrypoints
-ICD públicos. O artefato já foi carregado pelo CSOS no probe descrito abaixo,
-mas ainda não foi executado em uma Radeon real; portanto não conta como command
-submission ou triângulo Vulkan.
-
-O runtime stripado também já foi colocado numa imagem FAT16 opcional junto de
-libdrm, zlib e musl. O VFS expõe seus nomes Linux em `/usr/lib`, e um probe Ring
-3 carregou os cinco ELF, aplicou relocations/TLS, chamou o entrypoint de
-negociação do ICD e recuperou todas as páginas. Isso valida loader e filesystem,
-não inicialização Vulkan nem execução na GPU.
-
-O incremento seguinte adicionou a ordem real de construtores ELF
-(`DT_INIT`/`DT_INIT_ARRAY`). A musl 1.2.5 compartilhada real, compilada com PIC
-e auditada, agora fornece o runtime executável; bootstrap TLS, construtores do
-RADV e descoberta DRM/KMS passam no probe de boot limitado. O QEMU expõe zero
-dispositivos Vulkan, então filas, dispositivo e triângulo ainda dependem de
-uma Radeon física.
-
-O grande próximo desafio continua sendo a stack gráfica:
-
-```text
-AMDGPU/RADV e NVIDIA/NVK
+↓
+WebKit UI
+↓
+Git
+↓
+SSH
+↓
+Nix
 ↓
 Vulkan
-↓
-SDL
 ↓
 Steam Runtime
 ↓
 Steam
 ↓
-Counter-Strike 2
+CS2
+↓
+partida completa
+```
+
+E também:
+
+```text
+git pull
+↓
+reboot
+↓
+nova versão
+```
+
+com recuperação possível através de:
+
+```text
+Alpine Recovery
+↓
+Git
+↓
+CSOS restaurado
 ```
 
 ---
 
-# Build
+# O que o CSOS não pretende ser
 
-Para repetir as regressões da base do SO, com o checkout libdrm fixado descrito
-em `docs/radv-bringup-audit.md` disponível:
+O CSOS não pretende:
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/test-system.ps1
+```text
+substituir Linux para uso geral
+suportar todo hardware existente
+possuir milhares de pacotes próprios
+reimplementar todo GNU/Linux
+reescrever WebKit
+reescrever Mesa
+reescrever drivers modernos sem necessidade
+ser uma distribuição tradicional
+ser imutável
+ser impossível de quebrar
 ```
 
-O comando roda testes de host, compila o probe libdrm original e exige o console
-em dois boots QEMU: normal e combinado AMDGPU ABI/libdrm pós-GPU. Cada execução
-QEMU tem prazo e encerramento automático. Passar essa suíte não comprova Vulkan
-em hardware real nem conclusão do SO.
+Ele pretende ser:
 
-Para preparar e compilar o perfil headless RADV, depois dos checkouts e
-dependências fixados descritos em `docs/radv-bringup-audit.md`:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/build-compiler-rt-cpu-model.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/build-musl-runtime.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/configure-radv.ps1 -Wipe
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/build-radv.ps1
+```text
+pequeno
+direto
+aberto
+hackável
+recuperável
+mensurável
+orientado a jogos
 ```
 
-`build-musl-runtime.ps1` cria automaticamente a configuração out-of-tree com
-a revisão musl e o toolchain Zig fixados quando ela ainda não existir. Quando
-ela já existe, arquitetura, PIC, checkout, compilador, archiver e diretório de
-runtime são auditados antes de recompilar ou alterar o staging.
+---
 
-Esse build não inicia QEMU e não substitui a validação em hardware AMD real.
+# Princípio final
 
-Depois de uma execução em Radeon real, o gate intermediário de dispositivo,
-fila e submissão pode ser verificado informando o PCI device em decimal:
+A arquitetura do projeto pode ser resumida assim:
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/verify-radv-hardware-log.ps1 -SerialLog <serial.log> -ExpectedDevice <device-id>
+```text
+              ┌──────────────┐
+              │     Git      │
+              │ fonte verdade│
+              └──────┬───────┘
+                     │
+                     ▼
+              ┌──────────────┐
+              │     CSOS     │
+              │ experimental │
+              └──────┬───────┘
+                     │
+          ┌──────────┼──────────┐
+          │          │          │
+          ▼          ▼          ▼
+        Nix       WebKit      Vulkan
+          │          │          │
+          ▼          ▼          ▼
+        Apps         UI        Steam
+                                │
+                                ▼
+                               CS2
+
+Se CSOS quebrar:
+
+              ┌──────────────┐
+              │    Alpine    │
+              │   Recovery   │
+              └──────┬───────┘
+                     │
+                    Git
+                     │
+                     ▼
+                   CSOS
 ```
 
-Esse verificador não declara triângulo ou apresentação concluídos; eles possuem
-critérios separados em M14.
+Em uma frase:
 
-Para exigir também a enumeração física de display, modo e plano Vulkan:
+> **CSOS é um sistema operacional experimental para jogos onde Git é a fonte da verdade, Nix fornece o ecossistema de software e Alpine garante que experimentar e quebrar o sistema continue sendo barato.**
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/verify-radv-hardware-log.ps1 -SerialLog <serial.log> -ExpectedDevice <device-id> -RequireDisplayEnumeration
+---
+
+# Desenvolvimento
+
+O `GOAL.md` é a fonte de verdade técnica para prioridades, critérios de aceitação e Definition of Done.
+
+O README descreve a arquitetura e a filosofia do projeto.
+
+Implementações devem seguir o estado real do código e das validações.
+
+Não aumentar porcentagens ou declarar milestones concluídas apenas porque documentação, stubs ou testes de host foram adicionados.
+
+O que importa é o caminho funcional:
+
+```text
+código
+ ↓
+build
+ ↓
+boot
+ ↓
+execução real
+ ↓
+hardware real
+ ↓
+medição
 ```
 
-Para exigir também criação e destruição de uma display-plane surface válida:
+---
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/verify-radv-hardware-log.ps1 -SerialLog <serial.log> -ExpectedDevice <device-id> -RequireDisplayEnumeration -RequireDisplaySurface
-```
+# Licença
 
-Para exigir ainda que o conector DRM/KMS tenha sido associado e adquirido pelo
-Vulkan através de `vkGetDrmDisplayEXT`/`vkAcquireDrmDisplayEXT`:
+A licença do CSOS e as licenças dos componentes reutilizados devem ser respeitadas individualmente.
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/verify-radv-hardware-log.ps1 -SerialLog <serial.log> -ExpectedDevice <device-id> -RequireDisplayEnumeration -RequireDisplaySurface -RequireDrmDisplayAcquisition
-```
-
-Para exigir também criação da swapchain e enumeração das imagens:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/verify-radv-hardware-log.ps1 -SerialLog <serial.log> -ExpectedDevice <device-id> -RequireDisplayEnumeration -RequireDisplaySurface -RequireDrmDisplayAcquisition -RequireDisplaySwapchain
-```
-
-Para exigir aquisição de uma imagem, clear azul sincronizado e conclusão de
-`vkQueuePresentKHR`:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/verify-radv-hardware-log.ps1 -SerialLog <serial.log> -ExpectedDevice <device-id> -RequireDisplayEnumeration -RequireDisplaySurface -RequireDrmDisplayAcquisition -RequireDisplaySwapchain -RequireClearFramePresentation
-```
-
-Esse último marcador prova submissão/apresentação de conteúdo definido, mas não
-substitui o gate posterior do triângulo renderizado diretamente na swapchain.
-O clear-frame exige que a surface anuncie tanto `COLOR_ATTACHMENT` quanto
-`TRANSFER_DST`; após qualquer submit aceito, a fila é drenada antes da
-destruição dos objetos, inclusive quando o present retorna erro.
-
-Para exigir também o triângulo renderizado diretamente na imagem adquirida da
-swapchain e apresentado após sincronização:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/verify-radv-hardware-log.ps1 -SerialLog <serial.log> -ExpectedDevice <device-id> -RequireDisplayEnumeration -RequireDisplaySurface -RequireDrmDisplayAcquisition -RequireDisplaySwapchain -RequireClearFramePresentation -RequirePresentedTriangle
-```
-
-O marcador `RADV direct display triangle presented` só é emitido depois de
-pipeline compatível com o formato da swapchain, `vkCmdDraw(3,1,0,0)`, submit,
-present e conclusão da fila. Ainda é necessária evidência visual da execução em
-Radeon real para aceitar o resultado como triângulo apresentado validado.
-
-As extensões Vulkan são enumeradas em duas chamadas. O probe mantém buffers
-limitados em BSS (64 extensões de instância e 512 de device), evitando tanto
-aceitar silenciosamente `VK_INCOMPLETE` quanto consumir a stack Ring 3 com o
-inventário extenso do RADV.
-
-Em máquinas com múltiplas GPUs, o probe não usa mais o primeiro dispositivo por
-posição: prefere o DRM PCI AMD com nós primary/render e exige que vendor/device
-coincidam com `VkPhysicalDeviceProperties` antes de executar qualquer gate
-físico. O log deve conter `RADV Vulkan device matches DRM PCI identity`.
-Essa correspondência inclui domain, bus, slot/device e function por
-`VK_EXT_pci_bus_info`, não apenas vendor/device; duas placas idênticas não podem
-mais ser confundidas pela ordem de enumeração.
-O probe registra o valor como `RADV matched PCI BDF: dddd:bb:ss.f`. Em hardware
-real, passe também `-ExpectedBdf dddd:bb:ss.f` ao verificador para vincular o
-log ao slot esperado; logs sem BDF correspondente são recusados.
-
-O WSI direto do Mesa atual exige KMS atômico, não apenas os ioctls legados já
-existentes. `DRM_IOCTL_SET_CLIENT_CAP` está implementado com falha fechada:
-STEREO_3D/ASPECT_RATIO são aceitos, enquanto enable de UNIVERSAL_PLANES/ATOMIC
-retorna `EOPNOTSUPP` até plane resources, propriedades, PRIME, property blobs,
-atomic commit e eventos estarem funcionais. Portanto, os marcadores preparados
-de swapchain/present continuam pendentes de ABI e hardware real.
-
-Plane resources já começaram a fechar essa lacuna: o kernel expõe um plano
-primário XRGB8888 compatível com o CRTC existente por
-`DRM_IOCTL_MODE_GETPLANERESOURCES`/`DRM_IOCTL_MODE_GETPLANE`, e o probe confirma
-o caminho pela libdrm com `RADV DRM KMS primary plane ready`. Propriedades KMS,
-PRIME e atomic commit permanecem obrigatórios antes de habilitar atomic.
-
-O probe também exige que o runtime RADV empacotado anuncie e habilite
-`VK_KHR_surface`, `VK_KHR_display`, `VK_EXT_direct_mode_display` e
-`VK_EXT_acquire_drm_display`. Esse gate prepara apresentação direta por DRM/KMS,
-mas não substitui a futura comprovação física de aquisição do display,
-swapchain e apresentação.
-
-Fluxo principal:
-
-```bash
-zig build
-```
-
-Para executar:
-
-```bash
-zig build run
-```
-
-Para uma validação curta e sem janela, com encerramento automático ao atingir
-o marcador DRM ou expirar o prazo:
-
-```bash
-zig build run -- -SmokeTestSeconds 30
-```
-
-O runner salva logs serial/stderr únicos em `zig-out`, encerra somente o QEMU
-que iniciou e retorna falha se o marcador não aparecer. `-ExpectSerial` permite
-selecionar outro marcador. O sucesso comprova apenas o trecho de boot até esse
-marcador, não o SO completo nem Vulkan. Sem `-SmokeTestSeconds`, a execução
-continua interativa e deve ser encerrada depois do uso.
-O encerramento limitado usa primeiro o PID exato do emulador, espera com prazo
-finito e recorre ao fechamento da árvore somente como fallback, evitando que o
-próprio cleanup fique preso no Windows.
-
-O target de execução deve gerar a imagem necessária e iniciar o ambiente de desenvolvimento através do QEMU.
-
-## Pacote para validação UEFI física
-
-Para preparar uma entrega sem tocar em nenhum disco, execute:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/package-physical-boot.ps1
-```
-
-O comando cria `zig-out/physical-boot/BOOTX64.EFI` e
-`zig-out/physical-boot/SHA256SUMS.txt`. A gravação em USB deve ser feita
-explicitamente pelo operador depois de conferir o manifesto.
-
-No caminho QEMU, o framebuffer já oferece um painel visual com logotipo, estado
-`READY`, cursor controlado por mouse, feedback de teclado e um botão que alterna
-estado com clique esquerdo. Isso é uma etapa de bring-up da interface; ainda não
-substitui SDL, compositor, janelas ou o runtime HTML/CSS/Jinja planejado.
-
-Os requisitos exatos podem mudar enquanto o projeto estiver em desenvolvimento.
+Componentes externos como WebKit, Mesa, bibliotecas do userspace, Nix e Alpine Linux mantêm suas respectivas licenças e não se tornam código próprio do CSOS apenas por participarem da arquitetura.
 
 ---
 
 # Status
 
-> **Experimental / Pré-alpha**
-
-O CSOS ainda é um projeto de pesquisa e desenvolvimento.
-
-Não está pronto para substituir um sistema operacional convencional e não deve ser utilizado atualmente em máquinas contendo dados importantes.
-
----
-
-# Objetivo Final
-
-O fluxo final de instalação deve ser:
+O CSOS está em desenvolvimento ativo e deve ser considerado:
 
 ```text
-PC
-↓
-Instalador CSOS
-↓
-Hardware Discovery
-↓
-Autotune
-↓
-hardware.csc
-↓
-Boot otimizado
-↓
-Interface HTML
-↓
-Steam
-↓
-Counter-Strike 2
+EXPERIMENTAL
 ```
 
-Durante uso normal:
+Não utilize como único sistema de uma máquina contendo dados importantes.
 
-```text
-foreground → RUNNING
-background → FREEZE / STANDBY
-GPU ociosa → trabalho útil quando realmente compensar
-```
+Durante o desenvolvimento bare-metal, mantenha o **Alpine Recovery** disponível.
 
-Durante uma partida competitiva:
+Quebrar faz parte do processo.
 
-```text
-                CS2
-                 │
-        ┌────────┼────────┐
-        │        │        │
-      Input   Network   Áudio
-        │        │        │
-        └────────┼────────┘
-                 │
-          Sistema Essencial
-                 │
-                 ▼
-           Todo o restante
-        congelado / reduzido
-```
-
-O CSOS existe para minimizar o caminho:
-
-```text
-hardware → kernel → Vulkan → Counter-Strike 2
-```
-
-Todo o restante precisa justificar sua existência.
-
-### Estado do filesystem
-
-O driver FAT16 suporta enumeração e travessia de subdiretórios, e o VFS já abre
-e lista diretórios reais da raiz. A resolução e leitura de arquivos em caminhos
-FAT aninhados já funciona em múltiplos níveis. Criação, remoção, renomeação e
-escrita multi-cluster de arquivos nesses caminhos estão disponíveis e validados
-no build/teste host. `mkdirat` também cria diretórios FAT reais, incluindo os
-clusters e entradas `.`/`..`; melhorias adicionais de semântica POSIX continuam pendentes.
-Diretórios vazios também podem ser removidos pela ABI com `unlinkat`/`AT_REMOVEDIR`.
-Descritores FAT suportam navegação relativa com `.` e `..`, inclusive subindo
-por múltiplos níveis da árvore.
+Conseguir entender, recuperar e continuar rapidamente também faz parte da arquitetura.

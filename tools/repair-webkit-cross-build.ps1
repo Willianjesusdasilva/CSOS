@@ -52,7 +52,46 @@ if (-not (Test-Path -LiteralPath $ninja)) { throw "Ninja file not found: $ninja"
 $ninjaText = [IO.File]::ReadAllText($ninja)
 $nested = ((Join-Path $build 'JavaScriptCore\PrivateHeaders\JavaScriptCore').Replace('\','/'))
 $ninjaText = $ninjaText.Replace("-I$nested ", '')
+# WebKit's Perl binding generator appends preprocessor flags itself.  A direct
+# `zig.exe -E` is invalid, and embedding `c++` in the command is stripped by
+# the generator's Windows argument parser.  Use the versioned wrapper so the
+# Zig C++ driver remains explicit after Perl tokenization.
+$repo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
+$zig = ((Join-Path $repo '.tools\zig-x86_64-windows-0.16.0\zig.exe').Replace('\','/'))
+$wrapper = ((Join-Path $repo 'tools\zig-cxx-preprocessor.cmd').Replace('\','/'))
+$ninjaText = $ninjaText.Replace('"' + $zig + '" c++ -E', '"' + $wrapper + '"')
+$ninjaText = $ninjaText.Replace('\"' + $zig + '\" c++ -E', '\"' + $wrapper + '\"')
+$ninjaText = $ninjaText.Replace('"' + $zig + '" -E', '"' + $wrapper + '"')
+$ninjaText = $ninjaText.Replace('\"' + $zig + '\" -E', '\"' + $wrapper + '\"')
 $lolInclude = ((Join-Path $webkit 'Source\JavaScriptCore\lol').Replace('\','/'))
+$badInspectorDir = ((Join-Path $build 'WebInspectorUI\DerivedSources\InspectorResources\WebInspectorUI').Replace('\','/'))
+$intermediateInspectorDir = ((Join-Path $build 'WebInspectorUI\DerivedSources\InspectorResources').Replace('\','/'))
+$goodInspectorDir = ((Join-Path $build 'WebInspectorUI').Replace('\','/'))
+$ninjaText = $ninjaText.Replace("--sourcedir=$badInspectorDir", "--sourcedir=$goodInspectorDir")
+$ninjaText = $ninjaText.Replace("--sourcedir=$intermediateInspectorDir", "--sourcedir=$goodInspectorDir")
+$glibLib = ((Join-Path $sysrootPath 'lib\libglib-2.0.a').Replace('\','/'))
+$gmoduleLib = ((Join-Path $sysrootPath 'lib\libgmodule-2.0.a').Replace('\','/'))
+$pcre2Lib = ((Join-Path $sysrootPath 'lib\libpcre2-8.a').Replace('\','/'))
+$ffiLib = ((Join-Path $sysrootPath 'lib\libffi.a').Replace('\','/'))
+$ninjaText = $ninjaText.Replace("$glibLib C:/git/csos/zig-out/mesa-sysroot/usr/lib/libz.so", "$glibLib $gmoduleLib $pcre2Lib $ffiLib C:/git/csos/zig-out/mesa-sysroot/usr/lib/libz.so")
+$zlib = 'C:/git/csos/zig-out/mesa-sysroot/usr/lib/libz.so'
+$ninjaText = [regex]::Replace($ninjaText, ([regex]::Escape($glibLib) + '\s+' + [regex]::Escape($zlib)), "$glibLib $gmoduleLib $pcre2Lib $ffiLib $zlib")
+$generatedScripts = Get-ChildItem $build -Recurse -File -Filter '*.bat' -ErrorAction SilentlyContinue
+foreach ($script in $generatedScripts) {
+    $scriptText = [IO.File]::ReadAllText($script.FullName)
+    $updatedScript = $scriptText.Replace(('"' + $zig + '" c++ -E'), ('"' + $wrapper + '"'))
+    $updatedScript = $updatedScript.Replace(('\\"' + $zig + '\\" c++ -E'), ('\\"' + $wrapper + '\\"'))
+    $updatedScript = $updatedScript.Replace(('"' + $zig + '" -E'), ('"' + $wrapper + '"'))
+    $updatedScript = $updatedScript.Replace(('\\"' + $zig + '\\" -E'), ('\\"' + $wrapper + '\\"'))
+    $updatedScript = $updatedScript.Replace('zig.exe\" c++ -E', ('\"' + $wrapper + '\"'))
+    $updatedScript = $updatedScript.Replace('zig.exe\" -E', ('\"' + $wrapper + '\"'))
+    $updatedScript = $updatedScript.Replace('zig.exe" -E', ('"' + $wrapper + '"'))
+    $preprocessorValue = '--preprocessor "\"' + $wrapper + '\" -P -x c++"'
+    $updatedScript = [regex]::Replace($updatedScript, '--preprocessor .*? -P -x c\+\+"', $preprocessorValue)
+    if ($updatedScript -ne $scriptText) {
+        [IO.File]::WriteAllText($script.FullName, $updatedScript, [Text.UTF8Encoding]::new($false))
+    }
+}
 if (-not $ninjaText.Contains("-I$lolInclude ")) {
     $ninjaText = $ninjaText.Replace('INCLUDES = ', "INCLUDES = -I$lolInclude ")
 }
@@ -60,6 +99,13 @@ if (-not $ninjaText.Contains('-DSIMDUTF_IMPLEMENTATION_ICELAKE=0')) {
     $ninjaText = $ninjaText.Replace('FLAGS = ', 'FLAGS = -DSIMDUTF_IMPLEMENTATION_ICELAKE=0 ')
 }
 [IO.File]::WriteAllText($ninja, $ninjaText, [Text.UTF8Encoding]::new($false))
+$dependencySuffix = " $gmoduleLib $pcre2Lib $ffiLib"
+Get-ChildItem $build -Recurse -File -Filter '*.rsp' -ErrorAction SilentlyContinue | ForEach-Object {
+    $rspText = [IO.File]::ReadAllText($_.FullName)
+    if ($rspText.Contains('libglib-2.0.a') -and -not $rspText.Contains('libpcre2-8.a')) {
+        [IO.File]::WriteAllText($_.FullName, ($rspText.TrimEnd() + $dependencySuffix + "`n"), [Text.UTF8Encoding]::new($false))
+    }
+}
 
 # Promote target ICU and the generated GLib module headers into the common
 # musl sysroot used by WebKit's CMake toolchain.
