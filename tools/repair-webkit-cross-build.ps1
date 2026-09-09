@@ -335,6 +335,12 @@ $localFrameText = $localFrameText.Replace('    return rects.transform([] (const 
 $graphicsDir = Join-Path $webkit 'Source\WebCore\platform\graphics'
 $cairoRefPtr = Join-Path $graphicsDir 'RefPtrCairo.h'
 if (-not (Test-Path -LiteralPath $cairoRefPtr)) {
-    [IO.File]::WriteAllText($cairoRefPtr, "#pragma once$nl#include <cairo/RefPtrCairo.h>$nl", [Text.UTF8Encoding]::new($false))
+    $cairoWrapperText = '#pragma once' + $nl + '#include "cairo/RefPtrCairo.h"' + $nl
+    [IO.File]::WriteAllText($cairoRefPtr, $cairoWrapperText, [Text.UTF8Encoding]::new($false))
+}
+$intRectWrapper = Join-Path $webkit 'Source\WebCore\IntRect.h'
+if (-not (Test-Path -LiteralPath $intRectWrapper)) {
+    $intRectWrapperText = '#pragma once' + $nl + '#include "platform/graphics/IntRect.h"' + $nl
+    [IO.File]::WriteAllText($intRectWrapper, $intRectWrapperText, [Text.UTF8Encoding]::new($false))
 }
 Write-Output "WebKit cross build repaired: $build"
