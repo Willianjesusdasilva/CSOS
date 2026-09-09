@@ -119,6 +119,12 @@ pub fn runWebkitRuntimeProbe(kernel_root: u64, pages: *physical.Allocator) !void
     return runImage(kernel_root, pages, &arguments);
 }
 
+pub fn runGlibRuntimeProbe(kernel_root: u64, pages: *physical.Allocator) !void {
+    image = @embedFile("glib_runtime_probe_elf");
+    const arguments = [_][]const u8{"/bin/glib-runtime-probe"};
+    return runImage(kernel_root, pages, &arguments);
+}
+
 pub fn runHelloPie(kernel_root: u64, pages: *physical.Allocator) !void {
     image = hello_image;
     if (read16(16) != 3) return error.NotPie;
