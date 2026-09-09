@@ -8,6 +8,11 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+function Get-RelativePathCompat([string]$From, [string]$To) {
+    $fromUri = [Uri]((Resolve-Path -LiteralPath $From).Path + [IO.Path]::DirectorySeparatorChar)
+    $toUri = [Uri]((Resolve-Path -LiteralPath $To).Path)
+    return [Uri]::UnescapeDataString($fromUri.MakeRelativeUri($toUri).ToString()).Replace('/', '\')
+}
 $build = [IO.Path]::GetFullPath($BuildDirectory)
 $sysrootPath = [IO.Path]::GetFullPath($Sysroot)
 $webkit = [IO.Path]::GetFullPath($WebKitSource)
@@ -40,7 +45,7 @@ Get-ChildItem $private -File -ErrorAction SilentlyContinue | ForEach-Object {
         $candidate = Get-ChildItem $derived -Recurse -File -Filter $_.Name -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
     }
     if ($candidate) {
-        $relative = [IO.Path]::GetRelativePath($private, $candidate).Replace('\', '/')
+        $relative = (Get-RelativePathCompat $private $candidate).Replace('\', '/')
         [IO.File]::WriteAllText($_.FullName, "#pragma once`n#include `"$relative`"`n", [Text.UTF8Encoding]::new($false))
     }
 }
@@ -59,7 +64,7 @@ Get-ChildItem $webCorePrivate -File -ErrorAction SilentlyContinue | ForEach-Obje
         $candidate = Get-ChildItem $webCoreDerived -Recurse -File -Filter $_.Name -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
     }
     if ($candidate) {
-        $relative = [IO.Path]::GetRelativePath($webCorePrivate, $candidate).Replace('\', '/')
+        $relative = (Get-RelativePathCompat $webCorePrivate $candidate).Replace('\', '/')
         [IO.File]::WriteAllText($_.FullName, "#pragma once`n#include `"$relative`"`n", [Text.UTF8Encoding]::new($false))
     }
 }
@@ -104,8 +109,11 @@ if (Test-Path -LiteralPath $rules) {
     $rulesText = [IO.File]::ReadAllText($rules)
     $rulesText = $rulesText.Replace('`n', [Environment]::NewLine)
     $compilePattern = '(?m)^  command = (?<prefix>.*zig\.exe c\+\+ -target x86_64-linux-musl )\$DEFINES \$INCLUDES \$FLAGS -MD -MT \$out -MF \$DEP_FILE -o \$out -c \$in\r?$'
-    $compileReplacement = '  rspfile = $out.rsp' + [Environment]::NewLine + '  rspfile_content = $DEFINES $INCLUDES $FLAGS -MD -MT $out -MF $DEP_FILE' + [Environment]::NewLine + '  command = ${prefix}@$out.rsp -o $out -c $in'
+    $shortBuild = 'C:/w/zig-out/webkit-linux6'
+    $compileReplacement = "  rspfile = $shortBuild/`$out.rsp" + [Environment]::NewLine + '  rspfile_content = $DEFINES $INCLUDES $FLAGS -MD -MT $out -MF $DEP_FILE' + [Environment]::NewLine + "  command = `${prefix}@${shortBuild}/`$out.rsp -o `$out -c `$in"
     $rulesText = [regex]::Replace($rulesText, $compilePattern, $compileReplacement)
+    $rulesText = $rulesText.Replace('rspfile = $out.rsp', "rspfile = $shortBuild/`$out.rsp")
+    $rulesText = $rulesText.Replace('@$out.rsp', "@${shortBuild}/`$out.rsp")
     [IO.File]::WriteAllText($rules, $rulesText, [Text.UTF8Encoding]::new($false))
 }
 $generatedScripts = Get-ChildItem $build -Recurse -File -Filter '*.bat' -ErrorAction SilentlyContinue
@@ -122,6 +130,20 @@ foreach ($script in $generatedScripts) {
     $updatedScript = [regex]::Replace($updatedScript, '--preprocessor .*? -P -x c\+\+"', $preprocessorValue)
     if ($updatedScript -ne $scriptText) {
         [IO.File]::WriteAllText($script.FullName, $updatedScript, [Text.UTF8Encoding]::new($false))
+    }
+}
+# Ninja emits Windows output paths with a backslash before the filename when
+# the output lives below a short junction (for example C:/w/...\file).  Git's
+# Perl/GCC inspector generator treats that backslash as a literal character.
+# Normalize the generated inspector preprocessor paths before invoking it.
+$inspectorPreprocess = Join-Path $webkit 'Source\JavaScriptCore\inspector\scripts\codegen\preprocess.pl'
+if (Test-Path -LiteralPath $inspectorPreprocess) {
+    $preprocessText = [IO.File]::ReadAllText($inspectorPreprocess)
+    $normalizer = 'my $pid = 0;'
+    $normalizerCode = '$inputPath =~ s{\\}{/}g;' + "`r`n" + '$outputPath =~ s{\\}{/}g;' + "`r`n" + 'if ($inputPath =~ /^([A-Za-z]):\/(.*)$/) { $inputPath = "/" . lc($1) . "/" . $2; }'
+    if (-not $preprocessText.Contains($normalizerCode)) {
+        $preprocessText = $preprocessText.Replace($normalizer, ($normalizerCode + "`r`n" + $normalizer))
+        [IO.File]::WriteAllText($inspectorPreprocess, $preprocessText, [Text.UTF8Encoding]::new($false))
     }
 }
 if (-not $ninjaText.Contains("-I$lolInclude ")) {
