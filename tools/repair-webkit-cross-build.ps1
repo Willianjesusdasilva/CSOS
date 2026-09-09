@@ -258,6 +258,11 @@ Get-ChildItem $build -Recurse -File -Filter '*.rsp' -ErrorAction SilentlyContinu
     $rspText = [IO.File]::ReadAllText($_.FullName)
     $rspText = $rspText.Replace('-IC:/git/csos/zig-out/libsoup-linux/libsoup ', '').Replace('-IC:/w/zig-out/libsoup-linux/libsoup ', '')
     $rspText = $rspText.Replace('-IC:/w/.tools/libsoup-src/libsoup ', '').Replace('-IC:/w/.tools/libsoup-src/libsoup/server ', '')
+    # WebKit's current WebCore sources use std::optional::transform, which is
+    # a C++23 API.  Zig's libc++ intentionally hides it under C++20, so make
+    # the generated response files match the language level expected by the
+    # source instead of patching WebCore itself.
+    $rspText = $rspText.Replace('-std=c++20', '-std=c++23')
     if ($rspText.Contains('libglib-2.0.a') -and -not $rspText.Contains('libpcre2-8.a')) {
         [IO.File]::WriteAllText($_.FullName, ($rspText.TrimEnd() + $dependencySuffix + "`n"), [Text.UTF8Encoding]::new($false))
     } else {
