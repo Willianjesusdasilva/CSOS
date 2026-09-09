@@ -203,10 +203,14 @@ Copy-Item -Force -Recurse (Join-Path $repo '.tools\freetype-src\include\freetype
 # rather than adding a duplicate -I path that would redefine common types.
 $soupInstalled = Join-Path $sysrootPath 'include\libsoup-3.0\libsoup'
 New-Item -ItemType Directory -Force -Path $soupInstalled | Out-Null
+$soupInstalledRoot = Join-Path $sysrootPath 'include\libsoup-3.0'
+New-Item -ItemType Directory -Force -Path $soupInstalledRoot | Out-Null
 $soupSource = Join-Path $repo '.tools\libsoup-src\libsoup'
 Get-ChildItem $soupSource -Directory | ForEach-Object {
     Copy-Item -Force -Recurse $_.FullName $soupInstalled
+    Copy-Item -Force -Recurse $_.FullName $soupInstalledRoot
 }
+Copy-Item -Force (Join-Path $soupSource 'server\*.h') $soupInstalledRoot
 $dependencySuffix = " $gmoduleLib $pcre2Lib $ffiLib"
 Get-ChildItem $build -Recurse -File -Filter '*.rsp' -ErrorAction SilentlyContinue | ForEach-Object {
     $rspText = [IO.File]::ReadAllText($_.FullName)
