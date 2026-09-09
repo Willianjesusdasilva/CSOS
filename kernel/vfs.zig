@@ -757,6 +757,24 @@ pub fn linkAt(old_directory_fd: i64, old_path: []const u8, new_directory_fd: i64
     const target = try openAt(-100, new_path, 0x241);
     defer close(target) catch {};
     _ = try write(target, contents[0..count]);
+    const object_name = lastPathComponent(new_path);
+    if (object_name.len == 38 or object_name.len == 40) {
+        if (toFatName(object_name)) |alias| {
+            var mapping: [96]u8 = undefined;
+            var used: usize = 0;
+            const object_dir = if (nestedParentPath(new_path)) |parent| lastPathComponent(parent) else "00";
+            @memcpy(mapping[used .. used + object_dir.len], object_dir); used += object_dir.len;
+            mapping[used] = ' '; used += 1;
+            @memcpy(mapping[used .. used + object_name.len], object_name);
+            used += object_name.len;
+            mapping[used] = ' '; used += 1;
+            for (alias) |byte| { mapping[used] = byte; used += 1; }
+            mapping[used] = '\n'; used += 1;
+            const map_fd = try openAt(-100, "/data/repo8/CSOSMAP.TXT", 0x441);
+            defer close(map_fd) catch {};
+            _ = try write(map_fd, mapping[0..used]);
+        }
+    }
 }
 
 pub fn mkdirAt(directory_fd_in: i64, path: []const u8, mode: u64) !void {
