@@ -285,10 +285,17 @@ pub fn descriptorGeneration(fd: usize) !u32 {
 }
 
 pub fn openAt(directory_fd_in: i64, path: []const u8, flags: u64) !usize {
+    var trimmed_length = path.len;
+    while (trimmed_length > 1 and path[trimmed_length - 1] == '/') : (trimmed_length -= 1) {}
+    if (trimmed_length != path.len) return openAt(directory_fd_in, path[0..trimmed_length], flags);
     const directory_fd = effectiveDirectoryFd(directory_fd_in);
     var fd: usize = 3;
     while (fd < descriptors.len and descriptors[fd].kind != .unused) : (fd += 1) {}
     if (fd == descriptors.len) return error.TooManyFiles;
+    if (disk) |volume| if (directory_fd >= 3 and @as(usize, @intCast(directory_fd)) < descriptors.len and
+        descriptors[@intCast(directory_fd)].node == .fat_directory and
+        path.len != 0 and path[0] != '/' and std.mem.indexOfScalar(u8, path, '/') != null)
+        return openFatRelative(volume, @intCast(directory_fd), path, flags, fd);
     if (disk) |volume| if (directory_fd >= 3 and @as(usize, @intCast(directory_fd)) < descriptors.len and
         descriptors[@intCast(directory_fd)].node == .fat_directory and std.mem.indexOfScalar(u8, path, '/') == null)
     {
@@ -420,6 +427,47 @@ pub fn openAt(directory_fd_in: i64, path: []const u8, flags: u64) !usize {
     descriptors[fd].close_on_exec = (flags & 0x80000) != 0;
     descriptors[fd].append = false;
     descriptors[fd].writable = (flags & 0x3) != 0;
+    return fd;
+}
+
+fn openFatRelative(volume: *fat16.Volume, directory_fd: usize, path: []const u8, flags: u64, fd: usize) !usize {
+    var cluster = descriptors[directory_fd].fat_cluster;
+    var parent_cluster = descriptors[directory_fd].fat_parent_cluster;
+    var iterator = std.mem.splitScalar(u8, path, '/');
+    var component_index: usize = 0;
+    var final_name: [11]u8 = undefined;
+    var final_entry: fat16.Volume.DirectoryEntry = undefined;
+    while (iterator.next()) |component| {
+        if (component.len == 0 or std.mem.eql(u8, component, ".")) continue;
+        if (std.mem.eql(u8, component, "..")) {
+            parent_cluster = if (cluster == 0) 0 else volume.parentDirectoryCluster(cluster) catch 0;
+            cluster = parent_cluster;
+            component_index += 1;
+            continue;
+        }
+        const name = toFatName(component) orelse return error.Invalid;
+        const entry = try volume.findDirectoryEntry(cluster, &name);
+        final_name = entry.name;
+        final_entry = entry;
+        component_index += 1;
+        if (iterator.peek() != null) {
+            if (!entry.directory) return error.NotDirectory;
+            parent_cluster = cluster;
+            cluster = entry.first_cluster;
+        }
+    }
+    if (component_index == 0) return error.Invalid;
+    if (final_entry.directory) {
+        if ((flags & 0x3) != 0 or (flags & 0x200) != 0) return error.IsDirectory;
+        descriptors[fd] = .{ .generation = try newGeneration(), .kind = .directory, .node = .fat_directory,
+            .fat_cluster = final_entry.first_cluster, .fat_parent_cluster = parent_cluster };
+    } else {
+        descriptors[fd] = .{ .generation = try newGeneration(), .kind = .file, .node = .disk,
+            .size = final_entry.size, .fat_name = final_name, .fat_parent_cluster = parent_cluster };
+    }
+    descriptors[fd].writable = (flags & 0x3) != 0;
+    descriptors[fd].append = (flags & 0x400) != 0;
+    descriptors[fd].close_on_exec = (flags & 0x80000) != 0;
     return fd;
 }
 
@@ -780,6 +828,9 @@ test "file offsets reject arithmetic overflow" {
 }
 
 pub fn infoAt(directory_fd_in: i64, path: []const u8) !Info {
+    var trimmed_length = path.len;
+    while (trimmed_length > 1 and path[trimmed_length - 1] == '/') : (trimmed_length -= 1) {}
+    if (trimmed_length != path.len) return infoAt(directory_fd_in, path[0..trimmed_length]);
     const directory_fd = effectiveDirectoryFd(directory_fd_in);
     if (disk) |volume| if (directory_fd >= 3 and @as(usize, @intCast(directory_fd)) < descriptors.len and
         descriptors[@intCast(directory_fd)].node == .fat_directory and std.mem.indexOfScalar(u8, path, '/') == null)
@@ -1002,6 +1053,7 @@ fn toFatName(path: []const u8) ?[11]u8 {
     if (std.mem.eql(u8, path, "index.lock")) return "INDEX   LCK".*;
     if (std.mem.eql(u8, path, "packed-refs")) return "PACKED  REF".*;
     if (std.mem.eql(u8, path, "description")) return "DESCRIP ION".*;
+    if (std.mem.eql(u8, path, ".gitignore")) return "GITIGNR IGN".*;
     if (std.mem.eql(u8, path, "/system/ui/interface/desktop.manifest") or std.mem.eql(u8, path, "system/ui/interface/desktop.manifest") or std.mem.eql(u8, path, "desktop.manifest")) return "DESKTOP MAN".*;
     if (std.mem.eql(u8, path, "/system/ui/interface/desktop.html") or std.mem.eql(u8, path, "system/ui/interface/desktop.html") or std.mem.eql(u8, path, "desktop.html")) return "DESKTOP HTM".*;
     if (std.mem.eql(u8, path, "wallpaper.html")) return "WALLPAP HTM".*;

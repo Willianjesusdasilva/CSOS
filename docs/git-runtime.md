@@ -14,8 +14,10 @@ powershell -ExecutionPolicy Bypass -File tools/build-git-runtime.ps1
 Pass the resulting image to the kernel build with
 `-Dgit-runtime=zig-out/git-runtime/git`. The process loader maps the image
 after the persistent FAT volume is mounted, provides `/dev/null`, and runs a
-two-stage repository probe: `git init --bare /data/repo8` followed by
-`git --git-dir=/data/repo8 rev-parse --is-bare-repository`. A second boot
+three-stage repository probe: `git init --bare /data/repo8` followed by
+`git --git-dir=/data/repo8 rev-parse --is-bare-repository`. It then runs
+`git --git-dir=/data/repo8 --work-tree=/system status --porcelain`; the current
+output reports the untracked `/system` UI directories. A second boot
 reinitializes the same repository and reports persistence. The QEMU smoke test
 marker is `CSOS Git runtime ready`.
 
