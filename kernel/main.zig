@@ -2770,6 +2770,13 @@ pub fn start(info: BootInfo) noreturn {
     }
 }
 
+fn seedUiFile(volume: *fat16.Volume, parent: u32, name: anytype, contents: []const u8) !void {
+    volume.createDirectoryFile(parent, name) catch |err| {
+        if (err != error.AlreadyExists) return err;
+    };
+    try volume.writeDirectoryFile(parent, name, contents);
+}
+
 fn seedUiFilesystem(volume: *fat16.Volume) !void {
     serial.write("ui seed begin\n");
     const system_name: [11]u8 = "SYSTEM     ".*;
@@ -2808,34 +2815,34 @@ fn seedUiFilesystem(volume: *fat16.Volume) !void {
     serial.write("ui seed providers\n");
     const scripts_cluster = volume.createDirectory(ui_cluster, &scripts_name) catch |err| if (err == error.AlreadyExists) (try volume.findDirectoryEntry(ui_cluster, &scripts_name)).first_cluster else return err;
     vfs.registerUiTree(.{ .system = system_cluster, .ui = ui_cluster, .interface = interface_cluster, .styles = styles_cluster, .providers = providers_cluster, .scripts = scripts_cluster });
-    try volume.createDirectoryFile(ui_cluster, &variables_name); try volume.writeDirectoryFile(ui_cluster, &variables_name, @embedFile("ui_variables"));
-    try volume.createDirectoryFile(interface_cluster, &manifest_name); try volume.writeDirectoryFile(interface_cluster, &manifest_name, @embedFile("ui_manifest"));
-    try volume.createDirectoryFile(interface_cluster, &desktop_name); try volume.writeDirectoryFile(interface_cluster, &desktop_name, @embedFile("ui_desktop"));
-    try volume.createDirectoryFile(interface_cluster, &wallpaper_name); try volume.writeDirectoryFile(interface_cluster, &wallpaper_name, @embedFile("ui_wallpaper"));
+    try seedUiFile(volume, ui_cluster, &variables_name, @embedFile("ui_variables"));
+    try seedUiFile(volume, interface_cluster, &manifest_name, @embedFile("ui_manifest"));
+    try seedUiFile(volume, interface_cluster, &desktop_name, @embedFile("ui_desktop"));
+    try seedUiFile(volume, interface_cluster, &wallpaper_name, @embedFile("ui_wallpaper"));
     if (volume.findDirectoryEntry(interface_cluster, &wallpaper_name)) |_| serial.write("ui seed wallpaper ready\n") else |_| serial.write("ui seed wallpaper lookup failed\n");
-    try volume.createDirectoryFile(interface_cluster, &topbar_name); try volume.writeDirectoryFile(interface_cluster, &topbar_name, @embedFile("ui_topbar"));
-    try volume.createDirectoryFile(interface_cluster, &sidebar_name); try volume.writeDirectoryFile(interface_cluster, &sidebar_name, @embedFile("ui_sidebar"));
-    try volume.createDirectoryFile(interface_cluster, &media_name); try volume.writeDirectoryFile(interface_cluster, &media_name, @embedFile("ui_media"));
-    try volume.createDirectoryFile(interface_cluster, &widgets_name); try volume.writeDirectoryFile(interface_cluster, &widgets_name, @embedFile("ui_widgets"));
-    try volume.createDirectoryFile(interface_cluster, &notifications_name); try volume.writeDirectoryFile(interface_cluster, &notifications_name, @embedFile("ui_notifications"));
-    try volume.createDirectoryFile(interface_cluster, &launcher_name); try volume.writeDirectoryFile(interface_cluster, &launcher_name, @embedFile("ui_launcher"));
-    try volume.createDirectoryFile(interface_cluster, &terminal_name); try volume.writeDirectoryFile(interface_cluster, &terminal_name, @embedFile("ui_terminal"));
-    try volume.createDirectoryFile(interface_cluster, &status_name); try volume.writeDirectoryFile(interface_cluster, &status_name, @embedFile("ui_status"));
-    try volume.createDirectoryFile(interface_cluster, &dock_name); try volume.writeDirectoryFile(interface_cluster, &dock_name, @embedFile("ui_dock"));
-    try volume.createDirectoryFile(interface_cluster, &alt_tab_name); try volume.writeDirectoryFile(interface_cluster, &alt_tab_name, @embedFile("ui_alt_tab"));
-    try volume.createDirectoryFile(interface_cluster, &desktop_actions_name); try volume.writeDirectoryFile(interface_cluster, &desktop_actions_name, @embedFile("ui_desktop_actions"));
+    try seedUiFile(volume, interface_cluster, &topbar_name, @embedFile("ui_topbar"));
+    try seedUiFile(volume, interface_cluster, &sidebar_name, @embedFile("ui_sidebar"));
+    try seedUiFile(volume, interface_cluster, &media_name, @embedFile("ui_media"));
+    try seedUiFile(volume, interface_cluster, &widgets_name, @embedFile("ui_widgets"));
+    try seedUiFile(volume, interface_cluster, &notifications_name, @embedFile("ui_notifications"));
+    try seedUiFile(volume, interface_cluster, &launcher_name, @embedFile("ui_launcher"));
+    try seedUiFile(volume, interface_cluster, &terminal_name, @embedFile("ui_terminal"));
+    try seedUiFile(volume, interface_cluster, &status_name, @embedFile("ui_status"));
+    try seedUiFile(volume, interface_cluster, &dock_name, @embedFile("ui_dock"));
+    try seedUiFile(volume, interface_cluster, &alt_tab_name, @embedFile("ui_alt_tab"));
+    try seedUiFile(volume, interface_cluster, &desktop_actions_name, @embedFile("ui_desktop_actions"));
     if (volume.findDirectoryEntry(interface_cluster, &topbar_name)) |_| serial.write("ui seed topbar ready\n") else |_| serial.write("ui seed topbar lookup failed\n");
     if (volume.findDirectoryEntry(interface_cluster, &sidebar_name)) |_| serial.write("ui seed sidebar ready\n") else |_| serial.write("ui seed sidebar lookup failed\n");
-    try volume.createDirectoryFile(styles_cluster, &css_name); try volume.writeDirectoryFile(styles_cluster, &css_name, @embedFile("ui_desktop_css"));
-    try volume.createDirectoryFile(styles_cluster, &terminal_css_name); try volume.writeDirectoryFile(styles_cluster, &terminal_css_name, @embedFile("ui_terminal_css"));
-    try volume.createDirectoryFile(styles_cluster, &apps_css_name); try volume.writeDirectoryFile(styles_cluster, &apps_css_name, @embedFile("ui_apps_css"));
-    try volume.createDirectoryFile(providers_cluster, "CPUUSAGETXT"); try volume.writeDirectoryFile(providers_cluster, "CPUUSAGETXT", "32\n");
-    try volume.createDirectoryFile(providers_cluster, "RAM_USAGE  "); try volume.writeDirectoryFile(providers_cluster, "RAM_USAGE  ", "48\n");
-    try volume.createDirectoryFile(providers_cluster, "GPU_USAGE  "); try volume.writeDirectoryFile(providers_cluster, "GPU_USAGE  ", "unavailable\n");
-    try volume.createDirectoryFile(providers_cluster, "NETWORK_IP "); try volume.writeDirectoryFile(providers_cluster, "NETWORK_IP ", "127.0.0.1\n");
-    try volume.createDirectoryFile(providers_cluster, "CURRENTFPS "); try volume.writeDirectoryFile(providers_cluster, "CURRENTFPS ", "60\n");
-    try volume.createDirectoryFile(providers_cluster, "FRAMETIME  "); try volume.writeDirectoryFile(providers_cluster, "FRAMETIME  ", "16.6\n");
-    try volume.createDirectoryFile(scripts_cluster, "OPENFILESH "); try volume.writeDirectoryFile(scripts_cluster, "OPENFILESH ", "open_files\n");
+    try seedUiFile(volume, styles_cluster, &css_name, @embedFile("ui_desktop_css"));
+    try seedUiFile(volume, styles_cluster, &terminal_css_name, @embedFile("ui_terminal_css"));
+    try seedUiFile(volume, styles_cluster, &apps_css_name, @embedFile("ui_apps_css"));
+    try seedUiFile(volume, providers_cluster, "CPUUSAGETXT", "32\n");
+    try seedUiFile(volume, providers_cluster, "RAM_USAGE  ", "48\n");
+    try seedUiFile(volume, providers_cluster, "GPU_USAGE  ", "unavailable\n");
+    try seedUiFile(volume, providers_cluster, "NETWORK_IP ", "127.0.0.1\n");
+    try seedUiFile(volume, providers_cluster, "CURRENTFPS ", "60\n");
+    try seedUiFile(volume, providers_cluster, "FRAMETIME  ", "16.6\n");
+    try seedUiFile(volume, scripts_cluster, "OPENFILESH ", "open_files\n");
 }
 
 fn handleSdlDemoEvent(app: *sdl.Application, event: sdl.Event) void {
