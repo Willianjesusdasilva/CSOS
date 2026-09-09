@@ -241,7 +241,7 @@ Get-ChildItem $soupInstalled -File -Filter '*.h' | ForEach-Object {
 [IO.File]::WriteAllText((Join-Path $soupInstalled 'server\soup-message-body.h'), "#pragma once`n#include <libsoup/soup-message-body.h>`n", [Text.UTF8Encoding]::new($false))
 Get-ChildItem (Join-Path $soupInstalled 'websocket') -File -Filter '*.h' | ForEach-Object {
     $rootWrapper = Join-Path $soupInstalledRoot $_.Name
-    $serverWrapper = Join-Path $soupInstalled 'server' $_.Name
+    $serverWrapper = Join-Path (Join-Path $soupInstalled 'server') $_.Name
     $includeName = "libsoup/websocket/$($_.Name)"
     $text = "#pragma once`n#include <$includeName>`n"
     [IO.File]::WriteAllText($rootWrapper, $text, [Text.UTF8Encoding]::new($false))
