@@ -52,6 +52,10 @@ if (-not (Test-Path -LiteralPath $ninja)) { throw "Ninja file not found: $ninja"
 $ninjaText = [IO.File]::ReadAllText($ninja)
 $nested = ((Join-Path $build 'JavaScriptCore\PrivateHeaders\JavaScriptCore').Replace('\','/'))
 $ninjaText = $ninjaText.Replace("-I$nested ", '')
+$lolInclude = ((Join-Path $webkit 'Source\JavaScriptCore\lol').Replace('\','/'))
+if (-not $ninjaText.Contains("-I$lolInclude ")) {
+    $ninjaText = $ninjaText.Replace('INCLUDES = ', "INCLUDES = -I$lolInclude ")
+}
 if (-not $ninjaText.Contains('-DSIMDUTF_IMPLEMENTATION_ICELAKE=0')) {
     $ninjaText = $ninjaText.Replace('FLAGS = ', 'FLAGS = -DSIMDUTF_IMPLEMENTATION_ICELAKE=0 ')
 }
