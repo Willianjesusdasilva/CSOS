@@ -477,6 +477,16 @@ pub fn start(info: BootInfo) noreturn {
     if (syscalls.drm_allocations != expected_drm_objects or syscalls.drm_releases != expected_drm_objects) panic("DRM backing memory lifecycle failed");
     if (drm_guard.* != drm_guard_before) panic("DRM buffer aliased firmware framebuffer");
     serial.write("CSOS M14 userspace DRM core ready\n");
+    if (build_options.glib_runtime_probe) {
+        process.runGlibRuntimeProbe(mapper.root, &pages) catch |err| {
+            serial.write("GLib runtime process error: ");
+            serial.write(@errorName(err));
+            serial.write("\n");
+            panic("upstream GLib runtime failed");
+        };
+        mapper.activate();
+        serial.write("CSOS upstream GLib process exit PASS\n");
+    }
     if (build_options.webkit_runtime_probe) {
         process.runWebkitRuntimeProbe(mapper.root, &pages) catch |err| {
             serial.write("WebKit prerequisite process error: ");

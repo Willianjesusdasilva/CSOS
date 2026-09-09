@@ -5,7 +5,7 @@ const hello = "Hello from initramfs\n";
 
 const max_fds = 32;
 
-const Kind = enum { unused, console, file, directory, device, epoll };
+const Kind = enum { unused, console, file, directory, device, epoll, eventfd };
 const Node = enum {
     root,
     bin,
@@ -47,6 +47,7 @@ const Descriptor = struct {
     fat_name: [11]u8 = .{' '} ** 11,
     fat_cluster: u16 = 0,
     fat_parent_cluster: u16 = 0,
+    event_counter: u64 = 0,
 };
 
 pub const Info = struct {
@@ -406,6 +407,33 @@ pub fn openEpoll() !usize {
     if (fd == descriptors.len) return error.TooManyFiles;
     descriptors[fd] = .{ .generation = try newGeneration(), .kind = .epoll, .node = .root };
     return fd;
+}
+
+pub fn openEventfd(initial: u64) !usize {
+    var fd: usize = 3;
+    while (fd < descriptors.len and descriptors[fd].kind != .unused) : (fd += 1) {}
+    if (fd == descriptors.len) return error.TooManyFiles;
+    descriptors[fd] = .{ .generation = try newGeneration(), .kind = .eventfd, .node = .root, .event_counter = initial };
+    return fd;
+}
+
+pub fn isEventfd(fd: usize) bool { return fd < descriptors.len and descriptors[fd].kind == .eventfd; }
+
+pub fn readEventfd(fd: usize, output: []u8) !usize {
+    if (!isEventfd(fd) or output.len < 8) return error.BadFd;
+    if (descriptors[fd].event_counter == 0) return error.WouldBlock;
+    const value: *align(1) u64 = @ptrCast(output.ptr);
+    value.* = descriptors[fd].event_counter;
+    descriptors[fd].event_counter = 0;
+    return 8;
+}
+
+pub fn writeEventfd(fd: usize, input: []const u8) !usize {
+    if (!isEventfd(fd) or input.len < 8) return error.BadFd;
+    const value: *align(1) const u64 = @ptrCast(input.ptr);
+    if (value.* > std.math.maxInt(u64) - descriptors[fd].event_counter) return error.Overflow;
+    descriptors[fd].event_counter += value.*;
+    return 8;
 }
 
 pub fn isEpoll(fd: usize) bool {

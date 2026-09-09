@@ -598,6 +598,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         232 => epollWait(arg1, arg2, arg3, @bitCast(arg4)),
         233 => epollCtl(arg1, arg2, arg3, arg4),
         291 => epollCreate(arg1),
+        290 => eventfd2(arg1, arg2),
         273 => setRobustList(arg1, arg2),
         316 => renameat2(arg1, arg2, arg3, arg4, arg5),
         274 => getRobustList(arg1, arg2, arg3, arg4),
@@ -704,6 +705,7 @@ fn read(fd: u64, address: u64, length: u64) u64 {
     if (!validUserSlice(address, length)) return errno(14);
     const length_usize = std.math.cast(usize, length) orelse return errno(14);
     const output: [*]u8 = @ptrFromInt(address);
+    if (vfs.isEventfd(@intCast(fd))) return vfs.readEventfd(@intCast(fd), output[0..length_usize]) catch |err| vfsError(err);
     if (fd == 0) {
         if (length == 0) return 0;
         const hook = stdin_hook orelse return 0;
@@ -3001,6 +3003,16 @@ fn poll(address: u64, count: u64, timeout: i64) u64 {
             if ((events & 4) != 0 and sockets[socket_index].connection != null) revents |= 4;
         } else if (!vfs.isOpen(fd)) {
             revents = 0x20; // POLLNVAL
+        } else if (vfs.isEventfd(fd)) {
+            if ((events & 1) != 0) {
+                var probe: [8]u8 = undefined;
+                if (vfs.readEventfd(fd, &probe)) |count_read| {
+                    // Restore the counter after readiness inspection.
+                    _ = vfs.writeEventfd(fd, probe[0..count_read]) catch 0;
+                    revents |= 1;
+                } else |_| {}
+            }
+            if ((events & 4) != 0) revents |= 4;
         } else {
             if ((events & 1) != 0) revents |= 1;
             if ((events & 4) != 0) revents |= 4;
@@ -3098,6 +3110,8 @@ fn userString(address: u64, buffer: []u8) ?[]const u8 {
 }
 
 fn vfsError(err: anyerror) u64 {
+    if (err == error.WouldBlock) return errno(11);
+    if (err == error.Overflow) return errno(75);
     return switch (err) { error.NotFound => errno(2), error.BadFd => errno(9), error.NotDirectory => errno(20), error.TooManyFiles => errno(24), else => errno(22) };
 }
 
@@ -3113,6 +3127,7 @@ fn write(fd: u64, address: u64, length: u64) u64 {
     if (!validUserSlice(address, length)) return errno(14);
     const length_usize = std.math.cast(usize, length) orelse return errno(14);
     const text: [*]const u8 = @ptrFromInt(address);
+    if (vfs.isEventfd(@intCast(fd))) return vfs.writeEventfd(@intCast(fd), text[0..length_usize]) catch |err| vfsError(err);
     if (socketIndex(fd)) |index| return socketSend(index, text[0..length_usize]);
     if (vfs.isDiskFile(@intCast(fd))) return vfs.write(@intCast(fd), text[0..length_usize]) catch |err| vfsError(err);
     if (!vfs.isConsole(@intCast(fd))) return errno(9);
@@ -3145,6 +3160,13 @@ fn socket(domain: u64, kind: u64, protocol: u64) u64 {
         }
     }
     return errno(24);
+}
+
+fn eventfd2(initial: u64, flags: u64) u64 {
+    // GLib/WPE uses EFD_CLOEXEC and EFD_NONBLOCK; readiness is represented by
+    // the counter, while blocking waits are handled by the poll/epoll layer.
+    if ((flags & ~@as(u64, 0x80800)) != 0) return errno(22);
+    return vfs.openEventfd(initial) catch |err| vfsError(err);
 }
 
 fn connect(fd: u64, address: u64, length: u64) u64 {

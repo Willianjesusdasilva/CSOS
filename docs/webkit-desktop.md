@@ -111,6 +111,18 @@ de deadlock; ainda não há espera por produtores externos. O port WebKit não
 está concluído por esse avanço. Próximos gates: GLib mínimo e event loop,
 implementando as capacidades adicionais que sua execução exigir.
 
+### Capability adicional validada: eventfd/poll
+
+A GLib usa `eventfd` para acordar o loop quando disponível. O VFS agora possui
+descritor eventfd com contador de 64 bits, leitura consumidora e escrita
+acumulativa; `eventfd2` aceita somente `EFD_CLOEXEC`/`EFD_NONBLOCK`. `poll`
+observa a prontidão do contador e não fabrica leitura permanente.
+
+O mesmo binário musl validou no QEMU: `eventfd(0)`, `write(1)`, `poll(POLLIN)`
+e `read()==1`, emitindo `CSOS WebKit prerequisite PASS: eventfd/poll` antes
+dos testes de threads. A evidência está em
+`zig-out/smoke-77ee2b5b060242629416990a2cf84fe1.serial.log`.
+
 Upstream fixado para investigação: **WPE WebKit 2.52.6**, commit
 `3bcefb149bd7e5645d18c3f0b9abd515b274649f` (tag anotada resolvida).
 `tools/fetch-webkit.ps1` prepara esse checkout sem descartar mudanças locais.

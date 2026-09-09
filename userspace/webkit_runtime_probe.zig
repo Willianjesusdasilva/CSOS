@@ -4,7 +4,11 @@ const std = @import("std");
 extern "c" fn pthread_create(*usize, ?*const anyopaque, *const fn (?*anyopaque) callconv(.c) ?*anyopaque, ?*anyopaque) c_int;
 extern "c" fn pthread_join(usize, *?*anyopaque) c_int;
 extern "c" fn write(c_int, [*]const u8, usize) isize;
+extern "c" fn read(c_int, [*]u8, usize) isize;
 extern "c" fn _exit(c_int) noreturn;
+extern "c" fn eventfd(c_uint, c_int) c_int;
+extern "c" fn poll(*PollFd, usize, c_int) c_int;
+const PollFd = extern struct { fd: c_int, events: i16, revents: i16 };
 extern "c" fn pthread_mutex_lock(*anyopaque) c_int;
 extern "c" fn pthread_mutex_unlock(*anyopaque) c_int;
 extern "c" fn pthread_cond_wait(*anyopaque, *anyopaque) c_int;
@@ -57,6 +61,15 @@ fn worker(argument: ?*anyopaque) callconv(.c) ?*anyopaque {
 }
 pub fn main() void {
     output("CSOS WebKit prerequisite probe: musl pthread/TLS/join\n");
+    const event = eventfd(0, 0x80000 | 0x800);
+    if (event < 0) { output("CSOS WebKit prerequisite FAIL: eventfd\n"); _exit(20); }
+    var event_counter: u64 = 1;
+    if (write(event, @ptrCast(&event_counter), 8) != 8) _exit(20);
+    var pollfd = PollFd{ .fd = event, .events = 1, .revents = 0 };
+    if (poll(&pollfd, 1, 0) != 1 or (pollfd.revents & 1) == 0) _exit(20);
+    var read_counter: u64 = 0;
+    if (read(event, @ptrCast(&read_counter), 8) != 8 or read_counter != 1) _exit(20);
+    output("CSOS WebKit prerequisite PASS: eventfd/poll\n");
     tls_value = 41;
     var thread: usize = 0;
     const created = pthread_create(&thread, null, child, null);
