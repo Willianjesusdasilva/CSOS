@@ -4,7 +4,8 @@ param(
     [string]$WebKitSource = (Join-Path $PSScriptRoot '..\.tools\webkit-src'),
     [string]$IcuSource = (Join-Path $PSScriptRoot '..\.tools\icu-cross-src'),
     [string]$GlibSource = (Join-Path $PSScriptRoot '..\.tools\glib-src'),
-    [string]$GlibBuild = (Join-Path $PSScriptRoot '..\zig-out\glib-linux8')
+    [string]$GlibBuild = (Join-Path $PSScriptRoot '..\zig-out\glib-linux8'),
+    [string]$JpegBuild = (Join-Path $PSScriptRoot '..\zig-out\jpeg-turbo-linux')
 )
 
 $ErrorActionPreference = 'Stop'
@@ -19,7 +20,8 @@ $webkit = [IO.Path]::GetFullPath($WebKitSource)
 $icu = [IO.Path]::GetFullPath($IcuSource)
 $glib = [IO.Path]::GetFullPath($GlibSource)
 $glibBuildPath = [IO.Path]::GetFullPath($GlibBuild)
-foreach ($path in @($build, $sysrootPath, $webkit, $icu, $glib, $glibBuildPath)) {
+$jpegBuildPath = [IO.Path]::GetFullPath($JpegBuild)
+foreach ($path in @($build, $sysrootPath, $webkit, $icu, $glib, $glibBuildPath, $jpegBuildPath)) {
     if (-not (Test-Path -LiteralPath $path)) { throw "Required WebKit cross-build path not found: $path" }
 }
 
@@ -269,4 +271,7 @@ Copy-Item -Force (Join-Path $icu 'i18n\unicode\*') (Join-Path $include 'unicode'
 Copy-Item -Force (Join-Path $icu 'lib\libicui18n.a'), (Join-Path $icu 'lib\libicuuc.a'), (Join-Path $icu 'lib\libicuio.a'), (Join-Path $icu 'stubdata\libicudata.a') $lib
 Copy-Item -Force (Join-Path $glib 'gmodule\gmodule.h') (Join-Path $include 'glib-2.0\gmodule.h')
 Copy-Item -Force (Join-Path $glibBuildPath 'gmodule\gmoduleconf.h') (Join-Path $include 'glib-2.0\gmoduleconf.h')
+# libjpeg-turbo's generated configuration headers are not installed in the
+# shared sysroot, but jpeglib.h includes jconfig.h directly.
+Copy-Item -Force (Join-Path $jpegBuildPath 'jconfig.h'), (Join-Path $jpegBuildPath 'jconfigint.h'), (Join-Path $jpegBuildPath 'jversion.h') $include
 Write-Output "WebKit cross build repaired: $build"
