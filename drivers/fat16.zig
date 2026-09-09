@@ -49,7 +49,9 @@ pub const Volume = struct {
             const bytes: [*]const u8 = @ptrFromInt(self.buffer);
             var offset: usize = 0;
             while (offset < 512) : (offset += 32) {
-                if (bytes[offset] == 0) return error.NotFound;
+                // Empty slots can precede live entries after incremental
+                // filesystem mutations; keep scanning the fixed root.
+                if (bytes[offset] == 0) continue;
                 if (!entryIsRegularFile(bytes + offset)) continue;
                 if (!equal11(bytes + offset, name)) continue;
                 var cluster = get16(bytes + offset + 26);
@@ -84,12 +86,12 @@ pub const Volume = struct {
 
     pub fn fileSize(self: *Volume, name: *const [11]u8) !usize {
         var sector: u32 = 0;
-        while (sector < self.root_sectors) : (sector += 1) {
-            try self.storage.readBlock(self.root_start + sector, self.buffer);
-            const bytes: [*]const u8 = @ptrFromInt(self.buffer);
-            var offset: usize = 0;
-            while (offset < 512) : (offset += 32) {
-                if (bytes[offset] == 0) return error.NotFound;
+    while (sector < self.root_sectors) : (sector += 1) {
+        try self.storage.readBlock(self.root_start + sector, self.buffer);
+        const bytes: [*]const u8 = @ptrFromInt(self.buffer);
+        var offset: usize = 0;
+        while (offset < 512) : (offset += 32) {
+                if (bytes[offset] == 0) continue;
                 if (entryIsRegularFile(bytes + offset) and equal11(bytes + offset, name))
                     return get32(bytes + offset + 28);
             }
@@ -533,7 +535,7 @@ pub const Volume = struct {
             const bytes: [*]const u8 = @ptrFromInt(self.buffer);
             var offset: usize = 0;
             while (offset < 512) : (offset += 32) {
-                if (bytes[offset] == 0) break;
+                if (bytes[offset] == 0) continue;
                 if (!entryIsRegularFile(bytes + offset) or !equal11(bytes + offset, name)) continue;
                 first_cluster = get16(bytes + offset + 26);
                 size = get32(bytes + offset + 28);
