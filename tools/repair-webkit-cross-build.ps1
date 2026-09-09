@@ -288,9 +288,13 @@ Copy-Item -Force (Join-Path $epoxyBuildPath 'include\epoxy\*.h') $epoxyInclude
 # Guard that implementation to match the feature configuration.
 $mediaCustom = Join-Path $webkit 'Source\WebCore\bindings\js\JSHTMLMediaElementCustom.cpp'
 $mediaText = [IO.File]::ReadAllText($mediaCustom)
+$mediaText = $mediaText.Replace('`n', [Environment]::NewLine)
 if (-not $mediaText.Contains('#if ENABLE(VIDEO)')) {
-    $mediaText = $mediaText.Replace('namespace WebCore {', '#if ENABLE(VIDEO)`nnamespace WebCore {')
-    $mediaText = $mediaText.Replace('} // namespace WebCore', '} // namespace WebCore`n#endif')
+    $nl = [Environment]::NewLine
+    $mediaText = $mediaText.Replace('namespace WebCore {', "#if ENABLE(VIDEO)$nl`nnamespace WebCore {")
+    $mediaText = $mediaText.Replace('} // namespace WebCore', "} // namespace WebCore$nl`n#endif")
+    [IO.File]::WriteAllText($mediaCustom, $mediaText, [Text.UTF8Encoding]::new($false))
+} else {
     [IO.File]::WriteAllText($mediaCustom, $mediaText, [Text.UTF8Encoding]::new($false))
 }
 Write-Output "WebKit cross build repaired: $build"
