@@ -228,7 +228,7 @@ foreach ($soupVersionOutput in @(
 Get-ChildItem $soupInstalledRoot -File -Filter '*.h' | Remove-Item -Force
 Get-ChildItem $soupInstalled -Recurse -File -Filter '*.h' | ForEach-Object {
     $wrapper = Join-Path $soupInstalledRoot $_.Name
-    $includeName = "libsoup/$([IO.Path]::GetRelativePath($soupInstalled, $_.FullName).Replace('\','/'))"
+    $includeName = "libsoup/$((Get-RelativePathCompat $soupInstalled $_.FullName).Replace('\','/'))"
     [IO.File]::WriteAllText($wrapper, "#pragma once`n#include <$includeName>`n", [Text.UTF8Encoding]::new($false))
 }
 $dependencySuffix = " $gmoduleLib $pcre2Lib $ffiLib"
