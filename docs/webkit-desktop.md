@@ -161,7 +161,8 @@ libxml2 2.13.8, libpng 1.6.43 e libwebp 1.4.0 (incluindo demux). O gate atual
 é a ferramenta host `glib-compile-resources`, usada apenas na geração do
 build. Os diretórios `.tools` e `zig-out` são artefatos locais ignorados;
 scripts de build devem manter as mesmas opções e o sysroot para permitir
-reprodução limpa.
+reprodução limpa. Cairo 1.18.0 também foi compilado com Pixman e PNG; o CMake
+já o aceita. O gate seguinte é Fontconfig (com FreeType/Expat no runtime).
 
 ## Referências upstream
 
