@@ -86,6 +86,7 @@ $ninjaText = $ninjaText.Replace('"' + $zig + '" -E', '"' + $wrapper + '"')
 $ninjaText = $ninjaText.Replace('\"' + $zig + '\" -E', '\"' + $wrapper + '\"')
 $lolInclude = ((Join-Path $webkit 'Source\JavaScriptCore\lol').Replace('\','/'))
 $soupInclude = ((Join-Path $repo '.tools\libsoup-src\libsoup').Replace('\','/'))
+$soupGeneratedInclude = ((Join-Path $repo 'zig-out\libsoup-linux\libsoup').Replace('\','/'))
 $badInspectorDir = ((Join-Path $build 'WebInspectorUI\DerivedSources\InspectorResources\WebInspectorUI').Replace('\','/'))
 $intermediateInspectorDir = ((Join-Path $build 'WebInspectorUI\DerivedSources\InspectorResources').Replace('\','/'))
 $goodInspectorDir = ((Join-Path $build 'WebInspectorUI').Replace('\','/'))
@@ -128,6 +129,9 @@ if (-not $ninjaText.Contains("-I$lolInclude ")) {
 }
 if (-not $ninjaText.Contains("-I$soupInclude ")) {
     $ninjaText = $ninjaText.Replace('INCLUDES = ', "INCLUDES = -I$soupInclude ")
+}
+if (-not $ninjaText.Contains("-I$soupGeneratedInclude ")) {
+    $ninjaText = $ninjaText.Replace('INCLUDES = ', "INCLUDES = -I$soupGeneratedInclude ")
 }
 if (-not $ninjaText.Contains('-DSIMDUTF_IMPLEMENTATION_ICELAKE=0')) {
     $ninjaText = $ninjaText.Replace('FLAGS = ', 'FLAGS = -DSIMDUTF_IMPLEMENTATION_ICELAKE=0 ')
