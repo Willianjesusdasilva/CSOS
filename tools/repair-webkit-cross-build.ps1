@@ -327,4 +327,12 @@ $localFrameView = Join-Path $webkit 'Source\WebCore\page\LocalFrameView.cpp'
 $localFrameText = [IO.File]::ReadAllText($localFrameView)
 $localFrameText = $localFrameText.Replace('    return rects.transform([] (const auto& repaintRects) { return repaintRects.clippedOverflowRect; });', "    if (!rects)$nl        return std::nullopt;$nl    return std::make_optional(rects->clippedOverflowRect);")
 [IO.File]::WriteAllText($localFrameView, $localFrameText, [Text.UTF8Encoding]::new($false))
+# PlatformImage.h includes the Cairo smart-pointer declarations without the
+# feature subdirectory in its include path. Provide the canonical forwarding
+# wrapper expected by WebCore's generated/private headers.
+$graphicsDir = Join-Path $webkit 'Source\WebCore\platform\graphics'
+$cairoRefPtr = Join-Path $graphicsDir 'RefPtrCairo.h'
+if (-not (Test-Path -LiteralPath $cairoRefPtr)) {
+    [IO.File]::WriteAllText($cairoRefPtr, "#pragma once$nl#include <cairo/RefPtrCairo.h>$nl", [Text.UTF8Encoding]::new($false))
+}
 Write-Output "WebKit cross build repaired: $build"
