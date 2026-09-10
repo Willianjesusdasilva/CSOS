@@ -343,4 +343,11 @@ if (-not (Test-Path -LiteralPath $intRectWrapper)) {
     $intRectWrapperText = '#pragma once' + $nl + '#include "platform/graphics/IntRect.h"' + $nl
     [IO.File]::WriteAllText($intRectWrapper, $intRectWrapperText, [Text.UTF8Encoding]::new($false))
 }
+# Accessibility ATSPI includes IntRect.h from its own directory; provide the
+# local forwarding header required by WebKit's include search order.
+$atspiIntRectWrapper = Join-Path $webkit 'Source\WebCore\accessibility\atspi\IntRect.h'
+if (-not (Test-Path -LiteralPath $atspiIntRectWrapper)) {
+    $atspiIntRectText = '#pragma once' + $nl + '#include "../../platform/graphics/IntRect.h"' + $nl
+    [IO.File]::WriteAllText($atspiIntRectWrapper, $atspiIntRectText, [Text.UTF8Encoding]::new($false))
+}
 Write-Output "WebKit cross build repaired: $build"
