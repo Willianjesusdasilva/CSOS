@@ -141,7 +141,9 @@ QEMU antes de fechar os gates de event loop.
 Upstream fixado para investigação: **WPE WebKit 2.52.6**, commit
 `3bcefb149bd7e5645d18c3f0b9abd515b274649f` (tag anotada resolvida).
 `tools/fetch-webkit.ps1` prepara esse checkout sem descartar mudanças locais.
-A compilação do engine e sua execução ainda não foram realizadas.
+A compilação real do engine foi iniciada no diretório `zig-out/webkit-linux6`;
+a execução ainda não foi realizada porque o link final do WPE/WebKit depende da
+conclusão de JavaScriptCore, WebCore e das bibliotecas WPE.
 
 ## WPE platform bootstrap
 
