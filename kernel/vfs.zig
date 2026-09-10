@@ -1128,6 +1128,7 @@ fn toFatName(path: []const u8) ?[11]u8 {
     if (std.mem.eql(u8, path, "HEAD.lock")) return "HEAD    LCK".*;
     if (std.mem.eql(u8, path, "index.lock")) return "INDEX   LCK".*;
     if (std.mem.eql(u8, path, "packed-refs")) return "PACKED  REF".*;
+    if (std.mem.eql(u8, path, "packed-refs.lock")) return "PACKED  LCK".*;
     if (std.mem.eql(u8, path, "description")) return "DESCRIP ION".*;
     if (std.mem.eql(u8, path, ".gitignore")) return "GITIGNR IGN".*;
     if (std.mem.eql(u8, path, ".gitattributes")) return "GITATTR IBU".*;
@@ -1208,6 +1209,10 @@ test "FAT path conversion rejects extended characters" {
 
 test "FAT path conversion aliases Git object IDs" {
     try std.testing.expect(toFatName("0258af78e1b2f8ec3427089172d11e5d46eebc") != null);
+}
+
+test "FAT path conversion aliases Git packed refs lock" {
+    try std.testing.expectEqualStrings("PACKED  LCK", &(toFatName("packed-refs.lock") orelse unreachable));
 }
 
 fn runtimeLibraryFatAlias(path: []const u8) ?[11]u8 {

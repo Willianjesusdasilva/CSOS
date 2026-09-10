@@ -78,14 +78,13 @@ if ($SmokeTestSeconds -gt 0) {
     $runId = [Guid]::NewGuid().ToString('N')
     $serialLog = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\zig-out\smoke-$runId.serial.log"))
     $errorLog = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\zig-out\smoke-$runId.stderr.log"))
-    $monitorPort = $null
-    $monitorTarget = 'none'
-    if ($SmokeDesktopFiles -or $SmokeDesktopMouse -or $SmokeTerminalRun) {
-        $reservation = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
-        $reservation.Start()
-        try { $monitorPort = ([Net.IPEndPoint]$reservation.LocalEndpoint).Port } finally { $reservation.Stop() }
-        $monitorTarget = "tcp:127.0.0.1:$monitorPort,server=on,wait=off"
-    }
+    # Keep a bounded HMP monitor for every smoke run.  The disk-backed smoke
+    # path must be allowed to receive QEMU's normal quit/flush sequence before
+    # the runner falls back to force-killing the exact child process.
+    $reservation = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
+    $reservation.Start()
+    try { $monitorPort = ([Net.IPEndPoint]$reservation.LocalEndpoint).Port } finally { $reservation.Stop() }
+    $monitorTarget = "tcp:127.0.0.1:$monitorPort,server=on,wait=off"
     $qemuArguments += @('-display', 'none', '-monitor', $monitorTarget, '-serial', "file:$serialLog")
     if ($CaptureScreen) {
         $reservation = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
@@ -203,6 +202,14 @@ if ($SmokeTestSeconds -gt 0) {
                         Write-Output "QEMU screenshot: $capturePath"
                     } finally { $captureClient.Dispose() }
                 }
+                # Gracefully terminate so writes to the persistent FAT image
+                # are flushed.  Cleanup below remains bounded and exact.
+                $quitClient = [Net.Sockets.TcpClient]::new()
+                try {
+                    $quitClient.Connect('127.0.0.1', $monitorPort)
+                    $quitWriter = [IO.StreamWriter]::new($quitClient.GetStream())
+                    try { $quitWriter.AutoFlush = $true; $quitWriter.WriteLine('quit') } finally { $quitWriter.Dispose() }
+                } finally { $quitClient.Dispose() }
                 $testResult = 0; break
             }
             if ($testProcess.HasExited) { $testResult = 1; break }
