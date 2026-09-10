@@ -324,6 +324,10 @@ $intersectionText = $intersectionText.Replace('[&] (const RenderElement* rendere
 $intersectionText = $intersectionText.Replace('[&] (const RenderElement* renderer) -> std::optional<LayoutRect> { return static_cast<const Frame*>(&renderer->frame()); }', '[&] (const RenderElement* renderer) { return static_cast<const Frame*>(&renderer->frame()); }')
 $intersectionText = $intersectionText.Replace('        [&] (const RenderElement* renderer) {', '        [&] (const RenderElement* renderer) -> std::optional<LayoutRect> {')
 $intersectionText = $intersectionText.Replace('            return visibleRects.transform([] (auto&& repaintRects) { return repaintRects.clippedOverflowRect; } );', "            if (!visibleRects)$nl                return std::nullopt;$nl            return std::make_optional(visibleRects->clippedOverflowRect);")
+$intersectionText = $intersectionText -replace '(?m)(^\s*\[&\] \(const RenderElement\* renderer\) )-> std::optional<LayoutRect>( \{ return Ref<const Frame>\(renderer->frame\(\)\)->frameDocumentSecurityOrigin\(\); \},)', '$1$2'
+$intersectionText = $intersectionText -replace '(?m)(^\s*\[&\] \(const RenderElement\* renderer\) )-> std::optional<LayoutRect>( \{ return static_cast<const Frame>\(&renderer->frame\(\)\); \},)', '$1$2'
+$intersectionText = $intersectionText -replace '(?m)(\[&\] \(const RenderElement\* renderer\) )-> std::optional<LayoutRect>( \{ return static_cast<const Frame>\(&renderer->frame\(\)\); \},)', '$1$2'
+$intersectionText = $intersectionText.Replace('        [&] (const RenderElement* renderer) -> std::optional<LayoutRect> { return static_cast<const Frame*>(&renderer->frame()); },', '        [&] (const RenderElement* renderer) { return static_cast<const Frame*>(&renderer->frame()); },')
 [IO.File]::WriteAllText($intersection, $intersectionText, [Text.UTF8Encoding]::new($false))
 $localFrameView = Join-Path $webkit 'Source\WebCore\page\LocalFrameView.cpp'
 $localFrameText = [IO.File]::ReadAllText($localFrameView)
