@@ -350,4 +350,9 @@ if (-not (Test-Path -LiteralPath $atspiIntRectWrapper)) {
     $atspiIntRectText = '#pragma once' + $nl + '#include "../../platform/graphics/IntRect.h"' + $nl
     [IO.File]::WriteAllText($atspiIntRectWrapper, $atspiIntRectText, [Text.UTF8Encoding]::new($false))
 }
+$doublePointWrapper = Join-Path $webkit 'Source\WebCore\platform\DoublePoint.h'
+if (-not (Test-Path -LiteralPath $doublePointWrapper)) {
+    $doublePointText = '#pragma once' + $nl + '#include "graphics/DoublePoint.h"' + $nl
+    [IO.File]::WriteAllText($doublePointWrapper, $doublePointText, [Text.UTF8Encoding]::new($false))
+}
 Write-Output "WebKit cross build repaired: $build"
