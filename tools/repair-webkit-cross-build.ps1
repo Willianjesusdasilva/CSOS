@@ -365,4 +365,9 @@ if (-not (Test-Path -LiteralPath $soupCredentialBaseWrapper)) {
     $soupCredentialBaseText = '#pragma once' + $nl + '#include "../CredentialBase.h"' + $nl
     [IO.File]::WriteAllText($soupCredentialBaseWrapper, $soupCredentialBaseText, [Text.UTF8Encoding]::new($false))
 }
+$cairoGraphicsContextWrapper = Join-Path $webkit 'Source\WebCore\platform\graphics\cairo\GraphicsContext.h'
+if (-not (Test-Path -LiteralPath $cairoGraphicsContextWrapper)) {
+    $cairoGraphicsContextText = '#pragma once' + $nl + '#include "../GraphicsContext.h"' + $nl
+    [IO.File]::WriteAllText($cairoGraphicsContextWrapper, $cairoGraphicsContextText, [Text.UTF8Encoding]::new($false))
+}
 Write-Output "WebKit cross build repaired: $build"
