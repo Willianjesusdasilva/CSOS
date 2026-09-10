@@ -29,3 +29,11 @@ cycle before exposing the next FAT/VFS lock-file compatibility issue. Full
 repository operations and the update gate (`status`, `log`, `diff`, `show`,
 `fetch`, `switch`, `reset`, and `pull`) remain open. HTTPS transport also
 still needs the curl/OpenSSL dependency chain.
+
+The probe now exercises the real FAT alias for `packed-refs.lock`; upstream
+Git can initialize/reopen the repository, add the versioned defaults, commit,
+and report status across two flushed QEMU boots. A bounded `pull --ff-only`
+probe reached the next genuine blocker: Git tries to spawn `git-upload-pack`
+for fetch and CSOS does not yet provide child-process `exec`/lifecycle support.
+That process-manager gate must be implemented before P1 can be considered
+complete; it is not replaced by a fake updater.
