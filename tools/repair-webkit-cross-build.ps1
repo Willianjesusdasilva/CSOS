@@ -370,4 +370,9 @@ if (-not (Test-Path -LiteralPath $cairoGraphicsContextWrapper)) {
     $cairoGraphicsContextText = '#pragma once' + $nl + '#include "../GraphicsContext.h"' + $nl
     [IO.File]::WriteAllText($cairoGraphicsContextWrapper, $cairoGraphicsContextText, [Text.UTF8Encoding]::new($false))
 }
+$hbUniquePtrWrapper = Join-Path $webkit 'Source\WebCore\HbUniquePtr.h'
+if (-not (Test-Path -LiteralPath $hbUniquePtrWrapper)) {
+    $hbUniquePtrText = '#pragma once' + $nl + '#include "platform/graphics/harfbuzz/HbUniquePtr.h"' + $nl
+    [IO.File]::WriteAllText($hbUniquePtrWrapper, $hbUniquePtrText, [Text.UTF8Encoding]::new($false))
+}
 Write-Output "WebKit cross build repaired: $build"
