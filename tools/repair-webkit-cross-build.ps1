@@ -355,4 +355,9 @@ if (-not (Test-Path -LiteralPath $doublePointWrapper)) {
     $doublePointText = '#pragma once' + $nl + '#include "graphics/DoublePoint.h"' + $nl
     [IO.File]::WriteAllText($doublePointWrapper, $doublePointText, [Text.UTF8Encoding]::new($false))
 }
+$credentialSoupWrapper = Join-Path $webkit 'Source\WebCore\platform\network\CredentialSoup.h'
+if (-not (Test-Path -LiteralPath $credentialSoupWrapper)) {
+    $credentialSoupText = '#pragma once' + $nl + '#include "soup/CredentialSoup.h"' + $nl
+    [IO.File]::WriteAllText($credentialSoupWrapper, $credentialSoupText, [Text.UTF8Encoding]::new($false))
+}
 Write-Output "WebKit cross build repaired: $build"
