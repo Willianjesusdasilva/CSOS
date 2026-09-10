@@ -33,6 +33,16 @@ CSOS installation reused
 CSOS boot health ready
 ```
 
+The same behavior was re-run through the official `zig build run` path after
+the smoke runner was changed to send QEMU's graceful `quit` command before its
+bounded cleanup.  The first run (`zig-out/smoke-d6e6d6bfeb0d47809ed48ed92a88ff50.serial.log`)
+reached `CSOS graphical session ready`; the following run
+(`zig-out/smoke-9bc276229f114507afa8b8fafa0f7e83.serial.log`) reported
+`hardware.csc reused from /data/config`.  Both runs exited with code 0 and no
+QEMU process remained.  This proves persistence across two boots of the same
+FAT-backed storage image; the installed-storage Git reset demonstration is
+still the remaining P0 gate.
+
 The test runner terminates the emulator after the bounded smoke test; no QEMU
 process is left running. P0 still requires a real installed-storage reset
 demonstration before it is considered complete, but the runtime no longer
