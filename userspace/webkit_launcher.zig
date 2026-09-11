@@ -3,6 +3,7 @@
 const WpeViewBackend = opaque {};
 extern fn wpe_view_backend_create() ?*WpeViewBackend;
 extern fn wpe_view_backend_destroy(?*WpeViewBackend) void;
+extern fn wpe_fdo_initialize_shm() void;
 extern fn webkit_web_view_backend_new(?*WpeViewBackend, ?*const anyopaque, ?*anyopaque) ?*anyopaque;
 extern fn webkit_web_view_new(?*anyopaque) ?*anyopaque;
 extern fn webkit_web_view_load_html(?*anyopaque, [*:0]const u8, [*:0]const u8) void;
@@ -10,6 +11,9 @@ extern fn g_main_context_default() ?*anyopaque;
 extern fn g_main_context_iteration(?*anyopaque, c_int) c_int;
 
 pub fn main() void {
+    // QEMU currently has no physical EGL/KMS device. WPE FDO's SHM target
+    // still exercises the real WebKit pipeline without a fake renderer.
+    wpe_fdo_initialize_shm();
     const view_backend = wpe_view_backend_create() orelse return;
     const web_backend = webkit_web_view_backend_new(view_backend, null, null) orelse return;
     const view = webkit_web_view_new(web_backend) orelse return;

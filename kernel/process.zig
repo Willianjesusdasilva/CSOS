@@ -230,7 +230,10 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
         try loadSegment(&address_space, pages, mappings, &mapping_count, owned, &owned_count, virtual, file_offset, file_size, memory_size, (flags & 2) != 0, (flags & 1) != 0, true);
     }
     if (mapping_count == 0 or entry < image_start or entry >= image_end) return error.InvalidElf;
-    try applyRelativeRelocations(mappings[0..mapping_count], load_bias, program_offset, program_entry_size, program_count, interpreter_path != null);
+    sortMappings(mappings[0..mapping_count]);
+    if (interpreter_path == null) {
+        try applyRelativeRelocations(mappings[0..mapping_count], load_bias, program_offset, program_entry_size, program_count, false);
+    }
     var execution_entry = entry;
     var interpreter_base: u64 = 0;
     if (interpreter_path) |path| {
@@ -329,7 +332,6 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
                 try loadSegment(&address_space, pages, mappings, &mapping_count, owned, &owned_count, module_tls, file_offset, file_size, memory_size, true, false, false);
                 tls_modules = saturatingAdd(tls_modules, 1);
             }
-            try applyRelativeRelocations(mappings[0..mapping_count], shared_base, shared_program_offset, shared_program_entry_size, shared_program_count, true);
             providers[provider_count] = .{
                 .bytes = shared_bytes,
                 .program_offset = shared_program_offset,
@@ -351,6 +353,16 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
             provider_count += 1;
             shared_objects_loaded = saturatingAdd(shared_objects_loaded, 1);
         }
+        // All images are now mapped. Sorting once makes relocation lookups
+        // logarithmic even for the hundreds of thousands of WebKit entries.
+        sortMappings(mappings[0..mapping_count]);
+        image = program_image;
+        try applyRelativeRelocations(mappings[0..mapping_count], load_bias, program_offset, program_entry_size, program_count, true);
+        for (providers[0..provider_count]) |provider| {
+            image = provider.bytes;
+            try applyRelativeRelocations(mappings[0..mapping_count], provider.base, provider.program_offset, provider.program_entry_size, provider.program_count, true);
+        }
+        image = program_image;
         try applySymbolRelocations(program_image, program_offset, program_entry_size, program_count, load_bias, 0, providers[0..provider_count], mappings[0..mapping_count]);
         for (providers[0..provider_count], 0..) |provider, provider_index| {
             try applySymbolRelocations(provider.bytes, provider.program_offset, provider.program_entry_size, provider.program_count, provider.base, provider_index + 1, providers[0..provider_count], mappings[0..mapping_count]);
@@ -409,6 +421,7 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
             image_end = @max(image_end, virtual + memory_size);
                 try loadSegment(&address_space, pages, mappings, &mapping_count, owned, &owned_count, virtual, file_offset, file_size, memory_size, (flags & 2) != 0, (flags & 1) != 0, false);
         }
+        sortMappings(mappings[0..mapping_count]);
         try applyRelativeRelocations(mappings[0..mapping_count], interpreter_base, interpreter_program_offset, interpreter_program_entry_size, interpreter_program_count, false);
         interpreter_loads = saturatingAdd(interpreter_loads, 1);
         image = program_image;
@@ -1421,6 +1434,14 @@ fn findMapping(mappings: []const Mapping, page_virtual: u64) ?*const Mapping {
     }
     if (low < mappings.len and mappings[low].virtual == page_virtual) return &mappings[low];
     return null;
+}
+
+fn sortMappings(mappings: []Mapping) void {
+    std.sort.heap(Mapping, mappings, {}, struct {
+        fn lessThan(_: void, left: Mapping, right: Mapping) bool {
+            return left.virtual < right.virtual;
+        }
+    }.lessThan);
 }
 
 pub fn handlePageFault(address: u64, instruction: u64, code: u64) callconv(.c) bool {

@@ -186,6 +186,18 @@ resolvido pelo `libWPEBackend-fdo` real. Isso ainda é uma validação de build/
 cross no host, não execução no CSOS. O próximo gate é iniciar o processo WPE no
 CSOS e conectar display, mailbox/IPC e input ao compositor.
 
+### Launcher WPE real no CSOS
+
+`userspace/webkit_launcher.zig` agora é compilado em Zig contra o WebKit e o
+backend FDO reais. `build.zig` e `tools/make-fat16.ps1` empacotam o launcher,
+`libWPEWebKit-2.0.so.1.9.10` e `libWPEBackend-fdo-1.0.so.1.10.2` no FAT do
+QEMU. O loader ELF aceita esses aliases, mapeia o engine grande e trata
+relocations que atravessam páginas. O smoke alcança `FAT WebKit entry ready` e
+`Linux PT_INTERP loader ready`; o backend FDO é inicializado em modo SHM para
+QEMU. O retorno `CSOS WPE WebKit launcher returned` ainda não foi observado:
+o processo excede o timeout atual antes de completar o loop GLib. Portanto,
+HTML/CSS/JavaScript no CSOS continua um gate aberto, não uma validação final.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de
