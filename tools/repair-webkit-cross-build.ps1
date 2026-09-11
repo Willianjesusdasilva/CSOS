@@ -16,6 +16,17 @@ function Get-RelativePathCompat([string]$From, [string]$To) {
     $toUri = [Uri]((Resolve-Path -LiteralPath $To).Path)
     return [Uri]::UnescapeDataString($fromUri.MakeRelativeUri($toUri).ToString()).Replace('/', '\')
 }
+function Write-TextRetry([string]$Path, [string]$Content) {
+    for ($attempt = 0; $attempt -lt 8; $attempt++) {
+        try {
+            [IO.File]::WriteAllText($Path, $Content, [Text.UTF8Encoding]::new($false))
+            return
+        } catch [IO.IOException] {
+            if ($attempt -eq 7) { throw }
+            Start-Sleep -Milliseconds 250
+        }
+    }
+}
 $build = [IO.Path]::GetFullPath($BuildDirectory)
 $sysrootPath = [IO.Path]::GetFullPath($Sysroot)
 $webkit = [IO.Path]::GetFullPath($WebKitSource)
@@ -45,33 +56,92 @@ Get-ChildItem $private -File -ErrorAction SilentlyContinue | ForEach-Object {
     $candidate = $null
     if ($sourceFiles.ContainsKey($_.Name)) {
         $sourcePath = $sourceFiles[$_.Name]
-        if ((Get-FileHash $_.FullName -Algorithm SHA256).Hash -eq (Get-FileHash $sourcePath -Algorithm SHA256).Hash) { $candidate = $sourcePath }
+        # The generated private tree may normalize line endings or add a
+        # generated prologue, so a hash comparison is not reliable here.  A
+        # same-named upstream header is canonical and must be forwarded rather
+        # than copied; otherwise Clang sees two independent definitions.
+        $candidate = $sourcePath
     }
     if ($null -eq $candidate) {
         $candidate = Get-ChildItem $derived -Recurse -File -Filter $_.Name -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
     }
     if ($candidate) {
         $relative = (Get-RelativePathCompat $private $candidate).Replace('\', '/')
-        [IO.File]::WriteAllText($_.FullName, "#pragma once`n#include `"$relative`"`n", [Text.UTF8Encoding]::new($false))
+        Write-TextRetry $_.FullName "#pragma once`n#include `"$relative`"`n"
     }
 }
 
 # Apply the same Windows copy/symlink repair to WebCore private headers.
 $webCorePrivate = Join-Path $build 'WebCore\PrivateHeaders\WebCore'
 $webCoreDerived = Join-Path $build 'WebCore\DerivedSources'
+$webCorePrivateSources = @{}
+$ninjaForWebCoreMap = Join-Path $build 'build.ninja'
+if (Test-Path -LiteralPath $ninjaForWebCoreMap) {
+    Get-Content -LiteralPath $ninjaForWebCoreMap | ForEach-Object {
+        if ($_ -match '^build WebCore/PrivateHeaders/WebCore/([^ |]+).*CUSTOM_COMMAND (\S+)') {
+            $webCorePrivateSources[$matches[1]] = $matches[2]
+        }
+    }
+}
 Get-ChildItem $webCorePrivate -File -ErrorAction SilentlyContinue | ForEach-Object {
     $raw = [IO.File]::ReadAllText($_.FullName)
-    if ($raw.StartsWith("#pragma once`n#include ")) { return }
-    $privateHash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash
-    $candidate = Get-ChildItem (Join-Path $webkit 'Source\WebCore') -Recurse -File -Filter $_.Name -ErrorAction SilentlyContinue |
-        Where-Object { (Get-FileHash $_.FullName -Algorithm SHA256).Hash -eq $privateHash } |
-        Select-Object -First 1 -ExpandProperty FullName
+    # Re-evaluate existing wrappers too: a prior basename-only repair may
+    # have selected the wrong duplicate source (for example the CF variant).
+    # CMake records the exact source path for every flattened private header;
+    # use that mapping because WebCore contains repeated basenames (for
+    # example platform/network/{soup,cf}/ResourceError.h).
+    $candidate = $null
+    if ($webCorePrivateSources.ContainsKey($_.Name)) {
+        $candidate = $webCorePrivateSources[$_.Name].Replace('/', '\')
+        $candidate = $candidate.Replace('C:\w\.tools\webkit-src', $webkit)
+        $candidate = $candidate.Replace('C$:\w\.tools\webkit-src', $webkit)
+        if ($candidate -like 'WebCore\DerivedSources\*') { $candidate = Join-Path $build $candidate }
+        if (-not ($candidate -match '^[A-Za-z]:\\')) { $candidate = Join-Path $webkit $candidate }
+    }
+    if (-not $candidate -or -not (Test-Path -LiteralPath $candidate)) {
+        $candidate = Get-ChildItem (Join-Path $webkit 'Source\WebCore') -Recurse -File -Filter $_.Name -ErrorAction SilentlyContinue |
+            Select-Object -First 1 -ExpandProperty FullName
+    }
     if (-not $candidate) {
         $candidate = Get-ChildItem $webCoreDerived -Recurse -File -Filter $_.Name -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
     }
     if ($candidate) {
         $relative = (Get-RelativePathCompat $webCorePrivate $candidate).Replace('\', '/')
-        [IO.File]::WriteAllText($_.FullName, "#pragma once`n#include `"$relative`"`n", [Text.UTF8Encoding]::new($false))
+        Write-TextRetry $_.FullName "#pragma once`n#include `"$relative`"`n"
+    }
+}
+
+# Serializer inputs are consumed by a Python parser, not by the C/C++
+# preprocessor. A relative include wrapper is therefore not valid here: the
+# parser would see only the include directive and omit the type definitions.
+# Materialize the generated .serialization.in contents in the private tree.
+Get-ChildItem $webCorePrivate -File -Filter '*.serialization.in' -ErrorAction SilentlyContinue | ForEach-Object {
+    $sourceSerialization = $null
+    if ($webCorePrivateSources.ContainsKey($_.Name)) {
+        $mappedSerialization = $webCorePrivateSources[$_.Name].Replace('/', '\')
+        $mappedSerialization = $mappedSerialization.Replace('C:\w\.tools\webkit-src', $webkit)
+        $mappedSerialization = $mappedSerialization.Replace('C$:\w\.tools\webkit-src', $webkit)
+        if ($mappedSerialization -like 'WebCore\DerivedSources\*') {
+            $mappedSerialization = Join-Path $build $mappedSerialization
+        }
+        if ($mappedSerialization -match '^[A-Za-z]:\\') {
+            $sourceSerialization = $mappedSerialization
+        }
+    }
+    if (-not $sourceSerialization) {
+        $wrapperText = [IO.File]::ReadAllText($_.FullName)
+        if ($wrapperText -match '\.tools[\\/]webkit-src[\\/](Source[\\/].*?\.serialization\.in)') {
+            $sourceSerialization = Join-Path $webkit ($matches[1].Replace('/', '\'))
+        }
+    }
+    if (-not $sourceSerialization) {
+        $sourceSerialization = Join-Path $webCoreDerived $_.Name
+    }
+    if (Test-Path -LiteralPath $sourceSerialization) {
+        $serializationText = [IO.File]::ReadAllText($sourceSerialization)
+        if ([IO.File]::ReadAllText($_.FullName) -ne $serializationText) {
+            Write-TextRetry $_.FullName $serializationText
+        }
     }
 }
 
@@ -80,10 +150,51 @@ Get-ChildItem $webCorePrivate -File -ErrorAction SilentlyContinue | ForEach-Obje
 $ninja = Join-Path $build 'build.ninja'
 if (-not (Test-Path -LiteralPath $ninja)) { throw "Ninja file not found: $ninja" }
 $ninjaText = [IO.File]::ReadAllText($ninja)
+# GLib ships the canonical gdbus-codegen implementation as a Python script,
+# but the Windows cross-build does not provide the Unix launcher on PATH.
+# Invoke that bundled generator directly so WebCore's AT-SPI interfaces remain
+# generated from the upstream XML rather than being replaced with stubs.
+$pythonExe = ((Get-Command python.exe -ErrorAction Stop).Source).Replace('\', '/')
+$glibCodegenWrapper = 'C:/w/tools/gdbus-codegen-wrapper.py'
+$ninjaText = $ninjaText.Replace('gdbus-codegen ', '"' + $pythonExe + '" "' + $glibCodegenWrapper + '" ')
+$ninjaText = $ninjaText.Replace('C:/w/.tools/glib-src/gio/gdbus-2.0/codegen/codegen.py', $glibCodegenWrapper)
+$glibMkenums = 'C:/w/zig-out/glib-host2/gobject/glib-mkenums'
+$ninjaText = $ninjaText.Replace('glib-mkenums ', '"' + $pythonExe + '" "' + $glibMkenums + '" ')
+$glibResources = 'C:/git/csos/zig-out/glib-host2/gio/glib-compile-resources.exe'
+$glibResourcesW = 'C:/w/zig-out/glib-host2/gio/glib-compile-resources.exe'
+$glibResourcesWin = 'C:\git\csos\zig-out\glib-host2\gio\glib-compile-resources.exe'
+$glibResourcesWW = 'C:\w\zig-out\glib-host2\gio\glib-compile-resources.exe'
+$glibResourcesWrapper = 'C:/w/tools/glib-compile-resources-wrapper.py'
+$serializerGenerator = 'C:/w/.tools/webkit-src/Source/WebKit/Scripts/generate-serializers.py'
+$serializerWrapper = 'C:/w/tools/generate-serializers-wrapper.py'
+$ninjaText = $ninjaText.Replace($glibResources, '"' + $pythonExe + '" "' + $glibResourcesWrapper + '"')
+$ninjaText = $ninjaText.Replace($glibResourcesW, '"' + $pythonExe + '" "' + $glibResourcesWrapper + '"')
+$ninjaText = $ninjaText.Replace($glibResourcesWin, '"' + $pythonExe + '" "' + $glibResourcesWrapper + '"')
+$ninjaText = $ninjaText.Replace($glibResourcesWW, '"' + $pythonExe + '" "' + $glibResourcesWrapper + '"')
+$textFilter = 'C:/w/tools/text-filter.py'
+$ninjaText = $ninjaText.Replace('| sed s/web_kit/webkit/ | sed s/WEBKIT_TYPE_KIT/WEBKIT_TYPE/ >', '| "' + $pythonExe + '" "' + $textFilter + '" "s/web_kit/webkit/" "s/WEBKIT_TYPE_KIT/WEBKIT_TYPE/" >')
+$ninjaText = $ninjaText.Replace('| sed s/web_kit/webkit/ >', '| "' + $pythonExe + '" "' + $textFilter + '" "s/web_kit/webkit/" >')
+$copyTree = 'C:/w/tools/copy-tree.ps1'
+$lnPairs = @(
+    @('C:/w/.tools/webkit-src/Source/JavaScriptCore/API/glib', 'C:/w/zig-out/webkit-linux6/JavaScriptCoreGLib/Headers/jsc'),
+    @('C:/w/.tools/webkit-src/Source/JavaScriptCore/API/glib', 'C:/w/zig-out/webkit-linux6/DerivedSources/ForwardingHeaders/wpe-jsc/jsc'),
+    @('C:/w/.tools/webkit-src/Source/WebKit/WebProcess/InjectedBundle/API/wpe', 'C:/w/zig-out/webkit-linux6/DerivedSources/ForwardingHeaders/wpe-web-process-extension/wpe'),
+    @('C:/w/.tools/webkit-src/Source/WebKit/UIProcess/API/wpe', 'C:/w/zig-out/webkit-linux6/DerivedSources/ForwardingHeaders/wpe/wpe')
+)
+foreach ($pair in $lnPairs) {
+    $ninjaText = $ninjaText.Replace("ln -n -s -f $($pair[0]) $($pair[1])", "powershell.exe -NoProfile -ExecutionPolicy Bypass -File $copyTree $($pair[0]) $($pair[1])")
+}
 $nested = ((Join-Path $build 'JavaScriptCore\PrivateHeaders\JavaScriptCore').Replace('\','/'))
 $ninjaText = $ninjaText.Replace("-I$nested ", '')
+$nestedW = $nested.Replace('C:/git/csos', 'C:/w')
+$ninjaText = $ninjaText.Replace("-I$nestedW ", '')
 $webCoreNested = ((Join-Path $build 'WebCore\PrivateHeaders\WebCore').Replace('\','/'))
-$ninjaText = $ninjaText.Replace("-I$webCoreNested ", '')
+$webCoreNestedW = $webCoreNested.Replace('C:/git/csos', 'C:/w')
+$webCorePrivateW = ((Join-Path $build 'WebCore\PrivateHeaders').Replace('\','/')).Replace('C:/git/csos', 'C:/w')
+if (-not $ninjaText.Contains("-I$webCoreNested ") -and -not $ninjaText.Contains("-I$webCoreNestedW ")) {
+    $ninjaText = $ninjaText.Replace("-I$webCorePrivate ", "-I$webCorePrivate -I$webCoreNested ")
+    $ninjaText = $ninjaText.Replace("-I$webCorePrivateW ", "-I$webCorePrivateW -I$webCoreNestedW ")
+}
 # WebKit's Perl binding generator appends preprocessor flags itself.  A direct
 # `zig.exe -E` is invalid, and embedding `c++` in the command is stripped by
 # the generator's Windows argument parser.  Use the versioned wrapper so the
@@ -96,6 +207,7 @@ $ninjaText = $ninjaText.Replace('\"' + $zig + '\" c++ -E', '\"' + $wrapper + '\"
 $ninjaText = $ninjaText.Replace('"' + $zig + '" -E', '"' + $wrapper + '"')
 $ninjaText = $ninjaText.Replace('\"' + $zig + '\" -E', '\"' + $wrapper + '\"')
 $lolInclude = ((Join-Path $webkit 'Source\JavaScriptCore\lol').Replace('\','/'))
+$jscRemoteInclude = ((Join-Path $webkit 'Source\JavaScriptCore\inspector\remote').Replace('\','/'))
 $soupInclude = ((Join-Path $repo '.tools\libsoup-src\libsoup').Replace('\','/'))
 $soupServerInclude = ((Join-Path $repo '.tools\libsoup-src\libsoup\server').Replace('\','/'))
 $soupGeneratedInclude = ((Join-Path $repo 'zig-out\libsoup-linux\libsoup').Replace('\','/'))
@@ -104,6 +216,11 @@ $intermediateInspectorDir = ((Join-Path $build 'WebInspectorUI\DerivedSources\In
 $goodInspectorDir = ((Join-Path $build 'WebInspectorUI').Replace('\','/'))
 $ninjaText = $ninjaText.Replace("--sourcedir=$badInspectorDir", "--sourcedir=$goodInspectorDir")
 $ninjaText = $ninjaText.Replace("--sourcedir=$intermediateInspectorDir", "--sourcedir=$goodInspectorDir")
+$badInspectorDirW = $badInspectorDir.Replace('C:/git/csos', 'C:/w')
+$intermediateInspectorDirW = $intermediateInspectorDir.Replace('C:/git/csos', 'C:/w')
+$goodInspectorDirW = $goodInspectorDir.Replace('C:/git/csos', 'C:/w')
+$ninjaText = $ninjaText.Replace("--sourcedir=$badInspectorDirW", "--sourcedir=$goodInspectorDirW")
+$ninjaText = $ninjaText.Replace("--sourcedir=$intermediateInspectorDirW", "--sourcedir=$goodInspectorDirW")
 $glibLib = ((Join-Path $sysrootPath 'lib\libglib-2.0.a').Replace('\','/'))
 $gmoduleLib = ((Join-Path $sysrootPath 'lib\libgmodule-2.0.a').Replace('\','/'))
 $pcre2Lib = ((Join-Path $sysrootPath 'lib\libpcre2-8.a').Replace('\','/'))
@@ -124,9 +241,75 @@ if (Test-Path -LiteralPath $rules) {
     [IO.File]::WriteAllText($rules, $rulesText, [Text.UTF8Encoding]::new($false))
 }
 $generatedScripts = Get-ChildItem $build -Recurse -File -Filter '*.bat' -ErrorAction SilentlyContinue
+$generatedResourceXml = Get-ChildItem $build -Recurse -File -Filter 'ModernMediaControlsGResourceBundle.xml' -ErrorAction SilentlyContinue
+foreach ($resourceXml in $generatedResourceXml) {
+    # glib-compile-resources delegates xml-stripblanks to xmllint.  The
+    # cross sysroot has no host xmllint, and stripping whitespace is not
+    # semantically required for WebKit's SVG assets, so avoid that host-only
+    # helper in the generated manifest.
+    $resourceText = [IO.File]::ReadAllText($resourceXml.FullName)
+    $resourceUpdated = $resourceText.Replace(' preprocess="xml-stripblanks"', '')
+    if ($resourceUpdated -ne $resourceText) {
+        [IO.File]::WriteAllText($resourceXml.FullName, $resourceUpdated, [Text.UTF8Encoding]::new($false))
+    }
+}
+$generatedSerializers = Get-ChildItem $build -Recurse -File -Filter 'GeneratedSerializers.h' -ErrorAction SilentlyContinue
+foreach ($serializerHeader in $generatedSerializers) {
+    $serializerText = [IO.File]::ReadAllText($serializerHeader.FullName)
+    if (-not $serializerText.Contains('#include <WebCore/ScrollTypes.h>')) {
+        $serializerText = $serializerText.Replace('#include <wtf/ArgumentCoder.h>', '#include <WebCore/ScrollTypes.h>' + [Environment]::NewLine + '#include <wtf/ArgumentCoder.h>')
+        Write-TextRetry $serializerHeader.FullName $serializerText
+    }
+}
+$generatedSerializerSources = Get-ChildItem $build -Recurse -File -Include 'GeneratedSerializers.cpp','SerializedTypeInfo.cpp','WebKitPlatformGeneratedSerializers.cpp' -ErrorAction SilentlyContinue
+foreach ($serializerSource in $generatedSerializerSources) {
+    $serializerSourceText = [IO.File]::ReadAllText($serializerSource.FullName)
+    $serializerSourceUpdated = $serializerSourceText.Replace('#include "ResourceLoadInfo.h"', '#include "Shared/ResourceLoadInfo.h"')
+    if ($serializerSourceUpdated -ne $serializerSourceText) {
+        Write-TextRetry $serializerSource.FullName $serializerSourceUpdated
+    }
+}
+# The nested WebCore private-header include directory contains a same-named
+# header as WebKit's UIProcess class. Make this generated receiver explicit so
+# it cannot bind to WebCore::VisitedLinkStore.
+$visitedReceiver = Join-Path $build 'DerivedSources\WebKit\VisitedLinkStoreMessageReceiver.cpp'
+if (Test-Path -LiteralPath $visitedReceiver) {
+    $visitedText = [IO.File]::ReadAllText($visitedReceiver)
+    $visitedUpdated = $visitedText.Replace('#include "VisitedLinkStore.h"', '#include "UIProcess/VisitedLinkStore.h"')
+    if ($visitedUpdated -ne $visitedText) {
+        Write-TextRetry $visitedReceiver $visitedUpdated
+    }
+}
+# The extra WebCore private-header include directory contains its own
+# ResourceLoadInfo.h.  Generated WebKit IPC receivers use the WebKit shared
+# type, so make that include explicit instead of allowing include-order
+# dependent resolution to leave WebKit::ResourceLoadInfo incomplete.
+$generatedWebKitSources = Join-Path $build 'DerivedSources\WebKit'
+if (Test-Path -LiteralPath $generatedWebKitSources) {
+    Get-ChildItem $generatedWebKitSources -Recurse -File -Include '*.cpp','*.mm','*.h' | ForEach-Object {
+        $sourceText = [IO.File]::ReadAllText($_.FullName)
+        $sourceUpdated = $sourceText.Replace('#include "ResourceLoadInfo.h"', '#include "Shared/ResourceLoadInfo.h"')
+        if ($sourceUpdated -ne $sourceText) {
+            Write-TextRetry $_.FullName $sourceUpdated
+        }
+    }
+}
 foreach ($script in $generatedScripts) {
     $scriptText = [IO.File]::ReadAllText($script.FullName)
-    $updatedScript = $scriptText.Replace(('"' + $zig + '" c++ -E'), ('"' + $wrapper + '"'))
+    # CMake materializes generator commands in standalone .bat files after
+    # configure. Patch those files as well as build.ninja so Windows does not
+    # try to resolve the Unix-only glib-mkenums launcher from PATH.
+    $updatedScript = $scriptText.Replace('glib-mkenums ', ('"' + $pythonExe + '" "' + $glibMkenums + '" '))
+    $updatedScript = $updatedScript.Replace($glibResources, ('"' + $pythonExe + '" "' + $glibResourcesWrapper + '"'))
+    $updatedScript = $updatedScript.Replace($glibResourcesW, ('"' + $pythonExe + '" "' + $glibResourcesWrapper + '"'))
+    $updatedScript = $updatedScript.Replace($glibResourcesWin, ('"' + $pythonExe + '" "' + $glibResourcesWrapper + '"'))
+    $updatedScript = $updatedScript.Replace($glibResourcesWW, ('"' + $pythonExe + '" "' + $glibResourcesWrapper + '"'))
+    # Regenerate serializers through the wrapper so generated headers retain
+    # the WebCore ScrollTypes declaration required by this cross-build.
+    $updatedScript = $updatedScript.Replace($serializerGenerator, $serializerWrapper)
+    $updatedScript = $updatedScript.Replace('| sed s/web_kit/webkit/ | sed s/WEBKIT_TYPE_KIT/WEBKIT_TYPE/ >', '| "' + $pythonExe + '" "' + $textFilter + '" "s/web_kit/webkit/" "s/WEBKIT_TYPE_KIT/WEBKIT_TYPE/" >')
+    $updatedScript = $updatedScript.Replace('| sed s/web_kit/webkit/ >', '| "' + $pythonExe + '" "' + $textFilter + '" "s/web_kit/webkit/" >')
+    $updatedScript = $updatedScript.Replace(('"' + $zig + '" c++ -E'), ('"' + $wrapper + '"'))
     $updatedScript = $updatedScript.Replace(('\\"' + $zig + '\\" c++ -E'), ('\\"' + $wrapper + '\\"'))
     $updatedScript = $updatedScript.Replace(('"' + $zig + '" -E'), ('"' + $wrapper + '"'))
     $updatedScript = $updatedScript.Replace(('\\"' + $zig + '\\" -E'), ('\\"' + $wrapper + '\\"'))
@@ -155,6 +338,24 @@ if (Test-Path -LiteralPath $inspectorPreprocess) {
 }
 if (-not $ninjaText.Contains("-I$lolInclude ")) {
     $ninjaText = $ninjaText.Replace('INCLUDES = ', "INCLUDES = -I$lolInclude ")
+}
+if (-not $ninjaText.Contains("-I$jscRemoteInclude ")) {
+    # RemoteInspectorServer.h includes RemoteInspector.h by basename.  The
+    # generated JavaScriptCore private-header forwarding tree does not carry
+    # the source inspector/remote directory in WebKit's target include list.
+    # Keep the upstream directory explicit so GLib API compilation resolves
+    # the canonical header instead of relying on platform-specific propagation.
+    $ninjaText = $ninjaText.Replace('INCLUDES = ', "INCLUDES = -I$jscRemoteInclude ")
+}
+# CMake emits per-object response files that do not inherit the target-level
+# include added above. Ensure every existing response file can resolve the
+# basename include used by RemoteInspectorServer.h.
+Get-ChildItem -LiteralPath $build -Filter '*.rsp' -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object {
+    $rspText = [IO.File]::ReadAllText($_.FullName)
+    if (-not $rspText.Contains("-I$jscRemoteInclude ")) {
+        $rspText = "-I$jscRemoteInclude " + $rspText
+        [IO.File]::WriteAllText($_.FullName, $rspText, [Text.UTF8Encoding]::new($false))
+    }
 }
 if (-not $ninjaText.Contains("-I$soupInclude ")) {
     # The installed libsoup headers must remain the canonical include tree;
@@ -256,8 +457,21 @@ Get-ChildItem (Join-Path $soupInstalled 'websocket') -File -Filter '*.h' | ForEa
 $dependencySuffix = " $gmoduleLib $pcre2Lib $ffiLib"
 Get-ChildItem $build -Recurse -File -Filter '*.rsp' -ErrorAction SilentlyContinue | ForEach-Object {
     $rspText = [IO.File]::ReadAllText($_.FullName)
+    # Reconfigure regenerates response files with the nested JavaScriptCore
+    # private-header directory. On Windows those copies duplicate source
+    # definitions; keep only the canonical forwarding-header root. WebCore
+    # needs its nested directory because HbUniquePtr.h is included by name.
+    $rspText = $rspText.Replace("-I$nested ", '')
+    $rspText = $rspText.Replace("-I$nestedW ", '')
+    if (-not $rspText.Contains("-I$webCoreNested ") -and -not $rspText.Contains("-I$webCoreNestedW ")) {
+        $rspText = $rspText.Replace("-I$webCorePrivate ", "-I$webCorePrivate -I$webCoreNested ")
+        $rspText = $rspText.Replace("-I$webCorePrivateW ", "-I$webCorePrivateW -I$webCoreNestedW ")
+    }
     $rspText = $rspText.Replace('-IC:/git/csos/zig-out/libsoup-linux/libsoup ', '').Replace('-IC:/w/zig-out/libsoup-linux/libsoup ', '')
     $rspText = $rspText.Replace('-IC:/w/.tools/libsoup-src/libsoup ', '').Replace('-IC:/w/.tools/libsoup-src/libsoup/server ', '')
+    if (-not $rspText.Contains("-I$jscRemoteInclude ")) {
+        $rspText = "-I$jscRemoteInclude " + $rspText
+    }
     # WebKit's current WebCore sources use std::optional::transform, which is
     # a C++23 API.  Zig's libc++ intentionally hides it under C++20, so make
     # the generated response files match the language level expected by the
