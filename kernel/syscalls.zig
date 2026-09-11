@@ -3060,8 +3060,13 @@ fn poll(address: u64, count: u64, timeout: i64) u64 {
             if (stdin_hook != null and (events & 1) != 0) revents |= 1;
         } else if (socketIndex(fd)) |socket_index| {
             if ((events & 1) != 0 and sockets[socket_index].connection != null) revents |= 1;
-            if ((events & 1) != 0 and sockets[socket_index].local_pair) revents |= 1;
-            if ((events & 4) != 0 and (sockets[socket_index].connection != null or sockets[socket_index].local_pair)) revents |= 4;
+            if ((events & 1) != 0 and sockets[socket_index].local_pair and sockets[socket_index].local_len != 0) revents |= 1;
+            if ((events & 4) != 0 and sockets[socket_index].connection != null) revents |= 4;
+            if ((events & 4) != 0 and sockets[socket_index].local_pair) {
+                if (sockets[socket_index].peer_index) |peer| {
+                    if (sockets[peer].local_len < sockets[peer].local_buffer.len) revents |= 4;
+                }
+            }
         } else if (!vfs.isOpen(fd)) {
             revents = 0x20; // POLLNVAL
         } else if (vfs.isEventfd(fd)) {
@@ -3213,6 +3218,10 @@ fn write(fd: u64, address: u64, length: u64) u64 {
 const Socket = struct {
     allocated: bool = false,
     local_pair: bool = false,
+    peer_index: ?usize = null,
+    local_buffer: [4096]u8 = .{0} ** 4096,
+    local_head: usize = 0,
+    local_len: usize = 0,
     close_on_exec: bool = false,
     nonblocking: bool = false,
     connection: ?net.TcpConnection = null,
@@ -3247,8 +3256,8 @@ fn socketPair(domain: u64, kind: u64, protocol: u64, output: u64) u64 {
         }
     }
     if (first == null or second == null) return errno(24);
-    sockets[first.?] = .{ .allocated = true, .local_pair = true, .close_on_exec = (kind & 0x80000) != 0, .nonblocking = (kind & 0x800) != 0 };
-    sockets[second.?] = .{ .allocated = true, .local_pair = true, .close_on_exec = (kind & 0x80000) != 0, .nonblocking = (kind & 0x800) != 0 };
+    sockets[first.?] = .{ .allocated = true, .local_pair = true, .peer_index = second, .close_on_exec = (kind & 0x80000) != 0, .nonblocking = (kind & 0x800) != 0 };
+    sockets[second.?] = .{ .allocated = true, .local_pair = true, .peer_index = first, .close_on_exec = (kind & 0x80000) != 0, .nonblocking = (kind & 0x800) != 0 };
     put32(@ptrFromInt(output), @intCast(32 + first.?));
     put32(@ptrFromInt(output + 4), @intCast(32 + second.?));
     return 0;
@@ -3357,7 +3366,20 @@ fn shutdown(fd: u64) u64 {
 }
 
 fn socketSend(index: usize, data: []const u8) u64 {
-    if (sockets[index].local_pair) return data.len;
+    if (sockets[index].local_pair) {
+        const peer = sockets[index].peer_index orelse return errno(32);
+        if (!sockets[peer].allocated) return errno(32);
+        const available = sockets[peer].local_buffer.len - sockets[peer].local_len;
+        if (available == 0) return errno(11);
+        const count = @min(data.len, available);
+        var offset: usize = 0;
+        while (offset < count) : (offset += 1) {
+            const position = (sockets[peer].local_head + sockets[peer].local_len + offset) % sockets[peer].local_buffer.len;
+            sockets[peer].local_buffer[position] = data[offset];
+        }
+        sockets[peer].local_len += count;
+        return count;
+    }
     const stack = network_stack orelse return errno(100);
     if (sockets[index].connection) |*connection|
         return stack.tcpSend(connection, data) catch errno(5);
@@ -3365,7 +3387,18 @@ fn socketSend(index: usize, data: []const u8) u64 {
 }
 
 fn socketReceive(index: usize, data: []u8) u64 {
-    if (sockets[index].local_pair) return if (sockets[index].nonblocking) errno(11) else 0;
+    if (sockets[index].local_pair) {
+        if (sockets[index].local_len == 0) return if (sockets[index].nonblocking) errno(11) else 0;
+        const count = @min(data.len, sockets[index].local_len);
+        var offset: usize = 0;
+        while (offset < count) : (offset += 1) {
+            const position = (sockets[index].local_head + offset) % sockets[index].local_buffer.len;
+            data[offset] = sockets[index].local_buffer[position];
+        }
+        sockets[index].local_head = (sockets[index].local_head + count) % sockets[index].local_buffer.len;
+        sockets[index].local_len -= count;
+        return count;
+    }
     const stack = network_stack orelse return errno(100);
     if (sockets[index].connection) |*connection|
         return stack.tcpReceive(connection, data) catch errno(5);
@@ -3642,7 +3675,7 @@ fn epollWait(epfd: u64, output: u64, capacity: u64, timeout: i64) u64 {
     for (&epoll_watches[@intCast(epfd)]) |*watch| {
         if (!watch.active or ready == capacity) continue;
         if (socketIndex(watch.fd)) |socket_index| {
-            if (sockets[socket_index].connection == null) continue;
+            if (sockets[socket_index].connection == null and (!sockets[socket_index].local_pair or sockets[socket_index].local_len == 0)) continue;
         } else {
             if (!vfs.isOpen(watch.fd)) continue;
             const generation = vfs.descriptorGeneration(watch.fd) catch continue;
