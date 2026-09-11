@@ -149,7 +149,15 @@ conclusão de JavaScriptCore, WebCore e das bibliotecas WPE.
 
 `tools/build-libwpe-linux.ps1` compila o `libwpe` upstream 1.16.3 para o
 sysroot musl com Zig. O gate confirmou os headers EGL/KHR exigidos pelo
-backend WPE; ainda falta compilar o WebKit/WPE e ligar o backend CSOS.
+backend WPE. Wayland 1.23.1 também foi compilado para o mesmo target, com o
+scanner nativo separado em `tools/wayland-native.ini`.
+
+O `wpebackend-fdo` upstream 1.16.1, commit `fc6f3d428962b34e1937aaa6bf66bcba92243da0`,
+agora compila e linka como `libWPEBackend-fdo-1.0.so.1.10.2` usando os
+archives Wayland/GLib/Epoxy do sysroot. O passo é reproduzível por
+`tools/build-wpebackend-fdo-linux.ps1`; o artefato ainda não é uma prova de
+runtime no CSOS e aguarda ser ligado ao processo WPE/WebKit e validado no
+compositor real.
 
 ### Dependências WPE/WebKit destravadas (cross build)
 
