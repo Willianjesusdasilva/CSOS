@@ -225,6 +225,8 @@ $glibLib = ((Join-Path $sysrootPath 'lib\libglib-2.0.a').Replace('\','/'))
 $gmoduleLib = ((Join-Path $sysrootPath 'lib\libgmodule-2.0.a').Replace('\','/'))
 $pcre2Lib = ((Join-Path $sysrootPath 'lib\libpcre2-8.a').Replace('\','/'))
 $ffiLib = ((Join-Path $sysrootPath 'lib\libffi.a').Replace('\','/'))
+$pixmanLib = ((Join-Path $sysrootPath 'lib\libpixman-1.a').Replace('\','/'))
+$pslLib = ((Join-Path $sysrootPath 'lib\libpsl.a').Replace('\','/'))
 $ninjaText = $ninjaText.Replace("$glibLib C:/git/csos/zig-out/mesa-sysroot/usr/lib/libz.so", "$glibLib $gmoduleLib $pcre2Lib $ffiLib C:/git/csos/zig-out/mesa-sysroot/usr/lib/libz.so")
 $zlib = 'C:/git/csos/zig-out/mesa-sysroot/usr/lib/libz.so'
 $ninjaText = [regex]::Replace($ninjaText, ([regex]::Escape($glibLib) + '\s+' + [regex]::Escape($zlib)), "$glibLib $gmoduleLib $pcre2Lib $ffiLib $zlib")
@@ -454,7 +456,7 @@ Get-ChildItem (Join-Path $soupInstalled 'websocket') -File -Filter '*.h' | ForEa
     [IO.File]::WriteAllText($rootWrapper, $text, [Text.UTF8Encoding]::new($false))
     [IO.File]::WriteAllText($serverWrapper, $text, [Text.UTF8Encoding]::new($false))
 }
-$dependencySuffix = " $gmoduleLib $pcre2Lib $ffiLib"
+$dependencySuffix = " $gmoduleLib $pcre2Lib $ffiLib $pixmanLib $pslLib"
 Get-ChildItem $build -Recurse -File -Filter '*.rsp' -ErrorAction SilentlyContinue | ForEach-Object {
     $rspText = [IO.File]::ReadAllText($_.FullName)
     # Reconfigure regenerates response files with the nested JavaScriptCore
@@ -477,7 +479,7 @@ Get-ChildItem $build -Recurse -File -Filter '*.rsp' -ErrorAction SilentlyContinu
     # the generated response files match the language level expected by the
     # source instead of patching WebCore itself.
     $rspText = $rspText.Replace('-std=c++20', '-std=c++23')
-    if ($rspText.Contains('libglib-2.0.a') -and -not $rspText.Contains('libpcre2-8.a')) {
+    if ($rspText.Contains('libglib-2.0.a') -and (-not $rspText.Contains('libpixman-1.a') -or -not $rspText.Contains('libpsl.a'))) {
         [IO.File]::WriteAllText($_.FullName, ($rspText.TrimEnd() + $dependencySuffix + "`n"), [Text.UTF8Encoding]::new($false))
     } else {
         [IO.File]::WriteAllText($_.FullName, $rspText, [Text.UTF8Encoding]::new($false))
