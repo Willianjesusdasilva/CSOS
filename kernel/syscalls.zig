@@ -279,6 +279,7 @@ fn cloneThread(flags: u64, stack: u64, parent_tid: u64, child_tid: u64, tls: u64
         }
         user_threads_enabled = true;
         pending_clone = .{ .slot = slot, .stack = stack, .tls = tls };
+        thread_switch_requested = true;
         return tid;
     }
     return errno(11);
@@ -307,7 +308,9 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
             const slot = (current_thread + step) % user_threads.len;
             if (user_threads[slot].state == .runnable) { selected = slot; break; }
         }
-        if (selected) |slot| { current_thread = slot; } else {
+        if (selected) |slot| {
+            current_thread = slot;
+        } else {
             // No runnable task or external futex producer in this initial
             // single-process scheduler. Fail explicitly, never spin a waiter.
             serial.write("userspace thread deadlock: no runnable thread\n");
@@ -579,6 +582,9 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         // gettid consistent with getpid so musl's thread-local setup does not
         // fall through to ENOSYS while loading real shared libraries.
         186 => current_thread + 1,
+        // WebKit/GLib uses legacy tkll to probe thread signal state; CSOS
+        // currently has no asynchronous signal delivery between user threads.
+        200 => 0,
         202 => futex(arg1, arg2, arg3),
         203 => schedSetAffinity(arg1, arg2, arg3),
         204 => schedGetAffinity(arg1, arg2, arg3),
@@ -611,6 +617,9 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         274 => getRobustList(arg1, arg2, arg3, arg4),
         309 => getcpu(arg1, arg2),
         318 => getRandom(arg1, arg2, arg3),
+        // membarrier is redundant across the syscall boundary in the
+        // cooperative single-process scheduler used by this runtime.
+        324 => 0,
         334 => rseq(arg1, arg2, arg3, arg4),
         332 => statx(arg1, arg2, arg3, arg4, arg5),
         436 => closeRange(arg1, arg2, arg3),
@@ -3416,6 +3425,14 @@ fn mmap(requested: u64, length: u64, protection: u64, flags: u64, fd: u64, file_
     const address = if ((flags & 0x10) != 0) requested else if (requested != 0 and hint_fits) hint else (mmap_next + 4095) & ~@as(u64, 4095);
     if ((address & 4095) != 0) return errno(22);
     if (address < mmap_next or address > mmap_limit or aligned_length > mmap_limit - address) return errno(12);
+    // MAP_NORESERVE is used by WebKit's bmalloc arena. The CSOS process
+    // already reserves and zeroes the complete anonymous arena at startup;
+    // consume this virtual reservation without rewalking or clearing every
+    // page on each large arena request.
+    if ((flags & 0x4000) != 0) {
+        mmap_next = address + aligned_length;
+        return address;
+    }
     const hook = mmap_protect_hook orelse return errno(12);
     // Private mappings remain writable until copy-on-write is available. This
     // keeps real userspace allocators functional while preserving NX when

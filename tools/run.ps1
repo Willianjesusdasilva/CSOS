@@ -68,7 +68,7 @@ if ($UsbAudio) {
 }
 
 $qemuArguments = @(
-    '-machine', 'q35', '-smp', '4', '-m', $(if ($WebkitLauncher) { '512M' } else { '256M' }),
+    '-machine', 'q35', '-smp', '4', '-m', $(if ($WebkitLauncher) { '1024M' } else { '256M' }),
     '-drive', "if=pflash,format=raw,readonly=on,file=$localOvmf",
     '-drive', "format=raw,file=fat:rw:$esp",
     '-drive', "if=none,id=nvme0,format=raw,file=$nvmeDisk",

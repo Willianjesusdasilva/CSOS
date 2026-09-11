@@ -19,16 +19,19 @@ extern fn wpe_view_backend_exportable_fdo_get_view_backend(?*WpeExportable) ?*Wp
 extern fn wpe_view_backend_exportable_fdo_destroy(?*WpeExportable) void;
 extern fn webkit_web_view_backend_new(?*WpeViewBackend, ?*const anyopaque, ?*anyopaque) ?*anyopaque;
 extern fn webkit_web_view_new(?*anyopaque) ?*anyopaque;
+extern fn webkit_web_context_new() ?*anyopaque;
 extern fn webkit_web_view_load_html(?*anyopaque, [*:0]const u8, [*:0]const u8) void;
 extern fn g_main_context_default() ?*anyopaque;
 extern fn g_main_context_iteration(?*anyopaque, c_int) c_int;
 extern fn write(c_int, *const anyopaque, usize) isize;
+extern fn __tls_get_addr(*const [2]usize) ?*anyopaque;
 
 fn mark(message: []const u8) void {
     _ = write(1, message.ptr, message.len);
 }
 
 fn exportBuffer(_: ?*anyopaque, _: ?*anyopaque) callconv(.c) void {}
+fn destroyBackend(_: ?*anyopaque) callconv(.c) void {}
 
 pub fn main() void {
     // QEMU currently has no physical EGL/KMS device. WPE FDO's SHM target
@@ -46,8 +49,15 @@ pub fn main() void {
     const view_backend = wpe_view_backend_exportable_fdo_get_view_backend(exportable) orelse return;
     wpe_view_backend_initialize(view_backend);
     mark("WPE backend ready\n");
-    const web_backend = webkit_web_view_backend_new(view_backend, null, null) orelse return;
+    const tls_probe = [_]usize{ 1, 8 };
+    const tls_state = __tls_get_addr(&tls_probe) orelse return;
+    _ = @as(*const u64, @ptrCast(@alignCast(tls_state))).*;
+    mark("WebKit TLS ready\n");
+    const web_backend = webkit_web_view_backend_new(view_backend, destroyBackend, null) orelse return;
     mark("WebKit backend ready\n");
+    mark("WebKit context begin\n");
+    _ = webkit_web_context_new() orelse return;
+    mark("WebKit context ready\n");
     const view = webkit_web_view_new(web_backend) orelse return;
     mark("WebKit view ready\n");
     const document = "<html><body><main id=app>CSOS WebKit</main><script>document.getElementById('app').dataset.ready='true';</script></body></html>";

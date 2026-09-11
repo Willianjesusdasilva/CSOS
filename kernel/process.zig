@@ -451,7 +451,7 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
     // musl honors PT_GNU_STACK: the Zig-linked runtime requests an 8 MiB
     // pthread stack plus TLS. Its mapping must not be capped by the old
     // 4 MiB demo arena. Keep brk separate from the 64 MiB mmap arena.
-    const mmap_arena_pages = 16384;
+    const mmap_arena_pages = 65536;
     try mapAnonymous(&address_space, pages, owned, &owned_count, break_base, arena_pages);
     try mapAnonymous(&address_space, pages, owned, &owned_count, mmap_address, mmap_arena_pages);
     const stack_pointer = try buildInitialStack(stack_pages, initial_stack_size, entry, interpreter_base, load_bias, program_offset, program_entry_size, program_count, arguments, initializers[0..initializer_count], &musl_bootstrap);
@@ -514,9 +514,13 @@ fn validMappedUserSlice(address: u64, length: u64) callconv(.c) bool {
 fn protectMmap(address: u64, length: u64, writable: bool, executable: bool) callconv(.c) bool {
     const address_space = active_address_space orelse return false;
     if (length > std.math.maxInt(u64) - address) return false;
+    var needs_protection = false;
     var check: u64 = 0;
-    while (check < length) : (check += @min(@as(u64, page_size), length - check))
-        if (address_space.userPermissions(address + check) == null) return false;
+    while (check < length) : (check += @min(@as(u64, page_size), length - check)) {
+        const permissions = address_space.userPermissions(address + check) orelse return false;
+        if (permissions.writable != writable or permissions.executable != executable) needs_protection = true;
+    }
+    if (!needs_protection) return true;
     var offset: u64 = 0;
     while (offset < length) : (offset += @min(@as(u64, page_size), length - offset)) {
         if (!address_space.protectUserPage(address + offset, writable, executable)) return false;
