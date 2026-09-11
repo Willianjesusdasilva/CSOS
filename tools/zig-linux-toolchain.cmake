@@ -5,6 +5,10 @@ set(CMAKE_C_COMPILER "${CSOS_WORKSPACE}/.tools/zig-x86_64-windows-0.16.0/zig.exe
 set(CMAKE_C_COMPILER_ARG1 "cc -target x86_64-linux-musl")
 set(CMAKE_CXX_COMPILER "${CSOS_WORKSPACE}/.tools/zig-x86_64-windows-0.16.0/zig.exe")
 set(CMAKE_CXX_COMPILER_ARG1 "c++ -target x86_64-linux-musl")
+# Static dependencies are later linked into shared WebKit/WPE objects.  Keep
+# Zig's debug undefined-behaviour handlers out of those PIC archives.
+set(CMAKE_C_FLAGS_INIT "-fPIC -fno-sanitize=undefined")
+set(CMAKE_CXX_FLAGS_INIT "-fPIC -fno-sanitize=undefined")
 set(CMAKE_AR "${CSOS_WORKSPACE}/.tools/zig-x86_64-windows-0.16.0/zig.exe")
 set(CMAKE_C_ARCHIVE_CREATE "<CMAKE_AR> ar qc <TARGET> <LINK_FLAGS> <OBJECTS>")
 set(CMAKE_C_ARCHIVE_FINISH "<CMAKE_AR> ranlib <TARGET>")
