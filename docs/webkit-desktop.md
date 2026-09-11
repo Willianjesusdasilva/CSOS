@@ -178,12 +178,13 @@ foram preparados para as etapas de geração. Com esses componentes, a
 configuração CMake do WPE WebKit fecha e enumera 6.426 unidades de compilação,
 incluindo JavaScriptCore, WebCore e WebKit.
 
-O build ainda não terminou: o host Windows não permite symlinks sem privilégio
-de Developer Mode, e a cópia de headers gerados provoca duplicação de alguns
-headers sem include guard. A solução definitiva é executar a geração com
-symlinks habilitados (ou habilitar Developer Mode no host); não é um bloqueio
-de dependência do engine. O próximo gate é completar a compilação e então
-ligar um launcher WPE headless ao mailbox/IPC do CSOS.
+O link final do `libWPEWebKit-2.0.so.1.9.10` foi validado no host com o backend
+real, sem o objeto `wpe-loader-link-stub.o`. `tools/link-webkit-wpebackend.ps1`
+recria o response file de link a partir do CMake e adiciona o backend FDO e as
+dependências estáticas restantes; o símbolo `_wpe_loader_interface` fica
+resolvido pelo `libWPEBackend-fdo` real. Isso ainda é uma validação de build/link
+cross no host, não execução no CSOS. O próximo gate é iniciar o processo WPE no
+CSOS e conectar display, mailbox/IPC e input ao compositor.
 
 ## Referências upstream
 
