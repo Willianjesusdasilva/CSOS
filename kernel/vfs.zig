@@ -166,6 +166,8 @@ pub fn validateRuntimeLibraryAliasesSelfTest() !void {
     try expectFatAlias("libdrm.so.2", "LIBDRM  SO2");
     try expectFatAlias("libz.so.1", "LIBZ    SO1");
     try expectFatAlias("libc.so", "LIBC    SO ");
+    try expectFatAlias("libWPEWebKit-2.0.so.1", "WEBKIT  SO1");
+    try expectFatAlias("/usr/lib/libWPEBackend-fdo-1.0.so.1", "WPEFDO  SO1");
     if (toFatName("/usr/lib/not-supported.so") != null) return error.UnexpectedLibraryAlias;
 }
 
@@ -1121,6 +1123,10 @@ fn nodeInfo(node: Node) Info {
 
 fn toFatName(path: []const u8) ?[11]u8 {
     if (runtimeLibraryFatAlias(path)) |alias| return alias;
+    // Loader internals may already carry the on-disk alias. Accept it as a
+    // stable FAT path as well as the original ELF soname.
+    if (std.mem.eql(u8, path, "WEBKIT  SO1")) return "WEBKIT  SO1".*;
+    if (std.mem.eql(u8, path, "WPEFDO  SO1")) return "WPEFDO  SO1".*;
     // Git uses a handful of names that do not fit the FAT 8.3 spelling used
     // by the bootstrap volume. Keep the userspace path names stable while
     // assigning deterministic on-disk aliases.
@@ -1223,6 +1229,8 @@ fn runtimeLibraryFatAlias(path: []const u8) ?[11]u8 {
     if (equal(name, "libdrm.so.2")) return "LIBDRM  SO2".*;
     if (equal(name, "libz.so.1")) return "LIBZ    SO1".*;
     if (equal(name, "libc.so")) return "LIBC    SO ".*;
+    if (std.mem.startsWith(u8, name, "libWPEWebKit-2.0.so")) return "WEBKIT  SO1".*;
+    if (std.mem.startsWith(u8, name, "libWPEBackend-fdo-1.0.so")) return "WPEFDO  SO1".*;
     return null;
 }
 

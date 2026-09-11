@@ -13,14 +13,15 @@ const hello_image = @embedFile("hello_elf");
 const ui_runtime_image = @embedFile("ui_runtime_elf");
 const interpreter_image = @embedFile("interpreter_elf");
 const dynamic_image = @embedFile("dynamic_elf");
+const webkit_launcher_image = @embedFile("webkit_launcher_elf");
 var image: []const u8 = busybox_image;
 const stack_address: u64 = 0x0000009000000000;
 const mmap_address: u64 = 0x000000a000000000;
 const page_size: u64 = 4096;
 // Mesa's headless RADV ELF alone spans 4,423 pages. Keep loader bookkeeping
 // out of the kernel stack and leave capacity for its direct dependencies.
-const max_mappings = 8192;
-const max_owned_ranges = 8192;
+const max_mappings = 65536;
+const max_owned_ranges = 65536;
 const max_shared_objects = 16;
 const max_initializers = 64;
 const TlsImage = extern struct { image: u64 = 0, file_size: u64 = 0, memory_size: u64 = 0, alignment: u64 = 1 };
@@ -29,7 +30,9 @@ const MuslBootstrap = extern struct {
     count: u64 = 0,
     images: [max_shared_objects]TlsImage = @splat(.{}),
 };
-const max_shared_object_size = 32 * 1024 * 1024;
+// Stripped WPE WebKit is currently about 120 MiB; keep the loader limit
+// explicit and bounded while allowing the real engine to be staged on FAT.
+const max_shared_object_size = 256 * 1024 * 1024;
 const tls_address: u64 = 0x0000005000000000;
 const tls_stride: u64 = 0x10000;
 
@@ -116,6 +119,12 @@ pub fn runLibdrmProbe(kernel_root: u64, pages: *physical.Allocator) !void {
 pub fn runWebkitRuntimeProbe(kernel_root: u64, pages: *physical.Allocator) !void {
     image = @embedFile("webkit_runtime_probe_elf");
     const arguments = [_][]const u8{"/bin/webkit-runtime-probe"};
+    return runImage(kernel_root, pages, &arguments);
+}
+
+pub fn runWebkitLauncher(kernel_root: u64, pages: *physical.Allocator) !void {
+    image = webkit_launcher_image;
+    const arguments = [_][]const u8{"/bin/csos-webkit"};
     return runImage(kernel_root, pages, &arguments);
 }
 
@@ -225,7 +234,7 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
     var execution_entry = entry;
     var interpreter_base: u64 = 0;
     if (interpreter_path) |path| {
-        if (!equal(path, "/lib/ld-csos.so")) return error.UnsupportedInterpreter;
+        if (!equal(path, "/lib/ld-csos.so") and !equal(path, "/lib/ld-musl-x86_64.so.1")) return error.UnsupportedInterpreter;
         if (needed.count == 0) return error.SharedObjectMissing;
         var dependency_ranges: [max_shared_objects]OwnedRange = undefined;
         var dependency_count: usize = 0;
@@ -237,14 +246,27 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
         @memcpy(dependency_names[0..needed.count], needed.names[0..needed.count]);
         while (provider_count < dependency_name_count) {
             const dependency = dependency_names[provider_count];
-            const dependency_info = try vfs.infoAt(-100, dependency);
+            const dependency_path = if (std.mem.startsWith(u8, dependency, "libWPEWebKit-2.0.so"))
+                "WEBKIT  SO1"
+            else if (std.mem.startsWith(u8, dependency, "libWPEBackend-fdo-1.0.so"))
+                "WPEFDO  SO1"
+            else
+                dependency;
+            const dependency_info = vfs.infoAt(-100, dependency_path) catch |err| {
+                serial.write("userspace missing shared object: ");
+                serial.write(dependency);
+                serial.write(" (");
+                serial.write(@errorName(err));
+                serial.write(")\n");
+                return err;
+            };
             if (dependency_info.directory or dependency_info.size < 64 or dependency_info.size > max_shared_object_size) return error.InvalidSharedObject;
             const dependency_pages = (std.math.add(u64, dependency_info.size, page_size - 1) catch return error.InvalidSharedObject) / page_size;
             const dependency_address = pages.allocate(dependency_pages) orelse return error.OutOfMemory;
             dependency_ranges[dependency_count] = .{ .address = dependency_address, .pages = dependency_pages };
             dependency_count += 1;
             const dependency_bytes: [*]u8 = @ptrFromInt(dependency_address);
-            const dependency_file = try vfs.openAt(-100, dependency, 0);
+            const dependency_file = try vfs.openAt(-100, dependency_path, 0);
             var dependency_read: usize = 0;
             while (dependency_read < dependency_info.size) {
                 const count = vfs.pread(dependency_file, dependency_bytes[dependency_read..@intCast(dependency_info.size)], dependency_read) catch |err| {
@@ -1361,30 +1383,44 @@ fn virtualFileOffset(virtual: u64, size: u64, program_offset: u64, program_entry
 }
 
 fn writeMapped64(mappings: []const Mapping, virtual: u64, value: u64) !void {
-    const page_virtual = virtual & ~(page_size - 1);
-    const offset = virtual - page_virtual;
-    if (offset > page_size - 8) return error.CrossPageRelocation;
-    for (mappings) |mapping| {
-        if (mapping.virtual != page_virtual or !mapping.resident) continue;
+    var bytes: [8]u8 = undefined;
+    std.mem.writeInt(u64, &bytes, value, .little);
+    for (bytes, 0..) |byte, index| {
+        const address = std.math.add(u64, virtual, index) catch return error.RelocationTargetMissing;
+        const page_virtual = address & ~(page_size - 1);
+        const offset = address - page_virtual;
+        const mapping = findMapping(mappings, page_virtual) orelse return error.RelocationTargetMissing;
+        if (!mapping.resident) return error.RelocationTargetMissing;
         const target_address = std.math.add(u64, mapping.physical, offset) catch return error.RelocationTargetMissing;
-        const target: *align(1) u64 = @ptrFromInt(target_address);
-        target.* = value;
-        return;
+        const target: *u8 = @ptrFromInt(target_address);
+        target.* = byte;
     }
-    return error.RelocationTargetMissing;
 }
 
 fn readMapped64(mappings: []const Mapping, virtual: u64) !u64 {
-    const page_virtual = virtual & ~(page_size - 1);
-    const offset = virtual - page_virtual;
-    if (offset > page_size - 8) return error.CrossPageInitializer;
-    for (mappings) |mapping| {
-        if (mapping.virtual != page_virtual or !mapping.resident) continue;
+    var bytes: [8]u8 = undefined;
+    for (0..8) |index| {
+        const address = std.math.add(u64, virtual, index) catch return error.InitializerMissing;
+        const page_virtual = address & ~(page_size - 1);
+        const offset = address - page_virtual;
+        const mapping = findMapping(mappings, page_virtual) orelse return error.InitializerMissing;
+        if (!mapping.resident) return error.InitializerMissing;
         const source_address = std.math.add(u64, mapping.physical, offset) catch return error.InitializerMissing;
-        const source: *align(1) const u64 = @ptrFromInt(source_address);
-        return source.*;
+        const source: *const u8 = @ptrFromInt(source_address);
+        bytes[index] = source.*;
     }
-    return error.InitializerMissing;
+    return std.mem.readInt(u64, &bytes, .little);
+}
+
+fn findMapping(mappings: []const Mapping, page_virtual: u64) ?*const Mapping {
+    var low: usize = 0;
+    var high: usize = mappings.len;
+    while (low < high) {
+        const middle = low + (high - low) / 2;
+        if (mappings[middle].virtual < page_virtual) low = middle + 1 else high = middle;
+    }
+    if (low < mappings.len and mappings[low].virtual == page_virtual) return &mappings[low];
+    return null;
 }
 
 pub fn handlePageFault(address: u64, instruction: u64, code: u64) callconv(.c) bool {

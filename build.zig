@@ -3,6 +3,7 @@ const std = @import("std");
 pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
     const webkit_runtime_probe = b.option([]const u8, "webkit-runtime-probe", "Opt-in musl pthread prerequisite probe ELF; not the WebKit engine");
+    const webkit_launcher = b.option([]const u8, "webkit-launcher", "Opt-in Zig WPE WebKit launcher ELF");
     const glib_runtime_probe = b.option([]const u8, "glib-runtime-probe", "Opt-in upstream GLib userspace ELF");
     const git_runtime = b.option([]const u8, "git-runtime", "Opt-in upstream Git ELF for local system updates");
     const libdrm_probe = b.option([]const u8, "libdrm-probe", "Path to the static upstream libdrm probe ELF (opt-in Ring 3 validation)");
@@ -34,6 +35,7 @@ pub fn build(b: *std.Build) void {
     const amd_gart_device = std.fmt.parseInt(u16, amd_gart_device_text, 0) catch @panic("invalid -Damd-gart-device PCI ID");
     const build_options = b.addOptions();
     build_options.addOption(bool, "webkit_runtime_probe", webkit_runtime_probe != null);
+    build_options.addOption(bool, "webkit_launcher", webkit_launcher != null);
     build_options.addOption(bool, "glib_runtime_probe", glib_runtime_probe != null);
     build_options.addOption(bool, "git_runtime", git_runtime != null);
     build_options.addOption(bool, "libdrm_probe", libdrm_probe != null);
@@ -474,6 +476,7 @@ pub fn build(b: *std.Build) void {
     process_module.addAnonymousImport("drmtest_elf", .{ .root_source_file = drmtest.getEmittedBin() });
     if (libdrm_probe) |path| process_module.addAnonymousImport("libdrm_probe_elf", .{ .root_source_file = b.path(path) });
     if (webkit_runtime_probe) |path| process_module.addAnonymousImport("webkit_runtime_probe_elf", .{ .root_source_file = b.path(path) });
+    if (webkit_launcher) |path| process_module.addAnonymousImport("webkit_launcher_elf", .{ .root_source_file = b.path(path) }) else process_module.addAnonymousImport("webkit_launcher_elf", .{ .root_source_file = dynamic_hello.getEmittedBin() });
     if (glib_runtime_probe) |path| process_module.addAnonymousImport("glib_runtime_probe_elf", .{ .root_source_file = b.path(path) });
     if (git_runtime) |path| process_module.addAnonymousImport("git_runtime_elf", .{ .root_source_file = b.path(path) }) else process_module.addAnonymousImport("git_runtime_elf", .{ .root_source_file = dynamic_hello.getEmittedBin() });
     if (radv_loader_probe) |path|
@@ -567,6 +570,18 @@ pub fn build(b: *std.Build) void {
         qemu.addArg(zlib_runtime orelse "zig-out/mesa-sysroot/usr/lib/libz.so.1");
         qemu.addArg("-Libc");
         qemu.addArg(libc_runtime orelse "zig-out/mesa-sysroot/usr/lib/libc.so");
+    }
+    if (webkit_launcher) |path| {
+        qemu.addArg("-WebkitLauncher");
+        qemu.addArg(path);
+        qemu.addArg("-WpeBackend");
+        qemu.addArg("zig-out/wpebackend-fdo-linux5/libWPEBackend-fdo-1.0.so.1.10.2");
+        qemu.addArg("-WebkitRuntime");
+        qemu.addArg("C:/w/zig-out/webkit-linux6/lib/libWPEWebKit-2.0.stripped.so");
+        qemu.addArg("-Zlib");
+        qemu.addArg("zig-out/mesa-sysroot/usr/lib/libz.so.1");
+        qemu.addArg("-Libc");
+        qemu.addArg("zig-out/mesa-sysroot/usr/lib/libc.so");
     }
     if (b.args) |args| qemu.addArgs(args);
     run.dependOn(&qemu.step);

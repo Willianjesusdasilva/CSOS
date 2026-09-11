@@ -8,6 +8,9 @@ param(
     [string]$Libdrm,
     [string]$Zlib,
     [string]$Libc,
+    [string]$WebkitLauncher,
+    [string]$WebkitRuntime,
+    [string]$WpeBackend,
     [switch]$UsbAudio,
     [switch]$ResetDisk,
     [string]$AudioBackend = 'none',
@@ -50,9 +53,10 @@ Copy-Item -Force -LiteralPath $EfiBinary -Destination (Join-Path $bootDir 'BOOTX
 $localOvmf = Join-Path $PSScriptRoot '..\zig-out\OVMF_CODE.fd'
 Copy-Item -Force -LiteralPath $ovmf -Destination $localOvmf
 $nvmeDisk = Join-Path $PSScriptRoot '..\zig-out\nvme.img'
-if ($ResetDisk -or $GpuFirmware -or $RadvRuntime -or -not (Test-Path -LiteralPath $nvmeDisk)) {
+if ($ResetDisk -or $GpuFirmware -or $RadvRuntime -or $WebkitLauncher -or -not (Test-Path -LiteralPath $nvmeDisk)) {
     & (Join-Path $PSScriptRoot 'make-fat16.ps1') -Path $nvmeDisk -SharedLibrary $SharedLibrary -ExtraLibrary $ExtraLibrary -GpuFirmware $GpuFirmware `
-        -RadvRuntime $RadvRuntime -LibdrmAmdgpu $LibdrmAmdgpu -Libdrm $Libdrm -Zlib $Zlib -Libc $Libc
+        -RadvRuntime $RadvRuntime -LibdrmAmdgpu $LibdrmAmdgpu -Libdrm $Libdrm -Zlib $Zlib -Libc $Libc `
+        -WebkitRuntime $WebkitRuntime -WpeBackend $WpeBackend
 }
 
 $audioArguments = @()
@@ -64,7 +68,7 @@ if ($UsbAudio) {
 }
 
 $qemuArguments = @(
-    '-machine', 'q35', '-smp', '4', '-m', '256M',
+    '-machine', 'q35', '-smp', '4', '-m', $(if ($WebkitLauncher) { '512M' } else { '256M' }),
     '-drive', "if=pflash,format=raw,readonly=on,file=$localOvmf",
     '-drive', "format=raw,file=fat:rw:$esp",
     '-drive', "if=none,id=nvme0,format=raw,file=$nvmeDisk",

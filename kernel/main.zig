@@ -631,6 +631,26 @@ pub fn start(info: BootInfo) noreturn {
     vfs.validateRuntimeLibraryAliasesSelfTest() catch panic("VFS runtime library alias self-test failed");
     vfs.mount(&volume);
     vfs.reset();
+    if (build_options.webkit_launcher) {
+        const webkit_fat_name: [11]u8 = "WEBKIT  SO1".*;
+        const webkit_entry = volume.findRootEntry(&webkit_fat_name) catch |err| {
+            serial.write("FAT WebKit entry lookup failed: ");
+            serial.write(@errorName(err));
+            serial.write("\n");
+            panic("FAT WebKit entry lookup failed");
+        };
+        serial.write("FAT WebKit entry ready size=");
+        serial.writeDecimal(webkit_entry.size);
+        serial.write("\n");
+        process.runWebkitLauncher(mapper.root, &pages) catch |err| {
+            serial.write("WebKit launcher process error: ");
+            serial.write(@errorName(err));
+            serial.write("\n");
+            panic("WPE WebKit launcher failed");
+        };
+        mapper.activate();
+        serial.write("CSOS WPE WebKit launcher returned\n");
+    }
     if (build_options.git_runtime) {
         process.runGitRuntime(mapper.root, &pages) catch |err| {
             serial.write("Git runtime error: ");

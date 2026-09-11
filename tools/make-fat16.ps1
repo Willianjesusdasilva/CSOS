@@ -7,13 +7,16 @@ param(
     [string]$LibdrmAmdgpu,
     [string]$Libdrm,
     [string]$Zlib,
-    [string]$Libc
+    [string]$Libc,
+    [string]$WebkitRuntime,
+    [string]$WpeBackend
 )
 
 $sectorSize = 512
-$sectorCount = 131072
-$sectorsPerCluster = 4
-$fatSectors = 128
+$hasWebkit = [bool]$WebkitRuntime
+$sectorCount = if ($hasWebkit) { 524288 } else { 131072 }
+$sectorsPerCluster = if ($hasWebkit) { 8 } else { 4 }
+$fatSectors = if ($hasWebkit) { 256 } else { 128 }
 $rootEntries = 512
 $rootSectors = 32
 $content = [Text.Encoding]::ASCII.GetBytes("CSOS FAT16 storage ready`n")
@@ -136,13 +139,16 @@ try {
         @{ Path = $LibdrmAmdgpu; Name = 'DRMAMD  SO1' },
         @{ Path = $Libdrm; Name = 'LIBDRM  SO2' },
         @{ Path = $Zlib; Name = 'LIBZ    SO1' },
-        @{ Path = $Libc; Name = 'LIBC    SO ' }
+        @{ Path = $Libc; Name = 'LIBC    SO ' },
+        @{ Path = $WebkitRuntime; Name = 'WEBKIT  SO1' },
+        @{ Path = $WpeBackend; Name = 'WPEFDO  SO1' }
     )
     $runtimeEntry = if ($GpuFirmware) { 4 } else { 3 }
     foreach ($runtimeFile in $runtimeFiles) {
         if (-not $runtimeFile.Path) { continue }
         $library = [IO.File]::ReadAllBytes($runtimeFile.Path)
-        if ($library.Length -eq 0 -or $library.Length -gt 32MB) { throw "$($runtimeFile.Path) has an invalid runtime size" }
+        $maxRuntimeBytes = if ($runtimeFile.Name -eq 'WEBKIT  SO1') { 256MB } else { 32MB }
+        if ($library.Length -eq 0 -or $library.Length -gt $maxRuntimeBytes) { throw "$($runtimeFile.Path) has an invalid runtime size" }
         $clusterBytes = $sectorSize * $sectorsPerCluster
         $clusterCount = [int][Math]::Ceiling($library.Length / $clusterBytes)
         $lastCluster = $nextFreeCluster + $clusterCount - 1
