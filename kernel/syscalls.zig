@@ -511,6 +511,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         48 => shutdown(arg1),
         51 => socketName(arg1, arg2, arg3, false),
         52 => socketName(arg1, arg2, arg3, true),
+        53 => socketPair(arg1, arg2, arg3, arg4),
         54 => setSocketOption(arg1, arg2, arg3, arg4, arg5),
         55 => getSocketOption(arg1, arg2, arg3, arg4, arg5),
         56 => cloneThread(arg1, arg2, arg3, arg4, arg5),
@@ -3050,7 +3051,8 @@ fn poll(address: u64, count: u64, timeout: i64) u64 {
             if (stdin_hook != null and (events & 1) != 0) revents |= 1;
         } else if (socketIndex(fd)) |socket_index| {
             if ((events & 1) != 0 and sockets[socket_index].connection != null) revents |= 1;
-            if ((events & 4) != 0 and sockets[socket_index].connection != null) revents |= 4;
+            if ((events & 1) != 0 and sockets[socket_index].local_pair) revents |= 1;
+            if ((events & 4) != 0 and (sockets[socket_index].connection != null or sockets[socket_index].local_pair)) revents |= 4;
         } else if (!vfs.isOpen(fd)) {
             revents = 0x20; // POLLNVAL
         } else if (vfs.isEventfd(fd)) {
@@ -3201,6 +3203,7 @@ fn write(fd: u64, address: u64, length: u64) u64 {
 
 const Socket = struct {
     allocated: bool = false,
+    local_pair: bool = false,
     close_on_exec: bool = false,
     nonblocking: bool = false,
     connection: ?net.TcpConnection = null,
@@ -3222,6 +3225,24 @@ fn socket(domain: u64, kind: u64, protocol: u64) u64 {
         }
     }
     return errno(24);
+}
+
+fn socketPair(domain: u64, kind: u64, protocol: u64, output: u64) u64 {
+    if (domain != 1 or (kind & 0xf) != 1 or (kind & ~@as(u64, 0x80801)) != 0 or protocol != 0) return errno(97);
+    if (!validUserSlice(output, 8)) return errno(14);
+    var first: ?usize = null;
+    var second: ?usize = null;
+    for (&sockets, 0..) |*entry, index| {
+        if (!entry.allocated) {
+            if (first == null) first = index else { second = index; break; }
+        }
+    }
+    if (first == null or second == null) return errno(24);
+    sockets[first.?] = .{ .allocated = true, .local_pair = true, .close_on_exec = (kind & 0x80000) != 0, .nonblocking = (kind & 0x800) != 0 };
+    sockets[second.?] = .{ .allocated = true, .local_pair = true, .close_on_exec = (kind & 0x80000) != 0, .nonblocking = (kind & 0x800) != 0 };
+    put32(@ptrFromInt(output), @intCast(32 + first.?));
+    put32(@ptrFromInt(output + 4), @intCast(32 + second.?));
+    return 0;
 }
 
 fn eventfd2(initial: u64, flags: u64) u64 {
@@ -3327,6 +3348,7 @@ fn shutdown(fd: u64) u64 {
 }
 
 fn socketSend(index: usize, data: []const u8) u64 {
+    if (sockets[index].local_pair) return data.len;
     const stack = network_stack orelse return errno(100);
     if (sockets[index].connection) |*connection|
         return stack.tcpSend(connection, data) catch errno(5);
@@ -3334,6 +3356,7 @@ fn socketSend(index: usize, data: []const u8) u64 {
 }
 
 fn socketReceive(index: usize, data: []u8) u64 {
+    if (sockets[index].local_pair) return if (sockets[index].nonblocking) errno(11) else 0;
     const stack = network_stack orelse return errno(100);
     if (sockets[index].connection) |*connection|
         return stack.tcpReceive(connection, data) catch errno(5);

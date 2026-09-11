@@ -1079,6 +1079,7 @@ const DynamicSymbols = struct {
     symbol_file: u64,
     string_file: u64,
     symbol_count: u32,
+    gnu_hash_file: u64 = 0,
     regular_rela_file: u64 = 0,
     regular_rela_size: u64 = 0,
     plt_rela_file: u64 = 0,
@@ -1107,6 +1108,10 @@ fn applySymbolRelocations(
 
 fn applySymbolTable(consumer: []const u8, consumer_base: u64, consumer_module: usize, wanted: DynamicSymbols, providers: []const Provider, mappings: []const Mapping, rela_file: u64, rela_size: u64) !void {
     if (rela_size == 0) return;
+    var supplied_symbols: [max_shared_objects]DynamicSymbols = undefined;
+    for (providers, 0..) |provider, index| {
+        supplied_symbols[index] = try dynamicSymbols(provider.bytes, provider.program_offset, provider.program_entry_size, provider.program_count, false);
+    }
     var offset: u64 = 0;
     while (offset < rela_size) : (offset += 24) {
         const item: usize = @intCast(rela_file + offset);
@@ -1129,25 +1134,17 @@ fn applySymbolTable(consumer: []const u8, consumer_base: u64, consumer_module: u
         const name = try stringFrom(consumer, wanted.string_file + name_offset);
         const required_version = try requiredSymbolVersion(consumer, wanted, symbol_index);
         var resolved: ?u64 = null;
-        for (providers) |provider| {
-            const supplied = try dynamicSymbols(provider.bytes, provider.program_offset, provider.program_entry_size, provider.program_count, false);
-            var provider_index: u32 = 0;
-            while (provider_index < supplied.symbol_count) : (provider_index += 1) {
-                const provider_symbol_offset = std.math.add(u64, supplied.symbol_file, std.math.mul(u64, provider_index, 24) catch return error.InvalidSymbolRelocation) catch return error.InvalidSymbolRelocation;
-                const provider_symbol: usize = std.math.cast(usize, provider_symbol_offset) orelse return error.InvalidSymbolRelocation;
-                if (read16From(provider.bytes, provider_symbol + 6) == 0) continue;
-                const provider_name_offset = read32From(provider.bytes, provider_symbol);
-                const provider_name = try stringFrom(provider.bytes, supplied.string_file + provider_name_offset);
-                if (equal(name, provider_name)) {
-                    if (required_version) |required| {
-                        const provided = try definedSymbolVersion(provider.bytes, supplied, provider_index);
-                        if (provided == null or !equal(required, provided.?)) continue;
-                        versioned_symbols = saturatingAdd(versioned_symbols, 1);
-                    }
-                    resolved = std.math.add(u64, provider.base, read64From(provider.bytes, provider_symbol + 8)) catch return error.InvalidSymbolRelocation;
-                    break;
-                }
+        for (providers, 0..) |provider, provider_index| {
+            const supplied = supplied_symbols[provider_index];
+            const provider_symbol_index = (try findProviderSymbol(provider.bytes, supplied, name)) orelse continue;
+            if (required_version) |required| {
+                const provided = try definedSymbolVersion(provider.bytes, supplied, provider_symbol_index);
+                if (provided == null or !equal(required, provided.?)) continue;
+                versioned_symbols = saturatingAdd(versioned_symbols, 1);
             }
+            const provider_symbol_offset = std.math.add(u64, supplied.symbol_file, std.math.mul(u64, provider_symbol_index, 24) catch return error.InvalidSymbolRelocation) catch return error.InvalidSymbolRelocation;
+            const provider_symbol: usize = std.math.cast(usize, provider_symbol_offset) orelse return error.InvalidSymbolRelocation;
+            resolved = std.math.add(u64, provider.base, read64From(provider.bytes, provider_symbol + 8)) catch return error.InvalidSymbolRelocation;
             if (resolved != null) break;
         }
         if (resolved == null and (consumer[consumer_symbol + 4] >> 4) == 2) resolved = 0;
@@ -1283,6 +1280,7 @@ fn dynamicSymbols(bytes: []const u8, program_offset: u64, program_entry_size: u1
         .symbol_file = try virtualFileOffsetFor(bytes, symbol_virtual, 24, program_offset, program_entry_size, program_count),
         .string_file = try virtualFileOffsetFor(bytes, string_virtual, 1, program_offset, program_entry_size, program_count),
         .symbol_count = symbol_count,
+        .gnu_hash_file = if (gnu_hash_virtual == 0) 0 else try virtualFileOffsetFor(bytes, gnu_hash_virtual, 16, program_offset, program_entry_size, program_count),
         .regular_rela_file = if (rela_size == 0) 0 else try virtualFileOffsetFor(bytes, rela_virtual, rela_size, program_offset, program_entry_size, program_count),
         .regular_rela_size = rela_size,
         .plt_rela_file = if (plt_rela_size == 0) 0 else try virtualFileOffsetFor(bytes, plt_rela_virtual, plt_rela_size, program_offset, program_entry_size, program_count),
@@ -1292,7 +1290,56 @@ fn dynamicSymbols(bytes: []const u8, program_offset: u64, program_entry_size: u1
         .version_need_count = version_need_count,
         .version_definition_file = if (version_definition_virtual == 0) 0 else try virtualFileOffsetFor(bytes, version_definition_virtual, 20, program_offset, program_entry_size, program_count),
         .version_definition_count = version_definition_count,
-    };
+};
+}
+
+fn gnuHash(name: []const u8) u32 {
+    var hash: u32 = 5381;
+    for (name) |byte| hash = hash *% 33 +% byte;
+    return hash;
+}
+
+fn findProviderSymbol(bytes: []const u8, symbols: DynamicSymbols, name: []const u8) !?u32 {
+    if (symbols.gnu_hash_file == 0) {
+        var index: u32 = 0;
+        while (index < symbols.symbol_count) : (index += 1) {
+            const symbol = std.math.cast(usize, symbols.symbol_file + @as(u64, index) * 24) orelse return error.InvalidSymbolRelocation;
+            if (read16From(bytes, symbol + 6) == 0) continue;
+            if (equal(name, try stringFrom(bytes, symbols.string_file + read32From(bytes, symbol)))) return index;
+        }
+        return null;
+    }
+    const hash_file: usize = @intCast(symbols.gnu_hash_file);
+    if (hash_file > bytes.len or bytes.len - hash_file < 16) return error.InvalidGnuHash;
+    const bucket_count = read32From(bytes, hash_file);
+    const symbol_offset = read32From(bytes, hash_file + 4);
+    const bloom_size = read32From(bytes, hash_file + 8);
+    const bloom_shift = read32From(bytes, hash_file + 12);
+    if (bucket_count == 0 or bloom_size == 0 or symbol_offset >= symbols.symbol_count) return null;
+    const bloom_offset = hash_file + 16;
+    const buckets_offset = bloom_offset + @as(usize, bloom_size) * 8;
+    const chains_offset = buckets_offset + @as(usize, bucket_count) * 4;
+    const hash = gnuHash(name);
+    const bloom_index = @as(usize, (hash / 64) % bloom_size);
+    if (bloom_offset + bloom_index * 8 + 8 > bytes.len) return error.InvalidGnuHash;
+    const bloom = read64From(bytes, bloom_offset + bloom_index * 8);
+    const mask = (@as(u64, 1) << @intCast(hash % 64)) | (@as(u64, 1) << @intCast((hash >> @intCast(bloom_shift)) % 64));
+    if ((bloom & mask) != mask) return null;
+    const bucket_offset = buckets_offset + @as(usize, hash % bucket_count) * 4;
+    if (bucket_offset + 4 > bytes.len) return error.InvalidGnuHash;
+    var index = read32From(bytes, bucket_offset);
+    if (index < symbol_offset) return null;
+    while (index < symbols.symbol_count) : (index += 1) {
+        const chain_offset = chains_offset + @as(usize, index - symbol_offset) * 4;
+        if (chain_offset + 4 > bytes.len) return error.InvalidGnuHash;
+        const chain = read32From(bytes, chain_offset);
+        if ((chain | 1) == (hash | 1)) {
+            const symbol = std.math.cast(usize, symbols.symbol_file + @as(u64, index) * 24) orelse return error.InvalidSymbolRelocation;
+            if (read16From(bytes, symbol + 6) != 0 and equal(name, try stringFrom(bytes, symbols.string_file + read32From(bytes, symbol)))) return index;
+        }
+        if ((chain & 1) != 0) break;
+    }
+    return null;
 }
 
 fn gnuHashSymbolCount(bytes: []const u8, raw_offset: u64) !u32 {
