@@ -830,7 +830,9 @@ fn fcntl(fd: u64, command: u64, argument: u64) u64 {
         4 => blk: {
             // Access mode is immutable, while O_NONBLOCK is the status bit
             // that this kernel can change for a socket.
-            if ((argument & ~@as(u64, 0x802)) != 0) break :blk errno(22);
+            // Linux may include O_LARGEFILE in the status word even though
+            // it is immutable/irrelevant on this 64-bit kernel.
+            if ((argument & ~@as(u64, 0x8802)) != 0) break :blk errno(22);
             sockets[index].nonblocking = (argument & 0x800) != 0;
             break :blk 0;
         },
