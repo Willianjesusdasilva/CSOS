@@ -219,6 +219,19 @@ QEMU. O retorno `CSOS WPE WebKit launcher returned` ainda não foi observado:
 o processo excede o timeout atual antes de completar o loop GLib. Portanto,
 HTML/CSS/JavaScript no CSOS continua um gate aberto, não uma validação final.
 
+### Bloqueio atual do artefato WebProcess
+
+Em 2026-09-12, a tentativa reproduzível de construir o alvo
+`WPEWebProcess` (`ninja -C zig-out/webkit-linux6 WPEWebProcess -j1`) não
+avançou para C++: permaneceu em `[1/1442] Generate bindings
+(WebCoreBindings)` por 30 segundos. O comando é o
+`generate-bindings-all.pl`, executado pelo Perl host e pelo pré-processador
+`zig -E`; só foram emitidos avisos de locale do Perl. Não há
+`bin/WPEWebProcess` produzido. O runner foi encerrado e os processos filhos
+foram finalizados, portanto nenhum build ou QEMU ficou rodando. Esse é um
+bloqueio de ferramenta/geração do cross-build, distinto do bloqueio de
+`webkit_web_view_new()` no runtime CSOS.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de
