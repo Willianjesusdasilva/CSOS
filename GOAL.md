@@ -240,7 +240,7 @@ P0 termina quando:
 * [x] `/data` fica fora do checkout;
 * [x] `/nix` fica fora do checkout;
 * [x] logs persistentes não impedem reset do sistema;
-* [ ] `git reset --hard` conceitualmente pode destruir o checkout sem destruir estado do usuário.
+* [x] `git reset --hard` conceitualmente pode destruir o checkout sem destruir estado do usuário.
 
 Não expandir P0 além disso.
 
