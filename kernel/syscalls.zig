@@ -235,6 +235,9 @@ pub export var user_threads_enabled: bool = false;
 pub export var user_threads_done: bool = false;
 const UserThread = struct {
     state: enum { unused, runnable, blocked, exited } = .unused,
+    kind: enum { thread, process_child } = .thread,
+    pid: u32 = 0,
+    exit_status: u64 = 0,
     frame: [14]u64 = @splat(0),
     rsp: u64 = 0, result: u64 = 0, fs: u64 = 0,
     clear_tid: u64 = 0, wait_address: u64 = 0,
@@ -243,7 +246,7 @@ const UserThread = struct {
 };
 var user_threads: [16]UserThread = @splat(.{});
 var current_thread: usize = 0;
-var pending_clone: ?struct { slot: usize, stack: u64, tls: u64 } = null;
+var pending_clone: ?struct { slot: usize, stack: u64, tls: u64, process_child: bool } = null;
 var thread_switch_requested: bool = false;
 pub var user_futex_blocks: u64 = 0;
 pub var user_futex_wakes: u64 = 0;
@@ -264,22 +267,28 @@ fn wakeUserThreads(address: u64, maximum: u64) u64 {
 
 fn cloneThread(flags: u64, stack: u64, parent_tid: u64, child_tid: u64, tls: u64) u64 {
     serial.write("userspace clone flags: "); serial.writeDecimal(flags); serial.write("\n");
-    // musl pthread_create: VM, FS, FILES, SIGHAND, THREAD, SYSVSEM,
-    // SETTLS, PARENT_SETTID, CHILD_CLEARTID and obsolete DETACHED.
-    if (flags != 0x7d0f00) return errno(22);
-    if (stack < 8 or !validUserSlice(stack, 8) or !validUserSlice(tls, 8) or
+    // musl pthread_create flags, plus the Linux fork form (SIGCHLD) used by
+    // Git and other runtimes to create a process child before execve.
+    const is_process_child = flags == 17;
+    if (flags != 0x7d0f00 and !is_process_child) return errno(22);
+    if (is_process_child) {
+        if (stack != 0 or parent_tid != 0 or child_tid != 0 or tls != 0) return errno(22);
+    } else if (stack < 8 or !validUserSlice(stack, 8) or !validUserSlice(tls, 8) or
         !validUserSlice(parent_tid, 4) or !validUserSlice(child_tid, 4)) return errno(14);
     for (1..user_threads.len) |slot| {
         if (user_threads[slot].state != .unused and user_threads[slot].state != .exited) continue;
-        user_threads[slot] = .{ .state = .runnable, .clear_tid = child_tid };
+        user_threads[slot] = .{ .state = .runnable, .kind = if (is_process_child) .process_child else .thread,
+            .pid = @intCast(slot + 1), .clear_tid = child_tid };
         const tid: u32 = @intCast(slot + 1);
-        const out: *align(1) u32 = @ptrFromInt(parent_tid); out.* = tid;
+        if (parent_tid != 0) {
+            const out: *align(1) u32 = @ptrFromInt(parent_tid); out.* = tid;
+        }
         if (!user_threads_enabled) {
             user_threads[0].state = .runnable;
             user_threads[0].clear_tid = clear_tid_address;
         }
         user_threads_enabled = true;
-        pending_clone = .{ .slot = slot, .stack = stack, .tls = tls };
+        pending_clone = .{ .slot = slot, .stack = stack, .tls = tls, .process_child = is_process_child };
         thread_switch_requested = true;
         return tid;
     }
@@ -296,8 +305,8 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
     asm volatile ("fxsave64 (%[p])" : : [p] "r" (&old.fx) : .{ .memory = true });
     if (pending_clone) |child| {
         user_threads[child.slot].frame = frame.*;
-        user_threads[child.slot].rsp = child.stack;
-        user_threads[child.slot].fs = child.tls;
+        user_threads[child.slot].rsp = if (child.process_child) old.rsp else child.stack;
+        user_threads[child.slot].fs = if (child.process_child) old.fs else child.tls;
         user_threads[child.slot].fx = old.fx;
         pending_clone = null;
     }
@@ -3569,6 +3578,7 @@ fn exitSyscall(status: u64) u64 {
 fn exitThread(status: u64) u64 {
     if (!user_threads_enabled) return exitSyscall(status);
     const thread = &user_threads[current_thread];
+    thread.exit_status = status;
     if (thread.clear_tid != 0 and validUserSlice(thread.clear_tid, 4)) {
         @as(*align(1) u32, @ptrFromInt(thread.clear_tid)).* = 0;
         _ = wakeUserThreads(thread.clear_tid, ~@as(u64, 0));
@@ -3598,9 +3608,16 @@ fn wait4(pid: u64, status: u64, options: u64, usage: u64) u64 {
     // has no child to reap yet.  Returning ECHILD for a malformed request
     // hides caller bugs and differs from Linux's EINVAL contract.
     if ((options & ~@as(u64, 0x0b)) != 0) return errno(22);
-    _ = pid;
     if (status != 0 and !validUserSlice(status, 4)) return errno(14);
     if (usage != 0 and !validUserSlice(usage, 144)) return errno(14);
+    for (&user_threads) |*child| {
+        if (child.kind != .process_child or child.state != .exited) continue;
+        if (pid > 0 and child.pid != pid) continue;
+        if (status != 0) @as(*align(1) u32, @ptrFromInt(status)).* = @truncate((child.exit_status & 0xff) << 8);
+        const child_pid = child.pid;
+        child.* = .{};
+        return child_pid;
+    }
     return errno(10); // ECHILD: CSOS has no child process yet.
 }
 
