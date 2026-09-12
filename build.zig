@@ -423,6 +423,8 @@ pub fn build(b: *std.Build) void {
     syscalls_module.addImport("serial", serial_module);
     const vfs_module = b.createModule(.{ .root_source_file = b.path("kernel/vfs.zig") });
     vfs_module.addAnonymousImport("busybox_elf", .{ .root_source_file = b.path("userspace/initramfs/bin/busybox") });
+    if (git_runtime) |path| vfs_module.addAnonymousImport("git_runtime_elf", .{ .root_source_file = b.path(path) })
+    else vfs_module.addAnonymousImport("git_runtime_elf", .{ .root_source_file = dynamic_hello.getEmittedBin() });
     vfs_module.addImport("fat16", fat16_module);
     const vfs_test_module = b.createModule(.{
         .root_source_file = b.path("kernel/vfs.zig"),
@@ -430,6 +432,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     vfs_test_module.addAnonymousImport("busybox_elf", .{ .root_source_file = b.path("userspace/initramfs/bin/busybox") });
+    vfs_test_module.addAnonymousImport("git_runtime_elf", .{ .root_source_file = dynamic_hello.getEmittedBin() });
     vfs_test_module.addImport("fat16", fat16_module);
     const vfs_tests = b.addTest(.{ .root_module = vfs_test_module });
     const run_vfs_tests = b.addRunArtifact(vfs_tests);

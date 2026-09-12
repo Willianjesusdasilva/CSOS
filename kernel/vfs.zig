@@ -1,5 +1,6 @@
 const std = @import("std");
 const busybox = @embedFile("busybox_elf");
+const git_runtime = @embedFile("git_runtime_elf");
 const fat16 = @import("fat16");
 const hello = "Hello from initramfs\n";
 
@@ -33,6 +34,7 @@ const Node = enum {
     random_device,
     drm,
     render,
+    git_runtime,
     disk,
     fat_directory,
 };
@@ -1095,6 +1097,7 @@ fn resolve(directory_fd: i64, path: []const u8) !Node {
     if (endsWithDrmDevice(path, "/subsystem_device")) return requireDrmPci(.drm_subsystem_device);
     if (equal(path, "/hello.txt") or equal(path, "hello.txt")) return .hello;
     if (equal(path, "/dev/random") or equal(path, "dev/random") or equal(path, "/dev/urandom") or equal(path, "dev/urandom")) return .random_device;
+    if (isGitHelperPath(path)) return .git_runtime;
     if (equal(path, "/bin/busybox") or equal(path, "/bin/sh") or equal(path, "/bin/ls") or
         equal(path, "/bin/cat") or equal(path, "/bin/echo") or
         ((directory_fd >= 3 and @as(usize, @intCast(directory_fd)) < descriptors.len and descriptors[@intCast(directory_fd)].node == .bin) and
@@ -1106,6 +1109,7 @@ fn nodeInfo(node: Node) Info {
     return switch (node) {
         .root, .bin, .dev, .dri, .sys, .sys_dev, .sys_char, .drm_char_primary, .drm_char_render, .drm_device, .drm_device_drm, .fat_directory => .{ .mode = 0o040755, .size = 0, .directory = true },
         .busybox => .{ .mode = 0o100755, .size = busybox.len, .directory = false },
+        .git_runtime => .{ .mode = 0o100755, .size = git_runtime.len, .directory = false },
         .hello => .{ .mode = 0o100644, .size = hello.len, .directory = false },
         .framebuffer => .{ .mode = 0o020600, .size = 0, .directory = false },
         .null_device => .{ .mode = 0o020666, .size = 0, .directory = false },
@@ -1242,6 +1246,7 @@ fn expectFatAlias(path: []const u8, expected: *const [11]u8) !void {
 fn nodeData(node: Node) []const u8 {
     return switch (node) {
         .busybox => busybox,
+        .git_runtime => git_runtime,
         .hello => hello,
         .drm_pci_uevent => drm_pci_uevent[0..drm_pci_uevent_len],
         .drm_vendor => &drm_vendor_data,
@@ -1252,6 +1257,19 @@ fn nodeData(node: Node) []const u8 {
         .drm_render_uevent => "DEVNAME=dri/renderD128\n",
         else => "",
     };
+}
+
+fn isGitHelperPath(path: []const u8) bool {
+    const helpers = [_][]const u8{
+        "git-fetch", "git-fetch-pack", "git-upload-pack", "git-receive-pack",
+        "git-merge", "git-merge-base", "git-commit-tree", "git-index-pack",
+        "git-pack-objects", "git-unpack-objects", "git-rev-parse",
+        "fetch", "maintenance", "/fetch", "/upload-pack", "/receive-pack",
+    };
+    for (helpers) |helper| {
+        if (std.mem.endsWith(u8, path, helper)) return true;
+    }
+    return false;
 }
 
 fn requireDrmPci(node: Node) error{NotFound}!Node {
