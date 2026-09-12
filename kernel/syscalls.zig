@@ -3475,12 +3475,16 @@ fn mmap(requested: u64, length: u64, protection: u64, flags: u64, fd: u64, file_
         // Keep them in the canonical user range; pages are committed later by
         // the normal protection path.
         const virtual_limit: u64 = 0x00007f0000000000;
-        const reserve_address = if (requested != 0 and requested >= noreserve_next and requested <= virtual_limit and aligned_length <= virtual_limit - requested)
+        const large_reservation = aligned_length > (1 << 30);
+        if (!large_reservation and (address > mmap_limit or aligned_length > mmap_limit - address)) return errno(12);
+        const reserve_address = if (!large_reservation)
+            address
+        else if (requested != 0 and requested >= noreserve_next and requested <= virtual_limit and aligned_length <= virtual_limit - requested)
             requested
         else
             (noreserve_next + 4095) & ~@as(u64, 4095);
         if (reserve_address > virtual_limit or aligned_length > virtual_limit - reserve_address) return errno(12);
-        noreserve_next = reserve_address + aligned_length;
+        if (large_reservation) noreserve_next = reserve_address + aligned_length else mmap_next = reserve_address + aligned_length;
         return reserve_address;
     }
     if (address < mmap_next or address > mmap_limit or aligned_length > mmap_limit - address) return errno(12);

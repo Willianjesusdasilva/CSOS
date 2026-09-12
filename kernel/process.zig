@@ -514,16 +514,28 @@ fn validMappedUserSlice(address: u64, length: u64) callconv(.c) bool {
 fn protectMmap(address: u64, length: u64, writable: bool, executable: bool) callconv(.c) bool {
     const address_space = active_address_space orelse return false;
     if (length > std.math.maxInt(u64) - address) return false;
+    // Large MAP_NORESERVE arenas are virtual-only until first touch.  WebKit
+    // protects these ranges while they are still completely non-resident;
+    // treating an absent page as already protected lets the fault path commit
+    // it lazily instead of reporting ENOMEM to bmalloc.
+    const noreserve_start: u64 = 0x000000c000000000;
+    const noreserve_end: u64 = 0x00007f0000000000;
     var needs_protection = false;
     var check: u64 = 0;
     while (check < length) : (check += @min(@as(u64, page_size), length - check)) {
-        const permissions = address_space.userPermissions(address + check) orelse return false;
+        const page = address + check;
+        const permissions = address_space.userPermissions(page) orelse {
+            if (page >= noreserve_start and page < noreserve_end) continue;
+            return false;
+        };
         if (permissions.writable != writable or permissions.executable != executable) needs_protection = true;
     }
     if (!needs_protection) return true;
     var offset: u64 = 0;
     while (offset < length) : (offset += @min(@as(u64, page_size), length - offset)) {
-        if (!address_space.protectUserPage(address + offset, writable, executable)) return false;
+        const page = address + offset;
+        if (address_space.userPermissions(page) == null and page >= noreserve_start and page < noreserve_end) continue;
+        if (!address_space.protectUserPage(page, writable, executable)) return false;
     }
     return true;
 }
