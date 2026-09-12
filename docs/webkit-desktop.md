@@ -68,6 +68,13 @@ Um RIP anterior em
 `pas_panic_on_out_of_memory_error` e um page fault de escrita em arena
 `MAP_NORESERVE` já foram tratados no kernel (`78b9518`, `a7218e9`, `2c7dd25`).
 
+O código upstream confirma que a construção da primeira página usa o
+`ProcessLauncher` WPE/GLib: cria `socketpair(AF_UNIX, SOCK_SEQPACKET)`, inicia
+um WebProcess via `wpe_process_provider`/`g_subprocess`, e aguarda o processo
+auxiliar através do socket IPC. Portanto, o próximo gate não é apenas
+preempção de threads: exige processo filho, `execve`/loader independente,
+ownership de descritores e lifecycle de PID no kernel.
+
 ## Primeiro gate de runtime: evidência QEMU (2026-09-08)
 
 Foi acrescentado um executável **Zig**, ligado estaticamente à musl, que chama
