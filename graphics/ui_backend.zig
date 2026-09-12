@@ -405,7 +405,7 @@ test "generic UI backend lifecycle, surface, damage and IPC requests" {
     try std.testing.expectEqualStrings("CSOS", backend.getClipboard());
     try std.testing.expect(backend.enqueueEvent(.{ .pointer = .{ .x = 2, .y = 3, .buttons = 1 } }));
     try std.testing.expect(backend.present(.{ .x = 0, .y = 0, .width = 8, .height = 8 }));
-    try std.testing.expect(backend.enqueueRequest(.{ .open_file = "/system/config/hardware.csc" }));
+    try std.testing.expect(backend.enqueueRequest(.{ .open_file = "/data/config/hardware.csc" }));
     try std.testing.expect(backend.resize(4, 4, pixels[0..16]));
     try std.testing.expect(backend.stop());
     try std.testing.expect(backend.destroySurface());
