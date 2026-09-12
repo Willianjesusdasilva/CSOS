@@ -1,0 +1,17 @@
+#!/bin/sh
+
+# Notify the project owner after each commit. Notification failures must not
+# make an otherwise successful commit fail.
+repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+toast_script="$repo_root/toast.py"
+[ -f "$toast_script" ] || exit 0
+
+commit=$(git log -1 --pretty=format:'%h')
+author=$(git log -1 --pretty=format:'%an')
+subject=$(git log -1 --pretty=format:'%s')
+message="CSOS commit $commit por $author\n\n$subject"
+
+python "$toast_script" --message "$message" --title "CSOS commit $commit" \
+  --topic "willian-toast-7f29d1" >/dev/null 2>&1 || true
+
+exit 0
