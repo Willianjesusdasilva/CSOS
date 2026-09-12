@@ -19,7 +19,6 @@ extern fn wpe_view_backend_exportable_fdo_get_view_backend(?*WpeExportable) ?*Wp
 extern fn wpe_view_backend_exportable_fdo_destroy(?*WpeExportable) void;
 extern fn webkit_web_view_backend_new(?*WpeViewBackend, ?*const anyopaque, ?*anyopaque) ?*anyopaque;
 extern fn webkit_web_view_new(?*anyopaque) ?*anyopaque;
-extern fn webkit_web_context_new() ?*anyopaque;
 extern fn webkit_web_view_load_html(?*anyopaque, [*:0]const u8, [*:0]const u8) void;
 extern fn g_main_context_default() ?*anyopaque;
 extern fn g_main_context_iteration(?*anyopaque, c_int) c_int;
@@ -55,9 +54,10 @@ pub fn main() void {
     mark("WebKit TLS ready\n");
     const web_backend = webkit_web_view_backend_new(view_backend, destroyBackend, null) orelse return;
     mark("WebKit backend ready\n");
-    mark("WebKit context begin\n");
-    _ = webkit_web_context_new() orelse return;
-    mark("WebKit context ready\n");
+    // webkit_web_view_new() uses and owns the default WPE context. Creating
+    // a separate context here and discarding it initializes a second process
+    // pool before the view is constructed.
+    mark("WebKit context default\n");
     mark("WebKit view begin\n");
     const view = webkit_web_view_new(web_backend) orelse return;
     mark("WebKit view ready\n");

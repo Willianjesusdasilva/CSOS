@@ -57,12 +57,11 @@ Jinja pode preparar HTML antes da carga, mas não substitui o motor WebKit.
 ### Estado atual do backend WPE
 
 O launcher Zig já carrega o ELF WPE/WebKit, inicializa o shared-memory backend,
-TLS e `webkit_web_view_backend_new`. O smoke QEMU mais recente alcança
-`WebKit context ready` após três criações de threads, mas não alcança
-`WebKit view begin` dentro do timeout de 180 segundos. Isso deixa o bloqueio
-atual isolado na transição entre a criação do contexto e a primeira
-`webkit_web_view_new`; ainda não há evidência de `load_html`, entrega de frame
-ao compositor ou entrada DOM. Um RIP anterior em
+TLS e `webkit_web_view_backend_new`. Após remover a criação descartada de um
+contexto explícito, o smoke QEMU alcança `WebKit view begin`; o bloqueio agora
+ocorre dentro de `webkit_web_view_new()` antes de `WebKit view ready`. Ainda
+não há evidência de `load_html`, entrega de frame ao compositor ou entrada DOM.
+Um RIP anterior em
 `pas_panic_on_out_of_memory_error` e um page fault de escrita em arena
 `MAP_NORESERVE` já foram tratados no kernel (`78b9518`, `a7218e9`, `2c7dd25`).
 
