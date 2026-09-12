@@ -231,6 +231,14 @@ $pslLib = ((Join-Path $sysrootPath 'lib\libpsl.a').Replace('\','/'))
 $ninjaText = $ninjaText.Replace("$glibLib C:/git/csos/zig-out/mesa-sysroot/usr/lib/libz.so", "$glibLib $gmoduleLib $pcre2Lib $ffiLib $expatLib C:/git/csos/zig-out/mesa-sysroot/usr/lib/libz.so")
 $zlib = 'C:/git/csos/zig-out/mesa-sysroot/usr/lib/libz.so'
 $ninjaText = [regex]::Replace($ninjaText, ([regex]::Escape($glibLib) + '\s+' + [regex]::Escape($zlib)), "$glibLib $gmoduleLib $pcre2Lib $ffiLib $expatLib $zlib")
+$loaderStub = 'C:/w/zig-out/webkit-linux6/wpe-loader-link-stub.o'
+$linkDeps = " $pixmanLib $pslLib $loaderStub"
+$ninjaText = [regex]::Replace($ninjaText, '(?m)^(  LINK_LIBRARIES = .*?libfreetype\.a)(\r?)$', ('$1' + $linkDeps + '$2'))
+# WebKit is linked from static CSOS archives.  lld may encounter a leaf
+# archive before a later archive that supplies its symbols (notably cairo ->
+# pixman and libsoup -> libpsl); group the complete link list so resolution
+# is repeated until all archive dependencies close.
+$ninjaText = [regex]::Replace($ninjaText, '(?m)^(  LINK_LIBRARIES = )(.*?)(\r?)$', '$1-Wl,--start-group $2 -Wl,--end-group$3')
 $rules = Join-Path $build 'CMakeFiles\rules.ninja'
 if (Test-Path -LiteralPath $rules) {
     $rulesText = [IO.File]::ReadAllText($rules)
