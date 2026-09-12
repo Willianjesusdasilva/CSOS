@@ -1514,7 +1514,17 @@ pub fn handlePageFault(address: u64, instruction: u64, code: u64) callconv(.c) b
     const mappings = active_mappings orelse return false;
     const owned = active_owned orelse return false;
     const page_virtual = address & ~(page_size - 1);
-    if ((code & 1) != 0) return false;
+    const noreserve_start: u64 = 0x000000c000000000;
+    const noreserve_end: u64 = 0x00007f0000000000;
+    // A lazy arena may have a leaf installed by an earlier protection
+    // transition before its first write. Upgrade that resident leaf on a
+    // write fault instead of turning bmalloc's valid demand commit into OOM.
+    if ((code & 1) != 0) {
+        if (page_virtual >= noreserve_start and page_virtual < noreserve_end and
+            address_space.userPermissions(page_virtual) != null)
+            return address_space.protectUserPage(page_virtual, true, false);
+        return false;
+    }
     for (mappings) |*mapping| {
         if (mapping.virtual != page_virtual) continue;
         // A tabela de mapeamentos pode sobreviver a reclaim/retomada; trate
@@ -1544,7 +1554,7 @@ pub fn handlePageFault(address: u64, instruction: u64, code: u64) callconv(.c) b
     // list. Back individual anonymous faults on demand inside the canonical
     // mmap window, keeping the WebKit allocator usable without reserving
     // gigabytes of physical memory up front.
-    if (page_virtual >= mmap_address and page_virtual < 0x00007f0000000000) {
+    if (page_virtual >= mmap_address and page_virtual < noreserve_end) {
         const physical_address = pages.allocate(1) orelse return false;
         const bytes: [*]u8 = @ptrFromInt(physical_address);
         @memset(bytes[0..page_size], 0);

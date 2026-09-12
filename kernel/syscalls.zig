@@ -3475,7 +3475,11 @@ fn mmap(requested: u64, length: u64, protection: u64, flags: u64, fd: u64, file_
         // Keep them in the canonical user range; pages are committed later by
         // the normal protection path.
         const virtual_limit: u64 = 0x00007f0000000000;
-        const large_reservation = aligned_length > (1 << 30);
+        // bmalloc commonly reserves hundreds of MiB at a time.  These are
+        // still virtual-only arenas; requiring 1 GiB here incorrectly sent
+        // medium reservations through the 256 MiB eager mmap window and
+        // surfaced as a false OOM inside WebKit.
+        const large_reservation = aligned_length > (64 << 20);
         if (!large_reservation and (address > mmap_limit or aligned_length > mmap_limit - address)) return errno(12);
         const reserve_address = if (!large_reservation)
             address
