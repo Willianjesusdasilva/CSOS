@@ -149,7 +149,10 @@ pub fn runGitRuntime(kernel_root: u64, pages: *physical.Allocator) !void {
     try runImage(kernel_root, pages, &status_arguments);
     image = @embedFile("git_runtime_elf");
     const revision_arguments = [_][]const u8{"/bin/git", "--git-dir=/data/repo8", "rev-parse", "--verify", "HEAD"};
-    return runImage(kernel_root, pages, &revision_arguments);
+    try runImage(kernel_root, pages, &revision_arguments);
+    image = @embedFile("git_runtime_elf");
+    const history_arguments = [_][]const u8{"/bin/git", "--git-dir=/data/repo8", "rev-list", "--count", "HEAD"};
+    return runImage(kernel_root, pages, &history_arguments);
 }
 
 pub fn runHelloPie(kernel_root: u64, pages: *physical.Allocator) !void {
