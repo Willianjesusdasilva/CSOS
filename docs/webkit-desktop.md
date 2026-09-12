@@ -59,8 +59,11 @@ Jinja pode preparar HTML antes da carga, mas não substitui o motor WebKit.
 O launcher Zig já carrega o ELF WPE/WebKit, inicializa o shared-memory backend,
 TLS e `webkit_web_view_backend_new`. Após remover a criação descartada de um
 contexto explícito, o smoke QEMU alcança `WebKit view begin`; o bloqueio agora
-ocorre dentro de `webkit_web_view_new()` antes de `WebKit view ready`. Ainda
-não há evidência de `load_html`, entrega de frame ao compositor ou entrada DOM.
+ocorre dentro de `webkit_web_view_new()` antes de `WebKit view ready`. O
+diagnóstico temporário mostrou a terceira thread sendo ativada e retornando ao
+thread principal, mas depois o processo permanece em uma região de CPU sem
+novas syscalls; não houve page fault ou syscall desconhecida nesse intervalo.
+Ainda não há evidência de `load_html`, entrega de frame ao compositor ou entrada DOM.
 Um RIP anterior em
 `pas_panic_on_out_of_memory_error` e um page fault de escrita em arena
 `MAP_NORESERVE` já foram tratados no kernel (`78b9518`, `a7218e9`, `2c7dd25`).
