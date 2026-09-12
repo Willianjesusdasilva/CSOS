@@ -58,6 +58,7 @@ pub fn main() void {
     mark("WebKit context begin\n");
     _ = webkit_web_context_new() orelse return;
     mark("WebKit context ready\n");
+    mark("WebKit view begin\n");
     const view = webkit_web_view_new(web_backend) orelse return;
     mark("WebKit view ready\n");
     const document = "<html><body><main id=app>CSOS WebKit</main><script>document.getElementById('app').dataset.ready='true';</script></body></html>";

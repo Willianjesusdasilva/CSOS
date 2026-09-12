@@ -721,7 +721,11 @@ fn supportedClock(clock: u64) bool {
     // Until RTC calibration is wired into the boot path, all accepted clock
     // IDs intentionally share the monotonic source; this preserves ordering
     // without fabricating a wall-clock offset.
-    return clock == 0 or clock == 1 or clock == 4 or clock == 7 or clock == 11;
+    // Linux exposes coarse and alarm clock variants in addition to the basic
+    // realtime/monotonic IDs.  This early kernel has one monotonic source, so
+    // map the complete non-dynamic ID range to it instead of returning EINVAL
+    // from libc's monotonic-time probe.
+    return clock <= 11;
 }
 
 fn read(fd: u64, address: u64, length: u64) u64 {
