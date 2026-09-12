@@ -234,11 +234,11 @@ pela nova separação apropriada.
 
 P0 termina quando:
 
-* [ ] defaults versionados estão separados do estado local;
-* [ ] `hardware.csc` específico da máquina fica fora da árvore que receberá reset Git;
-* [ ] `/home` fica fora do checkout;
-* [ ] `/data` fica fora do checkout;
-* [ ] `/nix` fica fora do checkout;
+* [x] defaults versionados estão separados do estado local;
+* [x] `hardware.csc` específico da máquina fica fora da árvore que receberá reset Git;
+* [x] `/home` fica fora do checkout;
+* [x] `/data` fica fora do checkout;
+* [x] `/nix` fica fora do checkout;
 * [ ] logs persistentes não impedem reset do sistema;
 * [ ] `git reset --hard` conceitualmente pode destruir o checkout sem destruir estado do usuário.
 
