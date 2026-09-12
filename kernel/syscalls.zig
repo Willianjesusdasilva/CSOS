@@ -25,6 +25,7 @@ var mmap_protect_hook: ?*const fn (u64, u64, bool, bool) callconv(.c) bool = nul
 var mmap_unmap_hook: ?*const fn (u64, u64) callconv(.c) bool = null;
 var device_mmap_hook: ?*const fn (u64, u64, u64, bool) callconv(.c) bool = null;
 var user_slice_hook: ?*const fn (u64, u64) callconv(.c) bool = null;
+var execve_hook: ?*const fn (u64, u64, u64) callconv(.c) u64 = null;
 var stdin_hook: ?*const fn ([*]u8, usize) callconv(.c) usize = null;
 pub var console_write_hook: ?*const fn ([]const u8) void = null;
 var idle_hook: ?*const fn () callconv(.c) void = null;
@@ -373,6 +374,7 @@ pub fn configure(base: u64, size: u64, stack: u64, stack_length: u64, initial_br
     current_thread = 0;
     pending_clone = null;
     thread_switch_requested = false;
+    execve_hook = null;
     user_futex_blocks = 0;
     user_futex_wakes = 0;
     user_base = base;
@@ -533,6 +535,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         54 => setSocketOption(arg1, arg2, arg3, arg4, arg5),
         55 => getSocketOption(arg1, arg2, arg3, arg4, arg5),
         56 => cloneThread(arg1, arg2, arg3, arg4, arg5),
+        59 => execve(arg1, arg2, arg3),
         60 => exitThread(arg1),
         62 => kill(arg1, arg2),
         61 => wait4(arg1, arg2, arg3, arg4),
@@ -3601,6 +3604,21 @@ fn kill(pid: u64, signal: u64) u64 {
 fn tgkill(pid: u64, tid: u64, signal: u64) u64 {
     if ((pid != 0 and pid != 1) or (tid != 1 and tid != 0)) return errno(3);
     return kill(1, signal);
+}
+
+/// Replace the current image through the process loader.  The hook is kept
+/// explicit because entering the loader from a syscall must atomically tear
+/// down the current address space and install a fresh argv/auxv image.
+/// Until that transition is wired, report the real Linux ENOSYS result after
+/// validating the pathname pointer instead of treating execve as unknown.
+fn execve(path: u64, argv: u64, envp: u64) u64 {
+    if (path == 0 or !validUserSlice(path, 1)) return errno(14);
+    if (execve_hook) |hook| return hook(path, argv, envp);
+    return errno(38);
+}
+
+pub fn configureExecve(hook: ?*const fn (u64, u64, u64) callconv(.c) u64) void {
+    execve_hook = hook;
 }
 
 fn wait4(pid: u64, status: u64, options: u64, usage: u64) u64 {

@@ -33,8 +33,9 @@ still needs the curl/OpenSSL dependency chain.
 The kernel now also accepts the Linux `clone(SIGCHLD)` form used for a fork,
 preserves the parent's user frame for the child, and implements basic `wait4`
 reaping for exited process children. This is the first process-lifecycle step,
-but it is not yet sufficient for Git fetch: the child still needs a real
-`execve`/ELF replacement path and independent process address-space state.
+and syscall 59 (`execve`) now has an explicit validated ABI entry and loader
+hook. This is not yet sufficient for Git fetch: the child still needs the
+hook's real ELF replacement path and independent process address-space state.
 
 The probe now exercises the real FAT alias for `packed-refs.lock`; upstream
 Git can initialize/reopen the repository, add the versioned defaults, commit,
