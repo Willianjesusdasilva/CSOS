@@ -221,16 +221,15 @@ HTML/CSS/JavaScript no CSOS continua um gate aberto, não uma validação final.
 
 ### Bloqueio atual do artefato WebProcess
 
-Em 2026-09-12, a tentativa reproduzível de construir o alvo
-`WPEWebProcess` (`ninja -C zig-out/webkit-linux6 WPEWebProcess -j1`) não
-avançou para C++: permaneceu em `[1/1442] Generate bindings
-(WebCoreBindings)` por 30 segundos. O comando é o
-`generate-bindings-all.pl`, executado pelo Perl host e pelo pré-processador
-`zig -E`; só foram emitidos avisos de locale do Perl. Não há
-`bin/WPEWebProcess` produzido. O runner foi encerrado e os processos filhos
-foram finalizados, portanto nenhum build ou QEMU ficou rodando. Esse é um
-bloqueio de ferramenta/geração do cross-build, distinto do bloqueio de
-`webkit_web_view_new()` no runtime CSOS.
+Em 2026-09-12, uma tentativa reproduzível de construir o alvo
+`WPEWebProcess` (`ninja -C zig-out/webkit-linux6 WPEWebProcess -j4`) avançou de
+`[1/1442]` para `[4/1408]`, mas ficou sem novo output por mais de três minutos
+em `Generate bindings (WebCoreBindings)`, com Perl host e o pré-processador
+`zig -E` ativos. Só foram emitidos avisos de locale do Perl; não há
+`bin/WPEWebProcess` produzido. A execução foi interrompida e os processos de
+build foram finalizados, sem QEMU aberto. Esse é um bloqueio de ferramenta ou
+geração do cross-build, distinto do bloqueio de `webkit_web_view_new()` no
+runtime CSOS.
 
 ## Referências upstream
 
