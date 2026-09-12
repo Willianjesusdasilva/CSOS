@@ -578,6 +578,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         141 => setPriority(arg1, arg2, @bitCast(arg3)),
         142 => setScheduler(arg1, arg2, arg3),
         143 => getSchedulerParam(arg1, arg2),
+        144 => setScheduler(arg1, arg2, arg3),
         145 => getScheduler(arg1),
         148 => schedRrInterval(arg1, arg2),
         157 => prctl(arg1, arg2, arg3),
