@@ -239,6 +239,8 @@ const UserThread = struct {
     kind: enum { thread, process_child } = .thread,
     pid: u32 = 0,
     exit_status: u64 = 0,
+    wait_child_pid: u64 = 0,
+    wait_status: u64 = 0,
     frame: [14]u64 = @splat(0),
     rsp: u64 = 0, result: u64 = 0, fs: u64 = 0,
     clear_tid: u64 = 0, wait_address: u64 = 0,
@@ -3586,6 +3588,18 @@ fn exitThread(status: u64) u64 {
     if (!user_threads_enabled) return exitSyscall(status);
     const thread = &user_threads[current_thread];
     thread.exit_status = status;
+    if (thread.kind == .process_child) {
+        for (&user_threads) |*parent| {
+            if (parent.state != .blocked or parent.wait_child_pid == 0) continue;
+            if (parent.wait_child_pid != ~@as(u64, 0) and parent.wait_child_pid != thread.pid) continue;
+            if (parent.wait_status != 0 and validUserSlice(parent.wait_status, 4))
+                @as(*align(1) u32, @ptrFromInt(parent.wait_status)).* = @truncate((status & 0xff) << 8);
+            parent.result = thread.pid;
+            parent.wait_child_pid = 0;
+            parent.wait_status = 0;
+            parent.state = .runnable;
+        }
+    }
     if (thread.clear_tid != 0 and validUserSlice(thread.clear_tid, 4)) {
         @as(*align(1) u32, @ptrFromInt(thread.clear_tid)).* = 0;
         _ = wakeUserThreads(thread.clear_tid, ~@as(u64, 0));
@@ -3632,14 +3646,29 @@ fn wait4(pid: u64, status: u64, options: u64, usage: u64) u64 {
     if ((options & ~@as(u64, 0x0b)) != 0) return errno(22);
     if (status != 0 and !validUserSlice(status, 4)) return errno(14);
     if (usage != 0 and !validUserSlice(usage, 144)) return errno(14);
+    var matching_child = false;
     for (&user_threads) |*child| {
         if (child.kind != .process_child or child.state != .exited) continue;
-        if (pid > 0 and child.pid != pid) continue;
+        if (pid > 0 and pid != ~@as(u64, 0) and child.pid != pid) continue;
         if (status != 0) @as(*align(1) u32, @ptrFromInt(status)).* = @truncate((child.exit_status & 0xff) << 8);
         const child_pid = child.pid;
         child.* = .{};
         return child_pid;
     }
+    for (user_threads) |child| {
+        if (child.kind != .process_child or child.state == .unused) continue;
+        if (pid > 0 and pid != ~@as(u64, 0) and child.pid != pid) continue;
+        matching_child = true;
+        break;
+    }
+    if (matching_child and (options & 1) == 0 and user_threads_enabled) {
+        user_threads[current_thread].state = .blocked;
+        user_threads[current_thread].wait_child_pid = if (pid == 0) ~@as(u64, 0) else pid;
+        user_threads[current_thread].wait_status = status;
+        thread_switch_requested = true;
+        return 0;
+    }
+    if (matching_child and (options & 1) != 0) return 0;
     return errno(10); // ECHILD: CSOS has no child process yet.
 }
 

@@ -39,6 +39,11 @@ hook. Process children also receive a distinct PID, with `getpid` and
 Git fetch: the child still needs the hook's real ELF replacement path and
 independent process address-space state.
 
+`wait4` now blocks a parent with a live child and wakes it with the child's PID
+and wait status when that child exits; `WNOHANG` returns zero while it is still
+running. This makes the lifecycle behavior usable by callers without turning
+an unfinished `execve` into a fake success.
+
 The probe now exercises the real FAT alias for `packed-refs.lock`; upstream
 Git can initialize/reopen the repository, add the versioned defaults, commit,
 and report status across two flushed QEMU boots. A bounded `pull --ff-only`
