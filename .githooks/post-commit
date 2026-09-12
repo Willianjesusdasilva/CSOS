@@ -7,11 +7,13 @@ toast_script="$repo_root/toast.py"
 [ -f "$toast_script" ] || exit 0
 
 commit=$(git log -1 --pretty=format:'%h')
-author=$(git log -1 --pretty=format:'%an')
 subject=$(git log -1 --pretty=format:'%s')
-message="CSOS commit $commit por $author\n\n$subject"
+count=$(git rev-list --count HEAD)
+files=$(git diff-tree --no-commit-id --name-status -r HEAD | sed 's/^/  /')
+next_step="Concluir o build WPE/WebKit e validar WPEWebProcess no CSOS"
+message="Commitado:\n$files\n\nProximo passo:\n$next_step\n\nTotal de commits: $count"
 
-python "$toast_script" --message "$message" --title "CSOS commit $commit" \
+python "$toast_script" --message "$message" --title "$subject" \
   --topic "willian-toast-7f29d1" >/dev/null 2>&1 || true
 
 exit 0
