@@ -1497,12 +1497,12 @@ fn sortMappings(mappings: []Mapping) void {
 
 pub fn handlePageFault(address: u64, instruction: u64, code: u64) callconv(.c) bool {
     _ = instruction;
-    if ((code & 1) != 0) return false;
     const address_space = active_address_space orelse return false;
     const pages = active_pages orelse return false;
     const mappings = active_mappings orelse return false;
     const owned = active_owned orelse return false;
     const page_virtual = address & ~(page_size - 1);
+    if ((code & 1) != 0) return false;
     for (mappings) |*mapping| {
         if (mapping.virtual != page_virtual) continue;
         // A tabela de mapeamentos pode sobreviver a reclaim/retomada; trate
@@ -1523,6 +1523,23 @@ pub fn handlePageFault(address: u64, instruction: u64, code: u64) callconv(.c) b
         mapping.physical = physical_address;
         mapping.resident = true;
         owned[mapping.owner_index] = .{ .address = physical_address, .pages = 1 };
+        restored_pages = saturatingAdd(restored_pages, 1);
+        return true;
+    }
+    // MAP_NORESERVE provides virtual arenas whose physical pages are
+    // committed on first write. JSC uses this for its aligned structure heap;
+    // that arena intentionally is not represented by the eager ELF mapping
+    // list. Back individual anonymous faults on demand inside the canonical
+    // mmap window, keeping the WebKit allocator usable without reserving
+    // gigabytes of physical memory up front.
+    if (page_virtual >= mmap_address and page_virtual < 0x00007f0000000000) {
+        const physical_address = pages.allocate(1) orelse return false;
+        const bytes: [*]u8 = @ptrFromInt(physical_address);
+        @memset(bytes[0..page_size], 0);
+        address_space.mapUserPage(page_virtual, physical_address, true, false) catch {
+            pages.release(physical_address, 1) catch {};
+            return false;
+        };
         restored_pages = saturatingAdd(restored_pages, 1);
         return true;
     }

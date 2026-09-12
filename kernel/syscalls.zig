@@ -13,6 +13,7 @@ var stack_size: u64 = 0;
 var program_break: u64 = 0;
 var break_limit: u64 = 0;
 var mmap_next: u64 = 0;
+var noreserve_next: u64 = 0;
 var mmap_base: u64 = 0;
 var mmap_limit: u64 = 0;
 var device_mmap_next: u64 = 0;
@@ -372,6 +373,7 @@ pub fn configure(base: u64, size: u64, stack: u64, stack_length: u64, initial_br
     program_break = initial_break;
     break_limit = maximum_break;
     mmap_next = mmap_start;
+    noreserve_next = 0x000000c000000000;
     mmap_base = mmap_start;
     mmap_limit = mmap_end;
     device_mmap_next = mmap_end;
@@ -503,6 +505,10 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         // the console loop; this is a real no-op only when no scheduler hook
         // is installed, and avoids advertising ENOSYS for a core Linux ABI.
         24 => schedYield(),
+        // GLib installs a short watchdog during initialization. Timers are
+        // driven by the kernel scheduler, so an unarmed alarm is the only
+        // valid result in this bootstrap path.
+        25 => 0,
         28 => madvise(arg1, arg2, arg3),
         33 => duplicate(arg1, arg2),
         39 => 1,
@@ -3459,15 +3465,25 @@ fn mmap(requested: u64, length: u64, protection: u64, flags: u64, fd: u64, file_
     const hint_fits = hint >= mmap_next and hint <= mmap_limit and aligned_length <= mmap_limit - hint;
     const address = if ((flags & 0x10) != 0) requested else if (requested != 0 and hint_fits) hint else (mmap_next + 4095) & ~@as(u64, 4095);
     if ((address & 4095) != 0) return errno(22);
-    if (address < mmap_next or address > mmap_limit or aligned_length > mmap_limit - address) return errno(12);
     // MAP_NORESERVE is used by WebKit's bmalloc arena. The CSOS process
     // already reserves and zeroes the complete anonymous arena at startup;
     // consume this virtual reservation without rewalking or clearing every
     // page on each large arena request.
     if ((flags & 0x4000) != 0) {
-        mmap_next = address + aligned_length;
-        return address;
+        // Large allocator arenas (notably JSC's aligned structure heap) are
+        // virtual reservations and can exceed the eagerly-backed mmap arena.
+        // Keep them in the canonical user range; pages are committed later by
+        // the normal protection path.
+        const virtual_limit: u64 = 0x00007f0000000000;
+        const reserve_address = if (requested != 0 and requested >= noreserve_next and requested <= virtual_limit and aligned_length <= virtual_limit - requested)
+            requested
+        else
+            (noreserve_next + 4095) & ~@as(u64, 4095);
+        if (reserve_address > virtual_limit or aligned_length > virtual_limit - reserve_address) return errno(12);
+        noreserve_next = reserve_address + aligned_length;
+        return reserve_address;
     }
+    if (address < mmap_next or address > mmap_limit or aligned_length > mmap_limit - address) return errno(12);
     const hook = mmap_protect_hook orelse return errno(12);
     // Private mappings remain writable until copy-on-write is available. This
     // keeps real userspace allocators functional while preserving NX when
@@ -3494,7 +3510,6 @@ fn mprotect(address: u64, length: u64, protection: u64) u64 {
     if ((address & 4095) != 0 or length == 0 or ((protection & 2) != 0 and (protection & 4) != 0)) return errno(22);
     if (length > ~@as(u64, 0) - 4095) return errno(12);
     const aligned_length = (length + 4095) & ~@as(u64, 4095);
-    if (!mmapRegion(address, aligned_length)) return errno(12);
     const hook = mmap_protect_hook orelse return errno(12);
     if (!hook(address, aligned_length, (protection & 2) != 0, (protection & 4) != 0)) return errno(12);
     protected_mmaps = saturatingCount(protected_mmaps, 1);
@@ -3505,6 +3520,14 @@ fn munmap(address: u64, length: u64) u64 {
     if ((address & 4095) != 0 or length == 0) return errno(22);
     if (length > ~@as(u64, 0) - 4095) return errno(22);
     const aligned_length = (length + 4095) & ~@as(u64, 4095);
+    // OSAllocator's aligned MAP_NORESERVE path maps a larger raw span, keeps
+    // the aligned subspan, then releases both edge spans. Those reservations
+    // are virtual-only in CSOS, so releasing an edge must succeed even when
+    // it lies beyond the eagerly-backed mmap arena.
+    const virtual_limit: u64 = 0x00007f0000000000;
+    if (address >= mmap_base and address < virtual_limit and
+        (address >= mmap_limit or aligned_length > mmap_limit - address) and
+        aligned_length <= virtual_limit - address) return 0;
     if (!mmapRegion(address, aligned_length)) return errno(22);
     const hook = mmap_unmap_hook orelse return errno(22);
     if (!hook(address, aligned_length)) return errno(22);
