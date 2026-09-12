@@ -54,6 +54,16 @@ GPU física permanece em standby. Não trocar o kernel por Linux silenciosamente
 para afirmar que o WebKit foi portado. Não usar uma imagem do desktop como UI.
 Jinja pode preparar HTML antes da carga, mas não substitui o motor WebKit.
 
+### Estado atual do backend WPE
+
+O launcher Zig já carrega o ELF WPE/WebKit, inicializa o shared-memory backend,
+TLS e `webkit_web_view_backend_new`. Em smoke QEMU, o log alcança
+`WebKit context begin`; em execuções subsequentes ainda ocorre uma exceção
+durante a criação/uso inicial do contexto. O último RIP diagnosticado caiu em
+`pas_panic_on_out_of_memory_error`, e um page fault de escrita em arena
+`MAP_NORESERVE` foi corrigido no kernel (`78b9518`). Ainda falta provar
+`load_html`, entrega do frame ao compositor e entrada DOM.
+
 ## Primeiro gate de runtime: evidência QEMU (2026-09-08)
 
 Foi acrescentado um executável **Zig**, ligado estaticamente à musl, que chama
