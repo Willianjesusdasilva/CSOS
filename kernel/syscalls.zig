@@ -3614,7 +3614,12 @@ fn madvise(address: u64, length: u64, advice: u64) u64 {
     const supported = advice == 0 or advice == 1 or advice == 2 or advice == 3 or
         advice == 4 or advice == 8 or advice == 9 or advice == 10 or advice == 11 or
         advice == 12 or advice == 13 or advice == 14 or advice == 15 or advice == 25;
-    if (!supported or length == 0 or !validUserSlice(address, length)) return errno(22);
+    if (!supported or length == 0) return errno(22);
+    const noreserve_start: u64 = 0x000000c000000000;
+    const noreserve_end: u64 = 0x00007f0000000000;
+    const lazy_range = address >= noreserve_start and address < noreserve_end and
+        length <= noreserve_end - address;
+    if (!lazy_range and !validUserSlice(address, length)) return errno(22);
     // Hints are accepted, but reclaim remains controlled by the process
     // lifecycle and never trusts userspace to discard live mappings.
     return 0;
