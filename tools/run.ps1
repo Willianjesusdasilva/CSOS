@@ -11,6 +11,7 @@ param(
     [string]$WebkitLauncher,
     [string]$WebkitRuntime,
     [string]$WpeBackend,
+    [switch]$GitRuntime,
     [switch]$UsbAudio,
     [switch]$ResetDisk,
     [string]$AudioBackend = 'none',
@@ -68,7 +69,7 @@ if ($UsbAudio) {
 }
 
 $qemuArguments = @(
-    '-machine', 'q35', '-smp', '4', '-m', $(if ($WebkitLauncher) { '1024M' } else { '256M' }),
+    '-machine', 'q35', '-smp', '4', '-m', $(if ($WebkitLauncher -or $GitRuntime) { '1024M' } else { '256M' }),
     '-drive', "if=pflash,format=raw,readonly=on,file=$localOvmf",
     '-drive', "format=raw,file=fat:rw:$esp",
     '-drive', "if=none,id=nvme0,format=raw,file=$nvmeDisk",

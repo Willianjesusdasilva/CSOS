@@ -583,6 +583,7 @@ pub fn build(b: *std.Build) void {
         qemu.addArg("-Libc");
         qemu.addArg("zig-out/mesa-sysroot/usr/lib/libc.so");
     }
+    if (git_runtime != null) qemu.addArg("-GitRuntime");
     if (b.args) |args| qemu.addArgs(args);
     run.dependOn(&qemu.step);
 }
