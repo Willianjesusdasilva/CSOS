@@ -247,6 +247,7 @@ const UserThread = struct {
 };
 var user_threads: [16]UserThread = @splat(.{});
 var current_thread: usize = 0;
+var current_pid: u32 = 1;
 var pending_clone: ?struct { slot: usize, stack: u64, tls: u64, process_child: bool } = null;
 var thread_switch_requested: bool = false;
 pub var user_futex_blocks: u64 = 0;
@@ -321,6 +322,7 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
         }
         if (selected) |slot| {
             current_thread = slot;
+            current_pid = user_threads[slot].pid;
         } else {
             // No runnable task or external futex producer in this initial
             // single-process scheduler. Fail explicitly, never spin a waiter.
@@ -372,6 +374,8 @@ pub fn configure(base: u64, size: u64, stack: u64, stack_length: u64, initial_br
     user_threads_done = false;
     user_threads = @splat(.{});
     current_thread = 0;
+    current_pid = 1;
+    user_threads[0].pid = 1;
     pending_clone = null;
     thread_switch_requested = false;
     execve_hook = null;
@@ -522,7 +526,8 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         25 => 0,
         28 => madvise(arg1, arg2, arg3),
         33 => duplicate(arg1, arg2),
-        39 => 1,
+        39 => current_pid,
+        110 => 1,
         40 => sendfile(arg1, arg2, arg3, arg4),
         41 => socket(arg1, arg2, arg3),
         42 => connect(arg1, arg2, arg3),
@@ -567,7 +572,6 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         452 => uiChannelReceive(arg1, arg2, arg3),
         102, 104 => 0,
         105, 106 => if (arg1 == 0) 0 else errno(1),
-        110 => 0,
         112 => setSid(),
         113 => setRegId(arg1, arg2),
         114 => setRegId(arg1, arg2),
