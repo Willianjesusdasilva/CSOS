@@ -3809,13 +3809,6 @@ fn futex(address: u64, operation: u64, expected: u64) u64 {
     switch (command) {
         0 => { // FUTEX_WAIT: never sleep indefinitely in the single-thread core.
             if (word.* != @as(u32, @truncate(expected))) return errno(11);
-            // WebKit's pthread primitives use FUTEX_PRIVATE_FLAG.  There is
-            // no external kernel futex producer in the cooperative userspace
-            // scheduler yet, so blocking a private wait can strand every
-            // WebKit worker while the owner is still in the same syscall
-            // turn.  Return EAGAIN and let libc retry at its next safe point;
-            // shared futexes retain the runnable-thread wake path below.
-            if ((operation & 0x80) != 0) return errno(11);
             if (user_threads_enabled) {
                 user_threads[current_thread].state = .blocked;
                 user_futex_blocks += 1;
