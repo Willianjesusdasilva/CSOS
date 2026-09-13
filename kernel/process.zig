@@ -84,7 +84,10 @@ const LoaderWorkspace = struct {
     pool_id: u8 = 0,
     borrowed_owned: bool = false,
 };
-const loader_workspace_count = 2;
+// A real `git pull` can have the parent, transport helper and upload-pack
+// alive simultaneously. Keep a bounded pool rather than serializing those
+// process children onto the parent workspace.
+const loader_workspace_count = 8;
 var loader_workspaces: [loader_workspace_count]LoaderWorkspace = undefined;
 
 var active_workspace: ?*LoaderWorkspace = null;
@@ -173,7 +176,10 @@ pub fn runGitRuntime(kernel_root: u64, pages: *physical.Allocator) !void {
     const revision_arguments = [_][]const u8{"/bin/git", "--git-dir=/data/repo8", "rev-parse", "--verify", "HEAD"};
     try runGitCommand(kernel_root, pages, &revision_arguments);
     const history_arguments = [_][]const u8{"/bin/git", "--git-dir=/data/repo8", "rev-list", "--count", "HEAD"};
-    return runGitCommand(kernel_root, pages, &history_arguments);
+    try runGitCommand(kernel_root, pages, &history_arguments);
+    const pull_arguments = [_][]const u8{"/bin/git", "--git-dir=/data/repo8", "--work-tree=/system", "pull", "--no-rebase", "/data/repo8", "master"};
+    try runGitCommand(kernel_root, pages, &pull_arguments);
+    serial.write("CSOS Git pull local ready\n");
 }
 
 fn runGitCommand(kernel_root: u64, pages: *physical.Allocator, arguments: []const []const u8) !void {
@@ -421,6 +427,13 @@ fn runImageWithWorkspace(
     preserve_scheduler: bool,
 ) !void {
     errdefer workspace.leased = false;
+    // A previous top-level image may have exited through a libc path that did
+    // not close every inherited descriptor. Reclaim that process boundary
+    // before allocating the next image; exec children remain untouched.
+    if (!preserve_scheduler) {
+        vfs.closeProcessDescriptors();
+        syscalls.closeProcessSockets();
+    }
     if (image.len < 64 or !isElf()) return error.InvalidElf;
     const elf_type = read16(16);
     if (elf_type != 2 and elf_type != 3) return error.UnsupportedElfType;
@@ -791,6 +804,10 @@ fn runImageWithWorkspace(
     syscalls.configureInitializerStep(if (staged_copy_count != 0) &applyStagedCopies else null);
     defer {
         lifecycle = .finished;
+        if (!preserve_scheduler) {
+            vfs.closeProcessDescriptors();
+            syscalls.closeProcessSockets();
+        }
         cleanupChildWorkspaces(workspace, kernel_root);
         active_workspace = null;
         workspace.address_space = null;

@@ -230,7 +230,8 @@ var amdgpu_bo_lists: [max_amdgpu_bo_lists]AmdGpuBoList = .{AmdGpuBoList{}} ** ma
 const max_drm_syncobjs = 16;
 const DrmSyncobj = struct { allocated: bool = false, point: u64 = 0 };
 var drm_syncobjs: [max_drm_syncobjs]DrmSyncobj = .{DrmSyncobj{}} ** max_drm_syncobjs;
-var sockets: [4]Socket = .{Socket{}} ** 4;
+const socket_fd_base: u64 = 256;
+var sockets: [32]Socket = .{Socket{}} ** 32;
 var unknown_seen: [512]bool = .{false} ** 512;
 pub export var syscall_kernel_rsp: u64 = 0;
 pub export var syscall_user_rsp: u64 = 0;
@@ -580,6 +581,16 @@ pub fn exitStatus() ?u8 {
 
 pub fn resetExitStatus() void { process_exit_status = 0xffffffffffffffff; }
 
+/// Reset local socket/pipe descriptors at a top-level image boundary. Child
+/// exec images retain inherited descriptors until they exit; the outer Git
+/// command owns the final cleanup.
+pub fn closeProcessSockets() void {
+    for (&sockets) |*entry| {
+        if (entry.connection) |*connection| if (network_stack) |stack| stack.tcpClose(connection) catch {};
+        entry.* = .{};
+    }
+}
+
 /// Start an exec replacement without inheriting the parent's TLS base. The
 /// new musl image installs its own FS through arch_prctl before using TLS;
 /// the parent's FS remains saved in its scheduler frame.
@@ -802,6 +813,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         274 => getRobustList(arg1, arg2, arg3, arg4),
         309 => getcpu(arg1, arg2),
         318 => getRandom(arg1, arg2, arg3),
+        322 => execveAt(arg1, arg2, arg3, arg4, arg5),
         // membarrier is redundant across the syscall boundary in the
         // cooperative single-process scheduler used by this runtime.
         324 => 0,
@@ -3437,7 +3449,7 @@ fn socket(domain: u64, kind: u64, protocol: u64) u64 {
     for (&sockets, 0..) |*entry, index| {
         if (!entry.allocated) {
             entry.* = .{ .allocated = true, .close_on_exec = (kind & 0x80000) != 0, .nonblocking = (kind & 0x800) != 0 };
-            return 32 + index;
+            return socket_fd_base + index;
         }
     }
     return errno(24);
@@ -3456,8 +3468,8 @@ fn socketPair(domain: u64, kind: u64, protocol: u64, output: u64) u64 {
     if (first == null or second == null) return errno(24);
     sockets[first.?] = .{ .allocated = true, .local_pair = true, .peer_index = second, .close_on_exec = (kind & 0x80000) != 0, .nonblocking = (kind & 0x800) != 0 };
     sockets[second.?] = .{ .allocated = true, .local_pair = true, .peer_index = first, .close_on_exec = (kind & 0x80000) != 0, .nonblocking = (kind & 0x800) != 0 };
-    put32(@ptrFromInt(output), @intCast(32 + first.?));
-    put32(@ptrFromInt(output + 4), @intCast(32 + second.?));
+    put32(@ptrFromInt(output), @intCast(socket_fd_base + first.?));
+    put32(@ptrFromInt(output + 4), @intCast(socket_fd_base + second.?));
     return 0;
 }
 
@@ -3604,8 +3616,8 @@ fn socketReceive(index: usize, data: []u8) u64 {
 }
 
 fn socketIndex(fd: u64) ?usize {
-    if (fd < 32 or fd >= 32 + sockets.len) return null;
-    const index: usize = @intCast(fd - 32);
+    if (fd < socket_fd_base or fd >= socket_fd_base + sockets.len) return null;
+    const index: usize = @intCast(fd - socket_fd_base);
     return if (sockets[index].allocated) index else null;
 }
 
@@ -3814,6 +3826,15 @@ fn execve(path: u64, argv: u64, envp: u64) u64 {
     thread_switch_requested = true;
     if (execve_hook) |hook| return hook(path, argv, envp);
     return errno(38);
+}
+
+fn execveAt(directory_fd: u64, path: u64, argv: u64, envp: u64, flags: u64) u64 {
+    _ = directory_fd;
+    // Git uses execveat with an ordinary pathname for transport helpers. The
+    // empty-path/descriptor form is not needed until a proc-backed runtime is
+    // available; reject other flags instead of silently changing semantics.
+    if ((flags & ~@as(u64, 0x1000)) != 0 or path == 0) return errno(22);
+    return execve(path, argv, envp);
 }
 
 const ExecCopyError = error{ Fault, TooMany, TooLong };

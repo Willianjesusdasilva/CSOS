@@ -4,7 +4,10 @@ const git_runtime = @embedFile("git_runtime_elf");
 const fat16 = @import("fat16");
 const hello = "Hello from initramfs\n";
 
-const max_fds = 32;
+// Git pull keeps several pack/index and transport descriptors open while a
+// helper process is active.  Keep the table bounded but leave normal Linux
+// command fan-out room before reporting EMFILE.
+const max_fds = 128;
 
 const Kind = enum { unused, console, file, directory, device, epoll, eventfd };
 const Node = enum {
@@ -317,6 +320,17 @@ test "VFS duplicate preserves destination when generation is exhausted" {
 pub fn descriptorGeneration(fd: usize) !u32 {
     if (!isOpen(fd)) return error.BadFd;
     return descriptors[fd].generation;
+}
+
+/// Close descriptors owned by a completed top-level userspace image.  The
+/// VFS table is shared by the bootstrap loader, so without an explicit image
+/// boundary each Git command leaked its pack/index descriptors into the next
+/// command and eventually made pipe2 report EMFILE.
+pub fn closeProcessDescriptors() void {
+    var fd: usize = 3;
+    while (fd < descriptors.len) : (fd += 1) {
+        if (descriptors[fd].kind != .unused) close(fd) catch {};
+    }
 }
 
 pub fn openAt(directory_fd_in: i64, path: []const u8, flags: u64) !usize {
@@ -1229,6 +1243,10 @@ fn toFatName(path: []const u8) ?[11]u8 {
     if (std.mem.eql(u8, path, ".gitattributes")) return "GITATTR IBU".*;
     if (std.mem.eql(u8, path, "COMMIT_EDITMSG")) return "COMMIT  MSG".*;
     if (std.mem.eql(u8, path, "MERGE_MSG")) return "MERGE   MSG".*;
+    if (std.mem.eql(u8, path, "FETCH_HEAD")) return "FETCH   HED".*;
+    if (std.mem.eql(u8, path, "ORIG_HEAD")) return "ORIG    HED".*;
+    if (std.mem.eql(u8, path, "MERGE_HEAD")) return "MERGE   HED".*;
+    if (std.mem.eql(u8, path, "CHERRY_PICK_HEAD")) return "CHERRY  HED".*;
     if (std.mem.eql(u8, path, "master.lock")) return "MASTER  LCK".*;
     if (std.mem.eql(u8, path, "AUTO_MERGE.lock")) return "AUTOMRG LCK".*;
     if (std.mem.startsWith(u8, path, "tmp_obj_")) return "TMPOBJ  TMP".*;

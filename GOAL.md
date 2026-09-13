@@ -365,6 +365,14 @@ manutenção automática em background para não criar um daemon fora do escopo
 do bootstrap. P1 ainda permanece aberto até validar `git pull` real, reboot e
 uso da nova revisão.
 
+O teste de `git pull` local agora alcança `FETCH_HEAD`, `git-upload-pack` e
+processos-filhos aninhados; o VFS ganhou aliases FAT para os metadados Git,
+limpeza de descritores, pipes com namespace separado e o loader passou a
+reservar workspaces para a cadeia de helpers. O bloqueio restante é o
+`posix_spawn` do helper aninhado: o filho escreve o erro de execução e sai
+antes de solicitar `execveat`; o próximo requisito é completar esse contrato
+de spawn antes de declarar o pull funcional.
+
 ---
 
 # P2 — Bare-metal e Alpine Recovery
