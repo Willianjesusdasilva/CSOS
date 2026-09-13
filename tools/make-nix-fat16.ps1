@@ -18,6 +18,7 @@ $command = "set -eu; root=/tmp/csos-nix-fat-root; rm -rf `$root; mkdir -p `$root
 $command += "; mcopy -o -i '$outputWsl' `$root/usr/lib/libarchive.so.13 ::/lib/LIBARCH.SO3"
 $command += "; mcopy -o -i '$outputWsl' `$root/usr/lib/libblake3.so.0 ::/lib/LIBBLAK.SO0"
 $command += "; mcopy -o -i '$outputWsl' `$root/usr/lib/libcrypto.so.3 ::/lib/LIBCRYP.SO3"
+$command += "; mcopy -o -i '$outputWsl' `$root/usr/lib/libsodium.so.26 ::/lib/SODIUM.SO6"
 $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($command))
 & wsl.exe -d Ubuntu -- bash -lc "echo $encoded | base64 -d | bash"
 if ($LASTEXITCODE -ne 0) { throw "Nix FAT image creation failed ($LASTEXITCODE)" }
