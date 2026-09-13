@@ -1304,6 +1304,7 @@ fn runtimeLibraryFatAlias(path: []const u8) ?[11]u8 {
     if (equal(name, "libnixexpr.so")) return "NIXEXPR SO ".*;
     if (equal(name, "libnixcmd.so")) return "NIXCMD  SO ".*;
     if (equal(name, "libnixfetchers.so")) return "NIXFETCHSO ".*;
+    if (equal(name, "libnixflake.so")) return "NIXFLAKSO  ".*;
     if (std.mem.startsWith(u8, name, "libWPEWebKit-2.0.so")) return "WEBKIT  SO1".*;
     if (std.mem.startsWith(u8, name, "libWPEBackend-fdo-1.0.so")) return "WPEFDO  SO1".*;
     return null;
