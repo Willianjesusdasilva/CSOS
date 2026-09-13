@@ -603,10 +603,14 @@ fn runImageWithWorkspace(
                 const name = try stringFrom(provider.bytes, symbols.string_file + read32From(provider.bytes, offset));
                 if (!equal(name, "csos_musl_bootstrap")) continue;
                 musl_bootstrap.entry = provider.base + read64From(provider.bytes, offset + 8);
+                serial.write("musl bootstrap symbol found\n");
             }
             if (musl_bootstrap.entry == 0 or !isMappedExecutable(mappings[0..mapping_count.*], musl_bootstrap.entry))
                 return error.MuslBootstrapMissing;
         }
+        serial.write("musl bootstrap entry ");
+        serial.writeDecimal(musl_bootstrap.entry);
+        serial.write("\n");
         while (provider_initializer_index > 0) {
             provider_initializer_index -= 1;
             const provider = providers[provider_initializer_index];
