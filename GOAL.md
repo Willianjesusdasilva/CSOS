@@ -521,6 +521,10 @@ mesmo com uma ESP separada (`RECOVERY_MOUNT_OK=/dev/sdb`) e confirmou
 `RECOVERY_CHECKOUT_OK` e `RECOVERY_GIT_STATUS_OK`. A validação ainda é de QEMU;
 instalação e reboot em hardware real permanecem pendentes.
 
+O staging reproduzível da instalação bare-metal está disponível em
+`tools/prepare-bare-metal-install.ps1`; ele gera o ESP e o manifesto sem
+modificar discos físicos. A instalação efetiva em hardware continua pendente.
+
 O fluxo automatizado `tools/test-p2-recovery-flow.ps1` também confirmou em
 QEMU a sequência seed → `git reset --hard HEAD~1` → boot CSOS, incluindo o
 marcador `CSOS graphical session ready`. A instalação bare-metal ainda não foi

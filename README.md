@@ -1416,6 +1416,18 @@ O boot padrão é CSOS.
 
 Recovery somente é utilizado quando necessário.
 
+Para preparar uma mídia de instalação sem tocar em nenhum disco físico:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\prepare-bare-metal-install.ps1 `
+  -RecoveryInitramfs .\zig-out\recovery\initramfs-recovery-p2final `
+  -GrubEfi .\zig-out\recovery\grubx64.efi.signed
+```
+
+O resultado em `zig-out\bare-metal-install` contém o ESP UEFI, o menu
+CSOS/Recovery e `INSTALL-MANIFEST.txt` com hashes. A gravação em hardware deve
+ser feita somente depois de conferir manualmente o dispositivo-alvo.
+
 ---
 
 # Critério de instalação funcional
