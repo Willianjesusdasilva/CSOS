@@ -22,6 +22,7 @@ param(
     [switch]$SmokeTerminalRun,
     [switch]$CaptureScreen,
     [string]$Disk,
+    [string]$NixDisk,
     [ValidateRange(256, 4096)][int]$MemoryMegabytes = 1024
 )
 
@@ -79,6 +80,13 @@ $qemuArguments = @(
     '-device', 'qemu-xhci,id=xhci', '-device', 'usb-kbd,bus=xhci.0',
     '-device', 'usb-mouse,bus=xhci.0'
 ) + $audioArguments + @('-netdev', 'user,id=net0', '-device', 'e1000e,netdev=net0', '-no-reboot')
+if ($NixDisk) {
+    $nixDiskPath = [IO.Path]::GetFullPath($NixDisk)
+    if (-not (Test-Path -LiteralPath $nixDiskPath -PathType Leaf)) { throw "Nix disk not found: $nixDiskPath" }
+    $qemuArguments = @(
+        $qemuArguments[0..($qemuArguments.IndexOf('-device') - 1)]
+    ) + @('-drive', "if=none,id=nix0,format=raw,file=$nixDiskPath", '-device', 'nvme-ns,drive=nix0,bus=nvme0,nsid=2') + $qemuArguments[$qemuArguments.IndexOf('-device')..($qemuArguments.Count - 1)]
+}
 
 if ($SmokeTestSeconds -gt 0) {
     if ([string]::IsNullOrWhiteSpace($ExpectSerial)) { throw 'ExpectSerial must not be empty' }
