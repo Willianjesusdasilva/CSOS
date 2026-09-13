@@ -239,6 +239,26 @@ Princípio:
 
 # Alpine Linux Recovery
 
+O initramfs do Recovery pode ser reconstruído preservando os links simbólicos
+originais do Alpine (a extração deve ocorrer pelo WSL):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\build-alpine-recovery.ps1 `
+  -BaseInitramfs .\zig-out\recovery\initramfs-work\initramfs-virt~ `
+  -PayloadRoot .\zig-out\recovery\initramfs-root
+```
+
+O smoke test inicia o Recovery sem janela e encerra o QEMU após observar o
+marcador Git:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\run-recovery-qemu.ps1 `
+  -SmokeTestSeconds 20 -ExpectSerial RECOVERY_GIT_STATUS_OK
+```
+
+Para validar o Dropbear no Recovery, use `-Ssh` e espere o marcador
+`RECOVERY_SSH_READY`. O script sempre encerra o processo QEMU ao final.
+
 Instalações bare-metal destinadas ao desenvolvimento devem possuir um pequeno ambiente **Alpine Linux** independente.
 
 Exemplo de layout:
