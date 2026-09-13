@@ -764,6 +764,7 @@ loader musl e `libc.so` no próprio `/nix/lib`, evitando um pacote que depende
 silenciosamente do sistema de recuperação. A primeira execução isolada revelou
 o próximo requisito real: ainda faltam no pacote as dependências transientes do
 Nix (`libarchive`, `libsodium`, Brotli, curl, SQLite, libgit2 e editline).
+Esse diagnóstico agora é reproduzível com `tools/audit-nix-runtime.ps1`.
 Isso ainda não conta como P4 concluído: o binário e os perfis precisam executar
 e sobreviver a reboot dentro do CSOS.
 
