@@ -1341,6 +1341,7 @@ fn runtimeLibraryFatAlias(path: []const u8) ?[11]u8 {
     if (equal(name, "libidn2.so.0")) return "LIBIDN2 SO0".*;
     if (equal(name, "libpsl.so.5")) return "LIBPSL  SO5".*;
     if (equal(name, "libssl.so.3")) return "LIBSSL  SO3".*;
+    if (equal(name, "libllhttp.so.9.4")) return "LLHTTP  SO9".*;
     if (std.mem.startsWith(u8, name, "libWPEWebKit-2.0.so")) return "WEBKIT  SO1".*;
     if (std.mem.startsWith(u8, name, "libWPEBackend-fdo-1.0.so")) return "WPEFDO  SO1".*;
     return null;
