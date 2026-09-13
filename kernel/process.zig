@@ -1502,7 +1502,7 @@ fn applySymbolTable(consumer: []const u8, consumer_base: u64, consumer_module: u
             resolved = if (relocation_type == 16)
                 @as(u64, if (consumer_module == 0) 1 else consumer_module)
             else if (relocation_type == 17)
-                std.math.add(u64, consumer_base, consumer_symbol_value) catch return error.InvalidSymbolRelocation
+                consumer_symbol_value
             else if (relocation_type == 18)
                 consumer_symbol_value
             else
@@ -1529,7 +1529,7 @@ fn applySymbolTable(consumer: []const u8, consumer_base: u64, consumer_module: u
                 copy_size = read64From(provider.bytes, provider_symbol + 16);
             }
             resolved = if (relocation_type == 17)
-                std.math.add(u64, provider.base, symbol_value) catch return error.InvalidSymbolRelocation
+                symbol_value
             else if (relocation_type == 18)
                 symbol_value -% tls_offsets[provider_index]
             else
