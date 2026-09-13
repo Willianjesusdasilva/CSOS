@@ -243,6 +243,7 @@ const UserThread = struct {
     wait_status: u64 = 0,
     frame: [14]u64 = @splat(0),
     rsp: u64 = 0, result: u64 = 0, fs: u64 = 0,
+    address_space_root: u64 = 0,
     clear_tid: u64 = 0, wait_address: u64 = 0,
     robust: u64 = 0, robust_size: u64 = 0,
     exec_request: ?ExecRequest = null,
@@ -253,6 +254,8 @@ var current_thread: usize = 0;
 var current_pid: u32 = 1;
 var pending_clone: ?struct { slot: usize, stack: u64, tls: u64, process_child: bool } = null;
 var thread_switch_requested: bool = false;
+var address_space_clone_hook: ?*const fn (u32, bool) callconv(.c) bool = null;
+var address_space_activate_hook: ?*const fn (u64) callconv(.c) void = null;
 const max_exec_arguments = 32;
 const max_exec_string = 256;
 pub const ExecRequest = struct {
@@ -299,7 +302,8 @@ fn cloneThread(flags: u64, stack: u64, parent_tid: u64, child_tid: u64, tls: u64
     for (1..user_threads.len) |slot| {
         if (user_threads[slot].state != .unused and user_threads[slot].state != .exited) continue;
         user_threads[slot] = .{ .state = .runnable, .kind = if (is_process_child) .process_child else .thread,
-            .pid = @intCast(slot + 1), .clear_tid = child_tid };
+            .pid = @intCast(slot + 1), .clear_tid = child_tid,
+            .address_space_root = user_threads[current_thread].address_space_root };
         const tid: u32 = @intCast(slot + 1);
         if (parent_tid != 0) {
             const out: *align(1) u32 = @ptrFromInt(parent_tid); out.* = tid;
@@ -309,6 +313,14 @@ fn cloneThread(flags: u64, stack: u64, parent_tid: u64, child_tid: u64, tls: u64
             user_threads[0].clear_tid = clear_tid_address;
         }
         user_threads_enabled = true;
+        if (is_process_child) {
+            if (address_space_clone_hook) |hook| {
+                if (!hook(@intCast(slot), true)) {
+                    user_threads[slot] = .{};
+                    return errno(12);
+                }
+            }
+        }
         pending_clone = .{ .slot = slot, .stack = stack, .tls = tls, .process_child = is_process_child };
         thread_switch_requested = true;
         return tid;
@@ -342,6 +354,7 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
         if (selected) |slot| {
             current_thread = slot;
             current_pid = user_threads[slot].pid;
+            if (address_space_activate_hook) |hook| hook(user_threads[slot].address_space_root);
         } else {
             // No runnable task or external futex producer in this initial
             // single-process scheduler. Fail explicitly, never spin a waiter.
@@ -397,6 +410,8 @@ pub fn configure(base: u64, size: u64, stack: u64, stack_length: u64, initial_br
     user_threads[0].pid = 1;
     pending_clone = null;
     thread_switch_requested = false;
+    address_space_clone_hook = null;
+    address_space_activate_hook = null;
     execve_hook = null;
     user_futex_blocks = 0;
     user_futex_wakes = 0;
@@ -482,6 +497,16 @@ pub fn configureMmap(protect_hook: ?*const fn (u64, u64, bool, bool) callconv(.c
 
 pub fn configureUserSlice(hook: ?*const fn (u64, u64) callconv(.c) bool) void {
     user_slice_hook = hook;
+}
+
+pub fn configureAddressSpaces(
+    root: u64,
+    clone_hook: ?*const fn (u32, bool) callconv(.c) bool,
+    activate_hook: ?*const fn (u64) callconv(.c) void,
+) void {
+    user_threads[0].address_space_root = root;
+    address_space_clone_hook = clone_hook;
+    address_space_activate_hook = activate_hook;
 }
 
 pub fn configureConsole(read_hook: ?*const fn ([*]u8, usize) callconv(.c) usize, wait_hook: ?*const fn () callconv(.c) void) void {

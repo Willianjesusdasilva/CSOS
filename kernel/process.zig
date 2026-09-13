@@ -70,6 +70,7 @@ var active_owned: ?[]OwnedRange = null;
 var active_load_bias: u64 = 0;
 var extra_user_regions: [128]user_regions.Region = undefined;
 var extra_user_region_count: usize = 0;
+var child_address_spaces: [16]paging.AddressSpace = undefined;
 pub var standby_pages: u64 = 0;
 pub var restored_pages: u64 = 0;
 pub var pause_count: u64 = 0;
@@ -193,6 +194,7 @@ fn runImageWithEnvironment(
     arguments: []const []const u8,
     environment: []const []const u8,
 ) !void {
+    for (&child_address_spaces) |*child| child.* = .{ .root = 0, .pages = undefined };
     if (image.len < 64 or !isElf()) return error.InvalidElf;
     const elf_type = read16(16);
     if (elf_type != 2 and elf_type != 3) return error.UnsupportedElfType;
@@ -494,6 +496,7 @@ fn runImageWithEnvironment(
     }
     syscalls.configureMmap(&protectMmap, &unmapMmap, &mapDevice);
     syscalls.configureUserSlice(&validMappedUserSlice);
+    syscalls.configureAddressSpaces(address_space.root, &cloneChildAddressSpace, &activateThreadAddressSpace);
     defer {
         lifecycle = .finished;
         active_address_space = null;
@@ -504,6 +507,10 @@ fn runImageWithEnvironment(
         extra_user_region_count = 0;
         syscalls.configureMmap(null, null, null);
         syscalls.configureUserSlice(null);
+        syscalls.configureAddressSpaces(0, null, null);
+        for (&child_address_spaces) |*child| {
+            if (child.root != 0) child.destroy();
+        }
     }
     lifecycle = .running;
     syscalls.resetExitStatus();
@@ -523,6 +530,18 @@ fn runImageWithEnvironment(
     }
     lifecycle = .finished;
     if (syscalls.exitStatus() != 0) return error.ProcessFailed;
+}
+
+fn cloneChildAddressSpace(slot: u32, process_child: bool) callconv(.c) bool {
+    if (!process_child) return true;
+    if (slot >= child_address_spaces.len) return false;
+    const source = active_address_space orelse return false;
+    child_address_spaces[slot] = source.clone() catch return false;
+    return true;
+}
+
+fn activateThreadAddressSpace(root: u64) callconv(.c) void {
+    if (root != 0) paging.activateRoot(root);
 }
 
 fn validMappedUserSlice(address: u64, length: u64) callconv(.c) bool {
