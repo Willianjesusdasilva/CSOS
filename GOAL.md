@@ -351,6 +351,11 @@ Não implementar A/B agora.
 
 Não implementar updater próprio agora.
 
+Estado atual: o Git persistente, a criação da revisão e a identificação do
+histórico foram validados em dois boots no QEMU. O `git pull` ainda depende de
+`execve` funcional para processos-filhos, incluindo a reconstrução completa do
+stack ABI (`argv`, ambiente e `auxv`).
+
 ---
 
 # P2 — Bare-metal e Alpine Recovery
