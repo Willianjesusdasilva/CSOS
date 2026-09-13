@@ -613,6 +613,11 @@ O objetivo ideal é ambos.
 
 Não transformar SSH em uma grande frente de infraestrutura.
 
+Estado atual: o caminho Alpine Recovery foi validado no QEMU com rede
+`virtio-net-pci`, Dropbear e execução de um comando remoto via OpenSSH
+(`RECOVERY_SSH_COMMAND_OK`). Isso é evidência de QEMU, não ainda de hardware
+real. O teste reproduzível está em `tools/test-recovery-ssh.ps1`.
+
 ---
 
 # P4 — Nix
