@@ -245,6 +245,7 @@ const UserThread = struct {
     rsp: u64 = 0, result: u64 = 0, fs: u64 = 0,
     clear_tid: u64 = 0, wait_address: u64 = 0,
     robust: u64 = 0, robust_size: u64 = 0,
+    exec_request: ?ExecRequest = null,
     fx: [512]u8 align(16) = @splat(0),
 };
 var user_threads: [16]UserThread = @splat(.{});
@@ -254,7 +255,7 @@ var pending_clone: ?struct { slot: usize, stack: u64, tls: u64, process_child: b
 var thread_switch_requested: bool = false;
 const max_exec_arguments = 32;
 const max_exec_string = 256;
-const ExecRequest = struct {
+pub const ExecRequest = struct {
     path: [max_exec_string]u8 = .{0} ** max_exec_string,
     path_len: usize = 0,
     argv: [max_exec_arguments][max_exec_string]u8 = .{.{0} ** max_exec_string} ** max_exec_arguments,
@@ -264,7 +265,6 @@ const ExecRequest = struct {
     envp_lengths: [max_exec_arguments]u16 = .{0} ** max_exec_arguments,
     envc: usize = 0,
 };
-var pending_exec: ?ExecRequest = null;
 pub var user_futex_blocks: u64 = 0;
 pub var user_futex_wakes: u64 = 0;
 
@@ -392,7 +392,6 @@ pub fn configure(base: u64, size: u64, stack: u64, stack_length: u64, initial_br
     current_pid = 1;
     user_threads[0].pid = 1;
     pending_clone = null;
-    pending_exec = null;
     thread_switch_requested = false;
     execve_hook = null;
     user_futex_blocks = 0;
@@ -3662,7 +3661,7 @@ fn execve(path: u64, argv: u64, envp: u64) u64 {
         if (!validUserSlice(envp, 8)) return errno(14);
         request.envc = copyExecVector(envp, &request.envp, &request.envp_lengths) catch |err| return errno(execCopyErrno(err));
     }
-    pending_exec = request;
+    user_threads[current_thread].exec_request = request;
     if (execve_hook) |hook| return hook(path, argv, envp);
     return errno(38);
 }
@@ -3703,8 +3702,8 @@ fn copyExecVector(address: u64, output: *[max_exec_arguments][max_exec_string]u8
 }
 
 pub fn takeExecRequest() ?ExecRequest {
-    const request = pending_exec;
-    pending_exec = null;
+    const request = user_threads[current_thread].exec_request;
+    user_threads[current_thread].exec_request = null;
     return request;
 }
 
