@@ -14,14 +14,14 @@ struct csos_tls_image {
     size_t alignment;
 };
 
-static struct tls_module modules[16];
+static struct tls_module modules[64];
 static int initialized;
 
 __attribute__((visibility("default")))
 int csos_musl_bootstrap(size_t argc, char **argv, size_t count,
                         const struct csos_tls_image *images)
 {
-    if (initialized || !argv || !argc || count > 16 || (count && !images)) return -1;
+    if (initialized || !argv || !argc || count > 64 || (count && !images)) return -1;
     size_t used = 0, alignment = _Alignof(struct pthread);
     for (size_t i = 0; i < count; ++i) {
         size_t a = images[i].alignment ? images[i].alignment : 1;

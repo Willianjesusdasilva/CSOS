@@ -593,7 +593,8 @@ fn runImageWithWorkspace(
         var provider_initializer_index = provider_count;
         musl_bootstrap.count = provider_count;
         for (providers[0..provider_count], 0..) |provider, index| {
-            if (!equal(dependency_names[index], "libc.so")) continue;
+            if (!equal(dependency_names[index], "libc.so") and
+                !equal(dependency_names[index], "libc.musl-x86_64.so.1")) continue;
             const symbols = try dynamicSymbols(provider.bytes, provider.program_offset, provider.program_entry_size, provider.program_count, false);
             var symbol_index: u32 = 0;
             while (symbol_index < symbols.symbol_count) : (symbol_index += 1) {
