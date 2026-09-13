@@ -14,7 +14,7 @@ foreach ($path in @($qemu, $Disk, $Kernel, $Initramfs)) {
     if (-not (Test-Path -LiteralPath $path)) { throw "Recovery input not found: $path" }
 }
 
-$network = @(); if ($Ssh) { $Append += ' recovery-ssh'; $network = @('-netdev','user,id=recovery,hostfwd=tcp:127.0.0.1:2222-:22','-device','e1000e,netdev=recovery') }
+$network = @(); if ($Ssh) { $Append += ' recovery-ssh'; $network = @('-netdev','user,id=recovery,hostfwd=tcp:127.0.0.1:2222-:22','-device','virtio-net-pci,netdev=recovery') }
 $qemuArguments = @('-machine','q35','-m','1024','-kernel',(Resolve-Path -LiteralPath $Kernel).Path,
     '-initrd',(Resolve-Path -LiteralPath $Initramfs).Path,'-append',$Append,
     '-drive',"file=$((Resolve-Path -LiteralPath $Disk).Path),format=raw,if=ide",

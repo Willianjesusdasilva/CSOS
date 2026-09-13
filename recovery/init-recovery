@@ -69,18 +69,32 @@ if /usr/bin/busybox grep -q recovery-ssh /proc/cmdline 2>/dev/null; then
         /usr/lib/modules/*/kernel/net/core/failover.ko \
         /usr/lib/modules/*/kernel/drivers/net/net_failover.ko \
         /usr/lib/modules/*/kernel/drivers/net/virtio_net.ko; do
-        [ -f "$module" ] && /usr/bin/busybox insmod "$module" 2>/dev/null || true
+        if [ -f "$module" ]; then
+            if ! /usr/bin/busybox insmod "$module" 2>/tmp/recovery-insmod-error; then
+                echo RECOVERY_INSMOD_FAILED=$module
+                /usr/bin/busybox cat /tmp/recovery-insmod-error 2>/dev/null || true
+            fi
+        fi
     done
-    /usr/bin/busybox udhcpc -q -n -i eth0 2>/dev/null || true
+    /usr/bin/busybox timeout 3 /usr/bin/busybox udhcpc -q -n -i eth0 2>/dev/null || true
     if /usr/bin/busybox ifconfig eth0 10.0.2.15 netmask 255.255.255.0 up 2>/dev/null; then
         echo RECOVERY_NET_CONFIGURED
     else
         echo RECOVERY_NET_CONFIG_FAILED
     fi
     /usr/bin/busybox ifconfig -a 2>/dev/null || true
+    # Recovery is ephemeral; permit the local QEMU/hardware console account
+    # to authenticate without importing any CSOS credentials.
+    if [ ! -f /etc/shadow ]; then
+        /usr/bin/busybox printf 'root::10933:0:99999:7:::\n' > /etc/shadow
+        /usr/bin/busybox chmod 600 /etc/shadow
+    fi
+    /usr/bin/busybox mkdir -p /var/run /var/log
     /usr/bin/dropbearkey -t ed25519 -f /tmp/dropbear_ed25519 2>/dev/null || true
-    /usr/sbin/dropbear -B -R -E -p 22 2>/tmp/dropbear.log &
+    /usr/sbin/dropbear -B -F -E -R -p 22 2>/tmp/dropbear.log &
     echo RECOVERY_SSH_READY
+    /usr/bin/busybox sleep 1
+    /usr/bin/busybox cat /tmp/dropbear.log 2>/dev/null || true
     /usr/bin/busybox sleep 30
 fi
 /usr/bin/busybox sync
