@@ -1964,9 +1964,11 @@ pub fn handlePageFault(address: u64, instruction: u64, code: u64) callconv(.c) b
     const mappings = workspace.active_mappings orelse return false;
     const owned = workspace.active_owned orelse return false;
     const page_virtual = address & ~(page_size - 1);
-    if ((code & 1) != 0) return false;
     for (mappings) |*mapping| {
         if (mapping.virtual != page_virtual) continue;
+        // File-backed mappings cannot be restored over a protection fault;
+        // anonymous MAP_NORESERVE pages below are intentionally writable.
+        if ((code & 1) != 0) return false;
         // A tabela de mapeamentos pode sobreviver a reclaim/retomada; trate
         // metadados corrompidos como page fault não resolvível, nunca como um
         // acesso fora dos limites da lista de ownership do processo.
