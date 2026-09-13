@@ -817,7 +817,7 @@ fn runImageWithWorkspace(
             vfs.closeProcessDescriptors();
             syscalls.closeProcessSockets();
         }
-        cleanupChildWorkspaces(workspace, kernel_root);
+        if (!preserve_scheduler) cleanupChildWorkspaces(workspace, kernel_root);
         active_workspace = null;
         workspace.address_space = null;
         workspace.pages = null;
