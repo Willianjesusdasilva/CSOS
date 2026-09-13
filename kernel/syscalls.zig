@@ -718,7 +718,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         // WebKit/GLib uses legacy tkll to probe thread signal state; CSOS
         // currently has no asynchronous signal delivery between user threads.
         200 => 0,
-        202 => futex(arg1, arg2, arg3),
+        202 => futex(arg1, arg2, arg3, arg4, arg5),
         203 => schedSetAffinity(arg1, arg2, arg3),
         204 => schedGetAffinity(arg1, arg2, arg3),
         217 => getdents(arg1, arg2, arg3),
@@ -3973,7 +3973,8 @@ fn epollWait(epfd: u64, output: u64, capacity: u64, timeout: i64) u64 {
     return ready;
 }
 
-fn futex(address: u64, operation: u64, expected: u64) u64 {
+fn futex(address: u64, operation: u64, expected: u64, timeout: u64, address2: u64) u64 {
+    _ = timeout;
     if ((address & 3) != 0 or !validUserSlice(address, 4)) return errno(14);
     const command = operation & 0x7f;
     const word: *align(1) volatile u32 = @ptrFromInt(address);
@@ -3991,6 +3992,24 @@ fn futex(address: u64, operation: u64, expected: u64) u64 {
             return errno(11);
         },
         1 => return wakeUserThreads(address, expected),
+        3 => { // FUTEX_REQUEUE: wake a bounded set and move the rest.
+            if (address2 == 0 or (address2 & 3) != 0 or !validUserSlice(address2, 4)) return errno(14);
+            var woken: u64 = 0;
+            var moved: u64 = 0;
+            for (&user_threads) |*thread| {
+                if (thread.state != .blocked or thread.wait_address != address) continue;
+                if (woken < expected) {
+                    thread.state = .runnable;
+                    thread.wait_address = 0;
+                    thread.result = 0;
+                    woken += 1;
+                } else {
+                    thread.wait_address = address2;
+                    moved += 1;
+                }
+            }
+            return woken + moved;
+        },
         else => return errno(38),
     }
 }
