@@ -682,6 +682,14 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         124 => getSid(arg1),
         125 => capGet(arg1, arg2),
         126 => capSet(arg1, arg2),
+        // Nix probes pending signals while coordinating worker processes.  No
+        // asynchronous signal queue exists yet, so a timed wait observes an
+        // empty queue and returns the Linux EAGAIN result after its timeout.
+        128 => errno(11),
+        127 => if (validUserSlice(arg1, arg2)) blk: {
+            @memset(@as([*]u8, @ptrFromInt(arg1))[0..@intCast(arg2)], 0);
+            break :blk 0;
+        } else errno(14),
         115 => getGroups(arg1, arg2),
         116 => setGroups(arg1, arg2),
         117 => setResUid(arg1, arg2, arg3),
