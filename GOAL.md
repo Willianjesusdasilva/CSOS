@@ -374,9 +374,11 @@ antes de solicitar `execveat`; o próximo requisito é completar esse contrato
 de spawn antes de declarar o pull funcional.
 
 O loader agora aceita também `execveat(..., AT_EMPTY_PATH)`, usado pelo
-`fexecve` do Git. O teste ainda para depois da criação do segundo helper, sem
-o marcador de conclusão; falta confirmar a retomada do parent após esse
-spawn aninhado e a troca de dados pelo pipe.
+`fexecve` do Git. Leituras bloqueantes em pipes locais agora suspendem o
+processo até haver dados ou EOF e retomam no workspace correto; o runtime
+Git completo continua alcançando `CSOS Git runtime ready` no QEMU. Ainda falta
+confirmar o `git pull` real, a retomada do parent após o spawn aninhado e a
+troca completa de dados pelo pipe.
 
 ---
 
