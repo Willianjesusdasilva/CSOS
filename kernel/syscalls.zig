@@ -21,6 +21,7 @@ var device_mmap_limit: u64 = 0;
 var writes: usize = 0;
 var process_exit_status: u64 = 0;
 var process_pause: ?Pause = null;
+export var exec_pause_requested: bool = false;
 var mmap_protect_hook: ?*const fn (u64, u64, bool, bool) callconv(.c) bool = null;
 var mmap_unmap_hook: ?*const fn (u64, u64) callconv(.c) bool = null;
 var device_mmap_hook: ?*const fn (u64, u64, u64, bool) callconv(.c) bool = null;
@@ -340,6 +341,7 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
     old.frame = frame.*; old.rsp = syscall_user_rsp; old.result = result;
     old.fs = readMsr(0xc0000100);
     asm volatile ("fxsave64 (%[p])" : : [p] "r" (&old.fx) : .{ .memory = true });
+    if (old.exec_request != null) exec_pause_requested = true;
     if (pending_clone) |child| {
         user_threads[child.slot].frame = frame.*;
         user_threads[child.slot].rsp = if (child.process_child) old.rsp else child.stack;
@@ -351,9 +353,16 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
     if (thread_switch_requested or old.state != .runnable) {
         thread_switch_requested = false;
         var selected: ?usize = null;
-        for (1..user_threads.len + 1) |step| {
-            const slot = (current_thread + step) % user_threads.len;
-            if (user_threads[slot].state == .runnable) { selected = slot; break; }
+        if (old.exec_request != null and old.state == .runnable) {
+            // execve must be consumed by the loader while this thread's
+            // address space is still active; switching to the parent first
+            // would make the pending request run with the wrong CR3.
+            selected = current_thread;
+        } else {
+            for (1..user_threads.len + 1) |step| {
+                const slot = (current_thread + step) % user_threads.len;
+                if (user_threads[slot].state == .runnable) { selected = slot; break; }
+            }
         }
         if (selected) |slot| {
             current_thread = slot;
@@ -439,6 +448,7 @@ pub fn configure(base: u64, size: u64, stack: u64, stack_length: u64, initial_br
     unknown_seen = .{false} ** unknown_seen.len;
     process_exit_status = 0xffffffffffffffff;
     process_pause = null;
+    exec_pause_requested = false;
     process_nice = 0;
     process_umask = 0o022;
     process_name = .{ 'c', 's', 'o', 's', 0 } ++ .{0} ** 11;
@@ -543,6 +553,7 @@ pub fn reconfigureAddressSpace(
     device_mmap_limit = std.math.add(u64, mmap_end, max_drm_objects * drm_object_stride) catch mmap_end;
     process_exit_status = 0xffffffffffffffff;
     process_pause = null;
+    exec_pause_requested = false;
     user_threads_done = false;
 }
 
@@ -569,6 +580,7 @@ export fn process_pause_dispatch(instruction: u64, stack: u64) callconv(.c) void
 pub fn takePause() ?Pause {
     const result = process_pause;
     process_pause = null;
+    exec_pause_requested = false;
     return result;
 }
 
@@ -625,6 +637,10 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         // fork creates a cooperative process child; execve remains the
         // explicit image-replacement boundary.
         57 => cloneThread(17, 0, 0, 0, 0),
+        // Git's run-command backend may select vfork on x86-64.  CSOS uses
+        // the same bounded cooperative process-child path; the scheduler
+        // still guarantees the parent can wait for the child before reuse.
+        58 => cloneThread(17, 0, 0, 0, 0),
         293 => pipe2(arg1, arg2),
         59 => execve(arg1, arg2, arg3),
         60 => exitThread(arg1),
@@ -3728,6 +3744,7 @@ fn execve(path: u64, argv: u64, envp: u64) u64 {
         request.envc = copyExecVector(envp, &request.envp, &request.envp_lengths) catch |err| return errno(execCopyErrno(err));
     }
     user_threads[current_thread].exec_request = request;
+    thread_switch_requested = true;
     if (execve_hook) |hook| return hook(path, argv, envp);
     return errno(38);
 }

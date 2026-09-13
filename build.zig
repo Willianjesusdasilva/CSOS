@@ -423,7 +423,7 @@ pub fn build(b: *std.Build) void {
     syscalls_module.addImport("serial", serial_module);
     const vfs_module = b.createModule(.{ .root_source_file = b.path("kernel/vfs.zig") });
     vfs_module.addAnonymousImport("busybox_elf", .{ .root_source_file = b.path("userspace/initramfs/bin/busybox") });
-    if (git_runtime) |path| vfs_module.addAnonymousImport("git_runtime_elf", .{ .root_source_file = b.path(path) })
+    if (git_runtime) |path| vfs_module.addAnonymousImport("git_runtime_elf", .{ .root_source_file = .{ .cwd_relative = path } })
     else vfs_module.addAnonymousImport("git_runtime_elf", .{ .root_source_file = dynamic_hello.getEmittedBin() });
     vfs_module.addImport("fat16", fat16_module);
     const vfs_test_module = b.createModule(.{
@@ -481,7 +481,7 @@ pub fn build(b: *std.Build) void {
     if (webkit_runtime_probe) |path| process_module.addAnonymousImport("webkit_runtime_probe_elf", .{ .root_source_file = b.path(path) });
     if (webkit_launcher) |path| process_module.addAnonymousImport("webkit_launcher_elf", .{ .root_source_file = b.path(path) }) else process_module.addAnonymousImport("webkit_launcher_elf", .{ .root_source_file = dynamic_hello.getEmittedBin() });
     if (glib_runtime_probe) |path| process_module.addAnonymousImport("glib_runtime_probe_elf", .{ .root_source_file = b.path(path) });
-    if (git_runtime) |path| process_module.addAnonymousImport("git_runtime_elf", .{ .root_source_file = b.path(path) }) else process_module.addAnonymousImport("git_runtime_elf", .{ .root_source_file = dynamic_hello.getEmittedBin() });
+    if (git_runtime) |path| process_module.addAnonymousImport("git_runtime_elf", .{ .root_source_file = .{ .cwd_relative = path } }) else process_module.addAnonymousImport("git_runtime_elf", .{ .root_source_file = dynamic_hello.getEmittedBin() });
     if (radv_loader_probe) |path|
         process_module.addAnonymousImport("radv_loader_probe_elf", .{ .root_source_file = b.path(path) })
     else

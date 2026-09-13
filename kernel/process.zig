@@ -289,12 +289,23 @@ fn acceptExecve(_: u64, _: u64, _: u64) callconv(.c) u64 {
     return 0;
 }
 
+fn isGitExecutablePath(path: []const u8) bool {
+    if (std.mem.startsWith(u8, path, "/C/") or std.mem.startsWith(u8, path, "/c/")) return true;
+    const names = [_][]const u8{
+        "git", "git-add", "git-commit", "git-fetch", "git-fetch-pack",
+        "git-index-pack", "git-pack-objects", "git-receive-pack",
+        "git-rev-parse", "git-upload-pack", "git-update-index",
+    };
+    for (names) |name| if (std.mem.endsWith(u8, path, name)) return true;
+    return false;
+}
+
 fn runExecRequest(kernel_root: u64, pages: *physical.Allocator, envelope: syscalls.ExecRequestEnvelope) anyerror!void {
     if (envelope.workspace_id >= loader_workspaces.len) return error.InvalidExecWorkspace;
     const workspace = &loader_workspaces[envelope.workspace_id];
     if (!workspace.leased) return error.InvalidExecWorkspace;
     const path = envelope.request.path[0..envelope.request.path_len];
-    image = if (equal(path, "/bin/git") or equal(path, "/usr/bin/git") or equal(path, "git"))
+    image = if (isGitExecutablePath(path))
         @embedFile("git_runtime_elf")
     else if (equal(path, "/bin/busybox") or equal(path, "/bin/sh") or equal(path, "sh"))
         busybox_image
@@ -306,6 +317,11 @@ fn runExecRequest(kernel_root: u64, pages: *physical.Allocator, envelope: syscal
     // owned by the original loader workspace.
     paging.activateRoot(kernel_root);
     if (workspace.address_space) |old_space| old_space.destroy();
+    if (!workspace.borrowed_owned) {
+        if (workspace.pages) |old_pages| {
+            releaseOwned(old_pages, workspace.owned[0..workspace.owned_count]);
+        }
+    }
     workspace.address_space = null;
     workspace.pages = null;
     workspace.active_mappings = null;

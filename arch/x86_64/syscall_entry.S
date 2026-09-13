@@ -45,6 +45,8 @@ syscall_entry:
     movq %rax, %rdx
     movq %r12, %rcx
     callq user_thread_resume
+    cmpb $0, exec_pause_requested(%rip)
+    jne .Lexec_pause
     cmpb $0, user_threads_done(%rip)
     jne user_exit_trampoline
     movq %r12, %rsp
@@ -64,6 +66,14 @@ syscall_entry:
     popq %rcx
     movq syscall_user_rsp(%rip), %rsp
     sysretq
+
+.Lexec_pause:
+    movq 0(%r12), %rcx
+    movq syscall_user_rsp(%rip), %rdx
+    subq $32, %rsp
+    callq process_pause_dispatch
+    addq $32, %rsp
+    jmp user_exit_trampoline
 
 .Lprocess_exit:
     movq %rdi, %rcx
