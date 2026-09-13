@@ -537,6 +537,9 @@ Para repetir essa verificação sem iniciar o QEMU, execute
 Dependências Alpine/musl previamente coletadas podem ser colocadas em
 `zig-out\nix-deps`; o empacotador as copia para `/nix/lib` sem alterar a árvore
 fonte do Nix.
+Código de saída `3` na auditoria indica que todas as bibliotecas foram
+encontradas, mas o ELF falhou durante a inicialização (por exemplo, ABI/loader
+incompatível); isso deve ser resolvido antes do teste dentro do CSOS.
 
 Esse comando valida o ELF x86_64-musl e grava `MANIFEST.sha256`. O pacote é
 apenas um artefato de preparação; executar Nix no host não satisfaz o gate.

@@ -19,6 +19,7 @@ $command = "cd '$linuxRoot' && ./lib/ld-musl-x86_64.so.1 --library-path ./lib ./
 $previousErrorAction = $ErrorActionPreference
 $ErrorActionPreference = 'Continue'
 $output = @(wsl.exe -d $WslDistribution -- bash -lc $command 2>&1 | ForEach-Object { $_.ToString() })
+$runtimeExitCode = $LASTEXITCODE
 $ErrorActionPreference = $previousErrorAction
 $missing = @($output | ForEach-Object {
     if ($_ -match 'Error loading shared library ([^: ]+)') { $Matches[1] }
@@ -27,6 +28,12 @@ if ($missing.Count -gt 0) {
     Write-Output 'Nix runtime dependency audit: INCOMPLETE'
     Write-Output ('Missing shared libraries: ' + ($missing -join ', '))
     exit 2
+}
+if ($runtimeExitCode -ne 0) {
+    Write-Output 'Nix runtime dependency audit: ELF startup failed'
+    Write-Output ("Exit code: $runtimeExitCode")
+    Write-Output ($output -join "`n")
+    exit 3
 }
 if (($output -join "`n") -notmatch 'nix \(Nix\)') {
     Write-Output ($output -join "`n")
