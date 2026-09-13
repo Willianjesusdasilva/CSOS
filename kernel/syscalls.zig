@@ -232,6 +232,7 @@ const DrmSyncobj = struct { allocated: bool = false, point: u64 = 0 };
 var drm_syncobjs: [max_drm_syncobjs]DrmSyncobj = .{DrmSyncobj{}} ** max_drm_syncobjs;
 const socket_fd_base: u64 = 256;
 var sockets: [32]Socket = .{Socket{}} ** 32;
+var stdio_sockets: [3]?usize = .{ null, null, null };
 var unknown_seen: [512]bool = .{false} ** 512;
 pub export var syscall_kernel_rsp: u64 = 0;
 pub export var syscall_user_rsp: u64 = 0;
@@ -441,6 +442,8 @@ pub fn configure(base: u64, size: u64, stack: u64, stack_length: u64, initial_br
     execve_hook = null;
     user_futex_blocks = 0;
     user_futex_wakes = 0;
+    stdio_sockets = .{ null, null, null };
+    sockets = .{Socket{}} ** sockets.len;
     user_base = base;
     user_size = size;
     stack_base = stack;
@@ -585,6 +588,7 @@ pub fn resetExitStatus() void { process_exit_status = 0xffffffffffffffff; }
 /// exec images retain inherited descriptors until they exit; the outer Git
 /// command owns the final cleanup.
 pub fn closeProcessSockets() void {
+    stdio_sockets = .{ null, null, null };
     for (&sockets) |*entry| {
         if (entry.connection) |*connection| if (network_stack) |stack| stack.tcpClose(connection) catch {};
         entry.* = .{};
@@ -732,7 +736,10 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         // initializer has run. It has no effect for images without COPY data.
         460 => if (initializer_step_hook) |hook| blk: { hook(arg1); break :blk 0; } else 0,
         102, 104, 107, 108 => 0,
-        105, 106 => if (arg1 == 0) 0 else errno(1),
+        // Git's spawn setup may pass uid/gid -1 to mean "unchanged". CSOS
+        // has only the root identity at this stage, so accept root and the
+        // Linux all-ones sentinel; reject real unprivileged transitions.
+        105, 106 => if (arg1 == 0 or arg1 == std.math.maxInt(u64) or arg1 == std.math.maxInt(u32)) 0 else errno(1),
         112 => setSid(),
         113 => setRegId(arg1, arg2),
         114 => setRegId(arg1, arg2),
@@ -1003,6 +1010,7 @@ fn writeKernel(fd: u64, bytes: []const u8) !usize {
 
 fn close(fd: u64) u64 {
     if (socketIndex(fd)) |index| {
+        if (fd < 3) stdio_sockets[@intCast(fd)] = null;
         if (sockets[index].connection) |*connection| if (network_stack) |stack| stack.tcpClose(connection) catch {};
         sockets[index] = .{};
         return 0;
@@ -1013,6 +1021,19 @@ fn close(fd: u64) u64 {
 }
 
 fn duplicate(old_fd: u64, new_fd: u64) u64 {
+    if (socketIndex(old_fd)) |source| {
+        if (old_fd == new_fd) return new_fd;
+        if (new_fd < 3) {
+            if (stdio_sockets[@intCast(new_fd)] != null) _ = close(new_fd);
+            var target: ?usize = null;
+            for (&sockets, 0..) |*entry, index| if (!entry.allocated) { target = index; break; };
+            const index = target orelse return errno(24);
+            sockets[index] = sockets[source];
+            sockets[index].allocated = true;
+            stdio_sockets[@intCast(new_fd)] = index;
+            return new_fd;
+        }
+    }
     return vfs.duplicate(@intCast(old_fd), @intCast(new_fd)) catch |err| vfsError(err);
 }
 
@@ -3616,6 +3637,7 @@ fn socketReceive(index: usize, data: []u8) u64 {
 }
 
 fn socketIndex(fd: u64) ?usize {
+    if (fd < 3) return stdio_sockets[@intCast(fd)];
     if (fd < socket_fd_base or fd >= socket_fd_base + sockets.len) return null;
     const index: usize = @intCast(fd - socket_fd_base);
     return if (sockets[index].allocated) index else null;

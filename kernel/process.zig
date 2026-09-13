@@ -176,10 +176,7 @@ pub fn runGitRuntime(kernel_root: u64, pages: *physical.Allocator) !void {
     const revision_arguments = [_][]const u8{"/bin/git", "--git-dir=/data/repo8", "rev-parse", "--verify", "HEAD"};
     try runGitCommand(kernel_root, pages, &revision_arguments);
     const history_arguments = [_][]const u8{"/bin/git", "--git-dir=/data/repo8", "rev-list", "--count", "HEAD"};
-    try runGitCommand(kernel_root, pages, &history_arguments);
-    const pull_arguments = [_][]const u8{"/bin/git", "--git-dir=/data/repo8", "--work-tree=/system", "pull", "--no-rebase", "/data/repo8", "master"};
-    try runGitCommand(kernel_root, pages, &pull_arguments);
-    serial.write("CSOS Git pull local ready\n");
+    return runGitCommand(kernel_root, pages, &history_arguments);
 }
 
 fn runGitCommand(kernel_root: u64, pages: *physical.Allocator, arguments: []const []const u8) !void {
@@ -368,6 +365,14 @@ fn isGitExecutablePath(path: []const u8) bool {
     return std.mem.eql(u8, basename, "git") or std.mem.startsWith(u8, basename, "git-");
 }
 
+fn isShellExecutablePath(path: []const u8) bool {
+    const basename = if (std.mem.lastIndexOfScalar(u8, path, '/')) |separator|
+        path[separator + 1 ..]
+    else
+        path;
+    return std.mem.eql(u8, basename, "sh") or std.mem.eql(u8, basename, "sh.exe");
+}
+
 fn runExecRequest(kernel_root: u64, pages: *physical.Allocator, envelope: syscalls.ExecRequestEnvelope) anyerror!void {
     if (envelope.workspace_id >= loader_workspaces.len) return error.InvalidExecWorkspace;
     const workspace = &loader_workspaces[envelope.workspace_id];
@@ -375,7 +380,7 @@ fn runExecRequest(kernel_root: u64, pages: *physical.Allocator, envelope: syscal
     const path = envelope.request.path[0..envelope.request.path_len];
     image = if (isGitExecutablePath(path))
         @embedFile("git_runtime_elf")
-    else if (equal(path, "/bin/busybox") or equal(path, "/bin/sh") or equal(path, "sh"))
+    else if (equal(path, "/bin/busybox") or equal(path, "/bin/sh") or isShellExecutablePath(path))
         busybox_image
     else
         return error.ExecImageNotFound;
