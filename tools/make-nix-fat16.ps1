@@ -1,20 +1,26 @@
 param(
     [Parameter(Mandatory = $true)][string]$ClosureArchive,
     [string]$Output = (Join-Path $PSScriptRoot '..\zig-out\nix.img'),
-    [int]$SizeMiB = 256
+    [int]$SizeMiB = 256,
+    [string]$CsosMuslLibc = (Join-Path $PSScriptRoot '..\.tools\musl-build-pic\lib\libc.so')
 )
 
 $ErrorActionPreference = 'Stop'
 $archive = (Resolve-Path -LiteralPath $ClosureArchive).Path
 $outputPath = [IO.Path]::GetFullPath($Output)
+$csosMuslLibcPath = [IO.Path]::GetFullPath($CsosMuslLibc)
+if (-not (Test-Path -LiteralPath $csosMuslLibcPath -PathType Leaf)) {
+    throw "CSOS musl libc not found: $csosMuslLibcPath"
+}
 if ($SizeMiB -lt 128 -or $SizeMiB -gt 2048) { throw 'SizeMiB must be between 128 and 2048.' }
 function To-Wsl([string]$value) {
     return "/mnt/" + $value.Substring(0, 1).ToLowerInvariant() + $value.Substring(2).Replace('\', '/')
 }
 $archiveWsl = To-Wsl $archive
 $outputWsl = To-Wsl $outputPath
+$csosMuslLibcWsl = To-Wsl $csosMuslLibcPath
 $outputDirWsl = To-Wsl ([IO.DirectoryInfo]::new((Split-Path -Parent $outputPath)).FullName)
-$command = "set -eu; root=/tmp/csos-nix-fat-root; rm -rf `$root; mkdir -p `$root; tar -xf '$archiveWsl' -C `$root; mkdir -p '$outputDirWsl'; truncate -s ${SizeMiB}M '$outputWsl'; mkfs.fat -F 16 -S 512 -s 16 -n CSOSNIX '$outputWsl' >/dev/null; export MTOOLS_SKIP_CHECK=1; mmd -i '$outputWsl' ::/bin ::/lib ::/usr ::/usr/lib; mcopy -o -s -i '$outputWsl' `$root/usr/bin/nix ::/bin/; mcopy -o -s -i '$outputWsl' `$root/usr/lib/* ::/lib/; mcopy -o -s -i '$outputWsl' `$root/usr/lib/* ::/usr/lib/; mcopy -o -i '$outputWsl' `$root/lib/ld-musl-x86_64.so.1 ::/lib/; mcopy -o -i '$outputWsl' `$root/usr/lib/libnixutil.so ::/lib/LIBNIX~1.SO; mcopy -o -i '$outputWsl' `$root/usr/lib/libnixstore.so ::/lib/NIXSTORE.SO; mcopy -o -i '$outputWsl' `$root/usr/lib/libnixexpr.so ::/lib/NIXEXPR.SO; mcopy -o -i '$outputWsl' `$root/usr/lib/libnixcmd.so ::/lib/NIXCMD.SO; mcopy -o -i '$outputWsl' `$root/usr/lib/libnixfetchers.so ::/lib/NIXFETCH.SO; mcopy -o -i '$outputWsl' `$root/usr/lib/libnixflake.so ::/lib/NIXFLAK.SO; mcopy -o -i '$outputWsl' `$root/usr/lib/libnixmain.so ::/lib/NIXMAIN.SO; mcopy -o -i '$outputWsl' `$root/usr/lib/libgc.so.1 ::/lib/LIBGC.SO1; mcopy -o -i '$outputWsl' `$root/usr/lib/libstdc++.so.6 ::/lib/LIBSTD.SO6; mcopy -o -i '$outputWsl' `$root/usr/lib/libgcc_s.so.1 ::/lib/LIBGCC.SO1; mcopy -o -i '$outputWsl' `$root/lib/libc.musl-x86_64.so.1 ::/lib/LIBCMUSL.SO1; mdir -i '$outputWsl' ::/bin; mdir -i '$outputWsl' ::/lib | tail -n 1"
+$command = "set -eu; root=/tmp/csos-nix-fat-root; rm -rf `$root; mkdir -p `$root; tar -xf '$archiveWsl' -C `$root; mkdir -p '$outputDirWsl'; truncate -s ${SizeMiB}M '$outputWsl'; mkfs.fat -F 16 -S 512 -s 16 -n CSOSNIX '$outputWsl' >/dev/null; export MTOOLS_SKIP_CHECK=1; mmd -i '$outputWsl' ::/bin ::/lib ::/usr ::/usr/lib; mcopy -o -s -i '$outputWsl' `$root/usr/bin/nix ::/bin/; mcopy -o -s -i '$outputWsl' `$root/usr/lib/* ::/lib/; mcopy -o -s -i '$outputWsl' `$root/usr/lib/* ::/usr/lib/; mcopy -o -i '$outputWsl' `$root/lib/ld-musl-x86_64.so.1 ::/lib/; mcopy -o -i '$csosMuslLibcWsl' '$outputWsl' ::/lib/LIBCMUSL.SO1; mcopy -o -i '$outputWsl' `$root/usr/lib/libnixutil.so ::/lib/LIBNIX~1.SO; mcopy -o -i '$outputWsl' `$root/usr/lib/libnixstore.so ::/lib/NIXSTORE.SO; mcopy -o -i '$outputWsl' `$root/usr/lib/libnixexpr.so ::/lib/NIXEXPR.SO; mcopy -o -i '$outputWsl' `$root/usr/lib/libnixcmd.so ::/lib/NIXCMD.SO; mcopy -o -i '$outputWsl' `$root/usr/lib/libnixfetchers.so ::/lib/NIXFETCH.SO; mcopy -o -i '$outputWsl' `$root/usr/lib/libnixflake.so ::/lib/NIXFLAK.SO; mcopy -o -i '$outputWsl' `$root/usr/lib/libnixmain.so ::/lib/NIXMAIN.SO; mcopy -o -i '$outputWsl' `$root/usr/lib/libgc.so.1 ::/lib/LIBGC.SO1; mcopy -o -i '$outputWsl' `$root/usr/lib/libstdc++.so.6 ::/lib/LIBSTD.SO6; mcopy -o -i '$outputWsl' `$root/usr/lib/libgcc_s.so.1 ::/lib/LIBGCC.SO1; mdir -i '$outputWsl' ::/bin; mdir -i '$outputWsl' ::/lib | tail -n 1"
 $command += "; mcopy -o -i '$outputWsl' `$root/usr/lib/libarchive.so.13 ::/lib/LIBARCH.SO3"
 $command += "; mcopy -o -i '$outputWsl' `$root/usr/lib/libblake3.so.0 ::/lib/LIBBLAK.SO0"
 $command += "; mcopy -o -i '$outputWsl' `$root/usr/lib/libcrypto.so.3 ::/lib/LIBCRYP.SO3"
@@ -51,6 +57,7 @@ $command += "; mcopy -o -i '$outputWsl' `$root/usr/lib/libpcre2-8.so.0 ::/lib/PC
 $command += "; mcopy -o -i '$outputWsl' `$root/usr/lib/libssh2.so.1 ::/lib/LIBSSH2.SO1"
 $command += "; mcopy -o -i '$outputWsl' `$root/usr/lib/libunistring.so.5 ::/lib/LIBUNIS.SO5"
 $command += "; mcopy -o -i '$outputWsl' `$root/usr/lib/libz.so.1 ::/lib/LIBZ.SO1"
+$command = $command.Replace("mcopy -o -i '$csosMuslLibcWsl' '$outputWsl' ::/lib/LIBCMUSL.SO1", "mcopy -o -i '$outputWsl' '$csosMuslLibcWsl' ::/lib/LIBCMUSL.SO1")
 $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($command))
 & wsl.exe -d Ubuntu -- bash -lc "echo $encoded | base64 -d | bash"
 if ($LASTEXITCODE -ne 0) { throw "Nix FAT image creation failed ($LASTEXITCODE)" }
