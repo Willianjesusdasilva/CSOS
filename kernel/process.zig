@@ -1420,7 +1420,7 @@ fn applySymbolTable(consumer: []const u8, consumer_base: u64, consumer_module: u
             tls_relocations = saturatingAdd(tls_relocations, 1);
             continue;
         }
-        if (relocation_type != 1 and relocation_type != 6 and relocation_type != 7) {
+        if (relocation_type != 1 and relocation_type != 6 and relocation_type != 7 and relocation_type != 18) {
             serial.write("unsupported dynamic relocation: ");
             serial.writeDecimal(relocation_type);
             serial.write("\n");
@@ -1444,7 +1444,11 @@ fn applySymbolTable(consumer: []const u8, consumer_base: u64, consumer_module: u
             }
             const provider_symbol_offset = std.math.add(u64, supplied.symbol_file, std.math.mul(u64, provider_symbol_index, 24) catch return error.InvalidSymbolRelocation) catch return error.InvalidSymbolRelocation;
             const provider_symbol: usize = std.math.cast(usize, provider_symbol_offset) orelse return error.InvalidSymbolRelocation;
-            resolved = std.math.add(u64, provider.base, read64From(provider.bytes, provider_symbol + 8)) catch return error.InvalidSymbolRelocation;
+            const symbol_value = read64From(provider.bytes, provider_symbol + 8);
+            resolved = if (relocation_type == 18)
+                std.math.add(u64, @as(u64, provider_index) * tls_stride, symbol_value) catch return error.InvalidSymbolRelocation
+            else
+                std.math.add(u64, provider.base, symbol_value) catch return error.InvalidSymbolRelocation;
             if (resolved != null) break;
         }
         if (resolved == null and (consumer[consumer_symbol + 4] >> 4) == 2) resolved = 0;
@@ -1455,7 +1459,7 @@ fn applySymbolTable(consumer: []const u8, consumer_base: u64, consumer_module: u
             return error.DynamicSymbolMissing;
         };
         const addend: i64 = @bitCast(read64From(consumer, item + 16));
-        const value = if (relocation_type == 1) symbol_value +% @as(u64, @bitCast(addend)) else symbol_value;
+        const value = if (relocation_type == 1 or relocation_type == 18) symbol_value +% @as(u64, @bitCast(addend)) else symbol_value;
         try writeMapped64(mappings, target, value);
         symbol_relocations = saturatingAdd(symbol_relocations, 1);
         if (relocation_type == 1 or relocation_type == 6) data_symbol_relocations = saturatingAdd(data_symbol_relocations, 1);
