@@ -1023,7 +1023,7 @@ pub fn readLinkAt(directory_fd_in: i64, path: []const u8, output: []u8) !usize {
 pub fn getDents(fd: usize, output: []u8) !usize {
     if (fd >= descriptors.len or descriptors[fd].kind != .directory) return error.BadFd;
     if (descriptors[fd].node == .fat_directory) {
-        const volume = disk orelse return error.NotFound;
+        const volume = descriptorVolume(fd) orelse return error.NotFound;
         var entries: [64]fat16.Volume.DirectoryEntry = undefined;
         const count = try volume.listDirectory(descriptors[fd].fat_cluster, &entries);
         var written: usize = 0;
