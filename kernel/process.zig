@@ -1809,7 +1809,7 @@ fn applyRelrRelocations(mappings: []const Mapping, load_bias: u64, relr_file: u6
         }
         var bit: u7 = 1;
         while (bit < 64) : (bit += 1) {
-            if ((entry & (@as(u64, 1) << bit)) == 0) continue;
+            if ((entry & (@as(u64, 1) << @as(u6, @intCast(bit)))) == 0) continue;
             const target = std.math.add(u64, next_address, (@as(u64, bit) - 1) * 8) catch return error.InvalidRelrTable;
             if (target > std.math.maxInt(u64) - load_bias) return error.InvalidRelrTable;
             try relocateRelrTarget(mappings, target + load_bias, load_bias);
