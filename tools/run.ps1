@@ -21,6 +21,7 @@ param(
     [switch]$SmokeDesktopMouse,
     [switch]$SmokeTerminalRun,
     [switch]$CaptureScreen,
+    [string]$Disk,
     [ValidateRange(256, 4096)][int]$MemoryMegabytes = 1024
 )
 
@@ -54,7 +55,7 @@ New-Item -ItemType Directory -Force -Path $bootDir | Out-Null
 Copy-Item -Force -LiteralPath $EfiBinary -Destination (Join-Path $bootDir 'BOOTX64.EFI')
 $localOvmf = Join-Path $PSScriptRoot '..\zig-out\OVMF_CODE.fd'
 Copy-Item -Force -LiteralPath $ovmf -Destination $localOvmf
-$nvmeDisk = Join-Path $PSScriptRoot '..\zig-out\nvme.img'
+$nvmeDisk = if ($Disk) { [IO.Path]::GetFullPath($Disk) } else { Join-Path $PSScriptRoot '..\zig-out\nvme.img' }
 if ($ResetDisk -or $GpuFirmware -or $RadvRuntime -or -not (Test-Path -LiteralPath $nvmeDisk)) {
     & (Join-Path $PSScriptRoot 'make-fat16.ps1') -Path $nvmeDisk -SharedLibrary $SharedLibrary -ExtraLibrary $ExtraLibrary -GpuFirmware $GpuFirmware `
         -RadvRuntime $RadvRuntime -LibdrmAmdgpu $LibdrmAmdgpu -Libdrm $Libdrm -Zlib $Zlib -Libc $Libc `

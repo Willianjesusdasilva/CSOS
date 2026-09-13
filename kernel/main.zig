@@ -2066,7 +2066,12 @@ pub fn start(info: BootInfo) noreturn {
         .display_width = screen.framebuffer.width,
         .display_height = screen.framebuffer.height,
         .display_stride = screen.framebuffer.stride,
-    }) catch panic("hardware profile generation failed");
+    }) catch |err| {
+        serial.write("hardware profile generation error: ");
+        serial.write(@errorName(err));
+        serial.write("\n");
+        panic("hardware profile generation failed");
+    };
     const install_name: [11]u8 = "INSTALL CSC".*;
     var stored_install: [64]u8 = undefined;
     const stored_install_length = volume.readDirectoryFileAt(persistent_layout.data_config, &install_name, &stored_install, 0) catch |err| switch (err) {

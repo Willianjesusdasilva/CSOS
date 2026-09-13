@@ -109,5 +109,19 @@ if /usr/bin/busybox grep -q recovery-ssh /proc/cmdline 2>/dev/null; then
     /usr/bin/busybox cat /tmp/dropbear.log 2>/dev/null || true
     /usr/bin/busybox sleep 30
 fi
+
+# Git uses long object IDs while mounted by Alpine, whereas the CSOS FAT VFS
+# resolves those objects through the deterministic 8.3 aliases in CSOSMAP.TXT.
+# Restore the aliases before handing the volume back to CSOS.
+if [ -f /mnt/csos/data/repo8/CSOSMAP.TXT ]; then
+    while read -r objdir full alias; do
+        [ -n "$full" ] || continue
+        dir=/mnt/csos/data/repo8/objects/$objdir
+        short_base=$(printf '%s' "$alias" | /usr/bin/busybox cut -c1-8 | /usr/bin/busybox tr 'A-Z' 'a-z')
+        short_ext=$(printf '%s' "$alias" | /usr/bin/busybox cut -c9-11 | /usr/bin/busybox tr 'A-Z' 'a-z')
+        /usr/bin/busybox mv "$dir/$full" "$dir/$short_base.$short_ext" 2>/dev/null || true
+    done < /mnt/csos/data/repo8/CSOSMAP.TXT
+    echo RECOVERY_GIT_NAMES_PACKED
+fi
 /usr/bin/busybox sync
 /usr/bin/busybox poweroff -f
