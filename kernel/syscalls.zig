@@ -232,7 +232,6 @@ const DrmSyncobj = struct { allocated: bool = false, point: u64 = 0 };
 var drm_syncobjs: [max_drm_syncobjs]DrmSyncobj = .{DrmSyncobj{}} ** max_drm_syncobjs;
 const socket_fd_base: u64 = 256;
 var sockets: [32]Socket = .{Socket{}} ** 32;
-var stdio_sockets: [3]?usize = .{ null, null, null };
 var signal_actions: [64][32]u8 = .{.{0} ** 32} ** 64;
 var unknown_seen: [512]bool = .{false} ** 512;
 pub export var syscall_kernel_rsp: u64 = 0;
@@ -253,6 +252,7 @@ const UserThread = struct {
     rsp: u64 = 0, result: u64 = 0, fs: u64 = 0,
     workspace_id: u8 = 0,
     clear_tid: u64 = 0, wait_address: u64 = 0,
+    stdio_sockets: [3]?usize = .{ null, null, null },
     robust: u64 = 0, robust_size: u64 = 0,
     exec_request: ?ExecRequest = null,
     fx: [512]u8 align(16) = @splat(0),
@@ -314,6 +314,10 @@ fn cloneThread(flags: u64, stack: u64, parent_tid: u64, child_tid: u64, tls: u64
         user_threads[slot] = .{ .state = .runnable, .kind = if (is_process_child) .process_child else .thread,
             .pid = @intCast(slot + 1), .clear_tid = child_tid,
             .workspace_id = user_threads[current_thread].workspace_id };
+        user_threads[slot].stdio_sockets = user_threads[current_thread].stdio_sockets;
+        for (user_threads[slot].stdio_sockets) |alias| {
+            if (alias) |index| sockets[index].refs += 1;
+        }
         const tid: u32 = @intCast(slot + 1);
         if (parent_tid != 0) {
             const out: *align(1) u32 = @ptrFromInt(parent_tid); out.* = tid;
@@ -443,7 +447,6 @@ pub fn configure(base: u64, size: u64, stack: u64, stack_length: u64, initial_br
     execve_hook = null;
     user_futex_blocks = 0;
     user_futex_wakes = 0;
-    stdio_sockets = .{ null, null, null };
     sockets = .{Socket{}} ** sockets.len;
     signal_actions = .{.{0} ** 32} ** 64;
     user_base = base;
@@ -590,7 +593,7 @@ pub fn resetExitStatus() void { process_exit_status = 0xffffffffffffffff; }
 /// exec images retain inherited descriptors until they exit; the outer Git
 /// command owns the final cleanup.
 pub fn closeProcessSockets() void {
-    stdio_sockets = .{ null, null, null };
+    for (&user_threads) |*thread| thread.stdio_sockets = .{ null, null, null };
     for (&sockets) |*entry| {
         if (entry.connection) |*connection| if (network_stack) |stack| stack.tcpClose(connection) catch {};
         entry.* = .{};
@@ -1017,11 +1020,24 @@ fn writeKernel(fd: u64, bytes: []const u8) !usize {
     return bytes.len;
 }
 
+fn releaseSocketRef(index: usize) void {
+    if (sockets[index].refs > 1) {
+        sockets[index].refs -= 1;
+        return;
+    }
+    if (sockets[index].peer_index) |peer| sockets[peer].peer_closed = true;
+    if (sockets[index].connection) |*connection| if (network_stack) |stack| stack.tcpClose(connection) catch {};
+    sockets[index] = .{};
+}
+
 fn close(fd: u64) u64 {
     if (socketIndex(fd)) |index| {
-        if (fd < 3) stdio_sockets[@intCast(fd)] = null;
-        if (sockets[index].connection) |*connection| if (network_stack) |stack| stack.tcpClose(connection) catch {};
-        sockets[index] = .{};
+        if (fd < 3) {
+            user_threads[current_thread].stdio_sockets[@intCast(fd)] = null;
+            releaseSocketRef(index);
+            return 0;
+        }
+        releaseSocketRef(index);
         return 0;
     }
     if (fd <= 2 and !vfs.isOpen(@intCast(fd))) return 0;
@@ -1033,13 +1049,9 @@ fn duplicate(old_fd: u64, new_fd: u64) u64 {
     if (socketIndex(old_fd)) |source| {
         if (old_fd == new_fd) return new_fd;
         if (new_fd < 3) {
-            if (stdio_sockets[@intCast(new_fd)] != null) _ = close(new_fd);
-            var target: ?usize = null;
-            for (&sockets, 0..) |*entry, index| if (!entry.allocated) { target = index; break; };
-            const index = target orelse return errno(24);
-            sockets[index] = sockets[source];
-            sockets[index].allocated = true;
-            stdio_sockets[@intCast(new_fd)] = index;
+            if (user_threads[current_thread].stdio_sockets[@intCast(new_fd)] != null) _ = close(new_fd);
+            sockets[source].refs += 1;
+            user_threads[current_thread].stdio_sockets[@intCast(new_fd)] = source;
             return new_fd;
         }
     }
@@ -3460,11 +3472,13 @@ fn write(fd: u64, address: u64, length: u64) u64 {
 
 const Socket = struct {
     allocated: bool = false,
+    refs: u16 = 0,
     local_pair: bool = false,
     peer_index: ?usize = null,
     local_buffer: [4096]u8 = .{0} ** 4096,
     local_head: usize = 0,
     local_len: usize = 0,
+    peer_closed: bool = false,
     close_on_exec: bool = false,
     nonblocking: bool = false,
     connection: ?net.TcpConnection = null,
@@ -3481,7 +3495,7 @@ fn socket(domain: u64, kind: u64, protocol: u64) u64 {
     if (domain != 2 or (kind & 0xf) != 1 or (kind & ~@as(u64, 0x80801)) != 0 or (protocol != 0 and protocol != 6)) return errno(97);
     for (&sockets, 0..) |*entry, index| {
         if (!entry.allocated) {
-            entry.* = .{ .allocated = true, .close_on_exec = (kind & 0x80000) != 0, .nonblocking = (kind & 0x800) != 0 };
+            entry.* = .{ .allocated = true, .refs = 1, .close_on_exec = (kind & 0x80000) != 0, .nonblocking = (kind & 0x800) != 0 };
             return socket_fd_base + index;
         }
     }
@@ -3499,8 +3513,8 @@ fn socketPair(domain: u64, kind: u64, protocol: u64, output: u64) u64 {
         }
     }
     if (first == null or second == null) return errno(24);
-    sockets[first.?] = .{ .allocated = true, .local_pair = true, .peer_index = second, .close_on_exec = (kind & 0x80000) != 0, .nonblocking = (kind & 0x800) != 0 };
-    sockets[second.?] = .{ .allocated = true, .local_pair = true, .peer_index = first, .close_on_exec = (kind & 0x80000) != 0, .nonblocking = (kind & 0x800) != 0 };
+    sockets[first.?] = .{ .allocated = true, .refs = 1, .local_pair = true, .peer_index = second, .close_on_exec = (kind & 0x80000) != 0, .nonblocking = (kind & 0x800) != 0 };
+    sockets[second.?] = .{ .allocated = true, .refs = 1, .local_pair = true, .peer_index = first, .close_on_exec = (kind & 0x80000) != 0, .nonblocking = (kind & 0x800) != 0 };
     put32(@ptrFromInt(output), @intCast(socket_fd_base + first.?));
     put32(@ptrFromInt(output + 4), @intCast(socket_fd_base + second.?));
     return 0;
@@ -3649,7 +3663,7 @@ fn socketReceive(index: usize, data: []u8) u64 {
 }
 
 fn socketIndex(fd: u64) ?usize {
-    if (fd < 3) return stdio_sockets[@intCast(fd)];
+    if (fd < 3) return user_threads[current_thread].stdio_sockets[@intCast(fd)];
     if (fd < socket_fd_base or fd >= socket_fd_base + sockets.len) return null;
     const index: usize = @intCast(fd - socket_fd_base);
     return if (sockets[index].allocated) index else null;
