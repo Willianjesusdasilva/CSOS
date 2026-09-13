@@ -1420,7 +1420,7 @@ fn applySymbolTable(consumer: []const u8, consumer_base: u64, consumer_module: u
             tls_relocations = saturatingAdd(tls_relocations, 1);
             continue;
         }
-        if (relocation_type != 1 and relocation_type != 5 and relocation_type != 6 and relocation_type != 7 and relocation_type != 18) {
+        if (relocation_type != 1 and relocation_type != 5 and relocation_type != 6 and relocation_type != 7 and relocation_type != 17 and relocation_type != 18) {
             serial.write("unsupported dynamic relocation: ");
             serial.writeDecimal(relocation_type);
             serial.write("\n");
@@ -1451,7 +1451,7 @@ fn applySymbolTable(consumer: []const u8, consumer_base: u64, consumer_module: u
                 copy_source = std.math.add(u64, provider.base, symbol_value) catch return error.InvalidSymbolRelocation;
                 copy_size = read64From(provider.bytes, provider_symbol + 16);
             }
-            resolved = if (relocation_type == 18)
+            resolved = if (relocation_type == 17 or relocation_type == 18)
                 std.math.add(u64, @as(u64, provider_index) * tls_stride, symbol_value) catch return error.InvalidSymbolRelocation
             else
                 std.math.add(u64, provider.base, symbol_value) catch return error.InvalidSymbolRelocation;
@@ -1470,8 +1470,8 @@ fn applySymbolTable(consumer: []const u8, consumer_base: u64, consumer_module: u
             continue;
         }
         const addend: i64 = @bitCast(read64From(consumer, item + 16));
-        const value = if (relocation_type == 1 or relocation_type == 18) symbol_value +% @as(u64, @bitCast(addend)) else symbol_value;
-        try writeMapped64(mappings, target, value);
+        const value = if (relocation_type == 1 or relocation_type == 17 or relocation_type == 18) symbol_value +% @as(u64, @bitCast(addend)) else symbol_value;
+        if (relocation_type == 17) try writeMapped32(mappings, target, @truncate(value)) else try writeMapped64(mappings, target, value);
         symbol_relocations = saturatingAdd(symbol_relocations, 1);
         if (relocation_type == 1 or relocation_type == 6) data_symbol_relocations = saturatingAdd(data_symbol_relocations, 1);
     }
@@ -1760,6 +1760,21 @@ fn virtualFileOffset(virtual: u64, size: u64, program_offset: u64, program_entry
 fn writeMapped64(mappings: []const Mapping, virtual: u64, value: u64) !void {
     var bytes: [8]u8 = undefined;
     std.mem.writeInt(u64, &bytes, value, .little);
+    for (bytes, 0..) |byte, index| {
+        const address = std.math.add(u64, virtual, index) catch return error.RelocationTargetMissing;
+        const page_virtual = address & ~(page_size - 1);
+        const offset = address - page_virtual;
+        const mapping = findMapping(mappings, page_virtual) orelse return error.RelocationTargetMissing;
+        if (!mapping.resident) return error.RelocationTargetMissing;
+        const target_address = std.math.add(u64, mapping.physical, offset) catch return error.RelocationTargetMissing;
+        const target: *u8 = @ptrFromInt(target_address);
+        target.* = byte;
+    }
+}
+
+fn writeMapped32(mappings: []const Mapping, virtual: u64, value: u32) !void {
+    var bytes: [4]u8 = undefined;
+    std.mem.writeInt(u32, &bytes, value, .little);
     for (bytes, 0..) |byte, index| {
         const address = std.math.add(u64, virtual, index) catch return error.RelocationTargetMissing;
         const page_virtual = address & ~(page_size - 1);
