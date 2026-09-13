@@ -323,10 +323,31 @@ pub fn openAt(directory_fd_in: i64, path: []const u8, flags: u64) !usize {
         const saved_disk = disk;
         disk = nix_disk;
         defer disk = saved_disk;
-        const relative = if (path.len == 4) "." else path[5..];
-        const result = try openAt(directory_fd_in, relative, flags);
-        descriptors[result].volume = nix_disk;
-        return result;
+        if (path.len == 4) {
+            const result = try openAt(directory_fd_in, ".", flags);
+            descriptors[result].volume = nix_disk;
+            return result;
+        }
+        // The bootstrap resolver handles one FAT directory level at a time.
+        // Walk the Nix hierarchy component-by-component so paths such as
+        // /nix/bin/nix and /nix/lib/libc.so remain on the alternate volume.
+        var current: i64 = -100;
+        var start: usize = 5;
+        while (start < path.len) {
+            const separator = std.mem.indexOfScalarPos(u8, path, start, '/') orelse path.len;
+            if (separator == start) {
+                start += 1;
+                continue;
+            }
+            const final_component = separator == path.len;
+            const next = try openAt(current, path[start..separator], if (final_component) flags else 0);
+            descriptors[next].volume = nix_disk;
+            if (current >= 3) close(@intCast(current)) catch {};
+            current = @intCast(next);
+            if (final_component) break;
+            start = separator + 1;
+        }
+        return @intCast(current);
     }
     const directory_fd = effectiveDirectoryFd(directory_fd_in);
     var fd: usize = 3;
@@ -1261,12 +1282,18 @@ test "FAT path conversion aliases Git packed refs lock" {
 
 fn runtimeLibraryFatAlias(path: []const u8) ?[11]u8 {
     const prefix = "/usr/lib/";
-    const name = if (path.len > prefix.len and equal(path[0..prefix.len], prefix)) path[prefix.len..] else path;
+    const nix_prefix = "/nix/lib/";
+    const name = if (path.len > prefix.len and equal(path[0..prefix.len], prefix)) path[prefix.len..]
+        else if (path.len > nix_prefix.len and equal(path[0..nix_prefix.len], nix_prefix)) path[nix_prefix.len..]
+        else path;
     if (equal(name, "libvulkan_radeon.so")) return "RADV    SO ".*;
     if (equal(name, "libdrm_amdgpu.so.1")) return "DRMAMD  SO1".*;
     if (equal(name, "libdrm.so.2")) return "LIBDRM  SO2".*;
     if (equal(name, "libz.so.1")) return "LIBZ    SO1".*;
     if (equal(name, "libc.so")) return "LIBC    SO ".*;
+    // Alpine Nix's first shared dependency exceeds 8.3; mtools stores it as
+    // the deterministic short alias below.
+    if (equal(name, "libnixutil.so")) return "LIBNIX~1SO ".*;
     if (std.mem.startsWith(u8, name, "libWPEWebKit-2.0.so")) return "WEBKIT  SO1".*;
     if (std.mem.startsWith(u8, name, "libWPEBackend-fdo-1.0.so")) return "WPEFDO  SO1".*;
     return null;
