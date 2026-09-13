@@ -62,9 +62,13 @@ else
 fi
 
 if /usr/bin/busybox grep -q recovery-ssh /proc/cmdline 2>/dev/null; then
+    /usr/bin/busybox modprobe e1000e 2>/dev/null || true
+    /usr/bin/busybox modprobe e1000 2>/dev/null || true
+    /usr/bin/busybox modprobe virtio_net 2>/dev/null || true
     /usr/bin/busybox udhcpc -q -n -i eth0 2>/dev/null || true
+    /usr/bin/busybox ifconfig eth0 10.0.2.15 netmask 255.255.255.0 up 2>/dev/null || true
     /usr/bin/dropbearkey -t ed25519 -f /tmp/dropbear_ed25519 2>/dev/null || true
-    /usr/sbin/dropbear -R -E -p 22 2>/tmp/dropbear.log &
+    /usr/sbin/dropbear -B -R -E -p 22 2>/tmp/dropbear.log &
     echo RECOVERY_SSH_READY
     /usr/bin/busybox sleep 30
 fi
