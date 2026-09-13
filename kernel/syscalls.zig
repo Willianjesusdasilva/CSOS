@@ -36,10 +36,10 @@ var robust_len: u64 = 0;
 var clear_tid_address: u64 = 0;
 var process_umask: u32 = 0o022;
 var limit_stack: u64 = 128 * 1024;
-var limit_address_space: u64 = 16 * 1024 * 1024;
+var limit_address_space: u64 = 256 * 1024 * 1024;
 var limit_nofile: u64 = 32;
 var hard_limit_stack: u64 = 128 * 1024;
-var hard_limit_address_space: u64 = 16 * 1024 * 1024;
+var hard_limit_address_space: u64 = 256 * 1024 * 1024;
 var hard_limit_nofile: u64 = 32;
 var process_name: [16]u8 = .{ 'c', 's', 'o', 's', 0 } ++ .{0} ** 11;
 var process_group: u64 = 1;
@@ -4287,7 +4287,7 @@ fn setRlimit(resource: u64, address: u64) u64 {
     const bytes: [*]const u8 = @ptrFromInt(address);
     const soft = read64(bytes);
     const hard = read64(bytes + 8);
-    if (soft > hard or (resource == 7 and hard > 32) or ((resource == 3 or resource == 9) and hard > 16 * 1024 * 1024)) return errno(1);
+    if (soft > hard or (resource == 7 and hard > 32) or (resource == 3 and hard > 16 * 1024 * 1024) or (resource == 9 and hard > 256 * 1024 * 1024)) return errno(1);
     switch (resource) {
         3 => { limit_stack = soft; hard_limit_stack = hard; },
         7 => { limit_nofile = soft; hard_limit_nofile = hard; },
