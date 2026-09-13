@@ -660,6 +660,18 @@ pub fn start(info: BootInfo) noreturn {
         }
     }
     vfs.reset();
+    if (nix_volume != null) {
+        const nix_probe = vfs.openAt(-100, "/nix/bin/nix", 0) catch |err| {
+            serial.write("Nix VFS probe failed: ");
+            serial.write(@errorName(err));
+            serial.write("\n");
+            panic("Nix VFS probe failed");
+        };
+        const nix_info = vfs.infoFd(nix_probe) catch panic("Nix VFS stat failed");
+        if (nix_info.directory or nix_info.size == 0) panic("Nix VFS probe invalid");
+        vfs.close(nix_probe) catch panic("Nix VFS probe close failed");
+        serial.write("Nix VFS path ready: /nix/bin/nix\n");
+    }
     if (build_options.webkit_launcher) {
         const webkit_fat_name: [11]u8 = "WEBKIT  SO1".*;
         const webkit_entry = volume.findRootEntry(&webkit_fat_name) catch |err| {
