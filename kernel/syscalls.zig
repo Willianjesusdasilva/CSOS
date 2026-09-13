@@ -270,6 +270,7 @@ pub const ExecRequest = struct {
 };
 pub const ExecRequestEnvelope = struct {
     thread_id: u32,
+    workspace_id: u8,
     request: ExecRequest,
 };
 pub var user_futex_blocks: u64 = 0;
@@ -3739,7 +3740,7 @@ pub fn takeExecRequest() ?ExecRequestEnvelope {
     for (&user_threads) |*thread| {
         if (thread.exec_request) |request| {
             thread.exec_request = null;
-            return .{ .thread_id = thread.pid, .request = request };
+            return .{ .thread_id = thread.pid, .workspace_id = thread.workspace_id, .request = request };
         }
     }
     return null;
