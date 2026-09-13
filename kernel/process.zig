@@ -58,10 +58,14 @@ const NeededList = struct {
     count: usize = 0,
 };
 
-// runImage is serialized today. These arrays are process-loader workspace,
-// not per-call stack storage; make them per-process when concurrent exec lands.
-var loader_mappings: [max_mappings]Mapping = undefined;
-var loader_owned: [max_owned_ranges]OwnedRange = undefined;
+// runImage is serialized today. Keep the large arrays in an explicit
+// workspace so the next process-context refactor can allocate one workspace
+// per address space without putting megabytes on a kernel stack.
+const LoaderWorkspace = struct {
+    mappings: [max_mappings]Mapping = undefined,
+    owned: [max_owned_ranges]OwnedRange = undefined,
+};
+var loader_workspace = LoaderWorkspace{};
 
 var active_address_space: ?*paging.AddressSpace = null;
 var active_pages: ?*physical.Allocator = null;
@@ -211,14 +215,14 @@ fn runImageWithEnvironment(
     const needed = try findNeeded(program_offset, program_entry_size, program_count);
 
     var address_space = try paging.AddressSpace.init(kernel_root, pages);
-    const owned = &loader_owned;
+    const owned = &loader_workspace.owned;
     var owned_count: usize = 0;
     defer {
         paging.activateRoot(kernel_root);
         address_space.destroy();
         releaseOwned(pages, owned[0..owned_count]);
     }
-    const mappings = &loader_mappings;
+    const mappings = &loader_workspace.mappings;
     var mapping_count: usize = 0;
     var image_start: u64 = ~@as(u64, 0);
     var image_end: u64 = 0;
