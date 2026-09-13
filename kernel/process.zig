@@ -453,6 +453,8 @@ fn runImageWithWorkspace(
         var dependency_count: usize = 0;
         defer releaseOwned(pages, dependency_ranges[0..dependency_count]);
         var providers: [max_shared_objects]Provider = undefined;
+        var tls_offsets: [max_shared_objects]u64 = @splat(0);
+        var tls_used: u64 = 0;
         var provider_count: usize = 0;
         var dependency_names: [max_shared_objects][]const u8 = undefined;
         var dependency_name_count = needed.count;
@@ -550,11 +552,17 @@ fn runImageWithWorkspace(
                     tls_address + tls_module_offset > std.math.maxInt(u64) - memory_size or
                     tls_virtual > std.math.maxInt(u64) - shared_base) return error.InvalidTlsSegment;
                 const module_tls = tls_address + tls_module_offset;
+                const alignment = read64At(header + 48);
+                const tls_alignment = if (alignment == 0) 1 else alignment;
+                if ((tls_alignment & (tls_alignment - 1)) != 0) return error.InvalidTlsSegment;
+                tls_used += (-(tls_address + tls_used) & (tls_alignment - 1));
+                tls_offsets[provider_count] = tls_used;
+                tls_used += memory_size;
                 musl_bootstrap.images[provider_count] = .{
                     .image = module_tls,
                     .file_size = file_size,
                     .memory_size = memory_size,
-                    .alignment = read64At(header + 48),
+                    .alignment = alignment,
                 };
                 try loadSegment(address_space, pages, mappings, mapping_count, owned, owned_count, module_tls, file_offset, file_size, memory_size, true, false, false);
                 tls_modules = saturatingAdd(tls_modules, 1);
@@ -590,9 +598,9 @@ fn runImageWithWorkspace(
             try applyRelativeRelocations(mappings[0..mapping_count.*], provider.base, provider.program_offset, provider.program_entry_size, provider.program_count, true);
         }
         image = program_image;
-        try applySymbolRelocations(program_image, program_offset, program_entry_size, program_count, load_bias, 0, providers[0..provider_count], mappings[0..mapping_count.*]);
+        try applySymbolRelocations(program_image, program_offset, program_entry_size, program_count, load_bias, 0, providers[0..provider_count], mappings[0..mapping_count.*], tls_offsets[0..provider_count]);
         for (providers[0..provider_count], 0..) |provider, provider_index| {
-            try applySymbolRelocations(provider.bytes, provider.program_offset, provider.program_entry_size, provider.program_count, provider.base, provider_index + 1, providers[0..provider_count], mappings[0..mapping_count.*]);
+            try applySymbolRelocations(provider.bytes, provider.program_offset, provider.program_entry_size, provider.program_count, provider.base, provider_index + 1, providers[0..provider_count], mappings[0..mapping_count.*], tls_offsets[0..provider_count]);
         }
         // Constructors run only after every object has been relocated. The
         // dependency walk records consumers before providers, so reverse it.
@@ -1438,13 +1446,14 @@ fn applySymbolRelocations(
     consumer_module: usize,
     providers: []const Provider,
     mappings: []const Mapping,
+    tls_offsets: []const u64,
 ) !void {
     const wanted = try dynamicSymbols(consumer, consumer_program_offset, consumer_program_entry_size, consumer_program_count, true);
-    try applySymbolTable(consumer, consumer_base, consumer_module, wanted, providers, mappings, wanted.regular_rela_file, wanted.regular_rela_size);
-    try applySymbolTable(consumer, consumer_base, consumer_module, wanted, providers, mappings, wanted.plt_rela_file, wanted.plt_rela_size);
+    try applySymbolTable(consumer, consumer_base, consumer_module, wanted, providers, mappings, tls_offsets, wanted.regular_rela_file, wanted.regular_rela_size);
+    try applySymbolTable(consumer, consumer_base, consumer_module, wanted, providers, mappings, tls_offsets, wanted.plt_rela_file, wanted.plt_rela_size);
 }
 
-fn applySymbolTable(consumer: []const u8, consumer_base: u64, consumer_module: usize, wanted: DynamicSymbols, providers: []const Provider, mappings: []const Mapping, rela_file: u64, rela_size: u64) !void {
+fn applySymbolTable(consumer: []const u8, consumer_base: u64, consumer_module: usize, wanted: DynamicSymbols, providers: []const Provider, mappings: []const Mapping, tls_offsets: []const u64, rela_file: u64, rela_size: u64) !void {
     if (rela_size == 0) return;
     var supplied_symbols: [max_shared_objects]DynamicSymbols = undefined;
     for (providers, 0..) |provider, index| {
@@ -1501,7 +1510,7 @@ fn applySymbolTable(consumer: []const u8, consumer_base: u64, consumer_module: u
             resolved = if (relocation_type == 17)
                 symbol_value
             else if (relocation_type == 18)
-                std.math.add(u64, @as(u64, provider_index) * tls_stride, symbol_value) catch return error.InvalidSymbolRelocation
+                symbol_value -% tls_offsets[provider_index]
             else
                 std.math.add(u64, provider.base, symbol_value) catch return error.InvalidSymbolRelocation;
             if (resolved != null) break;
