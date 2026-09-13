@@ -1,0 +1,64 @@
+#!/bin/sh
+set -u
+
+# Terminal-only Alpine rescue entrypoint.  The CSOS disk is intentionally
+# treated as data: only the checkout under /mnt/csos/system is changed.
+/usr/bin/busybox mkdir -p /mnt/csos /tmp
+/usr/bin/busybox mount -t proc proc /proc 2>/dev/null || true
+/usr/bin/busybox mount -t devtmpfs devtmpfs /dev 2>/dev/null || true
+/usr/bin/busybox mount -t sysfs sysfs /sys 2>/dev/null || true
+
+vda_dev=$(/usr/bin/busybox cat /sys/class/block/vda/dev 2>/dev/null || true)
+if [ -z "$vda_dev" ]; then
+    vda_dev=$(/usr/bin/busybox awk '$4 == "vda" { print $1 ":" $2 }' /proc/partitions 2>/dev/null || true)
+fi
+echo RECOVERY_VDA_DEV=$vda_dev
+vda_major=${vda_dev%:*}; vda_minor=${vda_dev#*:}
+/usr/bin/busybox mknod /dev/vda b "$vda_major" "$vda_minor" 2>/dev/null || true
+/usr/bin/busybox mknod /dev/sda b 8 0 2>/dev/null || true
+
+if ! /usr/bin/busybox mount -t msdos -o fat=16 /dev/vda /mnt/csos 2>/dev/null; then
+    /usr/bin/busybox mount -t msdos -o fat=16 /dev/sda /mnt/csos || { echo RECOVERY_MOUNT_FAILED; exec /usr/bin/busybox sh; }
+fi
+echo RECOVERY_MOUNT_OK
+/usr/bin/busybox ls -la /mnt/csos
+if [ -d /mnt/csos/system ] && [ -d /mnt/csos/data ]; then echo RECOVERY_CHECKOUT_OK; else echo RECOVERY_CHECKOUT_MISSING; fi
+if [ -d /mnt/csos/data/repo8 ]; then echo RECOVERY_GIT_STATE_OK; else echo RECOVERY_GIT_STATE_MISSING; fi
+
+# FAT 8.3 conversion used by the CSOS VFS fixture is undone before Git runs.
+if [ -f /mnt/csos/data/repo8/CSOSMAP.TXT ]; then
+    while read -r objdir full alias; do
+        [ -n "$full" ] || continue
+        dir=/mnt/csos/data/repo8/objects/$objdir
+        short_base=$(printf '%s' "$alias" | /usr/bin/busybox cut -c1-8 | /usr/bin/busybox tr 'A-Z' 'a-z')
+        short_ext=$(printf '%s' "$alias" | /usr/bin/busybox cut -c9-11 | /usr/bin/busybox tr 'A-Z' 'a-z')
+        /usr/bin/busybox mv "$dir/$short_base.$short_ext" "$dir/$full" 2>/dev/null || true
+    done < /mnt/csos/data/repo8/CSOSMAP.TXT
+    echo RECOVERY_GIT_NAMES_RESTORED
+fi
+
+if /usr/bin/busybox grep -q recovery-reset-previous /proc/cmdline 2>/dev/null; then
+    if /usr/bin/git --git-dir=/mnt/csos/data/repo8 --work-tree=/mnt/csos/system reset --hard HEAD~1 >/tmp/recovery-reset 2>/tmp/recovery-reset-error; then
+        echo RECOVERY_GIT_RESTORED
+    else
+        echo RECOVERY_GIT_RESTORE_FAILED
+        /usr/bin/busybox cat /tmp/recovery-reset-error
+    fi
+fi
+if /usr/bin/git --git-dir=/mnt/csos/data/repo8 --work-tree=/mnt/csos/system status --porcelain > /tmp/recovery-git-status 2>/tmp/recovery-git-error; then
+    echo RECOVERY_GIT_STATUS_OK
+    /usr/bin/busybox cat /tmp/recovery-git-status
+else
+    echo RECOVERY_GIT_STATUS_FAILED
+    /usr/bin/busybox cat /tmp/recovery-git-error
+fi
+
+if /usr/bin/busybox grep -q recovery-ssh /proc/cmdline 2>/dev/null; then
+    /usr/bin/busybox udhcpc -q -n -i eth0 2>/dev/null || true
+    /usr/bin/dropbearkey -t ed25519 -f /tmp/dropbear_ed25519 2>/dev/null || true
+    /usr/sbin/dropbear -R -E -p 22 2>/tmp/dropbear.log &
+    echo RECOVERY_SSH_READY
+    /usr/bin/busybox sleep 30
+fi
+/usr/bin/busybox sync
+/usr/bin/busybox poweroff -f
