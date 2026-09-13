@@ -671,6 +671,15 @@ pub fn start(info: BootInfo) noreturn {
         if (nix_info.directory or nix_info.size == 0) panic("Nix VFS probe invalid");
         vfs.close(nix_probe) catch panic("Nix VFS probe close failed");
         serial.write("Nix VFS path ready: /nix/bin/nix\n");
+        const nix_arguments = [_][]const u8{"/nix/bin/nix", "--version"};
+        process.runFilesystemImage(mapper.root, &pages, "/nix/bin/nix", &nix_arguments) catch |err| {
+            serial.write("Nix execution error: ");
+            serial.write(@errorName(err));
+            serial.write("\n");
+            panic("Nix execution failed");
+        };
+        mapper.activate();
+        serial.write("Nix executable ran in CSOS\n");
     }
     if (build_options.webkit_launcher) {
         const webkit_fat_name: [11]u8 = "WEBKIT  SO1".*;
