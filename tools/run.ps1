@@ -83,9 +83,9 @@ $qemuArguments = @(
 if ($NixDisk) {
     $nixDiskPath = [IO.Path]::GetFullPath($NixDisk)
     if (-not (Test-Path -LiteralPath $nixDiskPath -PathType Leaf)) { throw "Nix disk not found: $nixDiskPath" }
-    $qemuArguments = @(
-        $qemuArguments[0..($qemuArguments.IndexOf('-device') - 1)]
-    ) + @('-drive', "if=none,id=nix0,format=raw,file=$nixDiskPath", '-device', 'nvme-ns,drive=nix0,bus=nvme0,nsid=2') + $qemuArguments[$qemuArguments.IndexOf('-device')..($qemuArguments.Count - 1)]
+    # Append the namespace after the controller has been created.  QEMU's
+    # nvme-ns device resolves its implicit nvme-bus at construction time.
+    $qemuArguments += @('-drive', "if=none,id=nix0,format=raw,file=$nixDiskPath", '-device', 'nvme-ns,drive=nix0,bus=nvme0,nsid=2')
 }
 
 if ($SmokeTestSeconds -gt 0) {

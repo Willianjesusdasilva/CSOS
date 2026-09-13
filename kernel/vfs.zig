@@ -52,6 +52,9 @@ const Descriptor = struct {
     fat_cluster: u16 = 0,
     fat_parent_cluster: u16 = 0,
     event_counter: u64 = 0,
+    // Null denotes the primary system volume.  A non-null pointer pins the
+    // descriptor to an alternate mounted volume (currently /nix).
+    volume: ?*fat16.Volume = null,
 };
 
 pub const Info = struct {
@@ -76,6 +79,7 @@ var descriptors: [max_fds]Descriptor = .{Descriptor{}} ** max_fds;
 var next_generation: u32 = 1;
 var generations_exhausted = false;
 var disk: ?*fat16.Volume = null;
+var nix_disk: ?*fat16.Volume = null;
 var current_directory_fd: i64 = -100;
 var current_directory_path: [256]u8 = undefined;
 var current_directory_length: usize = 1;
@@ -200,6 +204,23 @@ pub fn mount(volume: *fat16.Volume) void {
     disk = volume;
 }
 
+/// Mount the persistent Nix store as a second VFS volume.  The volume is
+/// deliberately kept outside the Git-backed system volume and descriptors
+/// opened below /nix retain this pointer for their entire lifetime.
+pub fn mountNix(volume: *fat16.Volume) void {
+    nix_disk = volume;
+}
+
+fn descriptorVolume(fd: usize) ?*fat16.Volume {
+    if (fd >= descriptors.len) return null;
+    return descriptors[fd].volume orelse disk;
+}
+
+fn directoryVolume(fd: i64) ?*fat16.Volume {
+    if (fd < 3 or @as(usize, @intCast(fd)) >= descriptors.len) return disk;
+    return descriptorVolume(@intCast(fd));
+}
+
 pub fn reset() void {
     descriptors = .{Descriptor{}} ** max_fds;
     next_generation = 1;
@@ -294,15 +315,28 @@ pub fn openAt(directory_fd_in: i64, path: []const u8, flags: u64) !usize {
     var trimmed_length = path.len;
     while (trimmed_length > 1 and path[trimmed_length - 1] == '/') : (trimmed_length -= 1) {}
     if (trimmed_length != path.len) return openAt(directory_fd_in, path[0..trimmed_length], flags);
+    // Route /nix through the alternate FAT volume while reusing the same
+    // path resolver.  The descriptor is pinned before the temporary route is
+    // restored, so subsequent reads never fall back to /system.
+    if (nix_disk != null and path.len >= 4 and std.mem.startsWith(u8, path, "/nix") and
+        (path.len == 4 or path[4] == '/')) {
+        const saved_disk = disk;
+        disk = nix_disk;
+        defer disk = saved_disk;
+        const relative = if (path.len == 4) "." else path[5..];
+        const result = try openAt(directory_fd_in, relative, flags);
+        descriptors[result].volume = nix_disk;
+        return result;
+    }
     const directory_fd = effectiveDirectoryFd(directory_fd_in);
     var fd: usize = 3;
     while (fd < descriptors.len and descriptors[fd].kind != .unused) : (fd += 1) {}
     if (fd == descriptors.len) return error.TooManyFiles;
-    if (disk) |volume| if (directory_fd >= 3 and @as(usize, @intCast(directory_fd)) < descriptors.len and
+    if (directoryVolume(directory_fd)) |volume| if (directory_fd >= 3 and @as(usize, @intCast(directory_fd)) < descriptors.len and
         descriptors[@intCast(directory_fd)].node == .fat_directory and
         path.len != 0 and path[0] != '/' and std.mem.indexOfScalar(u8, path, '/') != null)
         return openFatRelative(volume, @intCast(directory_fd), path, flags, fd);
-    if (disk) |volume| if (directory_fd >= 3 and @as(usize, @intCast(directory_fd)) < descriptors.len and
+    if (directoryVolume(directory_fd)) |volume| if (directory_fd >= 3 and @as(usize, @intCast(directory_fd)) < descriptors.len and
         descriptors[@intCast(directory_fd)].node == .fat_directory and std.mem.indexOfScalar(u8, path, '/') == null)
     {
         if (std.mem.eql(u8, path, "..")) {
@@ -618,7 +652,7 @@ pub fn read(fd: usize, output: []u8) !usize {
         return output.len;
     }
     if (descriptors[fd].node == .disk) {
-        const volume = disk orelse return error.NotFound;
+        const volume = descriptorVolume(fd) orelse return error.NotFound;
         const count = if (descriptors[fd].fat_parent_cluster != 0)
             try volume.readDirectoryFileAt(descriptors[fd].fat_parent_cluster, &descriptors[fd].fat_name, output, descriptors[fd].offset)
         else
@@ -649,7 +683,7 @@ pub fn pread(fd: usize, output: []u8, offset: usize) !usize {
         return output.len;
     }
     if (descriptors[fd].node == .disk) {
-        const volume = disk orelse return error.NotFound;
+        const volume = descriptorVolume(fd) orelse return error.NotFound;
         return if (descriptors[fd].fat_parent_cluster != 0)
             volume.readDirectoryFileAt(descriptors[fd].fat_parent_cluster, &descriptors[fd].fat_name, output, offset)
         else
@@ -678,7 +712,7 @@ pub fn write(fd: usize, input: []const u8) !usize {
     if (fd >= descriptors.len or (descriptors[fd].kind != .file and !(descriptors[fd].kind == .device and descriptors[fd].node == .null_device))) return error.BadFd;
     if (descriptors[fd].node == .null_device) return input.len;
     if (!descriptors[fd].writable) return error.AccessDenied;
-    const volume = disk orelse return error.NotFound;
+    const volume = descriptorVolume(fd) orelse return error.NotFound;
     var contents: [8192]u8 = undefined;
     const descriptor = &descriptors[fd];
     if (descriptor.append) descriptor.offset = descriptor.size;
@@ -706,7 +740,7 @@ pub fn truncate(fd: usize, length: usize) !void {
     if (fd >= descriptors.len or descriptors[fd].kind != .file or descriptors[fd].node != .disk) return error.BadFd;
     if (!descriptors[fd].writable) return error.AccessDenied;
     if (length > 8192) return error.FileTooLarge;
-    const volume = disk orelse return error.NotFound;
+    const volume = descriptorVolume(fd) orelse return error.NotFound;
     var contents: [8192]u8 = undefined;
     const descriptor = &descriptors[fd];
     const old_size = descriptor.size;

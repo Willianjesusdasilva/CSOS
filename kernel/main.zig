@@ -631,6 +631,34 @@ pub fn start(info: BootInfo) noreturn {
     volume.writeRootFile(&state_root_name, state) catch panic("VFS large file seed failed");
     vfs.validateRuntimeLibraryAliasesSelfTest() catch panic("VFS runtime library alias self-test failed");
     vfs.mount(&volume);
+    // Namespace 2 is an optional persistent Nix store.  Keep the normal
+    // single-namespace boot path intact while exposing a present, valid FAT
+    // namespace through /nix.
+    var nix_namespace: ?nvme.Controller.Namespace = null;
+    var nix_volume: ?fat16.Volume = null;
+    if (namespaces > 1) {
+        const nix_id = storage.namespaceIdAt(1) catch 0;
+        if (nix_id != 0) {
+            nix_namespace = storage.openNamespace(nix_id, &pages) catch |err| blk: {
+                serial.write("Nix namespace unavailable: ");
+                serial.write(@errorName(err));
+                serial.write("\n");
+                break :blk null;
+            };
+            if (nix_namespace) |*namespace| {
+                nix_volume = fat16.Volume.mount(namespace, &pages) catch |err| blk: {
+                    serial.write("Nix FAT16 mount unavailable: ");
+                    serial.write(@errorName(err));
+                    serial.write("\n");
+                    break :blk null;
+                };
+            }
+            if (nix_volume) |*store| {
+                vfs.mountNix(store);
+                serial.write("Nix namespace mounted at /nix\n");
+            }
+        }
+    }
     vfs.reset();
     if (build_options.webkit_launcher) {
         const webkit_fat_name: [11]u8 = "WEBKIT  SO1".*;
