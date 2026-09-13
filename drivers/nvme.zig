@@ -20,6 +20,7 @@ pub const Controller = struct {
     block_count: u64 = 0,
     namespace_id: u32 = 0,
     namespace_count: u32 = 0,
+    namespace_ids: [1024]u32 = .{0} ** 1024,
 
     /// A stable view of one namespace.  Volumes should retain this view
     /// instead of sharing the controller's mutable active namespace fields.
@@ -123,7 +124,13 @@ pub const Controller = struct {
 
         self.namespace_id = inventory.first;
         self.namespace_count = inventory.count;
+        self.namespace_ids = inventory.ids;
         return inventory.count;
+    }
+
+    pub fn namespaceIdAt(self: *const Controller, index: u32) !u32 {
+        if (index >= self.namespace_count or index >= self.namespace_ids.len) return error.NamespaceIndexOutOfRange;
+        return self.namespace_ids[index];
     }
 
     pub fn initIo(self: *Controller, pages: *physical.Allocator) !void {
@@ -299,6 +306,7 @@ fn get64(source: [*]const u8) u64 {
 const NamespaceInventory = struct {
     count: u32,
     first: u32,
+    ids: [1024]u32 = .{0} ** 1024,
 };
 
 fn parseActiveNamespaces(data: [*]const u8, maximum_namespace_id: u32) !NamespaceInventory {
@@ -310,6 +318,7 @@ fn parseActiveNamespaces(data: [*]const u8, maximum_namespace_id: u32) !Namespac
         if (namespace_id > maximum_namespace_id) return error.InvalidNamespaceId;
         for (seen[0..inventory.count]) |previous| if (previous == namespace_id) return error.DuplicateNamespaceId;
         seen[inventory.count] = namespace_id;
+        inventory.ids[inventory.count] = namespace_id;
         if (inventory.first == 0) inventory.first = namespace_id;
         inventory.count += 1;
     }
@@ -356,6 +365,7 @@ test "active namespace inventory counts sparse namespace identifiers" {
     const inventory = try parseActiveNamespaces(&data, 256);
     try std.testing.expectEqual(@as(u32, 2), inventory.count);
     try std.testing.expectEqual(@as(u32, 2), inventory.first);
+    try std.testing.expectEqual(@as(u32, 7), inventory.ids[1]);
 }
 
 test "active namespace inventory rejects invalid and empty lists" {
