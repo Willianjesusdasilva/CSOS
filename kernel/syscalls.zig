@@ -365,6 +365,7 @@ export fn user_thread_resume(frame: *[15]u64, result: u64) callconv(.c) u64 {
         user_threads[child.slot].rsp = if (child.process_child) old.rsp else child.stack;
         user_threads[child.slot].fs = if (child.process_child) old.fs else child.tls;
         user_threads[child.slot].fx = old.fx;
+        user_threads[child.slot].result = if (child.process_child) 0 else result;
         pending_clone = null;
     }
     if (user_threads_done) return result;
