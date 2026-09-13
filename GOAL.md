@@ -759,10 +759,13 @@ Após reboot, `/nix/store` e profiles devem permanecer válidos.
 * [ ] reboot preserva store/profile.
 
 Estado atual: o runtime Nix x86_64-musl foi empacotado com manifesto
-reprodutível (`tools/package-nix-runtime.ps1`, 317 arquivos / 657117738 bytes)
-e o layout persistente `/nix` foi validado no host. Isso ainda não conta como
-P4 concluído: o binário e os perfis ainda precisam executar e sobreviver a
-reboot dentro do CSOS.
+reprodutível (`tools/package-nix-runtime.ps1`). O empacotador agora inclui o
+loader musl e `libc.so` no próprio `/nix/lib`, evitando um pacote que depende
+silenciosamente do sistema de recuperação. A primeira execução isolada revelou
+o próximo requisito real: ainda faltam no pacote as dependências transientes do
+Nix (`libarchive`, `libsodium`, Brotli, curl, SQLite, libgit2 e editline).
+Isso ainda não conta como P4 concluído: o binário e os perfis precisam executar
+e sobreviver a reboot dentro do CSOS.
 
 Quando esses itens funcionarem:
 

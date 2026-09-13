@@ -528,6 +528,11 @@ O runtime target pode ser empacotado e auditado antes da integração no CSOS:
 powershell -ExecutionPolicy Bypass -File .\tools\package-nix-runtime.ps1
 ```
 
+O pacote inclui o loader musl (`/nix/lib/ld-musl-x86_64.so.1`) e `libc.so`.
+Antes do gate P4, a validação deve também fornecer as dependências dinâmicas
+do Nix (libarchive, libsodium, Brotli, curl, SQLite, libgit2 e editline); sem
+elas o ELF inicia o loader, mas não consegue resolver todos os símbolos.
+
 Esse comando valida o ELF x86_64-musl e grava `MANIFEST.sha256`. O pacote é
 apenas um artefato de preparação; executar Nix no host não satisfaz o gate.
 

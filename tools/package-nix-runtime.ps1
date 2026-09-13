@@ -41,6 +41,23 @@ $payload = Join-Path $output 'nix'
 New-Item -ItemType Directory -Force -Path $payload | Out-Null
 Get-ChildItem -LiteralPath $source -Force | Copy-Item -Destination $payload -Recurse -Force
 
+# Nix is an x86_64-musl ELF.  The install prefix normally leaves the musl
+# loader/libc in the base system, which would make this package look complete
+# while remaining unbootable when copied to the standalone CSOS filesystem.
+# Include a known-good loader from the reproducible Alpine recovery sysroot
+# and expose it under both names used by Nix's dynamic section.
+$workspace = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
+$muslCandidates = @(
+    (Join-Path $workspace 'zig-out\recovery\initramfs-root\usr\lib\ld-musl-x86_64.so.1'),
+    (Join-Path $workspace 'zig-out\recovery\cpio-tools\ld-musl-x86_64.so.1')
+)
+$muslLoader = $muslCandidates | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+if (-not $muslLoader) { throw 'x86_64-musl loader not found; build Alpine recovery before packaging Nix.' }
+$nixLib = Join-Path $payload 'lib'
+New-Item -ItemType Directory -Force -Path $nixLib | Out-Null
+Copy-Item -LiteralPath $muslLoader -Destination (Join-Path $nixLib 'ld-musl-x86_64.so.1') -Force
+Copy-Item -LiteralPath $muslLoader -Destination (Join-Path $nixLib 'libc.so') -Force
+
 $files = @(Get-ChildItem -LiteralPath $payload -Recurse -File | Sort-Object { $_.FullName.Substring($payload.Length + 1) })
 $bytes = [int64](($files | Measure-Object -Property Length -Sum).Sum)
 $manifest = [Collections.Generic.List[string]]::new()
