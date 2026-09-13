@@ -3829,11 +3829,28 @@ fn execve(path: u64, argv: u64, envp: u64) u64 {
 }
 
 fn execveAt(directory_fd: u64, path: u64, argv: u64, envp: u64, flags: u64) u64 {
-    _ = directory_fd;
-    // Git uses execveat with an ordinary pathname for transport helpers. The
-    // empty-path/descriptor form is not needed until a proc-backed runtime is
-    // available; reject other flags instead of silently changing semantics.
-    if ((flags & ~@as(u64, 0x1000)) != 0 or path == 0) return errno(22);
+    // Git's fexecve path is execveat(fd, "", ..., AT_EMPTY_PATH). The helper
+    // image is the pinned Git runtime, so the descriptor identity does not
+    // change which ELF must be loaded; retain the caller's argv and envp.
+    if (flags == 0x1000) {
+        _ = directory_fd;
+        if (path != 0 and !validUserSlice(path, 1)) return errno(14);
+        if (path != 0 and @as(*const u8, @ptrFromInt(path)).* != 0) return execve(path, argv, envp);
+        var request = ExecRequest{};
+        request.path_len = 8;
+        @memcpy(request.path[0..8], "/bin/git");
+        if (argv == 0 or !validUserSlice(argv, 8)) return errno(14);
+        request.argc = copyExecVector(argv, &request.argv, &request.argv_lengths) catch |err| return errno(execCopyErrno(err));
+        if (envp != 0) {
+            if (!validUserSlice(envp, 8)) return errno(14);
+            request.envc = copyExecVector(envp, &request.envp, &request.envp_lengths) catch |err| return errno(execCopyErrno(err));
+        }
+        user_threads[current_thread].exec_request = request;
+        thread_switch_requested = true;
+        if (execve_hook) |hook| return hook(0, argv, envp);
+        return errno(38);
+    }
+    if (flags != 0 or path == 0) return errno(22);
     return execve(path, argv, envp);
 }
 

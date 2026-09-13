@@ -373,6 +373,11 @@ reservar workspaces para a cadeia de helpers. O bloqueio restante é o
 antes de solicitar `execveat`; o próximo requisito é completar esse contrato
 de spawn antes de declarar o pull funcional.
 
+O loader agora aceita também `execveat(..., AT_EMPTY_PATH)`, usado pelo
+`fexecve` do Git. O teste ainda para depois da criação do segundo helper, sem
+o marcador de conclusão; falta confirmar a retomada do parent após esse
+spawn aninhado e a troca de dados pelo pipe.
+
 ---
 
 # P2 — Bare-metal e Alpine Recovery
