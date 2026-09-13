@@ -555,7 +555,7 @@ fn runImageWithWorkspace(
                 const alignment = read64At(header + 48);
                 const tls_alignment = if (alignment == 0) 1 else alignment;
                 if ((tls_alignment & (tls_alignment - 1)) != 0) return error.InvalidTlsSegment;
-                tls_used += (-(tls_address + tls_used) & (tls_alignment - 1));
+                tls_used += ((0 -% (tls_address + tls_used)) & (tls_alignment - 1));
                 tls_offsets[provider_count] = tls_used;
                 tls_used += memory_size;
                 musl_bootstrap.images[provider_count] = .{
