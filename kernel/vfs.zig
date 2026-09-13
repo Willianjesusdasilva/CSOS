@@ -1131,6 +1131,10 @@ pub fn getDents(fd: usize, output: []u8) !usize {
 }
 
 fn formatFatName(fat_name: *const [11]u8, output: *[12]u8) usize {
+    if (std.mem.eql(u8, fat_name, "GIT        ")) {
+        @memcpy(output[0..4], ".git");
+        return 4;
+    }
     var length: usize = 0;
     var index: usize = 0;
     while (index < 8 and fat_name[index] != ' ') : (index += 1) {
@@ -1234,13 +1238,17 @@ fn toFatName(path: []const u8) ?[11]u8 {
     // by the bootstrap volume. Keep the userspace path names stable while
     // assigning deterministic on-disk aliases.
     if (std.mem.eql(u8, path, "config.lock")) return "CONFIG  LCK".*;
+    if (std.mem.eql(u8, path, "config")) return "CONFIG     ".*;
     if (std.mem.eql(u8, path, "HEAD.lock")) return "HEAD    LCK".*;
     if (std.mem.eql(u8, path, "index.lock")) return "INDEX   LCK".*;
     if (std.mem.eql(u8, path, "packed-refs")) return "PACKED  REF".*;
     if (std.mem.eql(u8, path, "packed-refs.lock")) return "PACKED  LCK".*;
     if (std.mem.eql(u8, path, "description")) return "DESCRIP ION".*;
+    if (std.mem.eql(u8, path, "alternates")) return "ALTERNATALT".*;
+    if (std.mem.eql(u8, path, "exclude")) return "EXCLUDE    ".*;
     if (std.mem.eql(u8, path, ".gitignore")) return "GITIGNR IGN".*;
     if (std.mem.eql(u8, path, ".gitattributes")) return "GITATTR IBU".*;
+    if (std.mem.eql(u8, path, ".git")) return "GIT        ".*;
     if (std.mem.eql(u8, path, "COMMIT_EDITMSG")) return "COMMIT  MSG".*;
     if (std.mem.eql(u8, path, "MERGE_MSG")) return "MERGE   MSG".*;
     if (std.mem.eql(u8, path, "FETCH_HEAD")) return "FETCH   HED".*;
@@ -1415,6 +1423,10 @@ fn nodeData(node: Node) []const u8 {
 }
 
 fn isGitHelperPath(path: []const u8) bool {
+    // A repository administrative directory is literally named `.git`; it
+    // must never resolve to the embedded Git executable merely because the
+    // suffix matcher below sees the letters `git`.
+    if (std.mem.eql(u8, path, ".git") or std.mem.endsWith(u8, path, "/.git")) return false;
     const helpers = [_][]const u8{
         "git", "git-fetch", "git-fetch-pack", "git-upload-pack", "git-receive-pack",
         "git-merge", "git-merge-base", "git-commit-tree", "git-index-pack",
