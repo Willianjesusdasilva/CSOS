@@ -279,6 +279,18 @@ encerrado ao final:
 powershell -ExecutionPolicy Bypass -File .\tools\test-recovery-boot-menu.ps1
 ```
 
+Para validar o ciclo completo em uma cópia descartável do volume, use:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\test-p2-recovery-flow.ps1 `
+  -RecoveryInitramfs .\zig-out\recovery\initramfs-recovery-p2final `
+  -GrubEfi .\zig-out\recovery\grubx64.efi.signed
+```
+
+Esse teste cria uma revisão, restaura a anterior pelo Alpine e reinicializa o
+CSOS pelo menu UEFI. A cópia temporária do disco e todos os processos QEMU são
+removidos ao terminar.
+
 Instalações bare-metal destinadas ao desenvolvimento devem possuir um pequeno ambiente **Alpine Linux** independente.
 
 Exemplo de layout:

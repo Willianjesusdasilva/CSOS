@@ -504,13 +504,13 @@ CSOS Recovery
 P2 termina quando houver evidência funcional de:
 
 * [ ] instalação do CSOS em armazenamento;
-* [ ] boot do CSOS a partir desse armazenamento;
-* [ ] Alpine Recovery independente;
-* [ ] menu ou método simples para selecionar Recovery;
-* [ ] montagem do filesystem CSOS pelo Alpine;
-* [ ] acesso ao checkout Git pelo Recovery;
-* [ ] restauração de uma versão pelo Git;
-* [ ] reboot de volta para o CSOS.
+* [x] boot do CSOS a partir desse armazenamento;
+* [x] Alpine Recovery independente;
+* [x] menu ou método simples para selecionar Recovery;
+* [x] montagem do filesystem CSOS pelo Alpine;
+* [x] acesso ao checkout Git pelo Recovery;
+* [x] restauração de uma versão pelo Git;
+* [x] reboot de volta para o CSOS.
 
 Não continuar refinando o instalador depois do gate mínimo se isso não bloquear o restante.
 
@@ -520,6 +520,11 @@ entrada Recovery foi selecionada, o Alpine iniciou, identificou o volume CSOS
 mesmo com uma ESP separada (`RECOVERY_MOUNT_OK=/dev/sdb`) e confirmou
 `RECOVERY_CHECKOUT_OK` e `RECOVERY_GIT_STATUS_OK`. A validação ainda é de QEMU;
 instalação e reboot em hardware real permanecem pendentes.
+
+O fluxo automatizado `tools/test-p2-recovery-flow.ps1` também confirmou em
+QEMU a sequência seed → `git reset --hard HEAD~1` → boot CSOS, incluindo o
+marcador `CSOS graphical session ready`. A instalação bare-metal ainda não foi
+validada; por isso o item de instalação permanece aberto.
 
 ---
 
