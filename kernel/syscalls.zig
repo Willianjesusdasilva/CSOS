@@ -341,7 +341,7 @@ fn cloneThread(flags: u64, stack: u64, parent_tid: u64, child_tid: u64, tls: u64
         // A newly-created thread must get a chance to run before the parent
         // can spin on its startup handshake in userspace. Linux may preempt
         // here; CSOS uses the cooperative syscall boundary instead.
-        if (!is_process_child) thread_switch_requested = true;
+        thread_switch_requested = true;
         // Let the parent return from clone and finish the runtime's startup
         // handshake first.  The next blocking/yielding syscall performs the
         // cooperative switch; this avoids starving runtimes whose child
