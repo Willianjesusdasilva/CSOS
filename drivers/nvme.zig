@@ -44,6 +44,28 @@ pub const Controller = struct {
         return .{ .controller = self, .id = self.namespace_id, .block_size = self.block_size, .block_count = self.block_count };
     }
 
+    /// Open a namespace by ID without changing the controller's active view.
+    /// The admin identify command is serialized by the same queue used during
+    /// initialization, while subsequent I/O carries the view's namespace ID.
+    pub fn openNamespace(self: *Controller, id: u32, pages: *physical.Allocator) !Namespace {
+        if (id == 0 or id > 0x00ff_ffff) return error.InvalidNamespaceId;
+        if (id == self.namespace_id) return self.activeNamespace();
+        const buffer = pages.allocate(1) orelse return error.OutOfMemory;
+        defer pages.release(buffer, 1) catch {};
+        zeroPage(buffer);
+        const command = self.submissionCommand();
+        @memset(command[0..64], 0);
+        command[0] = 0x06;
+        put16(command + 2, self.submission_tail + 1);
+        put32(command + 4, id);
+        put64(command + 24, buffer);
+        put32(command + 40, 0);
+        self.submit();
+        try self.complete();
+        const geometry = try parseNamespaceGeometry(@ptrFromInt(buffer));
+        return .{ .controller = self, .id = id, .block_size = geometry.block_size, .block_count = geometry.block_count };
+    }
+
     pub fn init(device: pci.Device, pages: *physical.Allocator) !Controller {
         pci.enableMemoryAndBusMaster(device);
         const base = pci.barAddress(device, 0) orelse return error.NoBar;
