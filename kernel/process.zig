@@ -934,6 +934,11 @@ fn buildInitialStack(
     const bootstrap_pointer = stack_address + offset;
     const bootstrap_target: *align(1) MuslBootstrap = @ptrCast(bytes + offset);
     bootstrap_target.* = musl_bootstrap.*;
+    serial.write("bootstrap stack entry ");
+    serial.writeDecimal(bootstrap_target.entry);
+    serial.write(" count ");
+    serial.writeDecimal(bootstrap_target.count);
+    serial.write("\n");
 
     var phdr_address: u64 = 0;
     const entry_size = @as(u64, program_entry_size);
