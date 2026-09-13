@@ -16,11 +16,23 @@ echo RECOVERY_VDA_DEV=$vda_dev
 vda_major=${vda_dev%:*}; vda_minor=${vda_dev#*:}
 /usr/bin/busybox mknod /dev/vda b "$vda_major" "$vda_minor" 2>/dev/null || true
 /usr/bin/busybox mknod /dev/sda b 8 0 2>/dev/null || true
+/usr/bin/busybox mknod /dev/sdb b 8 16 2>/dev/null || true
 
-if ! /usr/bin/busybox mount -t msdos -o fat=16 /dev/vda /mnt/csos 2>/dev/null; then
-    /usr/bin/busybox mount -t msdos -o fat=16 /dev/sda /mnt/csos || { echo RECOVERY_MOUNT_FAILED; exec /usr/bin/busybox sh; }
-fi
-echo RECOVERY_MOUNT_OK
+# The EFI system partition may be enumerated before the CSOS volume. Probe
+# every supported block name and keep the first mount containing both system
+# and data, so a separate EFI partition cannot mask the recovery target.
+recovery_device=''
+for candidate in /dev/vda /dev/sda /dev/sdb; do
+    /usr/bin/busybox umount /mnt/csos 2>/dev/null || true
+    if /usr/bin/busybox mount -t msdos "$candidate" /mnt/csos 2>/dev/null; then
+        if [ -d /mnt/csos/system ] && [ -d /mnt/csos/data ]; then
+            recovery_device=$candidate
+            break
+        fi
+    fi
+done
+if [ -z "$recovery_device" ]; then echo RECOVERY_MOUNT_FAILED; exec /usr/bin/busybox sh; fi
+echo RECOVERY_MOUNT_OK=$recovery_device
 /usr/bin/busybox ls -la /mnt/csos
 if [ -d /mnt/csos/system ] && [ -d /mnt/csos/data ]; then echo RECOVERY_CHECKOUT_OK; else echo RECOVERY_CHECKOUT_MISSING; fi
 if [ -d /mnt/csos/data/repo8 ]; then echo RECOVERY_GIT_STATE_OK; else echo RECOVERY_GIT_STATE_MISSING; fi
