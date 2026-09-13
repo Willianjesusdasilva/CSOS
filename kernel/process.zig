@@ -75,6 +75,7 @@ const LoaderWorkspace = struct {
     user_regions: [128]user_regions.Region = undefined,
     user_region_count: usize = 0,
     leased: bool = false,
+    owner_pid: u32 = 0,
 };
 const loader_workspace_count = 2;
 var loader_workspaces: [loader_workspace_count]LoaderWorkspace = undefined;
@@ -191,7 +192,7 @@ pub fn runRadvLoaderProbe(kernel_root: u64, pages: *physical.Allocator) !void {
 }
 
 fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []const u8) !void {
-    const workspace = try acquireLoaderWorkspace();
+    const workspace = try acquireLoaderWorkspace(1);
     return runImageWithWorkspace(kernel_root, pages, arguments, &.{}, workspace);
 }
 
@@ -204,14 +205,15 @@ fn runImageWithEnvironment(
     arguments: []const []const u8,
     environment: []const []const u8,
 ) !void {
-    const workspace = try acquireLoaderWorkspace();
+    const workspace = try acquireLoaderWorkspace(1);
     return runImageWithWorkspace(kernel_root, pages, arguments, environment, workspace);
 }
 
-fn acquireLoaderWorkspace() !*LoaderWorkspace {
+fn acquireLoaderWorkspace(owner_pid: u32) !*LoaderWorkspace {
     for (&loader_workspaces) |*workspace| {
         if (workspace.leased) continue;
         workspace.leased = true;
+        workspace.owner_pid = owner_pid;
         return workspace;
     }
     return error.LoaderWorkspaceBusy;
@@ -540,6 +542,7 @@ fn runImageWithWorkspace(
         workspace.load_bias = 0;
         workspace.user_region_count = 0;
         workspace.leased = false;
+        workspace.owner_pid = 0;
         syscalls.configureMmap(null, null, null);
         syscalls.configureUserSlice(null);
     }
