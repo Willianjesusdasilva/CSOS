@@ -1420,7 +1420,7 @@ fn applySymbolTable(consumer: []const u8, consumer_base: u64, consumer_module: u
             tls_relocations = saturatingAdd(tls_relocations, 1);
             continue;
         }
-        if (relocation_type != 1 and relocation_type != 6 and relocation_type != 7 and relocation_type != 18) {
+        if (relocation_type != 1 and relocation_type != 5 and relocation_type != 6 and relocation_type != 7 and relocation_type != 18) {
             serial.write("unsupported dynamic relocation: ");
             serial.writeDecimal(relocation_type);
             serial.write("\n");
@@ -1434,6 +1434,8 @@ fn applySymbolTable(consumer: []const u8, consumer_base: u64, consumer_module: u
         const name = try stringFrom(consumer, wanted.string_file + name_offset);
         const required_version = try requiredSymbolVersion(consumer, wanted, symbol_index);
         var resolved: ?u64 = null;
+        var copy_source: ?u64 = null;
+        var copy_size: u64 = 0;
         for (providers, 0..) |provider, provider_index| {
             const supplied = supplied_symbols[provider_index];
             const provider_symbol_index = (try findProviderSymbol(provider.bytes, supplied, name)) orelse continue;
@@ -1445,6 +1447,10 @@ fn applySymbolTable(consumer: []const u8, consumer_base: u64, consumer_module: u
             const provider_symbol_offset = std.math.add(u64, supplied.symbol_file, std.math.mul(u64, provider_symbol_index, 24) catch return error.InvalidSymbolRelocation) catch return error.InvalidSymbolRelocation;
             const provider_symbol: usize = std.math.cast(usize, provider_symbol_offset) orelse return error.InvalidSymbolRelocation;
             const symbol_value = read64From(provider.bytes, provider_symbol + 8);
+            if (relocation_type == 5) {
+                copy_source = std.math.add(u64, provider.base, symbol_value) catch return error.InvalidSymbolRelocation;
+                copy_size = read64From(provider.bytes, provider_symbol + 16);
+            }
             resolved = if (relocation_type == 18)
                 std.math.add(u64, @as(u64, provider_index) * tls_stride, symbol_value) catch return error.InvalidSymbolRelocation
             else
@@ -1458,6 +1464,11 @@ fn applySymbolTable(consumer: []const u8, consumer_base: u64, consumer_module: u
             serial.write("\n");
             return error.DynamicSymbolMissing;
         };
+        if (relocation_type == 5) {
+            try copyMapped(mappings, target, copy_source orelse return error.InvalidSymbolRelocation, copy_size);
+            symbol_relocations = saturatingAdd(symbol_relocations, 1);
+            continue;
+        }
         const addend: i64 = @bitCast(read64From(consumer, item + 16));
         const value = if (relocation_type == 1 or relocation_type == 18) symbol_value +% @as(u64, @bitCast(addend)) else symbol_value;
         try writeMapped64(mappings, target, value);
@@ -1758,6 +1769,25 @@ fn writeMapped64(mappings: []const Mapping, virtual: u64, value: u64) !void {
         const target_address = std.math.add(u64, mapping.physical, offset) catch return error.RelocationTargetMissing;
         const target: *u8 = @ptrFromInt(target_address);
         target.* = byte;
+    }
+}
+
+fn copyMapped(mappings: []const Mapping, destination: u64, source: u64, size: u64) !void {
+    var index: u64 = 0;
+    while (index < size) : (index += 1) {
+        const source_address = std.math.add(u64, source, index) catch return error.RelocationTargetMissing;
+        const source_page = source_address & ~(page_size - 1);
+        const source_offset = source_address - source_page;
+        const source_mapping = findMapping(mappings, source_page) orelse return error.RelocationTargetMissing;
+        if (!source_mapping.resident) return error.RelocationTargetMissing;
+        const source_ptr: *const u8 = @ptrFromInt(std.math.add(u64, source_mapping.physical, source_offset) catch return error.RelocationTargetMissing);
+        const destination_address = std.math.add(u64, destination, index) catch return error.RelocationTargetMissing;
+        const destination_page = destination_address & ~(page_size - 1);
+        const destination_offset = destination_address - destination_page;
+        const destination_mapping = findMapping(mappings, destination_page) orelse return error.RelocationTargetMissing;
+        if (!destination_mapping.resident) return error.RelocationTargetMissing;
+        const destination_ptr: *u8 = @ptrFromInt(std.math.add(u64, destination_mapping.physical, destination_offset) catch return error.RelocationTargetMissing);
+        destination_ptr.* = source_ptr.*;
     }
 }
 
