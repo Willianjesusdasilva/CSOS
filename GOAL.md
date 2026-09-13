@@ -766,8 +766,10 @@ o próximo requisito real: ainda faltam no pacote as dependências transientes d
 Nix (`libarchive`, `libsodium`, Brotli, curl, SQLite, libgit2 e editline).
 Esse diagnóstico agora é reproduzível com `tools/audit-nix-runtime.ps1`.
 Após adicionar essas bibliotecas e `libunistring`, a resolução de nomes passa,
-mas o processo ainda encerra com `SIGSEGV` (código 139); o próximo requisito
-real é compatibilidade de ABI/loader, antes de tentar executar no kernel CSOS.
+mas o processo ainda encerra com `SIGSEGV` (código 139). O ELF também trazia
+um `RUNPATH` absoluto do host; `tools/patch-nix-rpath.ps1` agora o normaliza
+para `/nix/lib`. O próximo requisito real é compatibilidade de ABI/loader,
+antes de tentar executar no kernel CSOS.
 Isso ainda não conta como P4 concluído: o binário e os perfis precisam executar
 e sobreviver a reboot dentro do CSOS.
 

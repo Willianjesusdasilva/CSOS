@@ -540,6 +540,9 @@ fonte do Nix.
 Código de saída `3` na auditoria indica que todas as bibliotecas foram
 encontradas, mas o ELF falhou durante a inicialização (por exemplo, ABI/loader
 incompatível); isso deve ser resolvido antes do teste dentro do CSOS.
+Se o binário foi compilado com caminhos absolutos do host, execute
+`powershell -ExecutionPolicy Bypass -File .\tools\patch-nix-rpath.ps1` para
+normalizar o `RUNPATH` para `/nix/lib` antes da auditoria.
 
 Esse comando valida o ELF x86_64-musl e grava `MANIFEST.sha256`. O pacote é
 apenas um artefato de preparação; executar Nix no host não satisfaz o gate.
