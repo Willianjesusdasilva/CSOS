@@ -9,6 +9,9 @@ const max_fds = 32;
 const Kind = enum { unused, console, file, directory, device, epoll, eventfd };
 const Node = enum {
     root,
+    proc,
+    proc_self,
+    proc_stat,
     bin,
     dev,
     dri,
@@ -1038,6 +1041,12 @@ pub fn infoFd(fd: usize) !Info {
 }
 
 pub fn readLinkAt(directory_fd_in: i64, path: []const u8, output: []u8) !usize {
+    if (equal(path, "/proc/self/exe")) {
+        const target = "/nix/bin/nix";
+        const count = @min(output.len, target.len);
+        @memcpy(output[0..count], target[0..count]);
+        return count;
+    }
     const directory_fd = effectiveDirectoryFd(directory_fd_in);
     const node = try resolve(directory_fd, path);
     if (node != .drm_subsystem) return error.Invalid;
@@ -1134,6 +1143,9 @@ test "VFS formats FAT 8.3 names for directory records" {
 
 fn resolve(directory_fd: i64, path: []const u8) !Node {
     if (equal(path, "/") or equal(path, ".")) return .root;
+    if (equal(path, "/proc")) return .proc;
+    if (equal(path, "/proc/self")) return .proc_self;
+    if (equal(path, "/proc/stat")) return .proc_stat;
     if (equal(path, "/bin") or equal(path, "bin")) return .bin;
     if (equal(path, "/dev") or equal(path, "dev")) return .dev;
     if (equal(path, "/dev/null") or equal(path, "dev/null")) return .null_device;
@@ -1168,7 +1180,8 @@ fn resolve(directory_fd: i64, path: []const u8) !Node {
 
 fn nodeInfo(node: Node) Info {
     return switch (node) {
-        .root, .bin, .dev, .dri, .sys, .sys_dev, .sys_char, .drm_char_primary, .drm_char_render, .drm_device, .drm_device_drm, .fat_directory => .{ .mode = 0o040755, .size = 0, .directory = true },
+        .root, .bin, .dev, .dri, .sys, .sys_dev, .sys_char, .proc, .proc_self, .drm_char_primary, .drm_char_render, .drm_device, .drm_device_drm, .fat_directory => .{ .mode = 0o040755, .size = 0, .directory = true },
+        .proc_stat => .{ .mode = 0o100444, .size = "cpu 0 0 0 0 0 0 0 0 0 0\n\n".len, .directory = false },
         .busybox => .{ .mode = 0o100755, .size = busybox.len, .directory = false },
         .git_runtime => .{ .mode = 0o100755, .size = git_runtime.len, .directory = false },
         .hello => .{ .mode = 0o100644, .size = hello.len, .directory = false },
@@ -1367,6 +1380,7 @@ fn nodeData(node: Node) []const u8 {
         .drm_subsystem_device => &drm_subsystem_device_data,
         .drm_primary_uevent => "DEVNAME=dri/card0\n",
         .drm_render_uevent => "DEVNAME=dri/renderD128\n",
+        .proc_stat => "cpu 0 0 0 0 0 0 0 0 0 0\n\n",
         else => "",
     };
 }
