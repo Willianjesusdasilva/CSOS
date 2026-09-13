@@ -611,7 +611,9 @@ fn runImageWithWorkspace(
             const provider = providers[provider_initializer_index];
             serial.write("collecting shared initializer ");
             serial.writeDecimal(provider_initializer_index);
-            serial.write("\n");
+            serial.write(" (");
+            serial.write(dependency_names[provider_initializer_index]);
+            serial.write(")\n");
             try collectInitializers(provider.bytes, provider.program_offset, provider.program_entry_size, provider.program_count, provider.base, mappings[0..mapping_count.*], &initializers, &initializer_count);
         }
         try collectInitializers(program_image, program_offset, program_entry_size, program_count, load_bias, mappings[0..mapping_count.*], &initializers, &initializer_count);
