@@ -522,6 +522,15 @@ TLS
 certificados
 ```
 
+O runtime target pode ser empacotado e auditado antes da integração no CSOS:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\package-nix-runtime.ps1
+```
+
+Esse comando valida o ELF x86_64-musl e grava `MANIFEST.sha256`. O pacote é
+apenas um artefato de preparação; executar Nix no host não satisfaz o gate.
+
 Depois:
 
 ```bash

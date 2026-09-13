@@ -758,6 +758,12 @@ Após reboot, `/nix/store` e profiles devem permanecer válidos.
 * [ ] requisição HTTPS real funciona.
 * [ ] reboot preserva store/profile.
 
+Estado atual: o runtime Nix x86_64-musl foi empacotado com manifesto
+reprodutível (`tools/package-nix-runtime.ps1`, 317 arquivos / 657117738 bytes)
+e o layout persistente `/nix` foi validado no host. Isso ainda não conta como
+P4 concluído: o binário e os perfis ainda precisam executar e sobreviver a
+reboot dentro do CSOS.
+
 Quando esses itens funcionarem:
 
 > P4 está concluída.
