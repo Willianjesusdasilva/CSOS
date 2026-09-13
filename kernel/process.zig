@@ -1488,7 +1488,24 @@ fn applySymbolTable(consumer: []const u8, consumer_base: u64, consumer_module: u
         var resolved: ?u64 = null;
         var copy_source: ?u64 = null;
         var copy_size: u64 = 0;
+        // A relocation may reference a symbol defined by the consumer itself
+        // (common for the main executable's global objects).  Resolve these
+        // before searching shared providers; leaving them as zero corrupts
+        // C++ static objects before the first userspace command runs.
+        const consumer_symbol_shndx = read16From(consumer, consumer_symbol + 6);
+        if (consumer_symbol_shndx != 0) {
+            const consumer_symbol_value = read64From(consumer, consumer_symbol + 8);
+            resolved = if (relocation_type == 16)
+                @as(u64, if (consumer_module == 0) 1 else consumer_module)
+            else if (relocation_type == 17)
+                consumer_symbol_value
+            else if (relocation_type == 18)
+                consumer_symbol_value
+            else
+                std.math.add(u64, consumer_base, consumer_symbol_value) catch return error.InvalidSymbolRelocation;
+        }
         for (providers, 0..) |provider, provider_index| {
+            if (resolved != null) break;
             const supplied = supplied_symbols[provider_index];
             const provider_symbol_index = (try findProviderSymbol(provider.bytes, supplied, name)) orelse continue;
             if (required_version) |required| {
