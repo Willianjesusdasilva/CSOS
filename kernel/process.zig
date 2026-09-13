@@ -198,6 +198,31 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
     return runImageWithWorkspace(kernel_root, pages, arguments, &.{}, workspace, false);
 }
 
+/// Load an ELF directly from a mounted filesystem volume and execute it using
+/// the normal CSOS loader.  This is the bridge needed for /nix applications:
+/// the kernel does not embed or special-case the Nix binary.
+pub fn runFilesystemImage(kernel_root: u64, pages: *physical.Allocator, path: []const u8, arguments: []const []const u8) !void {
+    const fd = try vfs.openAt(-100, path, 0);
+    defer vfs.close(fd) catch {};
+    const info = try vfs.infoFd(fd);
+    if (info.directory or info.size == 0 or info.size > max_shared_object_size) return error.InvalidFilesystemImage;
+    const page_count = (info.size + page_size - 1) / page_size;
+    const buffer = pages.allocate(page_count) orelse return error.OutOfMemory;
+    defer pages.release(buffer, page_count) catch {};
+    const bytes: [*]u8 = @ptrFromInt(buffer);
+    const image_buffer = bytes[0..@intCast(info.size)];
+    var offset: usize = 0;
+    while (offset < info.size) {
+        const count = try vfs.pread(fd, image_buffer[offset..], offset);
+        if (count == 0) return error.ShortFilesystemImage;
+        offset += count;
+    }
+    const saved_image = image;
+    image = image_buffer;
+    defer image = saved_image;
+    return runImage(kernel_root, pages, arguments);
+}
+
 /// Load an image with an explicit environment.  The ordinary boot probes use
 /// an empty environment, while execve callers can preserve the environment
 /// supplied by the parent instead of relying on a libc-specific fallback.
@@ -434,7 +459,24 @@ fn runImageWithWorkspace(
                 "WPEFDO  SO1"
             else
                 dependency;
-            const dependency_info = vfs.infoAt(-100, dependency_path) catch |err| {
+            var nix_dependency_buffer: [256]u8 = undefined;
+            var resolved_dependency_path = dependency_path;
+            const dependency_info = vfs.infoAt(-100, resolved_dependency_path) catch |err| blk: {
+                // Nix binaries conventionally carry bare SONAMEs.  Their
+                // store image is mounted at /nix, so retry those names in
+                // the mounted library directory before failing the loader.
+                if (err == error.NotFound and dependency_path.len + 9 < nix_dependency_buffer.len) {
+                    const prefix = "/nix/lib/";
+                    @memcpy(nix_dependency_buffer[0..prefix.len], prefix);
+                    @memcpy(nix_dependency_buffer[prefix.len .. prefix.len + dependency_path.len], dependency_path);
+                    resolved_dependency_path = nix_dependency_buffer[0 .. prefix.len + dependency_path.len];
+                    break :blk vfs.infoAt(-100, resolved_dependency_path) catch |fallback_err| {
+                        serial.write("userspace missing Nix shared object: ");
+                        serial.write(dependency);
+                        serial.write("\n");
+                        return fallback_err;
+                    };
+                }
                 serial.write("userspace missing shared object: ");
                 serial.write(dependency);
                 serial.write(" (");
@@ -448,7 +490,7 @@ fn runImageWithWorkspace(
             dependency_ranges[dependency_count] = .{ .address = dependency_address, .pages = dependency_pages };
             dependency_count += 1;
             const dependency_bytes: [*]u8 = @ptrFromInt(dependency_address);
-            const dependency_file = try vfs.openAt(-100, dependency_path, 0);
+            const dependency_file = try vfs.openAt(-100, resolved_dependency_path, 0);
             var dependency_read: usize = 0;
             while (dependency_read < dependency_info.size) {
                 const count = vfs.pread(dependency_file, dependency_bytes[dependency_read..@intCast(dependency_info.size)], dependency_read) catch |err| {
