@@ -672,7 +672,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         450 => uiChannelCreate(),
         451 => uiChannelSend(arg1, arg2, arg3),
         452 => uiChannelReceive(arg1, arg2, arg3),
-        102, 104 => 0,
+        102, 104, 107, 108 => 0,
         105, 106 => if (arg1 == 0) 0 else errno(1),
         112 => setSid(),
         113 => setRegId(arg1, arg2),

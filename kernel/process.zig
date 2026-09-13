@@ -220,7 +220,13 @@ pub fn runFilesystemImage(kernel_root: u64, pages: *physical.Allocator, path: []
     const saved_image = image;
     image = image_buffer;
     defer image = saved_image;
-    return runImage(kernel_root, pages, arguments);
+    const environment = [_][]const u8{
+        "HOME=/home",
+        "USER=root",
+        "LOGNAME=root",
+        "PATH=/bin:/usr/bin:/nix/bin",
+    };
+    return runImageWithEnvironment(kernel_root, pages, arguments, &environment);
 }
 
 /// Load an image with an explicit environment.  The ordinary boot probes use
@@ -1451,13 +1457,7 @@ fn applySymbolTable(consumer: []const u8, consumer_base: u64, consumer_module: u
         const info = read64From(consumer, item + 8);
         const relocation_type: u32 = @truncate(info);
         if (relocation_type == 8 and (info >> 32) == 0) continue;
-        if (relocation_type == 16) {
-            const module_id: u64 = if (consumer_module == 0) 1 else consumer_module;
-            try writeMapped64(mappings, target, module_id);
-            tls_relocations = saturatingAdd(tls_relocations, 1);
-            continue;
-        }
-        if (relocation_type != 1 and relocation_type != 5 and relocation_type != 6 and relocation_type != 7 and relocation_type != 17 and relocation_type != 18) {
+        if (relocation_type != 1 and relocation_type != 5 and relocation_type != 6 and relocation_type != 7 and relocation_type != 16 and relocation_type != 17 and relocation_type != 18) {
             serial.write("unsupported dynamic relocation: ");
             serial.writeDecimal(relocation_type);
             serial.write("\n");
@@ -1465,6 +1465,12 @@ fn applySymbolTable(consumer: []const u8, consumer_base: u64, consumer_module: u
         }
         const symbol_index: u32 = @truncate(info >> 32);
         if (symbol_index >= wanted.symbol_count) return error.InvalidSymbolRelocation;
+        if (relocation_type == 16 and symbol_index == 0) {
+            const module_id: u64 = if (consumer_module == 0) 1 else consumer_module;
+            try writeMapped64(mappings, target, module_id);
+            tls_relocations = saturatingAdd(tls_relocations, 1);
+            continue;
+        }
         const consumer_symbol_offset = std.math.add(u64, wanted.symbol_file, std.math.mul(u64, symbol_index, 24) catch return error.InvalidSymbolRelocation) catch return error.InvalidSymbolRelocation;
         const consumer_symbol: usize = std.math.cast(usize, consumer_symbol_offset) orelse return error.InvalidSymbolRelocation;
         const name_offset = read32From(consumer, consumer_symbol);
@@ -1484,11 +1490,17 @@ fn applySymbolTable(consumer: []const u8, consumer_base: u64, consumer_module: u
             const provider_symbol_offset = std.math.add(u64, supplied.symbol_file, std.math.mul(u64, provider_symbol_index, 24) catch return error.InvalidSymbolRelocation) catch return error.InvalidSymbolRelocation;
             const provider_symbol: usize = std.math.cast(usize, provider_symbol_offset) orelse return error.InvalidSymbolRelocation;
             const symbol_value = read64From(provider.bytes, provider_symbol + 8);
+            if (relocation_type == 16) {
+                resolved = @as(u64, provider_index + 1);
+                break;
+            }
             if (relocation_type == 5) {
                 copy_source = std.math.add(u64, provider.base, symbol_value) catch return error.InvalidSymbolRelocation;
                 copy_size = read64From(provider.bytes, provider_symbol + 16);
             }
-            resolved = if (relocation_type == 17 or relocation_type == 18)
+            resolved = if (relocation_type == 17)
+                symbol_value
+            else if (relocation_type == 18)
                 std.math.add(u64, @as(u64, provider_index) * tls_stride, symbol_value) catch return error.InvalidSymbolRelocation
             else
                 std.math.add(u64, provider.base, symbol_value) catch return error.InvalidSymbolRelocation;
@@ -1507,9 +1519,14 @@ fn applySymbolTable(consumer: []const u8, consumer_base: u64, consumer_module: u
             continue;
         }
         const addend: i64 = @bitCast(read64From(consumer, item + 16));
-        const value = if (relocation_type == 1 or relocation_type == 17 or relocation_type == 18) symbol_value +% @as(u64, @bitCast(addend)) else symbol_value;
-        if (relocation_type == 17) try writeMapped32(mappings, target, @truncate(value)) else try writeMapped64(mappings, target, value);
-        symbol_relocations = saturatingAdd(symbol_relocations, 1);
+        const value = if (relocation_type == 16)
+            resolved.?
+        else if (relocation_type == 1 or relocation_type == 17 or relocation_type == 18)
+            symbol_value +% @as(u64, @bitCast(addend))
+        else
+            symbol_value;
+        try writeMapped64(mappings, target, value);
+        if (relocation_type == 16) tls_relocations = saturatingAdd(tls_relocations, 1) else symbol_relocations = saturatingAdd(symbol_relocations, 1);
         if (relocation_type == 1 or relocation_type == 6) data_symbol_relocations = saturatingAdd(data_symbol_relocations, 1);
     }
 }
