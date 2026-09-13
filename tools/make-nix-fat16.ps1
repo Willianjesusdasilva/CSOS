@@ -45,6 +45,7 @@ $command += "; mcopy -o -i '$outputWsl' `$root/usr/lib/libcares.so.2 ::/lib/LIBC
 $command += "; mcopy -o -i '$outputWsl' `$root/usr/lib/libnghttp2.so.14 ::/lib/NGHTTP2.SO1"
 $command += "; mcopy -o -i '$outputWsl' `$root/usr/lib/libidn2.so.0 ::/lib/LIBIDN2.SO0"
 $command += "; mcopy -o -i '$outputWsl' `$root/usr/lib/libpsl.so.5 ::/lib/LIBPSL.SO5"
+$command += "; mcopy -o -i '$outputWsl' `$root/usr/lib/libssl.so.3 ::/lib/LIBSSL.SO3"
 $command += "; mcopy -o -i '$outputWsl' `$root/usr/lib/libz.so.1 ::/lib/LIBZ.SO1"
 $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($command))
 & wsl.exe -d Ubuntu -- bash -lc "echo $encoded | base64 -d | bash"
