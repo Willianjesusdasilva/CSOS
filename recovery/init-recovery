@@ -65,7 +65,10 @@ if /usr/bin/busybox grep -q recovery-ssh /proc/cmdline 2>/dev/null; then
     /usr/bin/busybox modprobe e1000e 2>/dev/null || true
     /usr/bin/busybox modprobe e1000 2>/dev/null || true
     /usr/bin/busybox modprobe virtio_net 2>/dev/null || true
-    for module in /usr/lib/modules/*/kernel/drivers/net/virtio_net.ko; do
+    for module in \
+        /usr/lib/modules/*/kernel/net/core/failover.ko \
+        /usr/lib/modules/*/kernel/drivers/net/net_failover.ko \
+        /usr/lib/modules/*/kernel/drivers/net/virtio_net.ko; do
         [ -f "$module" ] && /usr/bin/busybox insmod "$module" 2>/dev/null || true
     done
     /usr/bin/busybox udhcpc -q -n -i eth0 2>/dev/null || true
