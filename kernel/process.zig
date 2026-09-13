@@ -1495,6 +1495,10 @@ fn applySymbolTable(consumer: []const u8, consumer_base: u64, consumer_module: u
         const consumer_symbol_shndx = read16From(consumer, consumer_symbol + 6);
         if (consumer_symbol_shndx != 0) {
             const consumer_symbol_value = read64From(consumer, consumer_symbol + 8);
+            if (relocation_type == 5) {
+                copy_source = std.math.add(u64, consumer_base, consumer_symbol_value) catch return error.InvalidSymbolRelocation;
+                copy_size = read64From(consumer, consumer_symbol + 16);
+            }
             resolved = if (relocation_type == 16)
                 @as(u64, if (consumer_module == 0) 1 else consumer_module)
             else if (relocation_type == 17)
