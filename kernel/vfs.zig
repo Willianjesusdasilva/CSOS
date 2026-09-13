@@ -11,6 +11,7 @@ const Node = enum {
     root,
     proc,
     proc_self,
+    proc_exe,
     proc_stat,
     bin,
     dev,
@@ -1145,6 +1146,7 @@ fn resolve(directory_fd: i64, path: []const u8) !Node {
     if (equal(path, "/") or equal(path, ".")) return .root;
     if (equal(path, "/proc")) return .proc;
     if (equal(path, "/proc/self")) return .proc_self;
+    if (equal(path, "/proc/self/exe") or equal(path, "proc/self/exe")) return .proc_exe;
     if (equal(path, "/proc/stat")) return .proc_stat;
     if (equal(path, "/bin") or equal(path, "bin")) return .bin;
     if (equal(path, "/dev") or equal(path, "dev")) return .dev;
@@ -1182,6 +1184,7 @@ fn nodeInfo(node: Node) Info {
     return switch (node) {
         .root, .bin, .dev, .dri, .sys, .sys_dev, .sys_char, .proc, .proc_self, .drm_char_primary, .drm_char_render, .drm_device, .drm_device_drm, .fat_directory => .{ .mode = 0o040755, .size = 0, .directory = true },
         .proc_stat => .{ .mode = 0o100444, .size = "cpu 0 0 0 0 0 0 0 0 0 0\n\n".len, .directory = false },
+        .proc_exe => .{ .mode = 0o120777, .size = "/nix/bin/nix".len, .directory = false },
         .busybox => .{ .mode = 0o100755, .size = busybox.len, .directory = false },
         .git_runtime => .{ .mode = 0o100755, .size = git_runtime.len, .directory = false },
         .hello => .{ .mode = 0o100644, .size = hello.len, .directory = false },
