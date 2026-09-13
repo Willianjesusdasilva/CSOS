@@ -545,7 +545,7 @@ fn runImageWithWorkspace(
                     tls_virtual > std.math.maxInt(u64) - shared_base) return error.InvalidTlsSegment;
                 const module_tls = tls_address + tls_module_offset;
                 musl_bootstrap.images[provider_count] = .{
-                    .image = shared_base + tls_virtual,
+                    .image = module_tls,
                     .file_size = file_size,
                     .memory_size = memory_size,
                     .alignment = read64At(header + 48),
