@@ -233,6 +233,7 @@ var drm_syncobjs: [max_drm_syncobjs]DrmSyncobj = .{DrmSyncobj{}} ** max_drm_sync
 const socket_fd_base: u64 = 256;
 var sockets: [32]Socket = .{Socket{}} ** 32;
 var stdio_sockets: [3]?usize = .{ null, null, null };
+var signal_actions: [64][32]u8 = .{.{0} ** 32} ** 64;
 var unknown_seen: [512]bool = .{false} ** 512;
 pub export var syscall_kernel_rsp: u64 = 0;
 pub export var syscall_user_rsp: u64 = 0;
@@ -444,6 +445,7 @@ pub fn configure(base: u64, size: u64, stack: u64, stack_length: u64, initial_br
     user_futex_wakes = 0;
     stdio_sockets = .{ null, null, null };
     sockets = .{Socket{}} ** sockets.len;
+    signal_actions = .{.{0} ** 32} ** 64;
     user_base = base;
     user_size = size;
     stack_base = stack;
@@ -659,7 +661,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         10 => mprotect(arg1, arg2, arg3),
         11 => munmap(arg1, arg2),
         12 => brk(arg1),
-        13 => rtSigaction(arg3),
+        13 => rtSigaction(arg1, arg2, arg3, arg4),
         14 => rtSigprocmask(arg3, arg4),
         // Linux ioctl's command is unsigned int. musl passes its signed int
         // API argument sign-extended; upper register bits are not command bits.
@@ -832,11 +834,18 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
     };
 }
 
-fn rtSigaction(old_action: u64) u64 {
-    if (old_action == 0) return 0;
-    if (!validUserSlice(old_action, 32)) return errno(14);
-    const bytes: [*]u8 = @ptrFromInt(old_action);
-    @memset(bytes[0..32], 0);
+fn rtSigaction(signum: u64, new_action: u64, old_action: u64, sigset_size: u64) u64 {
+    if (signum == 0 or signum >= signal_actions.len or sigset_size != 8) return errno(22);
+    if (new_action != 0 and !validUserSlice(new_action, 32)) return errno(14);
+    if (old_action != 0 and !validUserSlice(old_action, 32)) return errno(14);
+    if (old_action != 0) {
+        const bytes: [*]u8 = @ptrFromInt(old_action);
+        @memcpy(bytes[0..32], &signal_actions[signum]);
+    }
+    if (new_action != 0) {
+        const bytes: [*]const u8 = @ptrFromInt(new_action);
+        @memcpy(&signal_actions[signum], bytes[0..32]);
+    }
     return 0;
 }
 
@@ -3287,7 +3296,7 @@ fn poll(address: u64, count: u64, timeout: i64) u64 {
         // A negative pollfd is ignored, rather than reported as POLLNVAL.
         if (@as(i32, @bitCast(fd)) < 0) {
             revents = 0;
-        } else if (fd == 0) {
+        } else if (fd == 0 and socketIndex(fd) == null) {
             if (stdin_hook != null and (events & 1) != 0) revents |= 1;
         } else if (socketIndex(fd)) |socket_index| {
             if ((events & 1) != 0 and sockets[socket_index].connection != null) revents |= 1;
