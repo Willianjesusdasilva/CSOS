@@ -547,6 +547,10 @@ Também foi validada uma closure nativa Alpine (`nix-2.31.5-r3`) usando
 `apk-tools-static`; ela passa a auditoria musl isolada. Essa closure ainda
 precisa ser transportada para o VFS/FAT e executada dentro do CSOS para
 atender o gate P4.
+Para reproduzir a resolução da closure, use:
+`powershell -ExecutionPolicy Bypass -File .\tools\stage-alpine-nix-closure.ps1 -ApkStatic .\zig-out\apk-static\apk.static`.
+O comando gera um tar preservando os links simbólicos necessários ao estágio
+posterior no VFS.
 
 Esse comando valida o ELF x86_64-musl e grava `MANIFEST.sha256`. O pacote é
 apenas um artefato de preparação; executar Nix no host não satisfaz o gate.
