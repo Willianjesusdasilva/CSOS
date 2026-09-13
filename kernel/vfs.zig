@@ -955,6 +955,12 @@ pub fn infoAt(directory_fd_in: i64, path: []const u8) !Info {
     var trimmed_length = path.len;
     while (trimmed_length > 1 and path[trimmed_length - 1] == '/') : (trimmed_length -= 1) {}
     if (trimmed_length != path.len) return infoAt(directory_fd_in, path[0..trimmed_length]);
+    if (nix_disk != null and path.len >= 4 and std.mem.startsWith(u8, path, "/nix") and
+        (path.len == 4 or path[4] == '/')) {
+        const fd = try openAt(directory_fd_in, path, 0);
+        defer close(fd) catch {};
+        return infoFd(fd);
+    }
     const directory_fd = effectiveDirectoryFd(directory_fd_in);
     if (directory_fd >= 3 and @as(usize, @intCast(directory_fd)) < descriptors.len and
         descriptors[@intCast(directory_fd)].node == .fat_directory and path.len != 0 and path[0] != '/' and
@@ -1294,6 +1300,9 @@ fn runtimeLibraryFatAlias(path: []const u8) ?[11]u8 {
     // Alpine Nix's first shared dependency exceeds 8.3; mtools stores it as
     // the deterministic short alias below.
     if (equal(name, "libnixutil.so")) return "LIBNIX~1SO ".*;
+    if (equal(name, "libnixstore.so")) return "NIXSTORE SO ".*;
+    if (equal(name, "libnixexpr.so")) return "NIXEXPR SO ".*;
+    if (equal(name, "libnixcmd.so")) return "NIXCMD  SO ".*;
     if (std.mem.startsWith(u8, name, "libWPEWebKit-2.0.so")) return "WEBKIT  SO1".*;
     if (std.mem.startsWith(u8, name, "libWPEBackend-fdo-1.0.so")) return "WPEFDO  SO1".*;
     return null;
