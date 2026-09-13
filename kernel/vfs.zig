@@ -1323,6 +1323,7 @@ fn runtimeLibraryFatAlias(path: []const u8) ?[11]u8 {
     if (equal(name, "libboost_context.so.1.84.0")) return "BOOSTCONSO1".*;
     if (equal(name, "libboost_iostreams.so.1.84.0")) return "BOOSTIO SO1".*;
     if (equal(name, "libboost_url.so.1.84.0")) return "BOOSTURLSO1".*;
+    if (equal(name, "libseccomp.so.2")) return "LIBSECC SO2".*;
     if (std.mem.startsWith(u8, name, "libWPEWebKit-2.0.so")) return "WEBKIT  SO1".*;
     if (std.mem.startsWith(u8, name, "libWPEBackend-fdo-1.0.so")) return "WPEFDO  SO1".*;
     return null;
