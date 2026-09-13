@@ -374,11 +374,12 @@ antes de solicitar `execveat`; o próximo requisito é completar esse contrato
 de spawn antes de declarar o pull funcional.
 
 O loader agora aceita também `execveat(..., AT_EMPTY_PATH)`, usado pelo
-`fexecve` do Git. Leituras bloqueantes em pipes locais agora suspendem o
-processo até haver dados ou EOF e retomam no workspace correto; o runtime
-Git completo continua alcançando `CSOS Git runtime ready` no QEMU. Ainda falta
-confirmar o `git pull` real, a retomada do parent após o spawn aninhado e a
-troca completa de dados pelo pipe.
+`fexecve` do Git. Pipes duplicados para o descritor 0 passam pelo namespace de
+sockets, e `poll(..., -1)` cede a CPU corretamente; o runtime Git completo
+continua alcançando `CSOS Git runtime ready` no QEMU. O probe de transporte
+local ainda termina em `remote end hung up unexpectedly`, sem completar a
+troca de dados; falta fechar esse protocolo antes do `git pull` real, reboot e
+uso da nova revisão.
 
 ---
 
