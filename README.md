@@ -259,6 +259,10 @@ powershell -ExecutionPolicy Bypass -File .\tools\run-recovery-qemu.ps1 `
 Para validar o Dropbear no Recovery, use `-Ssh` e espere o marcador
 `RECOVERY_SSH_READY`. O script sempre encerra o processo QEMU ao final.
 
+O caminho de restauração pode ser exercitado em uma cópia do disco com
+`recovery-seed-previous recovery-reset-previous`; o primeiro cria uma revisão
+de teste e o segundo executa `git reset --hard HEAD~1`.
+
 Instalações bare-metal destinadas ao desenvolvimento devem possuir um pequeno ambiente **Alpine Linux** independente.
 
 Exemplo de layout:

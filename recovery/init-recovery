@@ -37,6 +37,14 @@ if [ -f /mnt/csos/data/repo8/CSOSMAP.TXT ]; then
     echo RECOVERY_GIT_NAMES_RESTORED
 fi
 
+# The QEMU fixture can request a second empty revision so the destructive
+# recovery path is testable without modifying a user's real checkout.
+if /usr/bin/busybox grep -q recovery-seed-previous /proc/cmdline 2>/dev/null; then
+    /usr/bin/git -c user.name=CSOS -c user.email=csos@local \
+        --git-dir=/mnt/csos/data/repo8 --work-tree=/mnt/csos/system \
+        commit --allow-empty -m recovery-test >/tmp/recovery-seed 2>/tmp/recovery-seed-error || true
+fi
+
 if /usr/bin/busybox grep -q recovery-reset-previous /proc/cmdline 2>/dev/null; then
     if /usr/bin/git --git-dir=/mnt/csos/data/repo8 --work-tree=/mnt/csos/system reset --hard HEAD~1 >/tmp/recovery-reset 2>/tmp/recovery-reset-error; then
         echo RECOVERY_GIT_RESTORED
