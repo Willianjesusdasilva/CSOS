@@ -66,6 +66,7 @@ const LoaderWorkspace = struct {
     owned: [max_owned_ranges]OwnedRange = undefined,
     mapping_count: usize = 0,
     owned_count: usize = 0,
+    image_space: paging.AddressSpace = .{ .root = 0, .pages = undefined },
     address_space: ?*paging.AddressSpace = null,
     pages: ?*physical.Allocator = null,
     active_mappings: ?[]Mapping = null,
@@ -227,7 +228,8 @@ fn runImageWithWorkspace(
     const interpreter_path = try findInterpreter(program_offset, program_entry_size, program_count);
     const needed = try findNeeded(program_offset, program_entry_size, program_count);
 
-    var address_space = try paging.AddressSpace.init(kernel_root, pages);
+    workspace.image_space = try paging.AddressSpace.init(kernel_root, pages);
+    const address_space = &workspace.image_space;
     const owned = &workspace.owned;
     workspace.owned_count = 0;
     const owned_count = &workspace.owned_count;
@@ -264,7 +266,7 @@ fn runImageWithWorkspace(
         const segment_end = std.math.add(u64, virtual, memory_size) catch return error.InvalidElf;
         image_start = @min(image_start, virtual);
         image_end = @max(image_end, segment_end);
-        try loadSegment(&address_space, pages, mappings, mapping_count, owned, owned_count, virtual, file_offset, file_size, memory_size, (flags & 2) != 0, (flags & 1) != 0, true);
+        try loadSegment(address_space, pages, mappings, mapping_count, owned, owned_count, virtual, file_offset, file_size, memory_size, (flags & 2) != 0, (flags & 1) != 0, true);
     }
     if (mapping_count.* == 0 or entry < image_start or entry >= image_end) return error.InvalidElf;
     sortMappings(mappings[0..mapping_count.*]);
@@ -343,7 +345,7 @@ fn runImageWithWorkspace(
                 const memory_size = read64At(header + 40);
                 if (file_size > memory_size or file_offset > std.math.maxInt(u64) - file_size or file_offset + file_size > image.len or
                     virtual > std.math.maxInt(u64) - memory_size or memory_size == 0) return error.InvalidSharedObject;
-                try loadSegment(&address_space, pages, mappings, mapping_count, owned, owned_count, virtual, file_offset, file_size, memory_size, (flags & 2) != 0, (flags & 1) != 0, false);
+                try loadSegment(address_space, pages, mappings, mapping_count, owned, owned_count, virtual, file_offset, file_size, memory_size, (flags & 2) != 0, (flags & 1) != 0, false);
             }
             header_index = 0;
             while (header_index < shared_program_count) : (header_index += 1) {
@@ -366,7 +368,7 @@ fn runImageWithWorkspace(
                     .memory_size = memory_size,
                     .alignment = read64At(header + 48),
                 };
-                try loadSegment(&address_space, pages, mappings, mapping_count, owned, owned_count, module_tls, file_offset, file_size, memory_size, true, false, false);
+                try loadSegment(address_space, pages, mappings, mapping_count, owned, owned_count, module_tls, file_offset, file_size, memory_size, true, false, false);
                 tls_modules = saturatingAdd(tls_modules, 1);
             }
             providers[provider_count] = .{
@@ -456,7 +458,7 @@ fn runImageWithWorkspace(
                 virtual > std.math.maxInt(u64) - memory_size or memory_size == 0) return error.InvalidInterpreter;
             image_start = @min(image_start, virtual);
             image_end = @max(image_end, virtual + memory_size);
-                try loadSegment(&address_space, pages, mappings, mapping_count, owned, owned_count, virtual, file_offset, file_size, memory_size, (flags & 2) != 0, (flags & 1) != 0, false);
+                try loadSegment(address_space, pages, mappings, mapping_count, owned, owned_count, virtual, file_offset, file_size, memory_size, (flags & 2) != 0, (flags & 1) != 0, false);
         }
         sortMappings(mappings[0..mapping_count.*]);
         try applyRelativeRelocations(mappings[0..mapping_count.*], interpreter_base, interpreter_program_offset, interpreter_program_entry_size, interpreter_program_count, false);
@@ -489,8 +491,8 @@ fn runImageWithWorkspace(
     // pthread stack plus TLS. Its mapping must not be capped by the old
     // 4 MiB demo arena. Keep brk separate from the 64 MiB mmap arena.
     const mmap_arena_pages = 131072;
-    try mapAnonymous(&address_space, pages, owned, owned_count, break_base, arena_pages);
-    try mapAnonymous(&address_space, pages, owned, owned_count, mmap_address, mmap_arena_pages);
+    try mapAnonymous(address_space, pages, owned, owned_count, break_base, arena_pages);
+    try mapAnonymous(address_space, pages, owned, owned_count, mmap_address, mmap_arena_pages);
     const stack_pointer = try buildInitialStack(stack_pages, initial_stack_size, entry, interpreter_base, load_bias, program_offset, program_entry_size, program_count, arguments, environment, initializers[0..initializer_count], &musl_bootstrap);
     syscalls.configure(
         image_start,
@@ -502,7 +504,7 @@ fn runImageWithWorkspace(
         mmap_address,
         mmap_address + mmap_arena_pages * page_size,
     );
-    workspace.address_space = &address_space;
+    workspace.address_space = address_space;
     workspace.pages = pages;
     workspace.active_mappings = mappings[0..mapping_count.*];
     workspace.active_owned = owned[0..owned_count.*];
@@ -536,7 +538,7 @@ fn runImageWithWorkspace(
         const pause = syscalls.takePause() orelse break;
         lifecycle = .frozen;
         pause_count = saturatingAdd(pause_count, 1);
-        standby_pages = saturatingAdd(standby_pages, try discardCleanPages(&address_space, pages, mappings[0..mapping_count.*], owned[0..owned_count.*]));
+        standby_pages = saturatingAdd(standby_pages, try discardCleanPages(address_space, pages, mappings[0..mapping_count.*], owned[0..owned_count.*]));
         lifecycle = .standby;
         user_instruction = pause.instruction;
         user_stack = pause.stack;
