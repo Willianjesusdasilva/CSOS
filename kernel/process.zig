@@ -758,7 +758,7 @@ fn runImageWithWorkspace(
     // Keep the bootstrap image's eagerly-backed arena bounded so a Git
     // transport helper can coexist with its parent. The mmap syscall can
     // still reserve larger virtual ranges on demand.
-    const mmap_arena_pages: u64 = if (preserve_scheduler) 32768 else 65536;
+    const mmap_arena_pages: u64 = if (preserve_scheduler) 8192 else 65536;
     try mapAnonymous(address_space, pages, owned, owned_count, break_base, arena_pages);
     try mapAnonymous(address_space, pages, owned, owned_count, mmap_address, mmap_arena_pages);
     const stack_pointer = try buildInitialStack(stack_pages, initial_stack_size, entry, interpreter_base, load_bias, program_offset, program_entry_size, program_count, arguments, environment, initializers[0..initializer_count], &musl_bootstrap);
