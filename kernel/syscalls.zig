@@ -30,6 +30,7 @@ var execve_hook: ?*const fn (u64, u64, u64) callconv(.c) u64 = null;
 var stdin_hook: ?*const fn ([*]u8, usize) callconv(.c) usize = null;
 pub var console_write_hook: ?*const fn ([]const u8) void = null;
 var idle_hook: ?*const fn () callconv(.c) void = null;
+var initializer_step_hook: ?*const fn (u64) callconv(.c) void = null;
 var robust_head: u64 = 0;
 var robust_len: u64 = 0;
 var clear_tid_address: u64 = 0;
@@ -590,6 +591,10 @@ pub fn takePause() ?Pause {
     return result;
 }
 
+pub fn configureInitializerStep(hook: ?*const fn (u64) callconv(.c) void) void {
+    initializer_step_hook = hook;
+}
+
 export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, arg4: u64, arg5: u64, arg6: u64) callconv(.c) u64 {
     return switch (number) {
         0 => read(arg1, arg2, arg3),
@@ -678,6 +683,9 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         450 => uiChannelCreate(),
         451 => uiChannelSend(arg1, arg2, arg3),
         452 => uiChannelReceive(arg1, arg2, arg3),
+        // Internal PT_INTERP hook: refresh deferred COPY objects after an
+        // initializer has run. It has no effect for images without COPY data.
+        460 => if (initializer_step_hook) |hook| blk: { hook(arg1); break :blk 0; } else 0,
         102, 104, 107, 108 => 0,
         105, 106 => if (arg1 == 0) 0 else errno(1),
         112 => setSid(),

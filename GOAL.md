@@ -767,8 +767,10 @@ Nix (`libarchive`, `libsodium`, Brotli, curl, SQLite, libgit2 e editline).
 Esse diagnóstico agora é reproduzível com `tools/audit-nix-runtime.ps1`.
 A correção de `R_X86_64_DTPOFF64` agora permite que todos os construtores das
 45 bibliotecas sejam relocados e o processo alcança o marcador
-`Linux PT-INTERP loader ready` no QEMU. O próximo fault reproduzível ocorre no
-bootstrap de threads após `clone` (ainda `SIGSEGV`, código 139). O ELF também trazia
+`Linux PT-INTERP loader ready` no QEMU. O loader agora reaplica `R_X86_64_COPY`
+após cada initializer, com o slice de mappings final já ordenado; isso remove o
+page fault imediato observado após o marcador. O processo chega a `clone`, mas
+permanece sem concluir o próximo passo dentro do timeout do smoke test. O ELF também trazia
 um `RUNPATH` absoluto do host; `tools/patch-nix-rpath.ps1` agora o normaliza
 para `/nix/lib`. O próximo requisito real é compatibilidade de ABI/loader,
 antes de tentar executar no kernel CSOS.

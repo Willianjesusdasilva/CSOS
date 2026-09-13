@@ -53,6 +53,11 @@ const Provider = struct {
     program_count: u16,
     base: u64,
 };
+// COPY relocations are initially applied before constructors, as required by
+// ELF.  C++ globals may only become meaningful in their provider constructor,
+// so the interpreter asks the kernel to refresh these objects between init
+// calls while the provider mappings are still resident.
+const StagedCopy = struct { source: u64, destination: u64, size: u64 };
 const NeededList = struct {
     names: [max_shared_objects][]const u8 = undefined,
     count: usize = 0,
@@ -97,6 +102,15 @@ pub var tls_relocations: u64 = 0;
 pub var versioned_symbols: u64 = 0;
 pub const Lifecycle = enum { running, frozen, standby, resuming, finished };
 pub var lifecycle: Lifecycle = .finished;
+var staged_copies: [128]StagedCopy = undefined;
+var staged_copy_count: usize = 0;
+var staged_copy_mappings: []const Mapping = &[_]Mapping{};
+
+fn applyStagedCopies(_: u64) callconv(.c) void {
+    for (staged_copies[0..staged_copy_count]) |copy| {
+        copyMapped(staged_copy_mappings, copy.destination, copy.source, copy.size) catch return;
+    }
+}
 
 extern fn enter_user(entry: u64, stack: u64) callconv(.c) void;
 
@@ -598,6 +612,7 @@ fn runImageWithWorkspace(
             try applyRelativeRelocations(mappings[0..mapping_count.*], provider.base, provider.program_offset, provider.program_entry_size, provider.program_count, true);
         }
         image = program_image;
+        staged_copy_count = 0;
         try applySymbolRelocations(program_image, program_offset, program_entry_size, program_count, load_bias, 0, providers[0..provider_count], mappings[0..mapping_count.*], tls_offsets[0..provider_count]);
         for (providers[0..provider_count], 0..) |provider, provider_index| {
             try applySymbolRelocations(provider.bytes, provider.program_offset, provider.program_entry_size, provider.program_count, provider.base, provider_index + 1, providers[0..provider_count], mappings[0..mapping_count.*], tls_offsets[0..provider_count]);
@@ -668,6 +683,7 @@ fn runImageWithWorkspace(
         }
         sortMappings(mappings[0..mapping_count.*]);
         try applyRelativeRelocations(mappings[0..mapping_count.*], interpreter_base, interpreter_program_offset, interpreter_program_entry_size, interpreter_program_count, false);
+        staged_copy_mappings = mappings[0..mapping_count.*];
         interpreter_loads = saturatingAdd(interpreter_loads, 1);
         image = program_image;
     }
@@ -744,6 +760,7 @@ fn runImageWithWorkspace(
     syscalls.configureUserSlice(&validMappedUserSlice);
     syscalls.configureProcessWorkspaces(workspace.pool_id, &cloneProcessWorkspace, &activateProcessWorkspace, &releaseProcessWorkspace);
     syscalls.configureExecve(&acceptExecve);
+    syscalls.configureInitializerStep(if (staged_copy_count != 0) &applyStagedCopies else null);
     defer {
         lifecycle = .finished;
         cleanupChildWorkspaces(workspace, kernel_root);
@@ -760,6 +777,9 @@ fn runImageWithWorkspace(
         syscalls.configureUserSlice(null);
         syscalls.configureProcessWorkspaces(0, null, null, null);
         syscalls.configureExecve(null);
+        syscalls.configureInitializerStep(null);
+        staged_copy_count = 0;
+        staged_copy_mappings = &[_]Mapping{};
     }
     lifecycle = .running;
     syscalls.resetExitStatus();
@@ -1548,6 +1568,10 @@ fn applySymbolTable(consumer: []const u8, consumer_base: u64, consumer_module: u
             return error.DynamicSymbolMissing;
         };
         if (relocation_type == 5) {
+            if (consumer_module == 0 and staged_copy_count < staged_copies.len) {
+                staged_copies[staged_copy_count] = .{ .source = copy_source orelse return error.InvalidSymbolRelocation, .destination = target, .size = copy_size };
+                staged_copy_count += 1;
+            }
             try copyMapped(mappings, target, copy_source orelse return error.InvalidSymbolRelocation, copy_size);
             symbol_relocations = saturatingAdd(symbol_relocations, 1);
             continue;

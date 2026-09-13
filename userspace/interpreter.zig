@@ -71,6 +71,9 @@ pub export fn _start() callconv(.naked) noreturn {
         \\popq %%r15
         \\popq %%r14
         \\popq %%r12
+        \\movq $460, %%rax
+        \\movq %%rbx, %%rdi
+        \\syscall
         \\incq %%rbx
         \\cmpq %%r15, %%rbx
         \\jb 10b
