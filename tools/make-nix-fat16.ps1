@@ -38,6 +38,9 @@ $command += "; mcopy -o -i '$outputWsl' `$root/usr/lib/libexpat.so.1 ::/lib/LIBE
 $command += "; mcopy -o -i '$outputWsl' `$root/usr/lib/libzstd.so.1 ::/lib/LIBZSTD.SO1"
 $command += "; mcopy -o -i '$outputWsl' `$root/usr/lib/liblz4.so.1 ::/lib/LIBLZ4.SO1"
 $command += "; mcopy -o -i '$outputWsl' `$root/usr/lib/liblzma.so.5 ::/lib/LIBLZMA.SO5"
+$command += "; mcopy -o -i '$outputWsl' `$root/usr/lib/libtbb.so.12 ::/lib/LIBTBB.SO1"
+$command += "; mcopy -o -i '$outputWsl' `$root/usr/lib/libtbbmalloc.so.2 ::/lib/TBBMALLO.SO2"
+$command += "; mcopy -o -i '$outputWsl' `$root/usr/lib/libtbbmalloc_proxy.so.2 ::/lib/TBBPROX.SO2"
 $command += "; mcopy -o -i '$outputWsl' `$root/usr/lib/libz.so.1 ::/lib/LIBZ.SO1"
 $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($command))
 & wsl.exe -d Ubuntu -- bash -lc "echo $encoded | base64 -d | bash"
