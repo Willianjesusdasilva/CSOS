@@ -1336,6 +1336,7 @@ fn runtimeLibraryFatAlias(path: []const u8) ?[11]u8 {
     if (equal(name, "libtbb.so.12")) return "LIBTBB  SO1".*;
     if (equal(name, "libtbbmalloc.so.2")) return "TBBMALLOSO2".*;
     if (equal(name, "libtbbmalloc_proxy.so.2")) return "TBBPROX SO2".*;
+    if (equal(name, "libcares.so.2")) return "LIBCARESSO2".*;
     if (std.mem.startsWith(u8, name, "libWPEWebKit-2.0.so")) return "WEBKIT  SO1".*;
     if (std.mem.startsWith(u8, name, "libWPEBackend-fdo-1.0.so")) return "WPEFDO  SO1".*;
     return null;
