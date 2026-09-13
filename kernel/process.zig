@@ -1414,9 +1414,9 @@ fn applySymbolTable(consumer: []const u8, consumer_base: u64, consumer_module: u
         const info = read64From(consumer, item + 8);
         const relocation_type: u32 = @truncate(info);
         if (relocation_type == 8 and (info >> 32) == 0) continue;
-        if (relocation_type == 16 and (info >> 32) == 0) {
-            if (consumer_module == 0) return error.InvalidTlsModule;
-            try writeMapped64(mappings, target, consumer_module);
+        if (relocation_type == 16) {
+            const module_id: u64 = if (consumer_module == 0) 1 else consumer_module;
+            try writeMapped64(mappings, target, module_id);
             tls_relocations = saturatingAdd(tls_relocations, 1);
             continue;
         }
