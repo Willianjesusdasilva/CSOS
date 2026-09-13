@@ -315,8 +315,8 @@ fn cloneThread(flags: u64, stack: u64, parent_tid: u64, child_tid: u64, tls: u64
             .pid = @intCast(slot + 1), .clear_tid = child_tid,
             .workspace_id = user_threads[current_thread].workspace_id };
         user_threads[slot].stdio_sockets = user_threads[current_thread].stdio_sockets;
-        for (user_threads[slot].stdio_sockets) |alias| {
-            if (alias) |index| sockets[index].refs += 1;
+        for (&sockets) |*socket_entry| {
+            if (socket_entry.allocated) socket_entry.refs += 1;
         }
         const tid: u32 = @intCast(slot + 1);
         if (parent_tid != 0) {
@@ -1029,6 +1029,13 @@ fn releaseSocketRef(index: usize) void {
     if (sockets[index].peer_index) |peer| sockets[peer].peer_closed = true;
     if (sockets[index].connection) |*connection| if (network_stack) |stack| stack.tcpClose(connection) catch {};
     sockets[index] = .{};
+}
+
+pub fn closeOnExecSockets() void {
+    var index: usize = 0;
+    while (index < sockets.len) : (index += 1) {
+        if (sockets[index].allocated and sockets[index].close_on_exec) releaseSocketRef(index);
+    }
 }
 
 fn close(fd: u64) u64 {

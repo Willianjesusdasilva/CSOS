@@ -378,6 +378,9 @@ fn runExecRequest(kernel_root: u64, pages: *physical.Allocator, envelope: syscal
     if (envelope.workspace_id >= loader_workspaces.len) return error.InvalidExecWorkspace;
     const workspace = &loader_workspaces[envelope.workspace_id];
     if (!workspace.leased) return error.InvalidExecWorkspace;
+    // Linux closes O_CLOEXEC descriptors in the child before the replacement
+    // image starts; this EOF is how the parent detects a successful exec.
+    syscalls.closeOnExecSockets();
     const path = envelope.request.path[0..envelope.request.path_len];
     image = if (isGitExecutablePath(path))
         @embedFile("git_runtime_elf")
