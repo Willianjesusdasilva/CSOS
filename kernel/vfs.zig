@@ -1261,7 +1261,7 @@ fn nodeData(node: Node) []const u8 {
 
 fn isGitHelperPath(path: []const u8) bool {
     const helpers = [_][]const u8{
-        "git-fetch", "git-fetch-pack", "git-upload-pack", "git-receive-pack",
+        "git", "git-fetch", "git-fetch-pack", "git-upload-pack", "git-receive-pack",
         "git-merge", "git-merge-base", "git-commit-tree", "git-index-pack",
         "git-pack-objects", "git-unpack-objects", "git-rev-parse",
         "fetch", "maintenance", "/fetch", "/upload-pack", "/receive-pack",
