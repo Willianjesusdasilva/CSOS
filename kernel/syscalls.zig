@@ -242,7 +242,10 @@ const UserThread = struct {
     exit_status: u64 = 0,
     wait_child_pid: u64 = 0,
     wait_status: u64 = 0,
-    frame: [14]u64 = @splat(0),
+    // syscall_entry.S saves rcx, r11 and thirteen general registers before
+    // returning with sysretq; retain the complete fifteen-word frame when
+    // switching user threads.
+    frame: [15]u64 = @splat(0),
     rsp: u64 = 0, result: u64 = 0, fs: u64 = 0,
     workspace_id: u8 = 0,
     clear_tid: u64 = 0, wait_address: u64 = 0,
@@ -338,7 +341,7 @@ fn cloneThread(flags: u64, stack: u64, parent_tid: u64, child_tid: u64, tls: u64
 
 // Called while still on the syscall stack. Save the complete SYSRET frame;
 // cooperative scheduling switches only at yield, blocking wait and exit.
-export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
+export fn user_thread_resume(frame: *[15]u64, result: u64) callconv(.c) u64 {
     if (!user_threads_enabled) return result;
     const old = &user_threads[current_thread];
     old.frame = frame.*; old.rsp = syscall_user_rsp; old.result = result;
