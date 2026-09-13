@@ -534,6 +534,9 @@ do Nix (libarchive, libsodium, Brotli, curl, SQLite, libgit2 e editline); sem
 elas o ELF inicia o loader, mas não consegue resolver todos os símbolos.
 Para repetir essa verificação sem iniciar o QEMU, execute
 `powershell -ExecutionPolicy Bypass -File .\tools\audit-nix-runtime.ps1`.
+Dependências Alpine/musl previamente coletadas podem ser colocadas em
+`zig-out\nix-deps`; o empacotador as copia para `/nix/lib` sem alterar a árvore
+fonte do Nix.
 
 Esse comando valida o ELF x86_64-musl e grava `MANIFEST.sha256`. O pacote é
 apenas um artefato de preparação; executar Nix no host não satisfaz o gate.

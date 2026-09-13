@@ -1,6 +1,7 @@
 param(
     [string]$SourceDirectory = (Join-Path $PSScriptRoot '..\zig-out\nix-root\nix'),
-    [string]$OutputDirectory = (Join-Path $PSScriptRoot '..\zig-out\nix-runtime')
+    [string]$OutputDirectory = (Join-Path $PSScriptRoot '..\zig-out\nix-runtime'),
+    [string]$DependencyDirectory = (Join-Path $PSScriptRoot '..\zig-out\nix-deps')
 )
 
 $ErrorActionPreference = 'Stop'
@@ -57,6 +58,11 @@ $nixLib = Join-Path $payload 'lib'
 New-Item -ItemType Directory -Force -Path $nixLib | Out-Null
 Copy-Item -LiteralPath $muslLoader -Destination (Join-Path $nixLib 'ld-musl-x86_64.so.1') -Force
 Copy-Item -LiteralPath $muslLoader -Destination (Join-Path $nixLib 'libc.so') -Force
+if (Test-Path -LiteralPath $DependencyDirectory -PathType Container) {
+    Get-ChildItem -LiteralPath $DependencyDirectory -File -Recurse | ForEach-Object {
+        Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $nixLib $_.Name) -Force
+    }
+}
 
 $files = @(Get-ChildItem -LiteralPath $payload -Recurse -File | Sort-Object { $_.FullName.Substring($payload.Length + 1) })
 $bytes = [int64](($files | Measure-Object -Property Length -Sum).Sum)
