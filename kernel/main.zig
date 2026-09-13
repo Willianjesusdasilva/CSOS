@@ -583,7 +583,8 @@ pub fn start(info: BootInfo) noreturn {
         if (io_bytes[io_index] != @as(u8, @truncate(io_index ^ 0xa5))) panic("NVMe data mismatch");
     }
     serial.write("NVMe read/write ready\n");
-    var volume = fat16.Volume.mount(&storage, &pages) catch panic("FAT16 mount failed");
+    var system_namespace = storage.activeNamespace() catch panic("NVMe namespace view failed");
+    var volume = fat16.Volume.mount(&system_namespace, &pages) catch panic("FAT16 mount failed");
     const persistent_layout = seedPersistentFilesystem(&volume) catch |err| {
         serial.write("persistent filesystem seed error: ");
         serial.write(@errorName(err));

@@ -3,7 +3,7 @@ const nvme = @import("nvme");
 const physical = @import("physical");
 
 pub const Volume = struct {
-    storage: *nvme.Controller,
+    storage: *nvme.Controller.Namespace,
     buffer: u64,
     sectors_per_cluster: u8,
     fat_start: u32,
@@ -21,7 +21,7 @@ pub const Volume = struct {
         directory: bool = false,
     };
 
-    pub fn mount(storage: *nvme.Controller, pages: *physical.Allocator) !Volume {
+    pub fn mount(storage: *nvme.Controller.Namespace, pages: *physical.Allocator) !Volume {
         if (storage.block_size != 512) return error.UnsupportedSectorSize;
         const buffer = pages.allocate(1) orelse return error.OutOfMemory;
         errdefer pages.release(buffer, 1) catch {};
