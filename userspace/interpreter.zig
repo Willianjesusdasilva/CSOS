@@ -1,6 +1,6 @@
 pub export const message: [29]u8 = "Linux PT_INTERP loader ready\n".*;
 pub export const bootstrap_message: [24]u8 = "musl bootstrap returned\n".*;
-pub export const constructors_message: [18]u8 = "constructors begin\n".*;
+pub export const constructors_message: [19]u8 = "constructors begin\n".*;
 
 pub export fn _start() callconv(.naked) noreturn {
     asm volatile (
@@ -68,7 +68,7 @@ pub export fn _start() callconv(.naked) noreturn {
         \\movq $1, %%rax
         \\movq $1, %%rdi
         \\leaq constructors_message(%%rip), %%rsi
-        \\movq $18, %%rdx
+        \\movq $19, %%rdx
         \\syscall
         \\xorq %%rbx, %%rbx
         \\10: movq (%%r12), %%rdi
