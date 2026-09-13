@@ -260,6 +260,19 @@ fn activateProcessWorkspace(id: u8) callconv(.c) void {
     address_space.activate();
 }
 
+fn releaseProcessWorkspace(id: u8) callconv(.c) void {
+    if (id >= loader_workspaces.len) return;
+    const workspace = &loader_workspaces[id];
+    if (!workspace.leased or workspace.borrowed_owned) {
+        if (workspace.borrowed_owned) {
+            paging.activateRoot(workspace.image_space.root);
+            workspace.image_space.destroy();
+            workspace.* = .{};
+        }
+        return;
+    }
+}
+
 fn cleanupChildWorkspaces(parent: *LoaderWorkspace, kernel_root: u64) void {
     for (&loader_workspaces) |*child| {
         if (child == parent or !child.leased) continue;
@@ -582,7 +595,7 @@ fn runImageWithWorkspace(
     }
     syscalls.configureMmap(&protectMmap, &unmapMmap, &mapDevice);
     syscalls.configureUserSlice(&validMappedUserSlice);
-    syscalls.configureProcessWorkspaces(workspace.pool_id, &cloneProcessWorkspace, &activateProcessWorkspace);
+    syscalls.configureProcessWorkspaces(workspace.pool_id, &cloneProcessWorkspace, &activateProcessWorkspace, &releaseProcessWorkspace);
     defer {
         lifecycle = .finished;
         cleanupChildWorkspaces(workspace, kernel_root);
@@ -597,7 +610,7 @@ fn runImageWithWorkspace(
         workspace.owner_pid = 0;
         syscalls.configureMmap(null, null, null);
         syscalls.configureUserSlice(null);
-        syscalls.configureProcessWorkspaces(0, null, null);
+        syscalls.configureProcessWorkspaces(0, null, null, null);
     }
     lifecycle = .running;
     syscalls.resetExitStatus();

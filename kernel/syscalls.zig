@@ -256,6 +256,7 @@ var pending_clone: ?struct { slot: usize, stack: u64, tls: u64, process_child: b
 var thread_switch_requested: bool = false;
 var workspace_clone_hook: ?*const fn (u8, u32) callconv(.c) u16 = null;
 var workspace_activate_hook: ?*const fn (u8) callconv(.c) void = null;
+var workspace_release_hook: ?*const fn (u8) callconv(.c) void = null;
 const max_exec_arguments = 32;
 const max_exec_string = 256;
 pub const ExecRequest = struct {
@@ -415,6 +416,7 @@ pub fn configure(base: u64, size: u64, stack: u64, stack_length: u64, initial_br
     thread_switch_requested = false;
     workspace_clone_hook = null;
     workspace_activate_hook = null;
+    workspace_release_hook = null;
     execve_hook = null;
     user_futex_blocks = 0;
     user_futex_wakes = 0;
@@ -506,10 +508,12 @@ pub fn configureProcessWorkspaces(
     workspace_id: u8,
     clone_hook: ?*const fn (u8, u32) callconv(.c) u16,
     activate_hook: ?*const fn (u8) callconv(.c) void,
+    release_hook: ?*const fn (u8) callconv(.c) void,
 ) void {
     user_threads[0].workspace_id = workspace_id;
     workspace_clone_hook = clone_hook;
     workspace_activate_hook = activate_hook;
+    workspace_release_hook = release_hook;
 }
 
 pub fn configureConsole(read_hook: ?*const fn ([*]u8, usize) callconv(.c) usize, wait_hook: ?*const fn () callconv(.c) void) void {
@@ -3763,6 +3767,7 @@ fn wait4(pid: u64, status: u64, options: u64, usage: u64) u64 {
         if (pid > 0 and pid != ~@as(u64, 0) and child.pid != pid) continue;
         if (status != 0) @as(*align(1) u32, @ptrFromInt(status)).* = @truncate((child.exit_status & 0xff) << 8);
         const child_pid = child.pid;
+        if (workspace_release_hook) |hook| hook(child.workspace_id);
         child.* = .{};
         return child_pid;
     }
