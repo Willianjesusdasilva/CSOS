@@ -252,6 +252,19 @@ var current_thread: usize = 0;
 var current_pid: u32 = 1;
 var pending_clone: ?struct { slot: usize, stack: u64, tls: u64, process_child: bool } = null;
 var thread_switch_requested: bool = false;
+const max_exec_arguments = 32;
+const max_exec_string = 256;
+const ExecRequest = struct {
+    path: [max_exec_string]u8 = .{0} ** max_exec_string,
+    path_len: usize = 0,
+    argv: [max_exec_arguments][max_exec_string]u8 = .{.{0} ** max_exec_string} ** max_exec_arguments,
+    argv_lengths: [max_exec_arguments]u16 = .{0} ** max_exec_arguments,
+    argc: usize = 0,
+    envp: [max_exec_arguments][max_exec_string]u8 = .{.{0} ** max_exec_string} ** max_exec_arguments,
+    envp_lengths: [max_exec_arguments]u16 = .{0} ** max_exec_arguments,
+    envc: usize = 0,
+};
+var pending_exec: ?ExecRequest = null;
 pub var user_futex_blocks: u64 = 0;
 pub var user_futex_wakes: u64 = 0;
 
@@ -379,6 +392,7 @@ pub fn configure(base: u64, size: u64, stack: u64, stack_length: u64, initial_br
     current_pid = 1;
     user_threads[0].pid = 1;
     pending_clone = null;
+    pending_exec = null;
     thread_switch_requested = false;
     execve_hook = null;
     user_futex_blocks = 0;
@@ -3640,9 +3654,58 @@ fn pipe2(output: u64, flags: u64) u64 {
 /// Until that transition is wired, report the real Linux ENOSYS result after
 /// validating the pathname pointer instead of treating execve as unknown.
 fn execve(path: u64, argv: u64, envp: u64) u64 {
-    if (path == 0 or !validUserSlice(path, 1)) return errno(14);
+    var request = ExecRequest{};
+    request.path_len = copyExecString(path, &request.path) catch |err| return errno(execCopyErrno(err));
+    if (argv == 0 or !validUserSlice(argv, 8)) return errno(14);
+    request.argc = copyExecVector(argv, &request.argv, &request.argv_lengths) catch |err| return errno(execCopyErrno(err));
+    if (envp != 0) {
+        if (!validUserSlice(envp, 8)) return errno(14);
+        request.envc = copyExecVector(envp, &request.envp, &request.envp_lengths) catch |err| return errno(execCopyErrno(err));
+    }
+    pending_exec = request;
     if (execve_hook) |hook| return hook(path, argv, envp);
     return errno(38);
+}
+
+const ExecCopyError = error{ Fault, TooMany, TooLong };
+
+fn execCopyErrno(err: ExecCopyError) i64 {
+    return switch (err) {
+        error.Fault => 14, // EFAULT
+        error.TooMany, error.TooLong => 7, // E2BIG
+    };
+}
+
+fn copyExecString(address: u64, output: *[max_exec_string]u8) ExecCopyError!usize {
+    if (address == 0) return error.Fault;
+    var length: usize = 0;
+    while (length < max_exec_string) : (length += 1) {
+        const current = std.math.add(u64, address, length) catch return error.Fault;
+        if (!validUserSlice(current, 1)) return error.Fault;
+        const byte = @as(*const u8, @ptrFromInt(current)).*;
+        if (byte == 0) return length;
+        output[length] = byte;
+    }
+    return error.TooLong;
+}
+
+fn copyExecVector(address: u64, output: *[max_exec_arguments][max_exec_string]u8, lengths: *[max_exec_arguments]u16) ExecCopyError!usize {
+    var count: usize = 0;
+    while (count < max_exec_arguments) : (count += 1) {
+        const pointer_address = std.math.add(u64, address, count * 8) catch return error.Fault;
+        if (!validUserSlice(pointer_address, 8)) return error.Fault;
+        const pointer = read64(@as([*]const u8, @ptrFromInt(pointer_address)));
+        if (pointer == 0) return count;
+        const length = try copyExecString(pointer, &output[count]);
+        lengths[count] = @intCast(length);
+    }
+    return error.TooMany;
+}
+
+pub fn takeExecRequest() ?ExecRequest {
+    const request = pending_exec;
+    pending_exec = null;
+    return request;
 }
 
 pub fn configureExecve(hook: ?*const fn (u64, u64, u64) callconv(.c) u64) void {
