@@ -47,3 +47,4 @@ try {
 } finally {
     if (Test-Path -LiteralPath $flowDisk) { Remove-Item -LiteralPath $flowDisk -Force -ErrorAction SilentlyContinue }
 }
+exit 0

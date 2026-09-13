@@ -8,6 +8,15 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+# Debian/Alpine package extraction keeps the signed loader below its package
+# path.  Accept that reproducible staging location when the conventional
+# output name has not been copied yet.
+if (-not (Test-Path -LiteralPath $GrubEfi -PathType Leaf)) {
+    $fallback = Join-Path $PSScriptRoot '..\zig-out\recovery\grub-signed-data\usr\lib\grub\x86_64-efi-signed\grubx64.efi.signed'
+    if (Test-Path -LiteralPath $fallback -PathType Leaf) {
+        $GrubEfi = $fallback
+    }
+}
 foreach ($path in @($CsosEfi, $RecoveryKernel, $RecoveryInitramfs, $GrubEfi)) {
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Boot input not found: $path" }
 }
