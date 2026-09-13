@@ -770,6 +770,10 @@ mas o processo ainda encerra com `SIGSEGV` (código 139). O ELF também trazia
 um `RUNPATH` absoluto do host; `tools/patch-nix-rpath.ps1` agora o normaliza
 para `/nix/lib`. O próximo requisito real é compatibilidade de ABI/loader,
 antes de tentar executar no kernel CSOS.
+Como alternativa validada, a closure nativa Alpine (`nix-2.31.5-r3`) foi
+resolvida com `apk-tools-static`; com suas bibliotecas e aliases de soname, a
+auditoria isolada retorna `Nix runtime dependency audit: PASS`. O próximo gate
+é transportar essa closure para o VFS/FAT do CSOS e executar o binário lá.
 Isso ainda não conta como P4 concluído: o binário e os perfis precisam executar
 e sobreviver a reboot dentro do CSOS.
 
