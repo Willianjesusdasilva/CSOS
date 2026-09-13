@@ -64,6 +64,8 @@ done
 # recreate the two Dropbear ABI links in the Linux cpio staging tree.
 ln -sf libskarnet.so.2.15.1.0 "`$work/usr/lib/libskarnet.so.2.15"
 ln -sf libutmps.so.0.1.3.4 "`$work/usr/lib/libutmps.so.0.1"
+ln -sf libz.so.1.3.2 "`$work/usr/lib/libz.so.1"
+ln -sf libzstd.so.1.5.7 "`$work/usr/lib/libzstd.so.1"
 cp -p "`$script" "`$work/init-recovery"
 chmod 755 "`$work/init-recovery"
 cd "`$work"
