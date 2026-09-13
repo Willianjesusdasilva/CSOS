@@ -185,7 +185,7 @@ pub fn runRadvLoaderProbe(kernel_root: u64, pages: *physical.Allocator) !void {
 }
 
 fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []const u8) !void {
-    return runImageWithEnvironment(kernel_root, pages, arguments, &.{});
+    return runImageWithWorkspace(kernel_root, pages, arguments, &.{}, &loader_workspace);
 }
 
 /// Load an image with an explicit environment.  The ordinary boot probes use
@@ -196,6 +196,16 @@ fn runImageWithEnvironment(
     pages: *physical.Allocator,
     arguments: []const []const u8,
     environment: []const []const u8,
+) !void {
+    return runImageWithWorkspace(kernel_root, pages, arguments, environment, &loader_workspace);
+}
+
+fn runImageWithWorkspace(
+    kernel_root: u64,
+    pages: *physical.Allocator,
+    arguments: []const []const u8,
+    environment: []const []const u8,
+    workspace: *LoaderWorkspace,
 ) !void {
     if (image.len < 64 or !isElf()) return error.InvalidElf;
     const elf_type = read16(16);
@@ -215,14 +225,14 @@ fn runImageWithEnvironment(
     const needed = try findNeeded(program_offset, program_entry_size, program_count);
 
     var address_space = try paging.AddressSpace.init(kernel_root, pages);
-    const owned = &loader_workspace.owned;
+    const owned = &workspace.owned;
     var owned_count: usize = 0;
     defer {
         paging.activateRoot(kernel_root);
         address_space.destroy();
         releaseOwned(pages, owned[0..owned_count]);
     }
-    const mappings = &loader_workspace.mappings;
+    const mappings = &workspace.mappings;
     var mapping_count: usize = 0;
     var image_start: u64 = ~@as(u64, 0);
     var image_end: u64 = 0;
