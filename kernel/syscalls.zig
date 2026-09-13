@@ -265,6 +265,10 @@ pub const ExecRequest = struct {
     envp_lengths: [max_exec_arguments]u16 = .{0} ** max_exec_arguments,
     envc: usize = 0,
 };
+pub const ExecRequestEnvelope = struct {
+    thread_id: u32,
+    request: ExecRequest,
+};
 pub var user_futex_blocks: u64 = 0;
 pub var user_futex_wakes: u64 = 0;
 
@@ -3701,10 +3705,17 @@ fn copyExecVector(address: u64, output: *[max_exec_arguments][max_exec_string]u8
     return error.TooMany;
 }
 
-pub fn takeExecRequest() ?ExecRequest {
-    const request = user_threads[current_thread].exec_request;
-    user_threads[current_thread].exec_request = null;
-    return request;
+pub fn takeExecRequest() ?ExecRequestEnvelope {
+    // A syscall can yield immediately and select the parent, so do not infer
+    // ownership from current_thread. Scan the fixed scheduler table and
+    // return the originating pid with the copied request.
+    for (&user_threads) |*thread| {
+        if (thread.exec_request) |request| {
+            thread.exec_request = null;
+            return .{ .thread_id = thread.pid, .request = request };
+        }
+    }
+    return null;
 }
 
 pub fn configureExecve(hook: ?*const fn (u64, u64, u64) callconv(.c) u64) void {
