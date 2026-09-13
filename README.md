@@ -553,10 +553,10 @@ O comando gera um tar preservando os links simbólicos necessários ao estágio
 posterior no VFS.
 Use `tools\validate-nix-closure.ps1` para medir a importação: a closure atual
 tem 881 entradas (o root FAT plano suporta 512), portanto o importador precisa
+criar diretórios `/nix/bin` e `/nix/lib` em vez de despejar tudo na raiz.
 O runner também aceita `-NixDisk <imagem>` e anexa essa imagem como namespace
 2 do controlador NVMe, preparando o teste de montagem dual quando o VFS passar
 a enumerar o segundo namespace.
-criar diretórios `/nix/bin` e `/nix/lib` em vez de despejar tudo na raiz.
 Para gerar uma imagem FAT16 separada preservando essa hierarquia, use:
 `powershell -ExecutionPolicy Bypass -File .\tools\make-nix-fat16.ps1 -ClosureArchive .\zig-out\alpine-nix-closure-test.tar`.
 O teste criou `/nix/bin/nix` e `/nix/lib` com 111 arquivos; a montagem dessa
