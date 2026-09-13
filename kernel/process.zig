@@ -1346,6 +1346,9 @@ fn applyRelativeRelocations(mappings: []const Mapping, load_bias: u64, program_o
     var rela_virtual: u64 = 0;
     var rela_size: u64 = 0;
     var rela_entry_size: u64 = 24;
+    var relr_virtual: u64 = 0;
+    var relr_size: u64 = 0;
+    var relr_entry_size: u64 = 8;
     var offset = table_offset;
     while (offset <= table_end - 16) : (offset += 16) {
         const tag = read64At(@intCast(offset));
@@ -1355,8 +1358,17 @@ fn applyRelativeRelocations(mappings: []const Mapping, load_bias: u64, program_o
             7 => rela_virtual = value,
             8 => rela_size = value,
             9 => rela_entry_size = value,
+            36 => relr_virtual = value,
+            35 => relr_size = value,
+            37 => relr_entry_size = value,
             else => {},
         }
+    }
+    if (relr_size != 0) {
+        if (relr_virtual == 0 or relr_entry_size != 8 or relr_size % relr_entry_size != 0)
+            return error.InvalidRelrTable;
+        const relr_file = try virtualFileOffset(relr_virtual, relr_size, program_offset, program_entry_size, program_count);
+        try applyRelrRelocations(mappings, load_bias, relr_file, relr_size);
     }
     if (rela_size == 0) return;
     if (rela_virtual == 0 or rela_entry_size != 24 or rela_size % rela_entry_size != 0) return error.InvalidRelaTable;
@@ -1778,6 +1790,35 @@ fn writeMapped64(mappings: []const Mapping, virtual: u64, value: u64) !void {
         const target: *u8 = @ptrFromInt(target_address);
         target.* = byte;
     }
+}
+
+fn applyRelrRelocations(mappings: []const Mapping, load_bias: u64, relr_file: u64, relr_size: u64) !void {
+    var table_offset: u64 = 0;
+    var next_address: u64 = 0;
+    while (table_offset < relr_size) : (table_offset += 8) {
+        const entry = read64At(@intCast(relr_file + table_offset));
+        if ((entry & 1) == 0) {
+            next_address = entry;
+            if (next_address > std.math.maxInt(u64) - load_bias) return error.InvalidRelrTable;
+            try relocateRelrTarget(mappings, next_address + load_bias, load_bias);
+            next_address = std.math.add(u64, next_address, 8) catch return error.InvalidRelrTable;
+            continue;
+        }
+        var bit: u6 = 1;
+        while (bit < 64) : (bit += 1) {
+            if ((entry & (@as(u64, 1) << bit)) == 0) continue;
+            const target = std.math.add(u64, next_address, @as(u64, bit) * 8) catch return error.InvalidRelrTable;
+            if (target > std.math.maxInt(u64) - load_bias) return error.InvalidRelrTable;
+            try relocateRelrTarget(mappings, target + load_bias, load_bias);
+        }
+        next_address = std.math.add(u64, next_address, 63 * 8) catch return error.InvalidRelrTable;
+    }
+}
+
+fn relocateRelrTarget(mappings: []const Mapping, target: u64, load_bias: u64) !void {
+    const value = try readMapped64(mappings, target);
+    try writeMapped64(mappings, target, value +% load_bias);
+    relative_relocations = saturatingAdd(relative_relocations, 1);
 }
 
 fn writeMapped32(mappings: []const Mapping, virtual: u64, value: u32) !void {
