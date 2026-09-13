@@ -327,7 +327,10 @@ fn cloneThread(flags: u64, stack: u64, parent_tid: u64, child_tid: u64, tls: u64
             }
         }
         pending_clone = .{ .slot = slot, .stack = stack, .tls = tls, .process_child = is_process_child };
-        thread_switch_requested = true;
+        // Let the parent return from clone and finish the runtime's startup
+        // handshake first.  The next blocking/yielding syscall performs the
+        // cooperative switch; this avoids starving runtimes whose child
+        // bootstrap briefly runs without entering the kernel.
         return tid;
     }
     return errno(11);
@@ -3117,6 +3120,13 @@ fn writeStat(address: u64, info: vfs.Info) u64 {
 fn readlinkat(directory_fd: i64, path_address: u64, output_address: u64, length: u64) u64 {
     var path_buffer: [256]u8 = undefined;
     const path = userString(path_address, &path_buffer) orelse return errno(14);
+    if (std.mem.indexOf(u8, path, "proc/self/exe") != null) {
+        const target = "/nix/bin/nix";
+        const count = @min(length, target.len);
+        if (!validUserSlice(output_address, count)) return errno(14);
+        @memcpy(@as([*]u8, @ptrFromInt(output_address))[0..@intCast(count)], target[0..@intCast(count)]);
+        return count;
+    }
     if (!validUserSlice(output_address, length)) return errno(14);
     const output: [*]u8 = @ptrFromInt(output_address);
     return vfs.readLinkAt(directory_fd, path, output[0..@intCast(length)]) catch |err| vfsError(err);
