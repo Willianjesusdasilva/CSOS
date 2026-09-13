@@ -897,6 +897,16 @@ fn protectMmap(address: u64, length: u64, writable: bool, executable: bool) call
         const page = address + check;
         const permissions = address_space.userPermissions(page) orelse {
             if (page >= noreserve_start and page < noreserve_end) continue;
+            if (page >= mmap_address and page < noreserve_start) {
+                const physical_page = workspace.pages.?.allocate(1) orelse return false;
+                const bytes: [*]u8 = @ptrFromInt(physical_page);
+                @memset(bytes[0..page_size], 0);
+                address_space.mapUserPage(page, physical_page, writable, executable) catch {
+                    workspace.pages.?.release(physical_page, 1) catch {};
+                    return false;
+                };
+                continue;
+            }
             return false;
         };
         if (permissions.writable != writable or permissions.executable != executable) needs_protection = true;
