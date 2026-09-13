@@ -74,8 +74,10 @@ const LoaderWorkspace = struct {
     load_bias: u64 = 0,
     user_regions: [128]user_regions.Region = undefined,
     user_region_count: usize = 0,
+    leased: bool = false,
 };
-var loader_workspace = LoaderWorkspace{};
+const loader_workspace_count = 2;
+var loader_workspaces: [loader_workspace_count]LoaderWorkspace = undefined;
 
 var active_workspace: ?*LoaderWorkspace = null;
 pub var standby_pages: u64 = 0;
@@ -189,7 +191,8 @@ pub fn runRadvLoaderProbe(kernel_root: u64, pages: *physical.Allocator) !void {
 }
 
 fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []const u8) !void {
-    return runImageWithWorkspace(kernel_root, pages, arguments, &.{}, &loader_workspace);
+    const workspace = try acquireLoaderWorkspace();
+    return runImageWithWorkspace(kernel_root, pages, arguments, &.{}, workspace);
 }
 
 /// Load an image with an explicit environment.  The ordinary boot probes use
@@ -201,7 +204,17 @@ fn runImageWithEnvironment(
     arguments: []const []const u8,
     environment: []const []const u8,
 ) !void {
-    return runImageWithWorkspace(kernel_root, pages, arguments, environment, &loader_workspace);
+    const workspace = try acquireLoaderWorkspace();
+    return runImageWithWorkspace(kernel_root, pages, arguments, environment, workspace);
+}
+
+fn acquireLoaderWorkspace() !*LoaderWorkspace {
+    for (&loader_workspaces) |*workspace| {
+        if (workspace.leased) continue;
+        workspace.leased = true;
+        return workspace;
+    }
+    return error.LoaderWorkspaceBusy;
 }
 
 fn runImageWithWorkspace(
@@ -211,6 +224,7 @@ fn runImageWithWorkspace(
     environment: []const []const u8,
     workspace: *LoaderWorkspace,
 ) !void {
+    errdefer workspace.leased = false;
     if (image.len < 64 or !isElf()) return error.InvalidElf;
     const elf_type = read16(16);
     if (elf_type != 2 and elf_type != 3) return error.UnsupportedElfType;
@@ -525,6 +539,7 @@ fn runImageWithWorkspace(
         workspace.active_owned = null;
         workspace.load_bias = 0;
         workspace.user_region_count = 0;
+        workspace.leased = false;
         syscalls.configureMmap(null, null, null);
         syscalls.configureUserSlice(null);
     }
