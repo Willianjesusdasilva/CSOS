@@ -1861,9 +1861,6 @@ fn applyRelrRelocations(mappings: []const Mapping, load_bias: u64, relr_file: u6
     var next_address: u64 = 0;
     while (table_offset < relr_size) : (table_offset += 8) {
         const entry = read64At(@intCast(relr_file + table_offset));
-        serial.write("RELR entry ");
-        serial.writeDecimal(table_offset);
-        serial.write("\n");
         if ((entry & 1) == 0) {
             next_address = entry;
             if (next_address > std.math.maxInt(u64) - load_bias) return error.InvalidRelrTable;
