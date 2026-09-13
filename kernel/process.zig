@@ -66,16 +66,17 @@ const LoaderWorkspace = struct {
     owned: [max_owned_ranges]OwnedRange = undefined,
     mapping_count: usize = 0,
     owned_count: usize = 0,
+    address_space: ?*paging.AddressSpace = null,
+    pages: ?*physical.Allocator = null,
+    active_mappings: ?[]Mapping = null,
+    active_owned: ?[]OwnedRange = null,
+    load_bias: u64 = 0,
+    user_regions: [128]user_regions.Region = undefined,
+    user_region_count: usize = 0,
 };
 var loader_workspace = LoaderWorkspace{};
 
-var active_address_space: ?*paging.AddressSpace = null;
-var active_pages: ?*physical.Allocator = null;
-var active_mappings: ?[]Mapping = null;
-var active_owned: ?[]OwnedRange = null;
-var active_load_bias: u64 = 0;
-var extra_user_regions: [128]user_regions.Region = undefined;
-var extra_user_region_count: usize = 0;
+var active_workspace: ?*LoaderWorkspace = null;
 pub var standby_pages: u64 = 0;
 pub var restored_pages: u64 = 0;
 pub var pause_count: u64 = 0;
@@ -501,25 +502,27 @@ fn runImageWithWorkspace(
         mmap_address,
         mmap_address + mmap_arena_pages * page_size,
     );
-    active_address_space = &address_space;
-    active_pages = pages;
-    active_mappings = mappings[0..mapping_count.*];
-    active_owned = owned[0..owned_count.*];
-    active_load_bias = load_bias;
-    extra_user_region_count = 0;
+    workspace.address_space = &address_space;
+    workspace.pages = pages;
+    workspace.active_mappings = mappings[0..mapping_count.*];
+    workspace.active_owned = owned[0..owned_count.*];
+    workspace.load_bias = load_bias;
+    workspace.user_region_count = 0;
+    active_workspace = workspace;
     for (mappings[0..mapping_count.*]) |mapping| {
-        try user_regions.append(&extra_user_regions, &extra_user_region_count, mapping.virtual, page_size);
+        try user_regions.append(&workspace.user_regions, &workspace.user_region_count, mapping.virtual, page_size);
     }
     syscalls.configureMmap(&protectMmap, &unmapMmap, &mapDevice);
     syscalls.configureUserSlice(&validMappedUserSlice);
     defer {
         lifecycle = .finished;
-        active_address_space = null;
-        active_pages = null;
-        active_mappings = null;
-        active_owned = null;
-        active_load_bias = 0;
-        extra_user_region_count = 0;
+        active_workspace = null;
+        workspace.address_space = null;
+        workspace.pages = null;
+        workspace.active_mappings = null;
+        workspace.active_owned = null;
+        workspace.load_bias = 0;
+        workspace.user_region_count = 0;
         syscalls.configureMmap(null, null, null);
         syscalls.configureUserSlice(null);
     }
@@ -544,11 +547,13 @@ fn runImageWithWorkspace(
 }
 
 fn validMappedUserSlice(address: u64, length: u64) callconv(.c) bool {
-    return user_regions.contains(extra_user_regions[0..extra_user_region_count], address, length);
+    const workspace = active_workspace orelse return false;
+    return user_regions.contains(workspace.user_regions[0..workspace.user_region_count], address, length);
 }
 
 fn protectMmap(address: u64, length: u64, writable: bool, executable: bool) callconv(.c) bool {
-    const address_space = active_address_space orelse return false;
+    const workspace = active_workspace orelse return false;
+    const address_space = workspace.address_space orelse return false;
     if (length > std.math.maxInt(u64) - address) return false;
     // MAP_NORESERVE ranges are intentionally non-resident.  Do not walk a
     // potentially multi-gigabyte reservation page by page; the first-touch
@@ -579,7 +584,8 @@ fn protectMmap(address: u64, length: u64, writable: bool, executable: bool) call
 }
 
 fn unmapMmap(address: u64, length: u64) callconv(.c) bool {
-    const address_space = active_address_space orelse return false;
+    const workspace = active_workspace orelse return false;
+    const address_space = workspace.address_space orelse return false;
     if (length > std.math.maxInt(u64) - address) return false;
     var check: u64 = 0;
     while (check < length) : (check += @min(@as(u64, page_size), length - check))
@@ -592,7 +598,8 @@ fn unmapMmap(address: u64, length: u64) callconv(.c) bool {
 }
 
 fn mapDevice(virtual: u64, physical_address: u64, length: u64, writable: bool) callconv(.c) bool {
-    const address_space = active_address_space orelse return false;
+    const workspace = active_workspace orelse return false;
+    const address_space = workspace.address_space orelse return false;
     if (length == 0 or (virtual & (page_size - 1)) != 0 or (physical_address & (page_size - 1)) != 0 or
         length > std.math.maxInt(u64) - virtual or length > std.math.maxInt(u64) - physical_address) return false;
     var offset: u64 = 0;
@@ -1566,10 +1573,11 @@ fn sortMappings(mappings: []Mapping) void {
 
 pub fn handlePageFault(address: u64, instruction: u64, code: u64) callconv(.c) bool {
     _ = instruction;
-    const address_space = active_address_space orelse return false;
-    const pages = active_pages orelse return false;
-    const mappings = active_mappings orelse return false;
-    const owned = active_owned orelse return false;
+    const workspace = active_workspace orelse return false;
+    const address_space = workspace.address_space orelse return false;
+    const pages = workspace.pages orelse return false;
+    const mappings = workspace.active_mappings orelse return false;
+    const owned = workspace.active_owned orelse return false;
     const page_virtual = address & ~(page_size - 1);
     if ((code & 1) != 0) return false;
     for (mappings) |*mapping| {
@@ -1620,6 +1628,7 @@ fn saturatingAdd(value: u64, increment: u64) u64 {
 }
 
 fn restoreFilePage(page_virtual: u64, physical_address: u64) bool {
+    const workspace = active_workspace orelse return false;
     const program_offset = read64(32);
     const program_entry_size = read16(54);
     const program_count = read16(56);
@@ -1637,7 +1646,7 @@ fn restoreFilePage(page_virtual: u64, physical_address: u64) bool {
         if (header > image.len or 56 > image.len - header) return false;
         if (read32At(header) != 1) continue;
         const file_offset = read64At(header + 8);
-        const virtual = std.math.add(u64, read64At(header + 16), active_load_bias) catch return false;
+        const virtual = std.math.add(u64, read64At(header + 16), workspace.load_bias) catch return false;
         const file_size = read64At(header + 32);
         const page_end = std.math.add(u64, page_virtual, page_size) catch return false;
         const segment_end = std.math.add(u64, virtual, file_size) catch return false;
