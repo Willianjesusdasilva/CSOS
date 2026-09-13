@@ -3120,7 +3120,7 @@ fn writeStat(address: u64, info: vfs.Info) u64 {
 fn readlinkat(directory_fd: i64, path_address: u64, output_address: u64, length: u64) u64 {
     var path_buffer: [256]u8 = undefined;
     const path = userString(path_address, &path_buffer) orelse return errno(14);
-    if (std.mem.indexOf(u8, path, "proc/self/exe") != null) {
+    if (std.mem.indexOf(u8, path, "proc/self/exe") != null or equal(path, "self/exe") or equal(path, "exe")) {
         const target = "/nix/bin/nix";
         const count = @min(length, target.len);
         if (!validUserSlice(output_address, count)) return errno(14);

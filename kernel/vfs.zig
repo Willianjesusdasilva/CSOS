@@ -1042,7 +1042,7 @@ pub fn infoFd(fd: usize) !Info {
 }
 
 pub fn readLinkAt(directory_fd_in: i64, path: []const u8, output: []u8) !usize {
-    if (equal(path, "/proc/self/exe") or equal(path, "proc/self/exe") or equal(path, "/proc/1/exe")) {
+    if (equal(path, "/proc/self/exe") or equal(path, "proc/self/exe") or equal(path, "/proc/1/exe") or equal(path, "self/exe") or equal(path, "exe")) {
         const target = "/nix/bin/nix";
         const count = @min(output.len, target.len);
         @memcpy(output[0..count], target[0..count]);
