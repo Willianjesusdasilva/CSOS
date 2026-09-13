@@ -275,8 +275,14 @@ fn cloneProcessWorkspace(parent_id: u8, slot: u32) callconv(.c) u16 {
     const pages = parent.pages orelse return 0xffff;
     for (&loader_workspaces, 0..) |*child, index| {
         if (index == parent_id or child.leased) continue;
-        const cloned = source_space.clone() catch return 0xffff;
-        child.image_space = cloned;
+        // Git's fork/vfork children exec almost immediately.  Copying every
+        // page table here duplicates the parent's large mmap arena and can
+        // exhaust physical memory before execve replaces the image.  Share
+        // the parent's address space until the child reaches execve; the
+        // exec path never mutates this borrowed space and installs a fresh
+        // one for the replacement image.
+        child.image_space = .{ .root = 0, .pages = pages };
+        child.address_space = source_space;
         @memcpy(child.mappings[0..parent.mapping_count], parent.mappings[0..parent.mapping_count]);
         @memcpy(child.owned[0..parent.owned_count], parent.owned[0..parent.owned_count]);
         @memcpy(child.user_regions[0..parent.user_region_count], parent.user_regions[0..parent.user_region_count]);
@@ -285,7 +291,7 @@ fn cloneProcessWorkspace(parent_id: u8, slot: u32) callconv(.c) u16 {
         child.user_region_count = parent.user_region_count;
         child.load_bias = parent.load_bias;
         child.pages = pages;
-        child.address_space = &child.image_space;
+        child.address_space = source_space;
         child.active_mappings = child.mappings[0..child.mapping_count];
         child.active_owned = child.owned[0..child.owned_count];
         child.leased = true;
@@ -336,13 +342,15 @@ fn acceptExecve(_: u64, _: u64, _: u64) callconv(.c) u64 {
 
 fn isGitExecutablePath(path: []const u8) bool {
     if (std.mem.startsWith(u8, path, "/C/") or std.mem.startsWith(u8, path, "/c/")) return true;
-    const names = [_][]const u8{
-        "git", "git-add", "git-commit", "git-fetch", "git-fetch-pack",
-        "git-index-pack", "git-pack-objects", "git-receive-pack",
-        "git-rev-parse", "git-upload-pack", "git-update-index",
-    };
-    for (names) |name| if (std.mem.endsWith(u8, path, name)) return true;
-    return false;
+    const basename = if (std.mem.lastIndexOfScalar(u8, path, '/')) |separator|
+        path[separator + 1 ..]
+    else
+        path;
+    // Git invokes helpers from libexec (including remote helpers) through
+    // execve.  They share the same pinned runtime image in this bootstrap,
+    // so accept the complete git-* helper namespace instead of maintaining a
+    // fragile list that breaks on the next subcommand used by `git pull`.
+    return std.mem.eql(u8, basename, "git") or std.mem.startsWith(u8, basename, "git-");
 }
 
 fn runExecRequest(kernel_root: u64, pages: *physical.Allocator, envelope: syscalls.ExecRequestEnvelope) anyerror!void {
@@ -361,7 +369,11 @@ fn runExecRequest(kernel_root: u64, pages: *physical.Allocator, envelope: syscal
     // its page tables; its owned ranges are shared with the parent and remain
     // owned by the original loader workspace.
     paging.activateRoot(kernel_root);
-    if (workspace.address_space) |old_space| old_space.destroy();
+    if (workspace.address_space) |old_space| {
+        // A pre-exec process child borrows its parent's address space.  It is
+        // owned and destroyed by the parent loader, not by the child exec.
+        if (!workspace.borrowed_owned) old_space.destroy();
+    }
     if (!workspace.borrowed_owned) {
         if (workspace.pages) |old_pages| {
             releaseOwned(old_pages, workspace.owned[0..workspace.owned_count]);
@@ -375,6 +387,10 @@ fn runExecRequest(kernel_root: u64, pages: *physical.Allocator, envelope: syscal
     workspace.owned_count = 0;
     workspace.user_region_count = 0;
     workspace.borrowed_owned = false;
+
+    // The child inherited the parent's FS base at clone time.  An exec image
+    // must start with a clean TLS register so musl performs its own setup.
+    syscalls.resetExecThreadTls();
 
     var arguments: [32][]const u8 = undefined;
     for (arguments[0..envelope.request.argc], 0..) |*argument, index| {
@@ -712,7 +728,10 @@ fn runImageWithWorkspace(
     // musl honors PT_GNU_STACK: the Zig-linked runtime requests an 8 MiB
     // pthread stack plus TLS. Its mapping must not be capped by the old
     // 4 MiB demo arena. Keep brk separate from the 64 MiB mmap arena.
-    const mmap_arena_pages = 131072;
+    // An exec'd helper does not need the parent's enormous reservation.  Keep
+    // the normal runtime arena generous, but avoid allocating another 512 MiB
+    // while a Git child is replacing its image.
+    const mmap_arena_pages: u64 = if (preserve_scheduler) 32768 else 131072;
     try mapAnonymous(address_space, pages, owned, owned_count, break_base, arena_pages);
     try mapAnonymous(address_space, pages, owned, owned_count, mmap_address, mmap_arena_pages);
     const stack_pointer = try buildInitialStack(stack_pages, initial_stack_size, entry, interpreter_base, load_bias, program_offset, program_entry_size, program_count, arguments, environment, initializers[0..initializer_count], &musl_bootstrap);
@@ -793,7 +812,18 @@ fn runImageWithWorkspace(
         const pause = syscalls.takePause() orelse break;
         if (syscalls.takeExecRequest()) |exec_request| {
             lifecycle = .frozen;
-            return runExecRequest(kernel_root, pages, exec_request);
+            // execve belongs to the currently scheduled process child.  Run
+            // its replacement image, then restore this loader's parent
+            // workspace so wait4 can observe the child exit and resume the
+            // original image.  Returning here would terminate the parent
+            // loader before the Git process could complete its handshake.
+            try runExecRequest(kernel_root, pages, exec_request);
+            syscalls.finishProcessChild(exec_request.thread_id, syscalls.exitStatus() orelse 0);
+            syscalls.resetExitStatus();
+            active_workspace = workspace;
+            address_space.activate();
+            lifecycle = .resuming;
+            continue;
         }
         lifecycle = .frozen;
         pause_count = saturatingAdd(pause_count, 1);

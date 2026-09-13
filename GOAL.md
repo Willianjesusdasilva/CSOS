@@ -356,6 +356,13 @@ histórico foram validados em dois boots no QEMU. O `git pull` ainda depende de
 `execve` funcional para processos-filhos, incluindo a reconstrução completa do
 stack ABI (`argv`, ambiente e `auxv`).
 
+Atualização: o primeiro `fork`/`execve` de um fluxo Git agora compartilha o
+address space até o `exec`, evitando `OutOfMemory` ao duplicar a arena de
+memória; helpers `git-*` também são reconhecidos. O QEMU confirma que o ELF
+filho inicia, mas o fluxo ainda não retorna ao parent/reap com `wait4`, então
+P1 permanece aberto. O próximo bloqueio é concluir essa transição de retorno
+do processo-filho e validar `git pull` ponta a ponta.
+
 ---
 
 # P2 — Bare-metal e Alpine Recovery

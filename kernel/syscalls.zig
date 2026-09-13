@@ -580,6 +580,36 @@ pub fn exitStatus() ?u8 {
 
 pub fn resetExitStatus() void { process_exit_status = 0xffffffffffffffff; }
 
+/// Start an exec replacement without inheriting the parent's TLS base. The
+/// new musl image installs its own FS through arch_prctl before using TLS;
+/// the parent's FS remains saved in its scheduler frame.
+pub fn resetExecThreadTls() void {
+    writeMsr(0xc0000100, 0);
+}
+
+/// Complete an exec'd process child after its replacement image returns to
+/// the kernel loader. The image no longer has a userspace frame from which
+/// exitThread can report, but wait4 still needs the normal exited transition
+/// and parent wakeup.
+pub fn finishProcessChild(pid: u32, status: u8) void {
+    for (&user_threads) |*child| {
+        if (child.kind != .process_child or child.pid != pid) continue;
+        child.exit_status = status;
+        child.state = .exited;
+        for (&user_threads) |*parent| {
+            if (parent.state != .blocked or parent.wait_child_pid == 0) continue;
+            if (parent.wait_child_pid != ~@as(u64, 0) and parent.wait_child_pid != pid) continue;
+            if (parent.wait_status != 0 and validUserSlice(parent.wait_status, 4))
+                @as(*align(1) u32, @ptrFromInt(parent.wait_status)).* = @as(u32, status) << 8;
+            parent.result = pid;
+            parent.wait_child_pid = 0;
+            parent.wait_status = 0;
+            parent.state = .runnable;
+        }
+        return;
+    }
+}
+
 export fn process_exit_dispatch(status: u64) callconv(.c) void {
     process_exit_status = status;
 }
@@ -745,7 +775,11 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         228 => clockGetTime(arg1, arg2),
         229 => clockGetRes(arg1, arg2),
         230 => clockNanosleep(arg1, arg2, arg3, arg4),
-        231 => exitSyscall(arg1),
+        // exit_group from an exec'd process child must participate in the
+        // userspace thread scheduler so wait4 can reap it.  Treat the lone
+        // main thread as an ordinary process thread here; exitSyscall would
+        // terminate the whole loader before the parent resumes.
+        231 => exitThread(arg1),
         234 => tgkill(arg1, arg2, arg3),
         35 => clockNanosleep(1, 0, arg1, arg2),
         257 => openat(arg1, arg2, arg3),
