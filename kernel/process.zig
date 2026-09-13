@@ -195,7 +195,7 @@ pub fn runRadvLoaderProbe(kernel_root: u64, pages: *physical.Allocator) !void {
 
 fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []const u8) !void {
     const workspace = try acquireLoaderWorkspace(1);
-    return runImageWithWorkspace(kernel_root, pages, arguments, &.{}, workspace);
+    return runImageWithWorkspace(kernel_root, pages, arguments, &.{}, workspace, false);
 }
 
 /// Load an image with an explicit environment.  The ordinary boot probes use
@@ -208,7 +208,7 @@ fn runImageWithEnvironment(
     environment: []const []const u8,
 ) !void {
     const workspace = try acquireLoaderWorkspace(1);
-    return runImageWithWorkspace(kernel_root, pages, arguments, environment, workspace);
+    return runImageWithWorkspace(kernel_root, pages, arguments, environment, workspace, false);
 }
 
 fn acquireLoaderWorkspace(owner_pid: u32) !*LoaderWorkspace {
@@ -282,12 +282,57 @@ fn cleanupChildWorkspaces(parent: *LoaderWorkspace, kernel_root: u64) void {
     }
 }
 
+fn acceptExecve(_: u64, _: u64, _: u64) callconv(.c) u64 {
+    // The copied request is consumed by the process loop after the syscall
+    // returns.  Returning zero gives libc the Linux execve contract: success
+    // never returns to the old image.
+    return 0;
+}
+
+fn runExecRequest(kernel_root: u64, pages: *physical.Allocator, envelope: syscalls.ExecRequestEnvelope) anyerror!void {
+    if (envelope.workspace_id >= loader_workspaces.len) return error.InvalidExecWorkspace;
+    const workspace = &loader_workspaces[envelope.workspace_id];
+    if (!workspace.leased) return error.InvalidExecWorkspace;
+    const path = envelope.request.path[0..envelope.request.path_len];
+    image = if (equal(path, "/bin/git") or equal(path, "/usr/bin/git") or equal(path, "git"))
+        @embedFile("git_runtime_elf")
+    else if (equal(path, "/bin/busybox") or equal(path, "/bin/sh") or equal(path, "sh"))
+        busybox_image
+    else
+        return error.ExecImageNotFound;
+
+    // The child currently contains a cloned address space.  Tear down only
+    // its page tables; its owned ranges are shared with the parent and remain
+    // owned by the original loader workspace.
+    paging.activateRoot(kernel_root);
+    if (workspace.address_space) |old_space| old_space.destroy();
+    workspace.address_space = null;
+    workspace.pages = null;
+    workspace.active_mappings = null;
+    workspace.active_owned = null;
+    workspace.mapping_count = 0;
+    workspace.owned_count = 0;
+    workspace.user_region_count = 0;
+    workspace.borrowed_owned = false;
+
+    var arguments: [32][]const u8 = undefined;
+    for (arguments[0..envelope.request.argc], 0..) |*argument, index| {
+        argument.* = envelope.request.argv[index][0..envelope.request.argv_lengths[index]];
+    }
+    var environment: [32][]const u8 = undefined;
+    for (environment[0..envelope.request.envc], 0..) |*entry, index| {
+        entry.* = envelope.request.envp[index][0..envelope.request.envp_lengths[index]];
+    }
+    return runImageWithWorkspace(kernel_root, pages, arguments[0..envelope.request.argc], environment[0..envelope.request.envc], workspace, true);
+}
+
 fn runImageWithWorkspace(
     kernel_root: u64,
     pages: *physical.Allocator,
     arguments: []const []const u8,
     environment: []const []const u8,
     workspace: *LoaderWorkspace,
+    preserve_scheduler: bool,
 ) !void {
     errdefer workspace.leased = false;
     if (image.len < 64 or !isElf()) return error.InvalidElf;
@@ -573,16 +618,29 @@ fn runImageWithWorkspace(
     try mapAnonymous(address_space, pages, owned, owned_count, break_base, arena_pages);
     try mapAnonymous(address_space, pages, owned, owned_count, mmap_address, mmap_arena_pages);
     const stack_pointer = try buildInitialStack(stack_pages, initial_stack_size, entry, interpreter_base, load_bias, program_offset, program_entry_size, program_count, arguments, environment, initializers[0..initializer_count], &musl_bootstrap);
-    syscalls.configure(
-        image_start,
-        image_end - image_start,
-        stack_address,
-        stack_page_count * page_size,
-        break_base,
-        break_base + arena_pages * page_size,
-        mmap_address,
-        mmap_address + mmap_arena_pages * page_size,
-    );
+    if (preserve_scheduler) {
+        syscalls.reconfigureAddressSpace(
+            image_start,
+            image_end - image_start,
+            stack_address,
+            stack_page_count * page_size,
+            break_base,
+            break_base + arena_pages * page_size,
+            mmap_address,
+            mmap_address + mmap_arena_pages * page_size,
+        );
+    } else {
+        syscalls.configure(
+            image_start,
+            image_end - image_start,
+            stack_address,
+            stack_page_count * page_size,
+            break_base,
+            break_base + arena_pages * page_size,
+            mmap_address,
+            mmap_address + mmap_arena_pages * page_size,
+        );
+    }
     workspace.address_space = address_space;
     workspace.pages = pages;
     workspace.active_mappings = mappings[0..mapping_count.*];
@@ -596,6 +654,7 @@ fn runImageWithWorkspace(
     syscalls.configureMmap(&protectMmap, &unmapMmap, &mapDevice);
     syscalls.configureUserSlice(&validMappedUserSlice);
     syscalls.configureProcessWorkspaces(workspace.pool_id, &cloneProcessWorkspace, &activateProcessWorkspace, &releaseProcessWorkspace);
+    syscalls.configureExecve(&acceptExecve);
     defer {
         lifecycle = .finished;
         cleanupChildWorkspaces(workspace, kernel_root);
@@ -611,6 +670,7 @@ fn runImageWithWorkspace(
         syscalls.configureMmap(null, null, null);
         syscalls.configureUserSlice(null);
         syscalls.configureProcessWorkspaces(0, null, null, null);
+        syscalls.configureExecve(null);
     }
     lifecycle = .running;
     syscalls.resetExitStatus();
@@ -622,6 +682,10 @@ fn runImageWithWorkspace(
         current_space.activate();
         enter_user(user_instruction, user_stack);
         const pause = syscalls.takePause() orelse break;
+        if (syscalls.takeExecRequest()) |exec_request| {
+            lifecycle = .frozen;
+            return runExecRequest(kernel_root, pages, exec_request);
+        }
         lifecycle = .frozen;
         pause_count = saturatingAdd(pause_count, 1);
         const resumed = active_workspace orelse workspace;

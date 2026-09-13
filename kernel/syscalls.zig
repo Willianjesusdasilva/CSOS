@@ -510,10 +510,40 @@ pub fn configureProcessWorkspaces(
     activate_hook: ?*const fn (u8) callconv(.c) void,
     release_hook: ?*const fn (u8) callconv(.c) void,
 ) void {
-    user_threads[0].workspace_id = workspace_id;
+    user_threads[current_thread].workspace_id = workspace_id;
     workspace_clone_hook = clone_hook;
     workspace_activate_hook = activate_hook;
     workspace_release_hook = release_hook;
+}
+
+/// Replace the user address-space bounds for execve without resetting the
+/// cooperative scheduler.  Existing thread frames remain intact; the caller
+/// is responsible for installing the new current-thread frame.
+pub fn reconfigureAddressSpace(
+    base: u64,
+    size: u64,
+    stack: u64,
+    stack_length: u64,
+    initial_break: u64,
+    maximum_break: u64,
+    mmap_start: u64,
+    mmap_end: u64,
+) void {
+    user_base = base;
+    user_size = size;
+    stack_base = stack;
+    stack_size = stack_length;
+    program_break = initial_break;
+    break_limit = maximum_break;
+    mmap_next = mmap_start;
+    noreserve_next = 0x000000c000000000;
+    mmap_base = mmap_start;
+    mmap_limit = mmap_end;
+    device_mmap_next = mmap_end;
+    device_mmap_limit = std.math.add(u64, mmap_end, max_drm_objects * drm_object_stride) catch mmap_end;
+    process_exit_status = 0xffffffffffffffff;
+    process_pause = null;
+    user_threads_done = false;
 }
 
 pub fn configureConsole(read_hook: ?*const fn ([*]u8, usize) callconv(.c) usize, wait_hook: ?*const fn () callconv(.c) void) void {
