@@ -23,7 +23,7 @@ const page_size: u64 = 4096;
 const max_mappings = 65536;
 const max_owned_ranges = 65536;
 const max_shared_objects = 64;
-const max_initializers = 64;
+const max_initializers = 512;
 const TlsImage = extern struct { image: u64 = 0, file_size: u64 = 0, memory_size: u64 = 0, alignment: u64 = 1 };
 const MuslBootstrap = extern struct {
     entry: u64 = 0,
