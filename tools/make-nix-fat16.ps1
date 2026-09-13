@@ -19,6 +19,7 @@ $command += "; mcopy -o -i '$outputWsl' `$root/usr/lib/libarchive.so.13 ::/lib/L
 $command += "; mcopy -o -i '$outputWsl' `$root/usr/lib/libblake3.so.0 ::/lib/LIBBLAK.SO0"
 $command += "; mcopy -o -i '$outputWsl' `$root/usr/lib/libcrypto.so.3 ::/lib/LIBCRYP.SO3"
 $command += "; mcopy -o -i '$outputWsl' `$root/usr/lib/libsodium.so.26 ::/lib/SODIUM.SO6"
+$command += "; mcopy -o -i '$outputWsl' `$root/usr/lib/libbrotlidec.so.1 ::/lib/LIBBROT.SO1"
 $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($command))
 & wsl.exe -d Ubuntu -- bash -lc "echo $encoded | base64 -d | bash"
 if ($LASTEXITCODE -ne 0) { throw "Nix FAT image creation failed ($LASTEXITCODE)" }
