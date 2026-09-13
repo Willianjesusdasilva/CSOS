@@ -181,6 +181,18 @@ pub fn runRadvLoaderProbe(kernel_root: u64, pages: *physical.Allocator) !void {
 }
 
 fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []const u8) !void {
+    return runImageWithEnvironment(kernel_root, pages, arguments, &.{});
+}
+
+/// Load an image with an explicit environment.  The ordinary boot probes use
+/// an empty environment, while execve callers can preserve the environment
+/// supplied by the parent instead of relying on a libc-specific fallback.
+fn runImageWithEnvironment(
+    kernel_root: u64,
+    pages: *physical.Allocator,
+    arguments: []const []const u8,
+    environment: []const []const u8,
+) !void {
     if (image.len < 64 or !isElf()) return error.InvalidElf;
     const elf_type = read16(16);
     if (elf_type != 2 and elf_type != 3) return error.UnsupportedElfType;
@@ -460,7 +472,7 @@ fn runImage(kernel_root: u64, pages: *physical.Allocator, arguments: []const []c
     const mmap_arena_pages = 131072;
     try mapAnonymous(&address_space, pages, owned, &owned_count, break_base, arena_pages);
     try mapAnonymous(&address_space, pages, owned, &owned_count, mmap_address, mmap_arena_pages);
-    const stack_pointer = try buildInitialStack(stack_pages, initial_stack_size, entry, interpreter_base, load_bias, program_offset, program_entry_size, program_count, arguments, initializers[0..initializer_count], &musl_bootstrap);
+    const stack_pointer = try buildInitialStack(stack_pages, initial_stack_size, entry, interpreter_base, load_bias, program_offset, program_entry_size, program_count, arguments, environment, initializers[0..initializer_count], &musl_bootstrap);
     syscalls.configure(
         image_start,
         image_end - image_start,
@@ -613,6 +625,7 @@ fn buildInitialStack(
     program_entry_size: u16,
     program_count: u16,
     arguments: []const []const u8,
+    environment: []const []const u8,
     initializers: []const u64,
     musl_bootstrap: *const MuslBootstrap,
 ) !u64 {
@@ -620,7 +633,9 @@ fn buildInitialStack(
     @memset(bytes[0..@intCast(size)], 0);
     var offset: usize = @intCast(size);
     var argument_pointers: [16]u64 = undefined;
+    var environment_pointers: [32]u64 = undefined;
     if (arguments.len > argument_pointers.len) return error.TooManyArguments;
+    if (environment.len > environment_pointers.len) return error.TooManyEnvironmentEntries;
     var reverse = arguments.len;
     while (reverse > 0) {
         reverse -= 1;
@@ -631,6 +646,17 @@ fn buildInitialStack(
         @memcpy(bytes[offset .. offset + argument.len], argument);
         bytes[offset + argument.len] = 0;
         argument_pointers[reverse] = stack_address + offset;
+    }
+    var environment_reverse = environment.len;
+    while (environment_reverse > 0) {
+        environment_reverse -= 1;
+        const environment_entry = environment[environment_reverse];
+        const entry_bytes = std.math.add(usize, environment_entry.len, 1) catch return error.InitialStackOverflow;
+        if (entry_bytes > offset) return error.InitialStackOverflow;
+        offset -= entry_bytes;
+        @memcpy(bytes[offset .. offset + environment_entry.len], environment_entry);
+        bytes[offset + environment_entry.len] = 0;
+        environment_pointers[environment_reverse] = stack_address + offset;
     }
     if (offset < 16) return error.InitialStackOverflow;
     offset -= 16;
@@ -691,7 +717,7 @@ fn buildInitialStack(
         .{ 0x6002, bootstrap_pointer },
         .{ 0, 0 },
     };
-    const word_count = std.math.add(usize, 1 + arguments.len + 1 + 1, auxv.len * 2) catch return error.InitialStackOverflow;
+    const word_count = std.math.add(usize, 1 + arguments.len + 1 + environment.len + 1, auxv.len * 2) catch return error.InitialStackOverflow;
     const vector_bytes = std.math.mul(usize, word_count, 8) catch return error.InitialStackOverflow;
     offset &= ~@as(usize, 15);
     if (vector_bytes > offset) return error.InitialStackOverflow;
@@ -707,6 +733,11 @@ fn buildInitialStack(
         push(bytes, &offset, auxv[aux_index][0]);
     }
     push(bytes, &offset, 0);
+    environment_reverse = environment.len;
+    while (environment_reverse > 0) {
+        environment_reverse -= 1;
+        push(bytes, &offset, environment_pointers[environment_reverse]);
+    }
     push(bytes, &offset, 0);
     reverse = arguments.len;
     while (reverse > 0) {
