@@ -514,6 +514,13 @@ P2 termina quando houver evidência funcional de:
 
 Não continuar refinando o instalador depois do gate mínimo se isso não bloquear o restante.
 
+Estado atual: o menu UEFI persistente foi empacotado com GRUB, mantendo CSOS
+como entrada padrão e `CSOS Recovery` como entrada secundária. Em QEMU, a
+entrada Recovery foi selecionada, o Alpine iniciou, identificou o volume CSOS
+mesmo com uma ESP separada (`RECOVERY_MOUNT_OK=/dev/sdb`) e confirmou
+`RECOVERY_CHECKOUT_OK` e `RECOVERY_GIT_STATUS_OK`. A validação ainda é de QEMU;
+instalação e reboot em hardware real permanecem pendentes.
+
 ---
 
 # P3 — Rede e SSH

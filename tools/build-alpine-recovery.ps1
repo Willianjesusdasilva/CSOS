@@ -4,7 +4,8 @@ param(
     [Parameter(Mandatory)] [string] $PayloadRoot,
     [string] $RecoveryScript,
     [string] $Output,
-    [string] $Cpio
+    [string] $Cpio,
+    [string] $WslDistribution = 'Ubuntu'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -25,7 +26,7 @@ $repo = $repoRoot
 function Convert-ToWslPath([string] $value) {
     $drive = $value.Substring(0, 1).ToLowerInvariant()
     $rest = $value.Substring(2).Replace('\', '/')
-    return "/mnt/host/$drive$rest"
+    return "/mnt/$drive$rest"
 }
 function Quote-Sh([string] $value) { return "'" + $value.Replace("'", "'\\''") + "'" }
 
@@ -34,8 +35,11 @@ $rootWsl = Convert-ToWslPath $root
 $scriptWsl = Convert-ToWslPath $script
 $outputWsl = Convert-ToWslPath $output
 $cpioWsl = Convert-ToWslPath $cpio
-$workWsl = Convert-ToWslPath (Join-Path $repo 'zig-out\recovery\linux-work')
-$logWsl = Convert-ToWslPath (Join-Path $repo 'zig-out\recovery\cpio-extract.log')
+# Keep the staging tree inside the Linux filesystem.  Extracting cpio onto
+# drvfs materializes symlinks as zero-byte files (notably /bin/sh), producing
+# an initramfs that the kernel cannot execute.
+$workWsl = '/tmp/csos-recovery-work'
+$logWsl = Convert-ToWslPath (Join-Path $repo 'zig-out\recovery\cpio-extract-ubuntu.log')
 $command = @"
 set -eu
 base=$(Quote-Sh $baseWsl)
@@ -52,12 +56,14 @@ cd "`$root/usr"
 find . -type f -size +0c -print0 | while IFS= read -r -d '' f; do
     target="`$work/usr/`${f#./}"
     mkdir -p "`$(dirname "`$target")"
+    rm -f "`$target"
     cp -p "`$root/usr/`${f#./}" "`$target"
 done
 cd "`$root"
 find . -type f -size +0c -print0 | while IFS= read -r -d '' f; do
     target="`$work/`${f#./}"
     mkdir -p "`$(dirname "`$target")"
+    rm -f "`$target"
     cp -p "`$root/`${f#./}" "`$target"
 done
 # APK extraction on Windows materializes symlinks as empty placeholders;
@@ -74,5 +80,5 @@ chmod 644 "`$output"
 ls -l "`$output"
 "@
 $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($command))
-& wsl.exe -- sh -lc "echo $encoded | base64 -d | sh"
+& wsl.exe -d $WslDistribution -- bash -lc "echo $encoded | base64 -d | bash"
 if ($LASTEXITCODE -ne 0) { throw "Recovery initramfs build failed ($LASTEXITCODE)" }

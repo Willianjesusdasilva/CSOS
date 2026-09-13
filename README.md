@@ -263,6 +263,22 @@ O caminho de restauração pode ser exercitado em uma cópia do disco com
 `recovery-seed-previous recovery-reset-previous`; o primeiro cria uma revisão
 de teste e o segundo executa `git reset --hard HEAD~1`.
 
+O pacote de boot persistente cria um ESP UEFI com CSOS como padrão e Alpine
+Recovery como segunda entrada. Forneça um `grubx64.efi.signed` compatível:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\package-recovery-boot.ps1 `
+  -GrubEfi .\zig-out\recovery\grubx64.efi.signed
+```
+
+O teste reproduzível seleciona automaticamente `CSOS Recovery` no QEMU,
+monta o volume CSOS e verifica os marcadores de checkout e Git. O QEMU é
+encerrado ao final:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\test-recovery-boot-menu.ps1
+```
+
 Instalações bare-metal destinadas ao desenvolvimento devem possuir um pequeno ambiente **Alpine Linux** independente.
 
 Exemplo de layout:
