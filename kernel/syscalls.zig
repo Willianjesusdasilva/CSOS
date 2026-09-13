@@ -252,6 +252,7 @@ const UserThread = struct {
     rsp: u64 = 0, result: u64 = 0, fs: u64 = 0,
     workspace_id: u8 = 0,
     clear_tid: u64 = 0, wait_address: u64 = 0,
+    pending_socket_read: ?struct { index: usize, address: u64, length: usize } = null,
     stdio_sockets: [3]?usize = .{ null, null, null },
     robust: u64 = 0, robust_size: u64 = 0,
     exec_request: ?ExecRequest = null,
@@ -284,6 +285,16 @@ pub const ExecRequestEnvelope = struct {
 };
 pub var user_futex_blocks: u64 = 0;
 pub var user_futex_wakes: u64 = 0;
+
+fn wakeSocketReaders(index: usize) void {
+    for (&user_threads) |*thread| {
+        if (thread.state != .blocked) continue;
+        const pending = thread.pending_socket_read orelse continue;
+        if (pending.index != index) continue;
+        thread.state = .runnable;
+        thread_switch_requested = true;
+    }
+}
 
 fn wakeUserThreads(address: u64, maximum: u64) u64 {
     var count: u64 = 0;
@@ -395,6 +406,13 @@ export fn user_thread_resume(frame: *[15]u64, result: u64) callconv(.c) u64 {
         }
     }
     const next = &user_threads[current_thread];
+    if (next.pending_socket_read) |pending| {
+        if (pending.index < sockets.len and sockets[pending.index].allocated and
+            (sockets[pending.index].local_len != 0 or sockets[pending.index].peer_closed)) {
+            next.result = socketReceive(pending.index, @as([*]u8, @ptrFromInt(pending.address))[0..pending.length]);
+            next.pending_socket_read = null;
+        }
+    }
     frame.* = next.frame; syscall_user_rsp = next.rsp;
     writeMsr(0xc0000100, next.fs);
     asm volatile ("fxrstor64 (%[p])" : : [p] "r" (&next.fx) : .{ .memory = true });
@@ -1026,7 +1044,10 @@ fn releaseSocketRef(index: usize) void {
         sockets[index].refs -= 1;
         return;
     }
-    if (sockets[index].peer_index) |peer| sockets[peer].peer_closed = true;
+    if (sockets[index].peer_index) |peer| {
+        sockets[peer].peer_closed = true;
+        wakeSocketReaders(peer);
+    }
     if (sockets[index].connection) |*connection| if (network_stack) |stack| stack.tcpClose(connection) catch {};
     sockets[index] = .{};
 }
@@ -3649,6 +3670,7 @@ fn socketSend(index: usize, data: []const u8) u64 {
             sockets[peer].local_buffer[position] = data[offset];
         }
         sockets[peer].local_len += count;
+        wakeSocketReaders(peer);
         return count;
     }
     const stack = network_stack orelse return errno(100);
@@ -3659,7 +3681,16 @@ fn socketSend(index: usize, data: []const u8) u64 {
 
 fn socketReceive(index: usize, data: []u8) u64 {
     if (sockets[index].local_pair) {
-        if (sockets[index].local_len == 0) return if (sockets[index].nonblocking) errno(11) else 0;
+        if (sockets[index].local_len == 0) {
+            if (sockets[index].peer_closed) return 0;
+            if (sockets[index].nonblocking) return errno(11);
+            if (user_threads_enabled) {
+                user_threads[current_thread].pending_socket_read = .{ .index = index, .address = @intFromPtr(data.ptr), .length = data.len };
+                user_threads[current_thread].state = .blocked;
+                thread_switch_requested = true;
+            }
+            return 0;
+        }
         const count = @min(data.len, sockets[index].local_len);
         var offset: usize = 0;
         while (offset < count) : (offset += 1) {
