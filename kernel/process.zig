@@ -326,14 +326,15 @@ fn activateProcessWorkspace(id: u8) callconv(.c) void {
 fn releaseProcessWorkspace(id: u8) callconv(.c) void {
     if (id >= loader_workspaces.len) return;
     const workspace = &loader_workspaces[id];
-    if (!workspace.leased or workspace.borrowed_owned) {
-        if (workspace.borrowed_owned) {
-            paging.activateRoot(workspace.image_space.root);
-            workspace.image_space.destroy();
-            workspace.* = .{};
+    if (!workspace.leased) return;
+    paging.activateRoot(workspace.image_space.root);
+    if (workspace.address_space) |address_space| address_space.destroy();
+    if (!workspace.borrowed_owned) {
+        if (workspace.pages) |pages| {
+            releaseOwned(pages, workspace.owned[0..workspace.owned_count]);
         }
-        return;
     }
+    workspace.* = .{};
 }
 
 fn cleanupChildWorkspaces(parent: *LoaderWorkspace, kernel_root: u64) void {
