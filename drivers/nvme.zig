@@ -21,6 +21,29 @@ pub const Controller = struct {
     namespace_id: u32 = 0,
     namespace_count: u32 = 0,
 
+    /// A stable view of one namespace.  Volumes should retain this view
+    /// instead of sharing the controller's mutable active namespace fields.
+    pub const Namespace = struct {
+        controller: *Controller,
+        id: u32,
+        block_size: u32,
+        block_count: u64,
+
+        pub fn readBlock(self: *const Namespace, lba: u64, buffer: u64) !void {
+            try self.controller.ioCommandForNamespace(self.id, self.block_count, 0x02, lba, buffer);
+        }
+
+        pub fn writeBlock(self: *const Namespace, lba: u64, buffer: u64) !void {
+            try self.controller.ioCommandForNamespace(self.id, self.block_count, 0x01, lba, buffer);
+        }
+    };
+
+    pub fn activeNamespace(self: *Controller) !Namespace {
+        if (self.namespace_id == 0 or self.block_size == 0 or self.block_count == 0)
+            return error.NoNamespace;
+        return .{ .controller = self, .id = self.namespace_id, .block_size = self.block_size, .block_count = self.block_count };
+    }
+
     pub fn init(device: pci.Device, pages: *physical.Allocator) !Controller {
         pci.enableMemoryAndBusMaster(device);
         const base = pci.barAddress(device, 0) orelse return error.NoBar;
@@ -166,13 +189,17 @@ pub const Controller = struct {
     }
 
     fn ioCommand(self: *Controller, opcode: u8, lba: u64, buffer: u64) !void {
-        try validateIoRange(self.namespace_id, self.block_count, lba);
+        try self.ioCommandForNamespace(self.namespace_id, self.block_count, opcode, lba, buffer);
+    }
+
+    fn ioCommandForNamespace(self: *Controller, namespace_id: u32, block_count: u64, opcode: u8, lba: u64, buffer: u64) !void {
+        try validateIoRange(namespace_id, block_count, lba);
         try validateIoBuffer(buffer);
         const command: [*]u8 = @ptrFromInt(self.io_submission + @as(u64, self.io_submission_tail) * 64);
         @memset(command[0..64], 0);
         command[0] = opcode;
         put16(command + 2, self.io_submission_tail + 1);
-        put32(command + 4, self.namespace_id);
+        put32(command + 4, namespace_id);
         put64(command + 24, buffer);
         put32(command + 40, @truncate(lba));
         put32(command + 44, @truncate(lba >> 32));
@@ -349,6 +376,22 @@ test "NVMe I/O range accepts only blocks inside an identified namespace" {
     try validateIoRange(1, 8, 0);
     try validateIoRange(1, 8, 7);
     try std.testing.expectError(error.LbaOutOfRange, validateIoRange(1, 8, 8));
+}
+
+test "active namespace view snapshots controller identity and geometry" {
+    var controller = Controller{
+        .base = 0,
+        .doorbell_stride = 0,
+        .admin_submission = 0,
+        .admin_completion = 0,
+        .namespace_id = 7,
+        .block_size = 4096,
+        .block_count = 1234,
+    };
+    const view = try controller.activeNamespace();
+    try std.testing.expectEqual(@as(u32, 7), view.id);
+    try std.testing.expectEqual(@as(u32, 4096), view.block_size);
+    try std.testing.expectEqual(@as(u64, 1234), view.block_count);
 }
 
 test "NVMe I/O buffers cannot wrap a DMA page" {
