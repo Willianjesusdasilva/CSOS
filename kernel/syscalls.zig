@@ -1034,7 +1034,13 @@ fn releaseSocketRef(index: usize) void {
 pub fn closeOnExecSockets() void {
     var index: usize = 0;
     while (index < sockets.len) : (index += 1) {
-        if (sockets[index].allocated and sockets[index].close_on_exec) releaseSocketRef(index);
+        if (sockets[index].allocated and sockets[index].close_on_exec) {
+            const shared = sockets[index].refs > 1;
+            releaseSocketRef(index);
+            // The remaining reference belongs to the parent process; do not
+            // apply the child-only close-on-exec action again on nested execs.
+            if (shared and sockets[index].allocated) sockets[index].close_on_exec = false;
+        }
     }
 }
 
