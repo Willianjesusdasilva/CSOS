@@ -76,6 +76,8 @@ const LoaderWorkspace = struct {
     user_region_count: usize = 0,
     leased: bool = false,
     owner_pid: u32 = 0,
+    pool_id: u8 = 0,
+    borrowed_owned: bool = false,
 };
 const loader_workspace_count = 2;
 var loader_workspaces: [loader_workspace_count]LoaderWorkspace = undefined;
@@ -210,13 +212,61 @@ fn runImageWithEnvironment(
 }
 
 fn acquireLoaderWorkspace(owner_pid: u32) !*LoaderWorkspace {
-    for (&loader_workspaces) |*workspace| {
+    for (&loader_workspaces, 0..) |*workspace, index| {
         if (workspace.leased) continue;
         workspace.leased = true;
         workspace.owner_pid = owner_pid;
+        workspace.pool_id = @intCast(index);
+        workspace.borrowed_owned = false;
         return workspace;
     }
     return error.LoaderWorkspaceBusy;
+}
+
+fn cloneProcessWorkspace(parent_id: u8, slot: u32) callconv(.c) u16 {
+    if (parent_id >= loader_workspaces.len or slot == 0) return 0xffff;
+    const parent = &loader_workspaces[parent_id];
+    const source_space = parent.address_space orelse return 0xffff;
+    const pages = parent.pages orelse return 0xffff;
+    for (&loader_workspaces, 0..) |*child, index| {
+        if (index == parent_id or child.leased) continue;
+        const cloned = source_space.clone() catch return 0xffff;
+        child.image_space = cloned;
+        @memcpy(child.mappings[0..parent.mapping_count], parent.mappings[0..parent.mapping_count]);
+        @memcpy(child.owned[0..parent.owned_count], parent.owned[0..parent.owned_count]);
+        @memcpy(child.user_regions[0..parent.user_region_count], parent.user_regions[0..parent.user_region_count]);
+        child.mapping_count = parent.mapping_count;
+        child.owned_count = parent.owned_count;
+        child.user_region_count = parent.user_region_count;
+        child.load_bias = parent.load_bias;
+        child.pages = pages;
+        child.address_space = &child.image_space;
+        child.active_mappings = child.mappings[0..child.mapping_count];
+        child.active_owned = child.owned[0..child.owned_count];
+        child.leased = true;
+        child.owner_pid = slot + 1;
+        child.pool_id = @intCast(index);
+        child.borrowed_owned = true;
+        return @intCast(index);
+    }
+    return 0xffff;
+}
+
+fn activateProcessWorkspace(id: u8) callconv(.c) void {
+    if (id >= loader_workspaces.len) return;
+    const workspace = &loader_workspaces[id];
+    const address_space = workspace.address_space orelse return;
+    active_workspace = workspace;
+    address_space.activate();
+}
+
+fn cleanupChildWorkspaces(parent: *LoaderWorkspace, kernel_root: u64) void {
+    for (&loader_workspaces) |*child| {
+        if (child == parent or !child.leased) continue;
+        paging.activateRoot(kernel_root);
+        if (child.address_space) |address_space| address_space.destroy();
+        child.* = .{};
+    }
 }
 
 fn runImageWithWorkspace(
@@ -532,8 +582,10 @@ fn runImageWithWorkspace(
     }
     syscalls.configureMmap(&protectMmap, &unmapMmap, &mapDevice);
     syscalls.configureUserSlice(&validMappedUserSlice);
+    syscalls.configureProcessWorkspaces(workspace.pool_id, &cloneProcessWorkspace, &activateProcessWorkspace);
     defer {
         lifecycle = .finished;
+        cleanupChildWorkspaces(workspace, kernel_root);
         active_workspace = null;
         workspace.address_space = null;
         workspace.pages = null;
@@ -545,18 +597,26 @@ fn runImageWithWorkspace(
         workspace.owner_pid = 0;
         syscalls.configureMmap(null, null, null);
         syscalls.configureUserSlice(null);
+        syscalls.configureProcessWorkspaces(0, null, null);
     }
     lifecycle = .running;
     syscalls.resetExitStatus();
     var user_instruction = execution_entry;
     var user_stack = stack_pointer;
     while (true) {
-        address_space.activate();
+        const current = active_workspace orelse workspace;
+        const current_space = current.address_space orelse address_space;
+        current_space.activate();
         enter_user(user_instruction, user_stack);
         const pause = syscalls.takePause() orelse break;
         lifecycle = .frozen;
         pause_count = saturatingAdd(pause_count, 1);
-        standby_pages = saturatingAdd(standby_pages, try discardCleanPages(address_space, pages, mappings[0..mapping_count.*], owned[0..owned_count.*]));
+        const resumed = active_workspace orelse workspace;
+        const resumed_space = resumed.address_space orelse address_space;
+        const resumed_pages = resumed.pages orelse pages;
+        const resumed_mappings = resumed.active_mappings orelse mappings[0..mapping_count.*];
+        const resumed_owned = resumed.active_owned orelse owned[0..owned_count.*];
+        standby_pages = saturatingAdd(standby_pages, try discardCleanPages(resumed_space, resumed_pages, resumed_mappings, resumed_owned));
         lifecycle = .standby;
         user_instruction = pause.instruction;
         user_stack = pause.stack;
