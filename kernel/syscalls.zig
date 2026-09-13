@@ -541,7 +541,12 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         53 => socketPair(arg1, arg2, arg3, arg4),
         54 => setSocketOption(arg1, arg2, arg3, arg4, arg5),
         55 => getSocketOption(arg1, arg2, arg3, arg4, arg5),
+        22 => pipe2(arg1, 0),
         56 => cloneThread(arg1, arg2, arg3, arg4, arg5),
+        // fork creates a cooperative process child; execve remains the
+        // explicit image-replacement boundary.
+        57 => cloneThread(17, 0, 0, 0, 0),
+        293 => pipe2(arg1, arg2),
         59 => execve(arg1, arg2, arg3),
         60 => exitThread(arg1),
         62 => kill(arg1, arg2),
@@ -3622,6 +3627,11 @@ fn kill(pid: u64, signal: u64) u64 {
 fn tgkill(pid: u64, tid: u64, signal: u64) u64 {
     if ((pid != 0 and pid != 1) or (tid != 1 and tid != 0)) return errno(3);
     return kill(1, signal);
+}
+
+fn pipe2(output: u64, flags: u64) u64 {
+    if ((flags & ~@as(u64, 0x80800)) != 0) return errno(22);
+    return socketPair(1, 1 | (flags & 0x80800), 0, output);
 }
 
 /// Replace the current image through the process loader.  The hook is kept
