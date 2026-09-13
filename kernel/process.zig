@@ -1493,7 +1493,11 @@ fn applySymbolTable(consumer: []const u8, consumer_base: u64, consumer_module: u
         // before searching shared providers; leaving them as zero corrupts
         // C++ static objects before the first userspace command runs.
         const consumer_symbol_shndx = read16From(consumer, consumer_symbol + 6);
-        if (consumer_symbol_shndx != 0) {
+        // COPY relocations define storage in the executable, but their bytes
+        // must come from the matching shared-object definition.  Treating
+        // the executable's own storage as the provider leaves C++ globals
+        // zeroed and corrupts constructors after the first thread starts.
+        if (consumer_symbol_shndx != 0 and relocation_type != 5) {
             const consumer_symbol_value = read64From(consumer, consumer_symbol + 8);
             if (relocation_type == 5) {
                 copy_source = std.math.add(u64, consumer_base, consumer_symbol_value) catch return error.InvalidSymbolRelocation;
