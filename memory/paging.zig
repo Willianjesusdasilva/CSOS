@@ -109,6 +109,16 @@ pub const AddressSpace = struct {
         return .{ .root = root, .pages = pages };
     }
 
+    /// Clone the complete page-table hierarchy, including user mappings.
+    /// Leaf physical pages are intentionally shared for now; the process
+    /// loader owns their lifetime and an execing child replaces its mappings
+    /// before it can mutate the shared image. Copy-on-write can be added later
+    /// without changing the scheduler-facing AddressSpace contract.
+    pub fn clone(self: *const AddressSpace) !AddressSpace {
+        const root = try cloneTable(self.pages, self.root, 4);
+        return .{ .root = root, .pages = self.pages };
+    }
+
     pub fn mapUserPage(self: *AddressSpace, virtual: u64, physical_address: u64, writable: bool, executable: bool) !void {
         try validateUserMapping(virtual, physical_address);
         const pml4 = table(self.root);
