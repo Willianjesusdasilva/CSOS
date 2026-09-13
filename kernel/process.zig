@@ -1807,7 +1807,7 @@ fn applyRelrRelocations(mappings: []const Mapping, load_bias: u64, relr_file: u6
             next_address = std.math.add(u64, next_address, 8) catch return error.InvalidRelrTable;
             continue;
         }
-        var bit: u6 = 1;
+        var bit: u7 = 1;
         while (bit < 64) : (bit += 1) {
             if ((entry & (@as(u64, 1) << bit)) == 0) continue;
             const target = std.math.add(u64, next_address, (@as(u64, bit) - 1) * 8) catch return error.InvalidRelrTable;
