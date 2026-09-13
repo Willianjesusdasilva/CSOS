@@ -755,10 +755,10 @@ fn runImageWithWorkspace(
     // musl honors PT_GNU_STACK: the Zig-linked runtime requests an 8 MiB
     // pthread stack plus TLS. Its mapping must not be capped by the old
     // 4 MiB demo arena. Keep brk separate from the 64 MiB mmap arena.
-    // An exec'd helper does not need the parent's enormous reservation.  Keep
-    // the normal runtime arena generous, but avoid allocating another 512 MiB
-    // while a Git child is replacing its image.
-    const mmap_arena_pages: u64 = if (preserve_scheduler) 32768 else 131072;
+    // Keep the bootstrap image's eagerly-backed arena bounded so a Git
+    // transport helper can coexist with its parent. The mmap syscall can
+    // still reserve larger virtual ranges on demand.
+    const mmap_arena_pages: u64 = if (preserve_scheduler) 32768 else 65536;
     try mapAnonymous(address_space, pages, owned, owned_count, break_base, arena_pages);
     try mapAnonymous(address_space, pages, owned, owned_count, mmap_address, mmap_arena_pages);
     const stack_pointer = try buildInitialStack(stack_pages, initial_stack_size, entry, interpreter_base, load_bias, program_offset, program_entry_size, program_count, arguments, environment, initializers[0..initializer_count], &musl_bootstrap);
