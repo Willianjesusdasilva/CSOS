@@ -765,8 +765,10 @@ silenciosamente do sistema de recuperação. A primeira execução isolada revel
 o próximo requisito real: ainda faltam no pacote as dependências transientes do
 Nix (`libarchive`, `libsodium`, Brotli, curl, SQLite, libgit2 e editline).
 Esse diagnóstico agora é reproduzível com `tools/audit-nix-runtime.ps1`.
-Após adicionar essas bibliotecas e `libunistring`, a resolução de nomes passa,
-mas o processo ainda encerra com `SIGSEGV` (código 139). O ELF também trazia
+A correção de `R_X86_64_DTPOFF64` agora permite que todos os construtores das
+45 bibliotecas sejam relocados e o processo alcança o marcador
+`Linux PT-INTERP loader ready` no QEMU. O próximo fault reproduzível ocorre no
+bootstrap de threads após `clone` (ainda `SIGSEGV`, código 139). O ELF também trazia
 um `RUNPATH` absoluto do host; `tools/patch-nix-rpath.ps1` agora o normaliza
 para `/nix/lib`. O próximo requisito real é compatibilidade de ABI/loader,
 antes de tentar executar no kernel CSOS.
