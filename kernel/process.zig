@@ -1420,7 +1420,12 @@ fn applySymbolTable(consumer: []const u8, consumer_base: u64, consumer_module: u
             tls_relocations = saturatingAdd(tls_relocations, 1);
             continue;
         }
-        if (relocation_type != 1 and relocation_type != 6 and relocation_type != 7) return error.UnsupportedSymbolRelocation;
+        if (relocation_type != 1 and relocation_type != 6 and relocation_type != 7) {
+            serial.write("unsupported dynamic relocation: ");
+            serial.writeDecimal(relocation_type);
+            serial.write("\n");
+            return error.UnsupportedSymbolRelocation;
+        }
         const symbol_index: u32 = @truncate(info >> 32);
         if (symbol_index >= wanted.symbol_count) return error.InvalidSymbolRelocation;
         const consumer_symbol_offset = std.math.add(u64, wanted.symbol_file, std.math.mul(u64, symbol_index, 24) catch return error.InvalidSymbolRelocation) catch return error.InvalidSymbolRelocation;
