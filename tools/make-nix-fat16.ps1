@@ -29,6 +29,7 @@ $command += "; mcopy -o -i '$outputWsl' `$root/usr/lib/libboost_context.so.1.84.
 $command += "; mcopy -o -i '$outputWsl' `$root/usr/lib/libboost_iostreams.so.1.84.0 ::/lib/BOOSTIO.SO1"
 $command += "; mcopy -o -i '$outputWsl' `$root/usr/lib/libboost_url.so.1.84.0 ::/lib/BOOSTURL.SO1"
 $command += "; mcopy -o -i '$outputWsl' `$root/usr/lib/libseccomp.so.2 ::/lib/LIBSECC.SO2"
+$command += "; mcopy -o -i '$outputWsl' `$root/usr/lib/libsqlite3.so.0 ::/lib/LIBSQLI.SO0"
 $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($command))
 & wsl.exe -d Ubuntu -- bash -lc "echo $encoded | base64 -d | bash"
 if ($LASTEXITCODE -ne 0) { throw "Nix FAT image creation failed ($LASTEXITCODE)" }
