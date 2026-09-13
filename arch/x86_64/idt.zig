@@ -121,9 +121,9 @@ fn pageFault() callconv(.naked) void {
         \\andq $-16, %%rsp
         \\subq $48, %%rsp
         \\movq %%rax, 32(%%rsp)
-        \\movq %%cr2, %%rcx
-        \\movq 64(%%rax), %%rdx
-        \\movq 56(%%rax), %%r8
+        \\movq %%cr2, %%rdi
+        \\movq 64(%%rax), %%rsi
+        \\movq 56(%%rax), %%rdx
         \\callq page_fault_dispatch
         \\testb %%al, %%al
         \\jz 1f
