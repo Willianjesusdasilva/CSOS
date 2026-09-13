@@ -1042,7 +1042,10 @@ fn collectInitializers(
         const entry_address = std.math.add(u64, array_address, array_offset) catch return error.InvalidInitArray;
         const initializer = try readMapped64(mappings, entry_address);
         if (initializer != 0 and initializer != ~@as(u64, 0)) {
-            if (!isMappedExecutable(mappings, initializer)) return error.InvalidInitializer;
+            if (!isMappedExecutable(mappings, initializer)) {
+                serial.write("invalid init array entry\n");
+                return error.InvalidInitializer;
+            }
             try appendInitializer(initializers, count, initializer);
         }
     }
