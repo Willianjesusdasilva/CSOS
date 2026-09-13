@@ -3317,7 +3317,10 @@ fn poll(address: u64, count: u64, timeout: i64) u64 {
         put16(item + 6, revents);
         if (revents != 0) ready += 1;
     }
-    if (ready == 0 and timeout > 0) if (idle_hook) |hook| hook();
+    if (ready == 0 and timeout > 0) {
+        if (user_threads_enabled) thread_switch_requested = true;
+        if (idle_hook) |hook| hook();
+    }
     return ready;
 }
 
