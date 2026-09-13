@@ -76,7 +76,7 @@ $qemuArguments = @(
     '-drive', "if=pflash,format=raw,readonly=on,file=$localOvmf",
     '-drive', "format=raw,file=fat:rw:$esp",
     '-drive', "if=none,id=nvme0,format=raw,file=$nvmeDisk",
-    '-device', 'nvme,drive=nvme0,serial=CSOS0001',
+    '-device', 'nvme,id=csosnvme,drive=nvme0,serial=CSOS0001',
     '-device', 'qemu-xhci,id=xhci', '-device', 'usb-kbd,bus=xhci.0',
     '-device', 'usb-mouse,bus=xhci.0'
 ) + $audioArguments + @('-netdev', 'user,id=net0', '-device', 'e1000e,netdev=net0', '-no-reboot')
@@ -85,7 +85,7 @@ if ($NixDisk) {
     if (-not (Test-Path -LiteralPath $nixDiskPath -PathType Leaf)) { throw "Nix disk not found: $nixDiskPath" }
     # Append the namespace after the controller has been created.  QEMU's
     # nvme-ns device resolves its implicit nvme-bus at construction time.
-    $qemuArguments += @('-drive', "if=none,id=nix0,format=raw,file=$nixDiskPath", '-device', 'nvme-ns,drive=nix0,bus=nvme0,nsid=2')
+    $qemuArguments += @('-drive', "if=none,id=nix0,format=raw,file=$nixDiskPath", '-device', 'nvme-ns,drive=nix0,bus=csosnvme,nsid=2')
 }
 
 if ($SmokeTestSeconds -gt 0) {

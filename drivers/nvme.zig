@@ -2,6 +2,11 @@ const pci = @import("pci");
 const physical = @import("physical");
 
 const queue_depth = 16;
+// Keep controller/inventory state small enough for the early kernel stack.
+// Real CSOS targets expose only a handful of namespaces; the identify list
+// is still scanned up to the NVMe protocol limit, but only the first 32 are
+// retained for mounting and diagnostics.
+const max_namespaces = 32;
 
 pub const Controller = struct {
     base: u64,
@@ -20,7 +25,7 @@ pub const Controller = struct {
     block_count: u64 = 0,
     namespace_id: u32 = 0,
     namespace_count: u32 = 0,
-    namespace_ids: [1024]u32 = .{0} ** 1024,
+    namespace_ids: [max_namespaces]u32 = .{0} ** max_namespaces,
 
     /// A stable view of one namespace.  Volumes should retain this view
     /// instead of sharing the controller's mutable active namespace fields.
@@ -306,17 +311,18 @@ fn get64(source: [*]const u8) u64 {
 const NamespaceInventory = struct {
     count: u32,
     first: u32,
-    ids: [1024]u32 = .{0} ** 1024,
+    ids: [max_namespaces]u32 = .{0} ** max_namespaces,
 };
 
 fn parseActiveNamespaces(data: [*]const u8, maximum_namespace_id: u32) !NamespaceInventory {
     var inventory: NamespaceInventory = .{ .count = 0, .first = 0 };
-    var seen: [1024]u32 = undefined;
+    var seen: [max_namespaces]u32 = undefined;
     for (0..1024) |index| {
         const namespace_id = get32(data + index * 4);
         if (namespace_id == 0) break;
         if (namespace_id > maximum_namespace_id) return error.InvalidNamespaceId;
         for (seen[0..inventory.count]) |previous| if (previous == namespace_id) return error.DuplicateNamespaceId;
+        if (inventory.count >= max_namespaces) return error.TooManyNamespaces;
         seen[inventory.count] = namespace_id;
         inventory.ids[inventory.count] = namespace_id;
         if (inventory.first == 0) inventory.first = namespace_id;
