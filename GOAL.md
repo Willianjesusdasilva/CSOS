@@ -777,6 +777,9 @@ auditoria isolada retorna `Nix runtime dependency audit: PASS`. O próximo gate
 O procedimento foi tornado reproduzível em
 `tools/stage-alpine-nix-closure.ps1`, que gera um tar com a closure e preserva
 links simbólicos para a etapa de importação no VFS.
+`tools/validate-nix-closure.ps1` confirmou 881 entradas; como o root FAT plano
+tem 512 entradas, a próxima implementação deve importar diretórios reais
+`/nix/bin` e `/nix/lib` no escritor FAT/VFS.
 Isso ainda não conta como P4 concluído: o binário e os perfis precisam executar
 e sobreviver a reboot dentro do CSOS.
 

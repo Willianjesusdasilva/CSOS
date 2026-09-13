@@ -551,6 +551,9 @@ Para reproduzir a resolução da closure, use:
 `powershell -ExecutionPolicy Bypass -File .\tools\stage-alpine-nix-closure.ps1 -ApkStatic .\zig-out\apk-static\apk.static`.
 O comando gera um tar preservando os links simbólicos necessários ao estágio
 posterior no VFS.
+Use `tools\validate-nix-closure.ps1` para medir a importação: a closure atual
+tem 881 entradas (o root FAT plano suporta 512), portanto o importador precisa
+criar diretórios `/nix/bin` e `/nix/lib` em vez de despejar tudo na raiz.
 
 Esse comando valida o ELF x86_64-musl e grava `MANIFEST.sha256`. O pacote é
 apenas um artefato de preparação; executar Nix no host não satisfaz o gate.
