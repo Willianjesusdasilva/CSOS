@@ -686,6 +686,13 @@ fn runImageWithWorkspace(
     try mapAnonymous(address_space, pages, owned, owned_count, break_base, arena_pages);
     try mapAnonymous(address_space, pages, owned, owned_count, mmap_address, mmap_arena_pages);
     const stack_pointer = try buildInitialStack(stack_pages, initial_stack_size, entry, interpreter_base, load_bias, program_offset, program_entry_size, program_count, arguments, environment, initializers[0..initializer_count], &musl_bootstrap);
+    serial.write("initializer count ");
+    serial.writeDecimal(initializer_count);
+    serial.write(" first ");
+    if (initializer_count != 0) serial.writeDecimal(initializers[0]);
+    serial.write(" last ");
+    if (initializer_count != 0) serial.writeDecimal(initializers[initializer_count - 1]);
+    serial.write("\n");
     if (preserve_scheduler) {
         syscalls.reconfigureAddressSpace(
             image_start,
