@@ -62,7 +62,15 @@ pub export fn _start() callconv(.naked) noreturn {
         \\10: movq (%%r12), %%rdi
         \\leaq 8(%%r12), %%rsi
         \\leaq 16(%%r12,%%rdi,8), %%rdx
+        \\pushq %%r12
+        \\pushq %%r14
+        \\pushq %%r15
+        \\pushq %%rbx
         \\call *(%%r14,%%rbx,8)
+        \\popq %%rbx
+        \\popq %%r15
+        \\popq %%r14
+        \\popq %%r12
         \\incq %%rbx
         \\cmpq %%r15, %%rbx
         \\jb 10b
