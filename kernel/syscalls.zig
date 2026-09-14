@@ -304,6 +304,7 @@ fn wakeUserThreads(address: u64, maximum: u64) u64 {
         if (thread.state == .blocked and thread.wait_address == address) {
             thread.state = .runnable;
             thread.result = 0;
+            thread_switch_requested = true;
             user_futex_wakes += 1;
             count += 1;
         }
