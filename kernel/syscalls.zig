@@ -4075,6 +4075,14 @@ pub fn completeCurrentPendingWaitStatus() void {
     completePendingWaitStatus(current_thread);
 }
 
+/// The process loader can restore a parent's userspace frame directly after
+/// an exec child exits, bypassing the normal scheduler-selection path.  Keep
+/// the same socket/poll completion semantics in that path as well.
+pub fn completeCurrentPendingIo() void {
+    completePendingSocketRead(current_thread);
+    completePendingPoll(current_thread);
+}
+
 fn wakeSocketReaders(index: usize) void {
     if (sockets[index].local_len == 0 and !sockets[index].peer_closed) return;
     for (&user_threads) |*thread| {

@@ -1038,6 +1038,7 @@ fn runImageWithWorkspace(
                 syscalls.configureProcessWorkspaces(parent_workspace.pool_id, &cloneProcessWorkspace, &activateProcessWorkspace, &releaseProcessWorkspace);
                 syscalls.configureExecve(&acceptExecve);
                 syscalls.restoreUserResumeContext(&resumed_frame);
+                syscalls.completeCurrentPendingIo();
                 syscalls.completeCurrentPendingWaitStatus();
                 syscalls.resetExitStatus();
                 syscalls.resetUserThreadsDone();
