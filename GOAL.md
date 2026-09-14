@@ -390,6 +390,15 @@ reapedar o PID; o bloqueio restante ocorre logo depois, quando o processo-pai
 precisa continuar na userspace com o frame de retorno preservado. O
 `rev-list`/EOF e o `git push` ainda não são gates concluídos.
 
+O rastreamento mais recente estreitou o bloqueio: durante o `git push`, o
+`receive-pack` (pid 2) espera o helper `rev-list` enquanto uma thread do mesmo
+workspace permanece bloqueada lendo o socket de entrada. A tabela atual trata
+descritores de socket acima de 256 como globais e não mantém uma tabela de
+descritores por workspace/thread; por isso cópias herdadas entre threads e
+processos não têm o mesmo fechamento compartilhado do Linux. O próximo fix é
+modelar essa posse por workspace e validar novamente EOF, `wait4` e o push
+completo. Nenhuma das tentativas temporárias de instrumentação foi mantida.
+
 Pipes duplicados para o descritor 0 passam pelo namespace de sockets; leituras
 agora também acordam escritores bloqueados em `POLLOUT`, e `poll(..., -1)` cede
 a CPU corretamente. Wakeups de `read`/`poll` e o status de `wait4` são
