@@ -356,36 +356,26 @@ histórico foram validados em dois boots no QEMU. O `git pull` ainda depende de
 `execve` funcional para processos-filhos, incluindo a reconstrução completa do
 stack ABI (`argv`, ambiente e `auxv`).
 
-Atualização: o primeiro `fork`/`execve` de um fluxo Git agora compartilha o
-address space até o `exec`, evitando `OutOfMemory` ao duplicar a arena de
-memória; helpers `git-*` também são reconhecidos. O QEMU agora confirma o
-retorno do processo-filho ao parent, `wait4`, commit, leitura de revisão e
-contagem de histórico (`CSOS Git runtime ready`). O runtime desativa a
-manutenção automática em background para não criar um daemon fora do escopo
-do bootstrap. P1 ainda permanece aberto até validar `git pull` real, reboot e
-uso da nova revisão.
+Atualização: o primeiro `fork`/`execve` de um fluxo Git agora clona a
+hierarquia de page tables e isola páginas graváveis da pilha/segmentos do
+filho; helpers `git-*` também são reconhecidos. O QEMU confirma o retorno do
+processo-filho ao parent, `wait4`, commit, leitura de revisão e contagem de
+histórico (`CSOS Git runtime ready`). O runtime desativa a manutenção
+automática em background para não criar um daemon fora do escopo do bootstrap.
 
-O teste de `git pull` local agora alcança `FETCH_HEAD`, `git-upload-pack` e
-processos-filhos aninhados; o VFS ganhou aliases FAT para os metadados Git,
-limpeza de descritores, pipes com namespace separado e o loader passou a
-reservar workspaces para a cadeia de helpers. O bloqueio restante é o
-`posix_spawn` do helper aninhado: o filho escreve o erro de execução e sai
-antes de solicitar `execveat`; o próximo requisito é completar esse contrato
-de spawn antes de declarar o pull funcional.
+O transporte local ainda não está validado: no probe atual, `git init --bare`
+conclui, mas o primeiro `git push` para esse remoto fica bloqueado depois da
+criação do processo-filho e de threads do helper. Portanto, as referências
+anteriores a `FETCH_HEAD`/`git-upload-pack` são histórico de investigação, não
+um gate concluído. O próximo requisito é fechar o lifecycle de spawn/pipe/EOF
+desse helper; só depois disso o `git pull` real, reboot e uso da nova revisão
+podem ser declarados.
 
-O loader agora aceita também `execveat(..., AT_EMPTY_PATH)`, usado pelo
-`fexecve` do Git. Pipes duplicados para o descritor 0 passam pelo namespace de
-sockets, e `poll(..., -1)` cede a CPU corretamente. Fork agora clona a
-hierarquia de page tables, isola páginas graváveis da pilha/segmentos do filho
-e devolve `0` ao novo thread/processo, sem corromper o frame do pai. Wakeups de
-`read`/`poll` e o status de `wait4` agora são concluídos somente depois que o
-workspace/CR3 do thread destinatário está ativo; páginas anônimas acessadas
-também são isoladas no fork. O runtime Git continua alcançando
-`CSOS Git runtime ready` no QEMU. O probe de transporte local já atravessa
-`git-upload-pack`, `clone` pthread aninhado e o fechamento do processo-filho
-sem o erro anterior de pacote/status corrompido, mas ainda termina com threads
-pthread bloqueados sem produtor ativo. Falta fechar o lifecycle/EOF desses
-threads antes do `git pull` real, reboot e uso da nova revisão.
+Pipes duplicados para o descritor 0 passam pelo namespace de sockets,
+`poll(..., -1)` cede a CPU corretamente, e wakeups de `read`/`poll` e o status
+de `wait4` são concluídos somente depois que o workspace/CR3 do thread
+destinatário está ativo. O smoke básico continua alcançando
+`CSOS Git runtime ready` no QEMU; o probe termina com QEMU encerrado.
 
 ---
 
