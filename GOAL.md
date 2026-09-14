@@ -420,6 +420,11 @@ as pipes auxiliares do `run-command` alcancem EOF. O probe de `git push` passou
 do bloqueio imediato no fd auxiliar, mas ainda não conclui o transporte dentro
 do timeout; `git pull` e reboot continuam pendentes.
 
+Atualização: a retomada nested agora limpa `user_threads_done` e o status de
+saída antes de devolver o frame ao parent. O probe estendido deixou de travar
+após `wait4` e passou a reportar `remote end hung up unexpectedly`; o próximo
+bloqueio está no handshake final do `receive-pack`.
+
 ---
 
 # P2 — Bare-metal e Alpine Recovery
