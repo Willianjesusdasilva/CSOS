@@ -1021,7 +1021,6 @@ fn runImageWithWorkspace(
                 lifecycle = .resuming;
                 continue;
             };
-            syscalls.closeProcessSocketsForPid(exec_request.thread_id);
             if (syscalls.finishProcessChild(exec_request.thread_id, syscalls.exitStatus() orelse 0)) |resumed_frame| {
                 const parent_workspace = if (resumed_frame.workspace_id < loader_workspaces.len)
                     &loader_workspaces[resumed_frame.workspace_id]
