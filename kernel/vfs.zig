@@ -98,7 +98,9 @@ var current_directory_length: usize = 1;
 pub const UiTree = struct { system: u16 = 0, ui: u16 = 0, interface: u16 = 0, styles: u16 = 0, providers: u16 = 0, scripts: u16 = 0 };
 var ui_tree: UiTree = .{};
 
-pub fn registerUiTree(tree: UiTree) void { ui_tree = tree; }
+pub fn registerUiTree(tree: UiTree) void {
+    ui_tree = tree;
+}
 var drm_pci_configured = false;
 var random_device_state: u64 = 0x243f6a8885a308d3;
 var drm_pci_uevent: [40]u8 = undefined;
@@ -342,7 +344,8 @@ pub fn openAt(directory_fd_in: i64, path: []const u8, flags: u64) !usize {
     // path resolver.  The descriptor is pinned before the temporary route is
     // restored, so subsequent reads never fall back to /system.
     if (nix_disk != null and path.len >= 4 and std.mem.startsWith(u8, path, "/nix") and
-        (path.len == 4 or path[4] == '/')) {
+        (path.len == 4 or path[4] == '/'))
+    {
         const saved_disk = disk;
         disk = nix_disk;
         defer disk = saved_disk;
@@ -549,11 +552,9 @@ fn openFatRelative(volume: *fat16.Volume, directory_fd: usize, path: []const u8,
     }
     if (final_entry.directory) {
         if ((flags & 0x3) != 0 or (flags & 0x200) != 0) return error.IsDirectory;
-        descriptors[fd] = .{ .generation = try newGeneration(), .kind = .directory, .node = .fat_directory,
-            .fat_cluster = final_entry.first_cluster, .fat_parent_cluster = parent_cluster };
+        descriptors[fd] = .{ .generation = try newGeneration(), .kind = .directory, .node = .fat_directory, .fat_cluster = final_entry.first_cluster, .fat_parent_cluster = parent_cluster };
     } else {
-        descriptors[fd] = .{ .generation = try newGeneration(), .kind = .file, .node = .disk,
-            .size = final_entry.size, .fat_name = final_name, .fat_parent_cluster = final_parent_cluster };
+        descriptors[fd] = .{ .generation = try newGeneration(), .kind = .file, .node = .disk, .size = final_entry.size, .fat_name = final_name, .fat_parent_cluster = final_parent_cluster };
     }
     descriptors[fd].writable = (flags & 0x3) != 0;
     descriptors[fd].append = (flags & 0x400) != 0;
@@ -595,7 +596,9 @@ pub fn openEventfd(initial: u64) !usize {
     return fd;
 }
 
-pub fn isEventfd(fd: usize) bool { return fd < descriptors.len and descriptors[fd].kind == .eventfd; }
+pub fn isEventfd(fd: usize) bool {
+    return fd < descriptors.len and descriptors[fd].kind == .eventfd;
+}
 
 pub fn readEventfd(fd: usize, output: []u8) !usize {
     if (!isEventfd(fd) or output.len < 8) return error.BadFd;
@@ -845,13 +848,20 @@ pub fn linkAt(old_directory_fd: i64, old_path: []const u8, new_directory_fd: i64
             var mapping: [96]u8 = undefined;
             var used: usize = 0;
             const object_dir = if (nestedParentPath(new_path)) |parent| lastPathComponent(parent) else "00";
-            @memcpy(mapping[used .. used + object_dir.len], object_dir); used += object_dir.len;
-            mapping[used] = ' '; used += 1;
+            @memcpy(mapping[used .. used + object_dir.len], object_dir);
+            used += object_dir.len;
+            mapping[used] = ' ';
+            used += 1;
             @memcpy(mapping[used .. used + object_name.len], object_name);
             used += object_name.len;
-            mapping[used] = ' '; used += 1;
-            for (alias) |byte| { mapping[used] = byte; used += 1; }
-            mapping[used] = '\n'; used += 1;
+            mapping[used] = ' ';
+            used += 1;
+            for (alias) |byte| {
+                mapping[used] = byte;
+                used += 1;
+            }
+            mapping[used] = '\n';
+            used += 1;
             // Object aliases belong to the repository currently receiving
             // the object.  Hard-coding repo8 makes a local receive-pack put
             // repo10/repoN mappings in the source repository, so refs cannot
@@ -969,6 +979,10 @@ pub fn renameAt(directory_fd_in: i64, old_path: []const u8, new_path: []const u8
     };
     if (disk) |volume| if (resolveFatPath(volume, old_path)) |old_resolved| {
         if (old_resolved.parent_cluster == 0 or old_resolved.entry.directory) return error.ReadOnly;
+        const old_parent = nestedParentPath(old_path);
+        const new_parent = nestedParentPath(new_path);
+        const same_parent = if (old_parent) |left| if (new_parent) |right| std.mem.eql(u8, left, right) else false else new_parent == null;
+        if (!same_parent) return moveFatFileAcrossDirectories(directory_fd, old_path, new_path, old_resolved);
         if (toFatName(lastPathComponent(new_path))) |new_name|
             return volume.renameDirectoryFile(old_resolved.parent_cluster, &old_resolved.entry.name, &new_name);
     } else |_| {};
@@ -978,6 +992,30 @@ pub fn renameAt(directory_fd_in: i64, old_path: []const u8, new_path: []const u8
     };
     _ = try resolve(directory_fd, old_path);
     return error.ReadOnly;
+}
+
+/// FAT16 has no native cross-directory rename primitive in the compact driver.
+/// Git's receive-pack needs exactly this when promoting a quarantined pack
+/// into objects/pack. Copy in bounded chunks, then remove the old directory
+/// entry only after the destination has been completely written.
+fn moveFatFileAcrossDirectories(directory_fd: i64, old_path: []const u8, new_path: []const u8, old_resolved: ResolvedFatPath) !void {
+    const source = try openAt(directory_fd, old_path, 0);
+    defer close(source) catch {};
+    const target = openAt(directory_fd, new_path, 0x241) catch |err| return err;
+    defer close(target) catch {};
+    var buffer: [4096]u8 = undefined;
+    while (true) {
+        const count = try read(source, &buffer);
+        if (count == 0) break;
+        var written: usize = 0;
+        while (written < count) {
+            const progress = try write(target, buffer[written..count]);
+            if (progress == 0) return error.FileTooLarge;
+            written += progress;
+        }
+    }
+    const volume = disk orelse return error.NotFound;
+    try volume.deleteDirectoryFile(old_resolved.parent_cluster, &old_resolved.entry.name);
 }
 
 fn lastPathComponent(path: []const u8) []const u8 {
@@ -1027,7 +1065,8 @@ pub fn infoAt(directory_fd_in: i64, path: []const u8) !Info {
     while (trimmed_length > 1 and path[trimmed_length - 1] == '/') : (trimmed_length -= 1) {}
     if (trimmed_length != path.len) return infoAt(directory_fd_in, path[0..trimmed_length]);
     if (nix_disk != null and path.len >= 4 and std.mem.startsWith(u8, path, "/nix") and
-        (path.len == 4 or path[4] == '/')) {
+        (path.len == 4 or path[4] == '/'))
+    {
         const fd = try openAt(directory_fd_in, path, 0);
         defer close(fd) catch {};
         return infoFd(fd);
@@ -1316,9 +1355,11 @@ fn toFatName(path: []const u8) ?[11]u8 {
             const hex = (character >= '0' and character <= '9') or
                 (character >= 'a' and character <= 'f') or
                 (character >= 'A' and character <= 'F');
-            if (!hex) { valid_object = false; break; }
-            if (index < 8) object_alias[index] = if (character >= 'a' and character <= 'f') character - 32 else character
-            else if (index < 11) object_alias[8 + index - 8] = if (character >= 'a' and character <= 'f') character - 32 else character;
+            if (!hex) {
+                valid_object = false;
+                break;
+            }
+            if (index < 8) object_alias[index] = if (character >= 'a' and character <= 'f') character - 32 else character else if (index < 11) object_alias[8 + index - 8] = if (character >= 'a' and character <= 'f') character - 32 else character;
         }
         if (valid_object) return object_alias;
     }
@@ -1388,9 +1429,7 @@ test "FAT path conversion aliases Git packed refs lock" {
 fn runtimeLibraryFatAlias(path: []const u8) ?[11]u8 {
     const prefix = "/usr/lib/";
     const nix_prefix = "/nix/lib/";
-    const name = if (path.len > prefix.len and equal(path[0..prefix.len], prefix)) path[prefix.len..]
-        else if (path.len > nix_prefix.len and equal(path[0..nix_prefix.len], nix_prefix)) path[nix_prefix.len..]
-        else path;
+    const name = if (path.len > prefix.len and equal(path[0..prefix.len], prefix)) path[prefix.len..] else if (path.len > nix_prefix.len and equal(path[0..nix_prefix.len], nix_prefix)) path[nix_prefix.len..] else path;
     if (equal(name, "libvulkan_radeon.so")) return "RADV    SO ".*;
     if (equal(name, "libdrm_amdgpu.so.1")) return "DRMAMD  SO1".*;
     if (equal(name, "libdrm.so.2")) return "LIBDRM  SO2".*;
@@ -1477,10 +1516,10 @@ fn isGitHelperPath(path: []const u8) bool {
     // suffix matcher below sees the letters `git`.
     if (std.mem.eql(u8, path, ".git") or std.mem.endsWith(u8, path, "/.git")) return false;
     const helpers = [_][]const u8{
-        "git", "git-fetch", "git-fetch-pack", "git-upload-pack", "git-receive-pack",
-        "git-merge", "git-merge-base", "git-commit-tree", "git-index-pack",
-        "git-pack-objects", "git-unpack-objects", "git-rev-parse",
-        "fetch", "maintenance", "/fetch", "/upload-pack", "/receive-pack",
+        "git",                "git-fetch",      "git-fetch-pack",  "git-upload-pack", "git-receive-pack",
+        "git-merge",          "git-merge-base", "git-commit-tree", "git-index-pack",  "git-pack-objects",
+        "git-unpack-objects", "git-rev-parse",  "fetch",           "maintenance",     "/fetch",
+        "/upload-pack",       "/receive-pack",
     };
     for (helpers) |helper| {
         if (std.mem.endsWith(u8, path, helper)) return true;
