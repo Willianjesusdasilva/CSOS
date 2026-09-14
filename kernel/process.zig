@@ -91,6 +91,9 @@ const LoaderWorkspace = struct {
     break_length: u64 = 0,
     mmap_base: u64 = 0,
     mmap_length: u64 = 0,
+    execution_entry: u64 = 0,
+    execution_stack: u64 = 0,
+    execution_ready: bool = false,
 };
 // A real `git pull` can have the parent, transport helper and upload-pack
 // alive simultaneously. Keep a bounded pool rather than serializing those
@@ -570,6 +573,7 @@ fn runImageWithWorkspace(
     preserve_scheduler: bool,
 ) !void {
     errdefer workspace.leased = false;
+    const retain_workspace = preserve_scheduler;
     // A previous top-level image may have exited through a libc path that did
     // not close every inherited descriptor. Reclaim that process boundary
     // before allocating the next image; exec children remain untouched.
@@ -600,9 +604,11 @@ fn runImageWithWorkspace(
     workspace.owned_count = 0;
     const owned_count = &workspace.owned_count;
     defer {
-        paging.activateRoot(kernel_root);
-        address_space.destroy();
-        releaseOwned(pages, owned[0..owned_count.*]);
+        if (!retain_workspace) {
+            paging.activateRoot(kernel_root);
+            address_space.destroy();
+            releaseOwned(pages, owned[0..owned_count.*]);
+        }
     }
     const mappings = &workspace.mappings;
     workspace.mapping_count = 0;
@@ -951,6 +957,12 @@ fn runImageWithWorkspace(
     syscalls.configureProcessWorkspaces(workspace.pool_id, &cloneProcessWorkspace, &activateProcessWorkspace, &releaseProcessWorkspace);
     syscalls.configureExecve(&acceptExecve);
     syscalls.configureInitializerStep(if (staged_copy_count != 0) &applyStagedCopies else null);
+    if (preserve_scheduler) {
+        workspace.execution_entry = execution_entry;
+        workspace.execution_stack = stack_pointer;
+        workspace.execution_ready = true;
+        return;
+    }
     defer {
         lifecycle = .finished;
         if (!preserve_scheduler) {
@@ -995,6 +1007,20 @@ fn runImageWithWorkspace(
             // original image.  Returning here would terminate the parent
             // loader before the Git process could complete its handshake.
             try runExecRequest(kernel_root, pages, exec_request);
+            const child_workspace = if (exec_request.workspace_id < loader_workspaces.len)
+                &loader_workspaces[exec_request.workspace_id]
+            else
+                null;
+            if (child_workspace) |child| if (child.execution_ready) {
+                user_instruction = child.execution_entry;
+                user_stack = child.execution_stack;
+                child.execution_ready = false;
+                active_workspace = child;
+                child.address_space.?.activate();
+                serial.write("CSOS WPE WebProcess scheduled\n");
+                lifecycle = .resuming;
+                continue;
+            };
             syscalls.closeProcessSocketsForPid(exec_request.thread_id);
             if (syscalls.finishProcessChild(exec_request.thread_id, syscalls.exitStatus() orelse 0)) |resumed_frame| {
                 const parent_workspace = if (resumed_frame.workspace_id < loader_workspaces.len)

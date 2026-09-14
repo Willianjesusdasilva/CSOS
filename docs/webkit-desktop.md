@@ -242,6 +242,14 @@ workspace filho. Com os binários de `C:/w/zig-out/webkit-linux6/bin`, o erro
 handshake do processo auxiliar.
 HTML/CSS/JavaScript no CSOS continua um gate aberto, não uma validação final.
 
+O carregamento do processo filho agora preserva o workspace e o frame de
+execução em vez de manter um loader aninhado síncrono. O loop principal
+retoma o WPEWebProcess como tarefa cooperativa ao lado do pai; o smoke QEMU
+confirma CSOS WPE WebProcess scheduled e syscalls do auxiliar após
+Linux PT_INTERP loader ready. O próximo gate é o handshake IPC completar e
+produzir WebKit view ready; a página HTML ainda não foi entregue ao
+compositor.
+
 ### Bloqueio atual do artefato WebProcess
 
 Em 2026-09-12, uma tentativa reproduzível de construir o alvo
