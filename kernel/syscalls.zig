@@ -669,6 +669,7 @@ pub fn exitStatus() ?u8 {
 }
 
 pub fn resetExitStatus() void { process_exit_status = 0xffffffffffffffff; }
+pub fn resetUserThreadsDone() void { user_threads_done = false; }
 
 /// Reset local socket/pipe descriptors at a top-level image boundary. Child
 /// exec images retain inherited descriptors until they exit; the outer Git

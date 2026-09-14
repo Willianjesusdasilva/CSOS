@@ -965,6 +965,8 @@ fn runImageWithWorkspace(
                 (parent_workspace.address_space orelse address_space).activate();
                 syscalls.restoreUserResumeContext(&resumed_frame);
                 syscalls.completeCurrentPendingWaitStatus();
+                syscalls.resetExitStatus();
+                syscalls.resetUserThreadsDone();
                 resume_user_frame(&resumed_frame.frame, resumed_frame.rsp, resumed_frame.result);
                 active_workspace = parent_workspace;
             }
