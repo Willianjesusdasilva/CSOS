@@ -287,14 +287,12 @@ fn cloneProcessWorkspace(parent_id: u8, slot: u32) callconv(.c) u16 {
     const pages = parent.pages orelse return 0xffff;
     for (&loader_workspaces, 0..) |*child, index| {
         if (index == parent_id or child.leased) continue;
-        // Git's fork/vfork children exec almost immediately.  Copying every
-        // page table here duplicates the parent's large mmap arena and can
-        // exhaust physical memory before execve replaces the image.  Share
-        // the parent's address space until the child reaches execve; the
-        // exec path never mutates this borrowed space and installs a fresh
-        // one for the replacement image.
-        child.image_space = .{ .root = 0, .pages = pages };
-        child.address_space = source_space;
+        // Git's fork/vfork children exec almost immediately.  Clone only the
+        // page-table hierarchy: leaf pages remain shared, while the child can
+        // safely replace/destroy its tables during exec without invalidating
+        // the parent's active address space.
+        child.image_space = source_space.clone() catch return 0xffff;
+        child.address_space = &child.image_space;
         @memcpy(child.mappings[0..parent.mapping_count], parent.mappings[0..parent.mapping_count]);
         @memcpy(child.owned[0..parent.owned_count], parent.owned[0..parent.owned_count]);
         @memcpy(child.user_regions[0..parent.user_region_count], parent.user_regions[0..parent.user_region_count]);
@@ -303,7 +301,6 @@ fn cloneProcessWorkspace(parent_id: u8, slot: u32) callconv(.c) u16 {
         child.user_region_count = parent.user_region_count;
         child.load_bias = parent.load_bias;
         child.pages = pages;
-        child.address_space = source_space;
         child.active_mappings = child.mappings[0..child.mapping_count];
         child.active_owned = child.owned[0..child.owned_count];
         child.leased = true;
@@ -394,9 +391,9 @@ fn runExecRequest(kernel_root: u64, pages: *physical.Allocator, envelope: syscal
     // owned by the original loader workspace.
     paging.activateRoot(kernel_root);
     if (workspace.address_space) |old_space| {
-        // A pre-exec process child borrows its parent's address space.  It is
-        // owned and destroyed by the parent loader, not by the child exec.
-        if (!workspace.borrowed_owned) old_space.destroy();
+        // The fork cloned the page-table hierarchy. Destroy only the child's
+        // tables here; leaf pages remain owned by the parent workspace.
+        old_space.destroy();
     }
     if (!workspace.borrowed_owned) {
         if (workspace.pages) |old_pages| {

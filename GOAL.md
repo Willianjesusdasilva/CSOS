@@ -375,11 +375,12 @@ de spawn antes de declarar o pull funcional.
 
 O loader agora aceita também `execveat(..., AT_EMPTY_PATH)`, usado pelo
 `fexecve` do Git. Pipes duplicados para o descritor 0 passam pelo namespace de
-sockets, e `poll(..., -1)` cede a CPU corretamente; o runtime Git completo
-continua alcançando `CSOS Git runtime ready` no QEMU. O probe de transporte
-local ainda termina em `remote end hung up unexpectedly`, sem completar a
-troca de dados; falta fechar esse protocolo antes do `git pull` real, reboot e
-uso da nova revisão.
+sockets, e `poll(..., -1)` cede a CPU corretamente. Fork agora clona a
+hierarquia de page tables, isolando o `exec` do filho sem invalidar o pai. O
+runtime Git continua alcançando `CSOS Git runtime ready` no QEMU. O probe de
+transporte local ainda termina em `remote end hung up unexpectedly`, sem
+completar a troca de dados; falta fechar esse protocolo antes do `git pull`
+real, reboot e uso da nova revisão.
 
 ---
 
