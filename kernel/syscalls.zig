@@ -251,6 +251,7 @@ const UserThread = struct {
     frame: [14]u64 = @splat(0),
     rsp: u64 = 0, result: u64 = 0, fs: u64 = 0,
     workspace_id: u8 = 0,
+    parent_slot: usize = 0,
     clear_tid: u64 = 0, wait_address: u64 = 0,
     pending_read_socket: ?usize = null,
     pending_read_address: u64 = 0,
@@ -320,6 +321,7 @@ fn cloneThread(flags: u64, stack: u64, parent_tid: u64, child_tid: u64, tls: u64
         if (user_threads[slot].state != .unused and user_threads[slot].state != .exited) continue;
         user_threads[slot] = .{ .state = .runnable, .kind = if (is_process_child) .process_child else .thread,
             .pid = @intCast(slot + 1), .clear_tid = child_tid,
+            .parent_slot = current_thread,
             .workspace_id = user_threads[current_thread].workspace_id };
         user_threads[slot].stdio_sockets = user_threads[current_thread].stdio_sockets;
         user_threads[slot].stdio_cloexec = user_threads[current_thread].stdio_cloexec;
@@ -629,23 +631,29 @@ pub fn resetExecThreadTls() void {
 /// the kernel loader. The image no longer has a userspace frame from which
 /// exitThread can report, but wait4 still needs the normal exited transition
 /// and parent wakeup.
-pub fn finishProcessChild(pid: u32, status: u8) void {
+pub const UserResume = struct { frame: [14]u64, rsp: u64 };
+
+pub fn finishProcessChild(pid: u32, status: u8) ?UserResume {
     for (&user_threads) |*child| {
         if (child.kind != .process_child or child.pid != pid) continue;
         child.exit_status = status;
         child.state = .exited;
-        for (&user_threads) |*parent| {
-            if (parent.state != .blocked or parent.wait_child_pid == 0) continue;
-            if (parent.wait_child_pid != ~@as(u64, 0) and parent.wait_child_pid != pid) continue;
+        const parent = &user_threads[child.parent_slot];
+        if (parent.state == .blocked and parent.wait_child_pid != 0 and
+            (parent.wait_child_pid == ~@as(u64, 0) or parent.wait_child_pid == pid)) {
             if (parent.wait_status != 0 and validUserSlice(parent.wait_status, 4))
                 @as(*align(1) u32, @ptrFromInt(parent.wait_status)).* = @as(u32, status) << 8;
             parent.result = pid;
             parent.wait_child_pid = 0;
             parent.wait_status = 0;
             parent.state = .runnable;
+            current_thread = child.parent_slot;
+            current_pid = parent.pid;
+            return .{ .frame = parent.frame, .rsp = parent.rsp };
         }
-        return;
+        return null;
     }
+    return null;
 }
 
 export fn process_exit_dispatch(status: u64) callconv(.c) void {

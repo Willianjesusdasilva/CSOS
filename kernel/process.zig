@@ -116,6 +116,7 @@ fn applyStagedCopies(_: u64) callconv(.c) void {
 }
 
 extern fn enter_user(entry: u64, stack: u64) callconv(.c) void;
+extern fn resume_user_frame(frame: *const [14]u64, stack: u64) callconv(.c) noreturn;
 
 pub fn runBusyBox(kernel_root: u64, pages: *physical.Allocator, arguments: []const []const u8) !void {
     image = busybox_image;
@@ -850,7 +851,11 @@ fn runImageWithWorkspace(
             // original image.  Returning here would terminate the parent
             // loader before the Git process could complete its handshake.
             try runExecRequest(kernel_root, pages, exec_request);
-            syscalls.finishProcessChild(exec_request.thread_id, syscalls.exitStatus() orelse 0);
+            if (syscalls.finishProcessChild(exec_request.thread_id, syscalls.exitStatus() orelse 0)) |resumed_frame| {
+                active_workspace = workspace;
+                address_space.activate();
+                resume_user_frame(&resumed_frame.frame, resumed_frame.rsp);
+            }
             syscalls.resetExitStatus();
             active_workspace = workspace;
             address_space.activate();

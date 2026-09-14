@@ -25,6 +25,43 @@ enter_user:
 .Luser_return:
     retq
 
+// Resume a userspace syscall frame after a nested process child has exited.
+// The normal syscall return path cannot be used here because the child exec
+// runs a nested loader loop and returns to Zig instead of the parent's entry
+// stack.  Preserve the kernel caller context exactly like enter_user, then
+// restore the complete saved SYSRET register frame.
+.global resume_user_frame
+resume_user_frame:
+    pushq %rbp
+    pushq %rbx
+    pushq %rdi
+    pushq %rsi
+    pushq %r12
+    pushq %r13
+    pushq %r14
+    pushq %r15
+    movq %rsp, user_kernel_rsp(%rip)
+    leaq .Luser_return(%rip), %r11
+    movq %r11, user_kernel_rip(%rip)
+    movq %rdx, %rax
+    movq %rcx, %r12
+    movq 0(%r12), %rcx
+    movq 8(%r12), %r11
+    movq 16(%r12), %r15
+    movq 24(%r12), %r14
+    movq 32(%r12), %r13
+    movq 48(%r12), %r10
+    movq 56(%r12), %r9
+    movq 64(%r12), %r8
+    movq 72(%r12), %rdi
+    movq 80(%r12), %rsi
+    movq 88(%r12), %rbp
+    movq 96(%r12), %rbx
+    movq 104(%r12), %rdx
+    movq 40(%r12), %r12
+    movq %rax, %rsp
+    sysretq
+
 user_exit_trampoline:
     cli
     movq user_kernel_rsp(%rip), %rsp
