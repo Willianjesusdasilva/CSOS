@@ -413,6 +413,13 @@ concluídos somente depois que o workspace/CR3 do thread destinatário está
 ativo. O smoke básico continua alcançando
 `CSOS Git runtime ready` no QEMU; o probe termina com QEMU encerrado.
 
+Atualização: descritores de socket criados ou reconfigurados por uma thread
+agora são publicados para as demais threads do mesmo workspace. O boundary de
+`exec` também remove cópias `CLOEXEC` obsoletas por workspace, permitindo que
+as pipes auxiliares do `run-command` alcancem EOF. O probe de `git push` passou
+do bloqueio imediato no fd auxiliar, mas ainda não conclui o transporte dentro
+do timeout; `git pull` e reboot continuam pendentes.
+
 ---
 
 # P2 — Bare-metal e Alpine Recovery
