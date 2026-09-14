@@ -3928,6 +3928,10 @@ fn completePendingWaitStatus(thread_index: usize) void {
     thread.pending_wait_address = 0;
 }
 
+pub fn completeCurrentPendingWaitStatus() void {
+    completePendingWaitStatus(current_thread);
+}
+
 fn wakeSocketReaders(index: usize) void {
     if (sockets[index].local_len == 0 and !sockets[index].peer_closed) return;
     for (&user_threads) |*thread| {
@@ -4209,6 +4213,15 @@ fn exitThread(status: u64) u64 {
         _ = wakeUserThreads(thread.clear_tid, ~@as(u64, 0));
     }
     thread.state = .exited;
+    var workspace_has_live_thread = false;
+    for (user_threads) |other| {
+        if (other.workspace_id != thread.workspace_id) continue;
+        if (other.state == .runnable or other.state == .blocked) {
+            workspace_has_live_thread = true;
+            break;
+        }
+    }
+    if (!workspace_has_live_thread) return exitSyscall(status);
     for (user_threads) |other| {
         if (other.state == .runnable or other.state == .blocked) return 0;
     }
