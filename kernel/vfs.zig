@@ -863,6 +863,35 @@ pub fn mkdirAt(directory_fd_in: i64, path: []const u8, mode: u64) !void {
     const directory_fd = effectiveDirectoryFd(directory_fd_in);
     _ = mode;
     if (disk) |volume| {
+        // Git's receive-pack changes into the bare repository and creates
+        // quarantine directories with relative paths such as
+        // ./objects/tmp_objdir-... . Walk those paths from the supplied
+        // directory descriptor instead of incorrectly restarting at FAT root.
+        if (directory_fd >= 3 and @as(usize, @intCast(directory_fd)) < descriptors.len and
+            descriptors[@intCast(directory_fd)].node == .fat_directory and path.len != 0 and path[0] != '/')
+        {
+            var cluster = descriptors[@intCast(directory_fd)].fat_cluster;
+            var components: [32][]const u8 = undefined;
+            var count: usize = 0;
+            var iterator = std.mem.splitScalar(u8, path, '/');
+            while (iterator.next()) |component| {
+                if (component.len == 0 or std.mem.eql(u8, component, ".")) continue;
+                if (count == components.len) return error.NameTooLong;
+                components[count] = component;
+                count += 1;
+            }
+            if (count == 0) return error.Invalid;
+            for (components[0 .. count - 1]) |component| {
+                const name = toFatName(component) orelse return error.Invalid;
+                const entry = try volume.findDirectoryEntry(cluster, &name);
+                if (!entry.directory) return error.NotDirectory;
+                cluster = entry.first_cluster;
+            }
+            const child = toFatName(components[count - 1]) orelse return error.Invalid;
+            if (volume.findDirectoryEntry(cluster, &child)) |_| return error.AlreadyExists else |_| {}
+            _ = try volume.createDirectory(cluster, &child);
+            return;
+        }
         if (directory_fd >= 3 and @as(usize, @intCast(directory_fd)) < descriptors.len and
             descriptors[@intCast(directory_fd)].node == .fat_directory and std.mem.indexOfScalar(u8, path, '/') == null)
         {
@@ -1025,7 +1054,7 @@ fn resolveFatPath(volume: *fat16.Volume, path: []const u8) !ResolvedFatPath {
     var components: [32][]const u8 = undefined;
     var count: usize = 0;
     while (iterator.next()) |component| {
-        if (component.len == 0) continue;
+        if (component.len == 0 or std.mem.eql(u8, component, ".")) continue;
         if (count == components.len) return error.NameTooLong;
         components[count] = component;
         count += 1;
@@ -1258,7 +1287,7 @@ fn toFatName(path: []const u8) ?[11]u8 {
     if (std.mem.eql(u8, path, "CHERRY_PICK_HEAD")) return "CHERRY  HED".*;
     if (std.mem.eql(u8, path, "master.lock")) return "MASTER  LCK".*;
     if (std.mem.eql(u8, path, "AUTO_MERGE.lock")) return "AUTOMRG LCK".*;
-    if (std.mem.startsWith(u8, path, "tmp_obj_")) return "TMPOBJ  TMP".*;
+    if (std.mem.startsWith(u8, path, "tmp_obj_") or std.mem.startsWith(u8, path, "tmp_objdir-")) return "TMPOBJ  TMP".*;
     // Git object IDs are 40 hexadecimal characters. Preserve enough of the
     // digest in the FAT alias to keep normal object fan-out collision-free.
     if (path.len >= 11 and path.len <= 64) {

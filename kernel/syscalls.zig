@@ -264,6 +264,9 @@ const UserThread = struct {
     pending_wait_address: u64 = 0,
     stdio_sockets: [3]?usize = .{ null, null, null },
     stdio_cloexec: [3]bool = .{ false, false, false },
+    owned_socket_refs: [32]bool = .{false} ** 32,
+    cwd: [256]u8 = .{0} ** 256,
+    cwd_len: usize = 1,
     robust: u64 = 0, robust_size: u64 = 0,
     exec_request: ?ExecRequest = null,
     fx: [512]u8 align(16) = @splat(0),
@@ -330,9 +333,14 @@ fn cloneThread(flags: u64, stack: u64, parent_tid: u64, child_tid: u64, tls: u64
             .workspace_id = user_threads[current_thread].workspace_id };
         user_threads[slot].stdio_sockets = user_threads[current_thread].stdio_sockets;
         user_threads[slot].stdio_cloexec = user_threads[current_thread].stdio_cloexec;
+        user_threads[slot].cwd = user_threads[current_thread].cwd;
+        user_threads[slot].cwd_len = user_threads[current_thread].cwd_len;
         if (is_process_child) {
-            for (&sockets) |*socket_entry| {
-                if (socket_entry.allocated) socket_entry.refs += 1;
+            for (&sockets, 0..) |*socket_entry, index| {
+                if (socket_entry.allocated) {
+                    socket_entry.refs += 1;
+                    user_threads[slot].owned_socket_refs[index] = true;
+                }
             }
         }
         const tid: u32 = @intCast(slot + 1);
@@ -410,6 +418,7 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
         if (selected) |slot| {
             current_thread = slot;
             current_pid = user_threads[slot].pid;
+            _ = vfs.changeDirectory(user_threads[slot].cwd[0..user_threads[slot].cwd_len]) catch {};
             if (workspace_activate_hook) |hook| hook(user_threads[slot].workspace_id);
             completePendingSocketRead(slot);
             completePendingPoll(slot);
@@ -467,6 +476,9 @@ pub fn configure(base: u64, size: u64, stack: u64, stack_length: u64, initial_br
     current_thread = 0;
     current_pid = 1;
     user_threads[0].pid = 1;
+    user_threads[0].cwd[0] = '/';
+    user_threads[0].cwd_len = 1;
+    _ = vfs.changeDirectory("/") catch {};
     pending_clone = null;
     deferred_process_child = null;
     thread_switch_requested = false;
@@ -701,6 +713,8 @@ pub fn configureInitializerStep(hook: ?*const fn (u64) callconv(.c) void) void {
 }
 
 export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, arg4: u64, arg5: u64, arg6: u64) callconv(.c) u64 {
+    if (user_threads_enabled and current_thread < user_threads.len)
+        _ = vfs.changeDirectory(user_threads[current_thread].cwd[0..user_threads[current_thread].cwd_len]) catch {};
     return switch (number) {
         0 => read(arg1, arg2, arg3),
         1 => write(arg1, arg2, arg3),
@@ -1113,6 +1127,7 @@ pub fn closeOnExecSockets() void {
             if (stdio_keeps_reference) continue;
             const shared = sockets[index].refs > 1;
             releaseSocketRef(index);
+            user_threads[current_thread].owned_socket_refs[index] = false;
             // The remaining reference belongs to the parent process; do not
             // apply the child-only close-on-exec action again on nested execs.
             if (shared and sockets[index].allocated) sockets[index].close_on_exec = false;
@@ -1125,9 +1140,11 @@ fn close(fd: u64) u64 {
         if (fd < 3) {
             user_threads[current_thread].stdio_sockets[@intCast(fd)] = null;
             user_threads[current_thread].stdio_cloexec[@intCast(fd)] = false;
+            user_threads[current_thread].owned_socket_refs[index] = false;
             releaseSocketRef(index);
             return 0;
         }
+        user_threads[current_thread].owned_socket_refs[index] = false;
         releaseSocketRef(index);
         return 0;
     }
@@ -3532,7 +3549,10 @@ fn uname(address: u64) u64 {
 }
 
 fn getcwd(address: u64, size: u64) u64 {
-    const path = vfs.currentWorkingDirectory();
+    const path = if (user_threads_enabled and current_thread < user_threads.len)
+        user_threads[current_thread].cwd[0..user_threads[current_thread].cwd_len]
+    else
+        vfs.currentWorkingDirectory();
     if (size <= path.len or !validUserSlice(address, path.len + 1)) return errno(34);
     const bytes: [*]u8 = @ptrFromInt(address);
     @memcpy(bytes[0..path.len], path);
@@ -3547,6 +3567,11 @@ fn chdir(address: u64) u64 {
     var path: [256]u8 = undefined;
     const text = userString(address, &path) orelse return errno(14);
     vfs.changeDirectory(text) catch |err| return vfsError(err);
+    const current = vfs.currentWorkingDirectory();
+    const thread = &user_threads[current_thread];
+    const length = @min(current.len, thread.cwd.len);
+    @memcpy(thread.cwd[0..length], current[0..length]);
+    thread.cwd_len = length;
     return 0;
 }
 
@@ -3637,6 +3662,10 @@ fn socketPair(domain: u64, kind: u64, protocol: u64, output: u64) u64 {
     if (first == null or second == null) return errno(24);
     sockets[first.?] = .{ .allocated = true, .refs = 1, .local_pair = true, .peer_index = second, .close_on_exec = (kind & 0x80000) != 0, .nonblocking = (kind & 0x800) != 0 };
     sockets[second.?] = .{ .allocated = true, .refs = 1, .local_pair = true, .peer_index = first, .close_on_exec = (kind & 0x80000) != 0, .nonblocking = (kind & 0x800) != 0 };
+    if (user_threads_enabled and user_threads[current_thread].kind == .process_child) {
+        user_threads[current_thread].owned_socket_refs[first.?] = true;
+        user_threads[current_thread].owned_socket_refs[second.?] = true;
+    }
     put32(@ptrFromInt(output), @intCast(socket_fd_base + first.?));
     put32(@ptrFromInt(output + 4), @intCast(socket_fd_base + second.?));
     return 0;
@@ -4086,8 +4115,14 @@ fn exitThread(status: u64) u64 {
             if (thread.stdio_sockets[fd_index]) |socket_index| {
                 thread.stdio_sockets[fd_index] = null;
                 thread.stdio_cloexec[fd_index] = false;
+                thread.owned_socket_refs[socket_index] = false;
                 releaseSocketRef(socket_index);
             }
+        }
+        for (&thread.owned_socket_refs, 0..) |*owned, socket_index| {
+            if (!owned.*) continue;
+            owned.* = false;
+            if (sockets[socket_index].allocated) releaseSocketRef(socket_index);
         }
     }
     if (thread.kind == .process_child) {
@@ -4221,6 +4256,7 @@ pub fn takeExecRequest() ?ExecRequestEnvelope {
             thread.exec_request = null;
             current_thread = thread_index;
             current_pid = thread.pid;
+            _ = vfs.changeDirectory(thread.cwd[0..thread.cwd_len]) catch {};
             return .{ .thread_id = thread.pid, .workspace_id = thread.workspace_id, .request = request };
         }
     }
