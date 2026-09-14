@@ -837,16 +837,14 @@ pub fn unlinkAt(directory_fd_in: i64, path: []const u8) !void {
 /// Bootstrap hard-link compatibility for Git's object write protocol. FAT16
 /// has no inode link count, so materialize an independent copy at the target.
 pub fn linkAt(old_directory_fd: i64, old_path: []const u8, new_directory_fd: i64, new_path: []const u8) !void {
-    _ = old_directory_fd;
-    _ = new_directory_fd;
-    const source = try openAt(-100, old_path, 0);
+    const source = try openAt(old_directory_fd, old_path, 0);
     defer close(source) catch {};
     const source_info = try infoFd(source);
     if (source_info.directory) return error.NotDirectory;
     if (source_info.size > 32768) return error.FileTooLarge;
     var contents: [32768]u8 = undefined;
     const count = try read(source, contents[0..@intCast(source_info.size)]);
-    const target = try openAt(-100, new_path, 0x241);
+    const target = try openAt(new_directory_fd, new_path, 0x241);
     defer close(target) catch {};
     _ = try write(target, contents[0..count]);
     const object_name = lastPathComponent(new_path);
