@@ -8,6 +8,7 @@ const hello = "Hello from initramfs\n";
 // helper process is active.  Keep the table bounded but leave normal Linux
 // command fan-out room before reporting EMFILE.
 const max_fds = 128;
+const max_file_io: usize = 32768;
 
 const Kind = enum { unused, console, file, directory, device, epoll, eventfd };
 const Node = enum {
@@ -756,7 +757,7 @@ pub fn write(fd: usize, input: []const u8) !usize {
     if (descriptors[fd].node == .null_device) return input.len;
     if (!descriptors[fd].writable) return error.AccessDenied;
     const volume = descriptorVolume(fd) orelse return error.NotFound;
-    var contents: [8192]u8 = undefined;
+    var contents: [max_file_io]u8 = undefined;
     const descriptor = &descriptors[fd];
     if (descriptor.append) descriptor.offset = descriptor.size;
     if (descriptor.offset > contents.len or input.len > contents.len - descriptor.offset or descriptor.size > contents.len) return error.FileTooLarge;
@@ -782,9 +783,9 @@ pub fn write(fd: usize, input: []const u8) !usize {
 pub fn truncate(fd: usize, length: usize) !void {
     if (fd >= descriptors.len or descriptors[fd].kind != .file or descriptors[fd].node != .disk) return error.BadFd;
     if (!descriptors[fd].writable) return error.AccessDenied;
-    if (length > 8192) return error.FileTooLarge;
+    if (length > max_file_io) return error.FileTooLarge;
     const volume = descriptorVolume(fd) orelse return error.NotFound;
-    var contents: [8192]u8 = undefined;
+    var contents: [max_file_io]u8 = undefined;
     const descriptor = &descriptors[fd];
     const old_size = descriptor.size;
     if (old_size != 0) {
