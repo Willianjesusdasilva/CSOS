@@ -439,6 +439,12 @@ para não interromper o produtor do pipe. O smoke normal continua passando no
 QEMU; o probe estendido não reporta mais `remote end hung up`, mas ainda não
 produziu a conclusão verificável do `git push`. P1 permanece aberto.
 
+Atualização: o loader passou a completar `pending_read` e `pending_poll` do
+processo-pai antes de restaurar seu frame após a saída de um filho `exec`.
+`zig build test` continua passando, mas o probe de transporte ainda termina
+sem criar a ref remota (`fatal: Needed a single revision`). O bloqueio segue
+no estado do `receive-pack` após a transferência do pack.
+
 ---
 
 # P2 — Bare-metal e Alpine Recovery
