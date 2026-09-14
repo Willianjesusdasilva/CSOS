@@ -1165,6 +1165,25 @@ fn releaseSocketRef(index: usize) void {
     sockets[index] = .{};
 }
 
+fn clearWorkspaceDirectSocket(owner: usize, index: usize) void {
+    const workspace = user_threads[owner].workspace_id;
+    for (&user_threads) |*peer| {
+        if (peer.workspace_id != workspace) continue;
+        peer.direct_socket_refs[index] = false;
+        peer.direct_socket_cloexec[index] = false;
+        peer.owned_socket_refs[index] = false;
+    }
+}
+
+fn publishDirectSocket(owner: usize, index: usize, cloexec: bool) void {
+    const owner_workspace = user_threads[owner].workspace_id;
+    for (&user_threads) |*peer| {
+        if (peer.workspace_id != owner_workspace) continue;
+        peer.direct_socket_refs[index] = true;
+        peer.direct_socket_cloexec[index] = cloexec;
+    }
+}
+
 pub fn closeOnExecSockets() void {
     var index: usize = 0;
     while (index < sockets.len) : (index += 1) {
@@ -1176,10 +1195,31 @@ pub fn closeOnExecSockets() void {
         }
         if (should_close) {
             const shared = sockets[index].refs > 1;
+            const owner_workspace = user_threads[current_thread].workspace_id;
             releaseSocketRef(index);
             user_threads[current_thread].direct_socket_refs[index] = false;
             user_threads[current_thread].direct_socket_cloexec[index] = false;
             user_threads[current_thread].owned_socket_refs[index] = false;
+            // A forked exec child inherits a process-owned CLOEXEC endpoint
+            // that the parent has already made obsolete.  Drop one such
+            // endpoint per distinct parent workspace so local pipes reach EOF.
+            var seen_workspaces: [16]u8 = undefined;
+            var seen_count: usize = 0;
+            for (&user_threads) |*peer| {
+                if (peer.workspace_id == owner_workspace or !peer.direct_socket_refs[index] or
+                    !peer.direct_socket_cloexec[index]) continue;
+                var seen = false;
+                for (seen_workspaces[0..seen_count]) |seen_workspace| if (seen_workspace == peer.workspace_id) { seen = true; break; };
+                if (seen) continue;
+                seen_workspaces[seen_count] = peer.workspace_id;
+                seen_count += 1;
+                for (&user_threads) |*same| if (same.workspace_id == peer.workspace_id) {
+                    same.direct_socket_refs[index] = false;
+                    same.direct_socket_cloexec[index] = false;
+                    same.owned_socket_refs[index] = false;
+                };
+                if (sockets[index].allocated) releaseSocketRef(index);
+            }
             // The remaining reference belongs to the parent process; do not
             // apply the child-only close-on-exec action again on nested execs.
             if (shared and sockets[index].allocated) sockets[index].close_on_exec = false;
@@ -1196,9 +1236,7 @@ fn close(fd: u64) u64 {
             releaseSocketRef(index);
             return 0;
         }
-        user_threads[current_thread].owned_socket_refs[index] = false;
-        user_threads[current_thread].direct_socket_refs[index] = false;
-        user_threads[current_thread].direct_socket_cloexec[index] = false;
+        clearWorkspaceDirectSocket(current_thread, index);
         releaseSocketRef(index);
         return 0;
     }
@@ -1239,7 +1277,11 @@ fn fcntl(fd: u64, command: u64, argument: u64) u64 {
         2 => blk: {
             if ((argument & ~@as(u64, 1)) != 0) break :blk errno(22);
             if (fd >= socket_fd_base) {
-                user_threads[current_thread].direct_socket_cloexec[index] = (argument & 1) != 0;
+                const cloexec = (argument & 1) != 0;
+                const workspace = user_threads[current_thread].workspace_id;
+                for (&user_threads) |*peer| {
+                    if (peer.workspace_id == workspace) peer.direct_socket_cloexec[index] = cloexec;
+                }
             } else {
                 sockets[index].close_on_exec = (argument & 1) != 0;
             }
@@ -3702,8 +3744,7 @@ fn socket(domain: u64, kind: u64, protocol: u64) u64 {
     for (&sockets, 0..) |*entry, index| {
         if (!entry.allocated) {
             entry.* = .{ .allocated = true, .refs = 1, .close_on_exec = (kind & 0x80000) != 0, .nonblocking = (kind & 0x800) != 0 };
-            user_threads[current_thread].direct_socket_refs[index] = true;
-            user_threads[current_thread].direct_socket_cloexec[index] = (kind & 0x80000) != 0;
+            publishDirectSocket(current_thread, index, (kind & 0x80000) != 0);
             return socket_fd_base + index;
         }
     }
@@ -3723,10 +3764,8 @@ fn socketPair(domain: u64, kind: u64, protocol: u64, output: u64) u64 {
     if (first == null or second == null) return errno(24);
     sockets[first.?] = .{ .allocated = true, .refs = 1, .local_pair = true, .peer_index = second, .close_on_exec = (kind & 0x80000) != 0, .nonblocking = (kind & 0x800) != 0 };
     sockets[second.?] = .{ .allocated = true, .refs = 1, .local_pair = true, .peer_index = first, .close_on_exec = (kind & 0x80000) != 0, .nonblocking = (kind & 0x800) != 0 };
-    user_threads[current_thread].direct_socket_refs[first.?] = true;
-    user_threads[current_thread].direct_socket_refs[second.?] = true;
-    user_threads[current_thread].direct_socket_cloexec[first.?] = (kind & 0x80000) != 0;
-    user_threads[current_thread].direct_socket_cloexec[second.?] = (kind & 0x80000) != 0;
+    publishDirectSocket(current_thread, first.?, (kind & 0x80000) != 0);
+    publishDirectSocket(current_thread, second.?, (kind & 0x80000) != 0);
     if (user_threads_enabled and user_threads[current_thread].kind == .process_child) {
         user_threads[current_thread].owned_socket_refs[first.?] = true;
         user_threads[current_thread].owned_socket_refs[second.?] = true;
@@ -4031,7 +4070,13 @@ fn socketIndexForThread(thread_index: usize, fd: u64) ?usize {
     if (fd < 3) return user_threads[thread_index].stdio_sockets[@intCast(fd)];
     if (fd < socket_fd_base or fd >= socket_fd_base + sockets.len) return null;
     const index: usize = @intCast(fd - socket_fd_base);
-    return if (sockets[index].allocated and user_threads[thread_index].direct_socket_refs[index]) index else null;
+    if (!sockets[index].allocated) return null;
+    if (user_threads[thread_index].direct_socket_refs[index]) return index;
+    const workspace = user_threads[thread_index].workspace_id;
+    for (user_threads) |peer| {
+        if (peer.workspace_id == workspace and peer.direct_socket_refs[index]) return index;
+    }
+    return null;
 }
 
 fn archPrctl(code: u64, address: u64) u64 {
