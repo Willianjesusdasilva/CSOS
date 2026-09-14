@@ -280,6 +280,9 @@ const UserThread = struct {
     pending_read_address: u64 = 0,
     pending_read_length: usize = 0,
     pending_read_eof: bool = false,
+    pending_write_socket: ?usize = null,
+    pending_write_address: u64 = 0,
+    pending_write_length: usize = 0,
     pending_poll_address: u64 = 0,
     pending_poll_count: u64 = 0,
     pending_poll_sockets: [32]bool = .{false} ** 32,
@@ -1261,6 +1264,7 @@ fn releaseSocketRef(index: usize) void {
             }
         }
         wakeSocketReaders(peer);
+        wakeSocketWriters(peer);
         wakeSocketPollers(peer);
     }
     if (sockets[index].connection) |*connection| if (network_stack) |stack| stack.tcpClose(connection) catch {};
@@ -3807,7 +3811,18 @@ fn write(fd: u64, address: u64, length: u64) u64 {
     const length_usize = std.math.cast(usize, length) orelse return errno(14);
     const text: [*]const u8 = @ptrFromInt(address);
     if (vfs.isEventfd(@intCast(fd))) return vfs.writeEventfd(@intCast(fd), text[0..length_usize]) catch |err| vfsError(err);
-    if (socketIndex(fd)) |index| return socketSend(index, text[0..length_usize]);
+    if (socketIndex(fd)) |index| {
+        const result = socketSend(index, text[0..length_usize]);
+        if (result == errno(11) and sockets[index].local_pair and !sockets[index].nonblocking and user_threads_enabled) {
+            user_threads[current_thread].pending_write_socket = index;
+            user_threads[current_thread].pending_write_address = address;
+            user_threads[current_thread].pending_write_length = length_usize;
+            user_threads[current_thread].state = .blocked;
+            thread_switch_requested = true;
+            return 0;
+        }
+        return result;
+    }
     if (vfs.isDiskFile(@intCast(fd))) return vfs.write(@intCast(fd), text[0..length_usize]) catch |err| vfsError(err);
     if (!vfs.isConsole(@intCast(fd))) return errno(9);
     serial.write(text[0..length_usize]);
@@ -4099,6 +4114,7 @@ pub fn completeCurrentPendingWaitStatus() void {
 /// the same socket/poll completion semantics in that path as well.
 pub fn completeCurrentPendingIo() void {
     completePendingSocketRead(current_thread);
+    completePendingSocketWrite(current_thread);
     completePendingPoll(current_thread);
 }
 
@@ -4113,6 +4129,36 @@ fn wakeSocketReaders(index: usize) void {
         thread.state = .runnable;
         thread_switch_requested = true;
     }
+}
+
+fn wakeSocketWriters(index: usize) void {
+    if (!sockets[index].allocated or sockets[index].local_len >= sockets[index].local_buffer.len) return;
+    for (&user_threads) |*thread| {
+        if (thread.state != .blocked or thread.pending_write_socket != index) continue;
+        thread.state = .runnable;
+        thread_switch_requested = true;
+    }
+}
+
+fn completePendingSocketWrite(thread_index: usize) void {
+    if (thread_index >= user_threads.len) return;
+    const thread = &user_threads[thread_index];
+    const index = thread.pending_write_socket orelse return;
+    const address = thread.pending_write_address;
+    const length = thread.pending_write_length;
+    if (!validUserSlice(address, length)) {
+        thread.pending_write_socket = null;
+        thread.pending_write_address = 0;
+        thread.pending_write_length = 0;
+        thread.result = errno(14);
+        return;
+    }
+    const result = socketSend(index, @as([*]const u8, @ptrFromInt(address))[0..length]);
+    if (result == errno(11)) return;
+    thread.pending_write_socket = null;
+    thread.pending_write_address = 0;
+    thread.pending_write_length = 0;
+    thread.result = result;
 }
 
 fn completePendingSocketRead(thread_index: usize) void {
@@ -4153,7 +4199,10 @@ fn completePendingSocketRead(thread_index: usize) void {
     }
     sockets[index].local_head = (sockets[index].local_head + length) % sockets[index].local_buffer.len;
     sockets[index].local_len -= length;
-    if (sockets[index].peer_index) |peer| wakeSocketPollers(peer);
+    if (sockets[index].peer_index) |peer| {
+        wakeSocketPollers(peer);
+        wakeSocketWriters(peer);
+    }
     thread.pending_read_socket = null;
     thread.pending_read_address = 0;
     thread.pending_read_length = 0;
@@ -4184,7 +4233,10 @@ fn socketReceive(index: usize, data: []u8) u64 {
         }
         sockets[index].local_head = (sockets[index].local_head + count) % sockets[index].local_buffer.len;
         sockets[index].local_len -= count;
-        if (sockets[index].peer_index) |peer| wakeSocketPollers(peer);
+        if (sockets[index].peer_index) |peer| {
+            wakeSocketPollers(peer);
+            wakeSocketWriters(peer);
+        }
         return count;
     }
     const stack = network_stack orelse return errno(100);
