@@ -451,6 +451,11 @@ e os testes unitários continuam passando, mas o probe de `git push` ainda não
 cria a ref remota; P1 permanece aberto e o próximo diagnóstico deve seguir o
 estado do `receive-pack`/`rev-list`.
 
+Atualização: o VFS passou a respeitar `dirfd` em `linkat`/`unlinkat`, criar
+arquivos relativos aninhados com `O_CREAT` e mapear locks de branches para
+aliases FAT válidos. Os testes continuam passando; o `push` completo ainda
+não cria a ref remota, portanto P1 permanece aberto.
+
 ---
 
 # P2 — Bare-metal e Alpine Recovery
