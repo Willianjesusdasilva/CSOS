@@ -546,6 +546,8 @@ fn openFatRelative(volume: *fat16.Volume, directory_fd: usize, path: []const u8,
             try volume.createDirectoryFile(cluster, &name);
             break :blk try volume.findDirectoryEntry(cluster, &name);
         };
+        if (component_index + 1 == component_count and (flags & 0xc0) == 0xc0)
+            return error.AlreadyExists;
         final_name = entry.name;
         final_entry = entry;
         final_parent_cluster = cluster;
