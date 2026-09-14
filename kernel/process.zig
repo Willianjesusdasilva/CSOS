@@ -964,6 +964,15 @@ fn runImageWithWorkspace(
                     workspace;
                 active_workspace = parent_workspace;
                 (parent_workspace.address_space orelse address_space).activate();
+                // The nested exec loader temporarily installs its own
+                // userspace callbacks and clears them on return. Restore the
+                // parent's callbacks before resuming its saved frame, or a
+                // receive-pack parent will lose mmap/exec/workspace support
+                // immediately after wait4.
+                syscalls.configureMmap(&protectMmap, &unmapMmap, &mapDevice);
+                syscalls.configureUserSlice(&validMappedUserSlice);
+                syscalls.configureProcessWorkspaces(parent_workspace.pool_id, &cloneProcessWorkspace, &activateProcessWorkspace, &releaseProcessWorkspace);
+                syscalls.configureExecve(&acceptExecve);
                 syscalls.restoreUserResumeContext(&resumed_frame);
                 syscalls.completeCurrentPendingWaitStatus();
                 syscalls.resetExitStatus();

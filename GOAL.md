@@ -425,6 +425,13 @@ saída antes de devolver o frame ao parent. O probe estendido deixou de travar
 após `wait4` e passou a reportar `remote end hung up unexpectedly`; o próximo
 bloqueio está no handshake final do `receive-pack`.
 
+Atualização: depois de um `exec` filho, os callbacks de mmap, validação de
+memória, execve e workspaces do processo-pai agora são restaurados antes da
+retomada do frame salvo. O smoke básico continua passando no QEMU; o probe de
+push volta a executar o pai após o `wait4`, mas ainda encerra com
+`remote end hung up unexpectedly`. O handshake final e `git pull`/reboot
+continuam pendentes.
+
 Atualização: o fork agora contabiliza somente sockets realmente herdados pelo
 filho, e o encerramento de imagens `exec` libera seus descritores pelo PID
 antes do `wait4`. O agendamento de filhos aninhados aguarda o bloqueio do pai
