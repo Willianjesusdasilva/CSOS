@@ -3914,6 +3914,7 @@ fn completePendingSocketRead(thread_index: usize) void {
     }
     sockets[index].local_head = (sockets[index].local_head + length) % sockets[index].local_buffer.len;
     sockets[index].local_len -= length;
+    if (sockets[index].peer_index) |peer| wakeSocketPollers(peer);
     thread.pending_read_socket = null;
     thread.pending_read_address = 0;
     thread.pending_read_length = 0;
@@ -3943,6 +3944,7 @@ fn socketReceive(index: usize, data: []u8) u64 {
         }
         sockets[index].local_head = (sockets[index].local_head + count) % sockets[index].local_buffer.len;
         sockets[index].local_len -= count;
+        if (sockets[index].peer_index) |peer| wakeSocketPollers(peer);
         return count;
     }
     const stack = network_stack orelse return errno(100);
