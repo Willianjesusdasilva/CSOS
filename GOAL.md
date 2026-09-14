@@ -377,12 +377,15 @@ O loader agora aceita também `execveat(..., AT_EMPTY_PATH)`, usado pelo
 `fexecve` do Git. Pipes duplicados para o descritor 0 passam pelo namespace de
 sockets, e `poll(..., -1)` cede a CPU corretamente. Fork agora clona a
 hierarquia de page tables, isola páginas graváveis da pilha/segmentos do filho
-e devolve `0` ao novo thread/processo, sem corromper o frame do pai. O runtime
-Git continua alcançando `CSOS Git runtime ready` no QEMU. O probe de transporte
-local já atravessa `git-upload-pack` e alcança um `clone` pthread aninhado, mas
-o protocolo ainda falha com `bad line length`/`pack-objects died of signal 32`;
-falta fechar o lifecycle do thread e a entrega dos pipes antes do `git pull`
-real, reboot e uso da nova revisão.
+e devolve `0` ao novo thread/processo, sem corromper o frame do pai. Wakeups de
+`read`/`poll` e o status de `wait4` agora são concluídos somente depois que o
+workspace/CR3 do thread destinatário está ativo; páginas anônimas acessadas
+também são isoladas no fork. O runtime Git continua alcançando
+`CSOS Git runtime ready` no QEMU. O probe de transporte local já atravessa
+`git-upload-pack`, `clone` pthread aninhado e o fechamento do processo-filho
+sem o erro anterior de pacote/status corrompido, mas ainda termina com threads
+pthread bloqueados sem produtor ativo. Falta fechar o lifecycle/EOF desses
+threads antes do `git pull` real, reboot e uso da nova revisão.
 
 ---
 
