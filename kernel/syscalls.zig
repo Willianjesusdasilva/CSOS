@@ -255,6 +255,8 @@ const UserThread = struct {
     pending_read_socket: ?usize = null,
     pending_read_address: u64 = 0,
     pending_read_length: usize = 0,
+    pending_poll_address: u64 = 0,
+    pending_poll_count: u64 = 0,
     stdio_sockets: [3]?usize = .{ null, null, null },
     stdio_cloexec: [3]bool = .{ false, false, false },
     robust: u64 = 0, robust_size: u64 = 0,
@@ -3359,6 +3361,7 @@ fn poll(address: u64, count: u64, timeout: i64) u64 {
     // Linux permits poll(NULL, 0, timeout), which is useful as a sleep.
     if (count != 0 and !validUserSlice(address, bytes)) return errno(14);
     var ready: u64 = 0;
+    var has_local_pair = false;
     var index: u64 = 0;
     while (index < count) : (index += 1) {
         const item: [*]u8 = @ptrFromInt(address + index * 8);
@@ -3371,6 +3374,7 @@ fn poll(address: u64, count: u64, timeout: i64) u64 {
         } else if (fd == 0 and socketIndex(fd) == null) {
             if (stdin_hook != null and (events & 1) != 0) revents |= 1;
         } else if (socketIndex(fd)) |socket_index| {
+            if (sockets[socket_index].local_pair) has_local_pair = true;
             if ((events & 1) != 0 and sockets[socket_index].connection != null) revents |= 1;
             if ((events & 1) != 0 and sockets[socket_index].local_pair and sockets[socket_index].local_len != 0) revents |= 1;
             if (sockets[socket_index].local_pair and sockets[socket_index].peer_closed) revents |= 0x10 | 1;
@@ -3400,6 +3404,13 @@ fn poll(address: u64, count: u64, timeout: i64) u64 {
         if (revents != 0) ready += 1;
     }
     if (ready == 0 and timeout != 0) {
+        if (user_threads_enabled and has_local_pair) {
+            user_threads[current_thread].pending_poll_address = address;
+            user_threads[current_thread].pending_poll_count = count;
+            user_threads[current_thread].state = .blocked;
+            thread_switch_requested = true;
+            return 0;
+        }
         if (user_threads_enabled) thread_switch_requested = true;
         if (idle_hook) |hook| hook();
     }
@@ -3696,6 +3707,7 @@ fn socketSend(index: usize, data: []const u8) u64 {
             sockets[peer].local_buffer[position] = data[offset];
         }
         sockets[peer].local_len += count;
+        wakeSocketPollers(peer);
         wakeSocketReaders(peer);
         return count;
     }
@@ -3703,6 +3715,42 @@ fn socketSend(index: usize, data: []const u8) u64 {
     if (sockets[index].connection) |*connection|
         return stack.tcpSend(connection, data) catch errno(5);
     return errno(107);
+}
+
+fn wakeSocketPollers(index: usize) void {
+    if (sockets[index].local_len == 0) return;
+    for (&user_threads, 0..) |*thread, thread_index| {
+        if (thread.state != .blocked or thread.pending_poll_address == 0) continue;
+        const address = thread.pending_poll_address;
+        const count = thread.pending_poll_count;
+        const bytes = std.math.mul(u64, count, 8) catch continue;
+        if (count > 64 or (count != 0 and !validUserSlice(address, bytes))) continue;
+        var ready: u64 = 0;
+        var poll_index: u64 = 0;
+        while (poll_index < count) : (poll_index += 1) {
+            const item: [*]u8 = @ptrFromInt(address + poll_index * 8);
+            const fd = read32(item);
+            if (socketIndexForThread(thread_index, fd)) |socket_index| {
+                var revents: u16 = 0;
+                const events = read16(item + 4);
+                if ((events & 1) != 0 and sockets[socket_index].local_pair and sockets[socket_index].local_len != 0) revents |= 1;
+                if (sockets[socket_index].local_pair and sockets[socket_index].peer_closed) revents |= 0x10 | 1;
+                if ((events & 4) != 0 and sockets[socket_index].local_pair) {
+                    if (sockets[socket_index].peer_index) |peer| {
+                        if (sockets[peer].local_len < sockets[peer].local_buffer.len) revents |= 4;
+                    }
+                }
+                put16(item + 6, revents);
+                if (revents != 0) ready += 1;
+            }
+        }
+        if (ready != 0) {
+            thread.pending_poll_address = 0;
+            thread.pending_poll_count = 0;
+            thread.state = .runnable;
+            thread.result = ready;
+        }
+    }
 }
 
 fn wakeSocketReaders(index: usize) void {
@@ -3765,7 +3813,12 @@ fn socketReceive(index: usize, data: []u8) u64 {
 }
 
 fn socketIndex(fd: u64) ?usize {
-    if (fd < 3) return user_threads[current_thread].stdio_sockets[@intCast(fd)];
+    return socketIndexForThread(current_thread, fd);
+}
+
+fn socketIndexForThread(thread_index: usize, fd: u64) ?usize {
+    if (thread_index >= user_threads.len) return null;
+    if (fd < 3) return user_threads[thread_index].stdio_sockets[@intCast(fd)];
     if (fd < socket_fd_base or fd >= socket_fd_base + sockets.len) return null;
     const index: usize = @intCast(fd - socket_fd_base);
     return if (sockets[index].allocated) index else null;
