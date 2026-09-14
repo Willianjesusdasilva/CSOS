@@ -4263,6 +4263,12 @@ pub fn takeExecRequest() ?ExecRequestEnvelope {
     return null;
 }
 
+pub fn currentWorkingDirectory() []const u8 {
+    if (current_thread < user_threads.len and user_threads_enabled)
+        return user_threads[current_thread].cwd[0..user_threads[current_thread].cwd_len];
+    return vfs.currentWorkingDirectory();
+}
+
 pub fn configureExecve(hook: ?*const fn (u64, u64, u64) callconv(.c) u64) void {
     execve_hook = hook;
 }

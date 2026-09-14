@@ -453,10 +453,11 @@ fn runExecRequest(kernel_root: u64, pages: *physical.Allocator, envelope: syscal
     if (envelope.workspace_id >= loader_workspaces.len) return error.InvalidExecWorkspace;
     const workspace = &loader_workspaces[envelope.workspace_id];
     if (!workspace.leased) return error.InvalidExecWorkspace;
+    var request = envelope.request;
     // Linux closes O_CLOEXEC descriptors in the child before the replacement
     // image starts; this EOF is how the parent detects a successful exec.
     syscalls.closeOnExecSockets();
-    const path = envelope.request.path[0..envelope.request.path_len];
+    const path = request.path[0..request.path_len];
     image = if (isGitExecutablePath(path))
         @embedFile("git_runtime_elf")
     else if (equal(path, "/bin/busybox") or equal(path, "/bin/sh") or isShellExecutablePath(path))
@@ -492,14 +493,31 @@ fn runExecRequest(kernel_root: u64, pages: *physical.Allocator, envelope: syscal
     syscalls.resetExecThreadTls();
 
     var arguments: [32][]const u8 = undefined;
-    for (arguments[0..envelope.request.argc], 0..) |*argument, index| {
-        argument.* = envelope.request.argv[index][0..envelope.request.argv_lengths[index]];
+    for (arguments[0..request.argc], 0..) |*argument, index| {
+        argument.* = request.argv[index][0..request.argv_lengths[index]];
     }
     var environment: [32][]const u8 = undefined;
-    for (environment[0..envelope.request.envc], 0..) |*entry, index| {
-        entry.* = envelope.request.envp[index][0..envelope.request.envp_lengths[index]];
+    for (environment[0..request.envc], 0..) |*entry, index| {
+        entry.* = request.envp[index][0..request.envp_lengths[index]];
     }
-    return runImageWithWorkspace(kernel_root, pages, arguments[0..envelope.request.argc], environment[0..envelope.request.envc], workspace, true);
+    // Git's receive-pack can hand an exec child quarantine variables whose
+    // value is /./objects/... . Resolve that spelling against the originating
+    // process cwd before the child image starts; otherwise a sibling process
+    // changing cwd can make the helper target the filesystem root.
+    const cwd = syscalls.currentWorkingDirectory();
+    for (environment[0..request.envc], 0..) |*entry, index| {
+        const separator = std.mem.indexOfScalar(u8, entry.*, '=') orelse continue;
+        const value = entry.*[separator + 1 ..];
+        if (!std.mem.startsWith(u8, value, "/./")) continue;
+        const suffix = value[2..];
+        const new_len = separator + 1 + cwd.len + suffix.len;
+        if (new_len > request.envp[index].len) continue;
+        @memcpy(request.envp[index][separator + 1 .. separator + 1 + cwd.len], cwd);
+        @memcpy(request.envp[index][separator + 1 + cwd.len .. new_len], suffix);
+        request.envp_lengths[index] = @intCast(new_len);
+        entry.* = request.envp[index][0..new_len];
+    }
+    return runImageWithWorkspace(kernel_root, pages, arguments[0..request.argc], environment[0..request.envc], workspace, true);
 }
 
 fn runImageWithWorkspace(
