@@ -1051,9 +1051,6 @@ pub fn closeOnExecSockets() void {
     while (index < sockets.len) : (index += 1) {
         if (sockets[index].allocated and sockets[index].close_on_exec) {
             const shared = sockets[index].refs > 1;
-            if (sockets[index].peer_index) |peer| {
-                sockets[peer].peer_closed = true;
-            }
             releaseSocketRef(index);
             // The remaining reference belongs to the parent process; do not
             // apply the child-only close-on-exec action again on nested execs.
