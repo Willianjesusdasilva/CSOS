@@ -852,7 +852,26 @@ pub fn linkAt(old_directory_fd: i64, old_path: []const u8, new_directory_fd: i64
             mapping[used] = ' '; used += 1;
             for (alias) |byte| { mapping[used] = byte; used += 1; }
             mapping[used] = '\n'; used += 1;
-            const map_fd = try openAt(-100, "/data/repo8/CSOSMAP.TXT", 0x441);
+            // Object aliases belong to the repository currently receiving
+            // the object.  Hard-coding repo8 makes a local receive-pack put
+            // repo10/repoN mappings in the source repository, so refs cannot
+            // be resolved after the pack is installed.
+            var map_path: [256]u8 = undefined;
+            const cwd = currentWorkingDirectory();
+            var map_len: usize = 0;
+            if (std.mem.startsWith(u8, cwd, "/data/")) {
+                const repository_end = std.mem.indexOfScalarPos(u8, cwd, 6, '/') orelse cwd.len;
+                const suffix = "/CSOSMAP.TXT";
+                if (repository_end + suffix.len > map_path.len) return error.NameTooLong;
+                @memcpy(map_path[0..repository_end], cwd[0..repository_end]);
+                @memcpy(map_path[repository_end .. repository_end + suffix.len], suffix);
+                map_len = repository_end + suffix.len;
+            } else {
+                const fallback = "/data/repo8/CSOSMAP.TXT";
+                @memcpy(map_path[0..fallback.len], fallback);
+                map_len = fallback.len;
+            }
+            const map_fd = try openAt(-100, map_path[0..map_len], 0x441);
             defer close(map_fd) catch {};
             _ = try write(map_fd, mapping[0..used]);
         }
