@@ -259,6 +259,13 @@ filha e ela é selecionada pelo scheduler. Assim, o bloqueio atual está depois
 da entrada da task filha — no retorno `execve`, na entrega de page fault ou no
 handshake IPC — e não na criação/seleção cooperativa do processo.
 
+O trace de exceções do QEMU também é determinístico: após o filho imprimir
+`Linux PT_INTERP loader ready`, ele acessa `CR2=0x000000e000000010` com erro
+de page fault de escrita em CPL3; a entrega do vetor 14 falha imediatamente e
+vira `#DF`/triple fault, sem alcançar `page_fault_dispatch`. A próxima
+correção deve garantir a entrada de exceção e a pilha RSP0/IST no
+address-space filho antes de tentar mascarar a falta.
+
 ### Bloqueio atual do artefato WebProcess
 
 Em 2026-09-12, uma tentativa reproduzível de construir o alvo
