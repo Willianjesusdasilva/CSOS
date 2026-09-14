@@ -816,6 +816,15 @@ pub fn truncate(fd: usize, length: usize) !void {
 pub fn unlinkAt(directory_fd_in: i64, path: []const u8) !void {
     const directory_fd = effectiveDirectoryFd(directory_fd_in);
     if (disk) |volume| if (directory_fd >= 3 and @as(usize, @intCast(directory_fd)) < descriptors.len and
+        descriptors[@intCast(directory_fd)].node == .fat_directory and path.len != 0 and path[0] != '/' and
+        std.mem.indexOfScalar(u8, path, '/') != null)
+    {
+        const opened = try openAt(directory_fd, path, 0);
+        defer close(opened) catch {};
+        if (descriptors[opened].kind != .file or descriptors[opened].node != .disk) return error.IsDirectory;
+        return volume.deleteDirectoryFile(descriptors[opened].fat_parent_cluster, &descriptors[opened].fat_name);
+    };
+    if (disk) |volume| if (directory_fd >= 3 and @as(usize, @intCast(directory_fd)) < descriptors.len and
         descriptors[@intCast(directory_fd)].node == .fat_directory and std.mem.indexOfScalar(u8, path, '/') == null)
     {
         const name = toFatName(path) orelse return error.Invalid;
