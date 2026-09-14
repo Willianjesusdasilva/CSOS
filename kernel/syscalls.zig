@@ -329,8 +329,10 @@ fn cloneThread(flags: u64, stack: u64, parent_tid: u64, child_tid: u64, tls: u64
             .workspace_id = user_threads[current_thread].workspace_id };
         user_threads[slot].stdio_sockets = user_threads[current_thread].stdio_sockets;
         user_threads[slot].stdio_cloexec = user_threads[current_thread].stdio_cloexec;
-        for (&sockets) |*socket_entry| {
-            if (socket_entry.allocated) socket_entry.refs += 1;
+        if (is_process_child) {
+            for (&sockets) |*socket_entry| {
+                if (socket_entry.allocated) socket_entry.refs += 1;
+            }
         }
         const tid: u32 = @intCast(slot + 1);
         if (parent_tid != 0) {
