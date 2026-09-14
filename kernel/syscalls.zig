@@ -730,6 +730,13 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         89 => readlinkat(@bitCast(@as(i64, -100)), arg1, arg2, arg3),
         90 => chmodLegacy(arg1, arg2),
         96 => getTimeOfDay(arg1, arg2),
+        // Git updates reflog timestamps through all three Linux timestamp
+        // entry points.  FAT16 has no exposed timestamp mutation yet, but the
+        // path/FD contract must succeed so metadata updates do not abort a
+        // repository operation.
+        235 => utimes(arg1, arg2),
+        261 => futimesat(arg1, arg2, arg3),
+        280 => utimensat(arg1, arg2, arg3, arg4),
         95 => umask(arg1),
         97 => getRlimit(arg1, arg2),
         98 => getRusage(arg1, arg2),
@@ -4140,6 +4147,35 @@ fn epollWait(epfd: u64, output: u64, capacity: u64, timeout: i64) u64 {
     }
     if (ready == 0 and timeout > 0) if (idle_hook) |hook| hook();
     return ready;
+}
+
+fn validateTimestampVector(times_address: u64, bytes: u64) bool {
+    return times_address == 0 or validUserSlice(times_address, bytes);
+}
+
+fn utimes(path_address: u64, times_address: u64) u64 {
+    var path_buffer: [256]u8 = undefined;
+    const path = userString(path_address, &path_buffer) orelse return errno(14);
+    if (!validateTimestampVector(times_address, 32)) return errno(14);
+    _ = vfs.infoAt(-100, path) catch |err| return vfsError(err);
+    return 0;
+}
+
+fn futimesat(directory_fd: u64, path_address: u64, times_address: u64) u64 {
+    var path_buffer: [256]u8 = undefined;
+    const path = userString(path_address, &path_buffer) orelse return errno(14);
+    if (!validateTimestampVector(times_address, 32)) return errno(14);
+    _ = vfs.infoAt(@bitCast(directory_fd), path) catch |err| return vfsError(err);
+    return 0;
+}
+
+fn utimensat(directory_fd: u64, path_address: u64, times_address: u64, flags: u64) u64 {
+    if ((flags & ~@as(u64, 0x100)) != 0) return errno(22);
+    var path_buffer: [256]u8 = undefined;
+    const path = userString(path_address, &path_buffer) orelse return errno(14);
+    if (!validateTimestampVector(times_address, 32)) return errno(14);
+    _ = vfs.infoAt(@bitCast(directory_fd), path) catch |err| return vfsError(err);
+    return 0;
 }
 
 fn futex(address: u64, operation: u64, expected: u64, timeout: u64, address2: u64) u64 {
