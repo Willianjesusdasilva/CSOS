@@ -512,8 +512,10 @@ fn runExecRequest(kernel_root: u64, pages: *physical.Allocator, envelope: syscal
         const suffix = value[2..];
         const new_len = separator + 1 + cwd.len + suffix.len;
         if (new_len > request.envp[index].len) continue;
+        var suffix_copy: [256]u8 = undefined;
+        @memcpy(suffix_copy[0..suffix.len], suffix);
         @memcpy(request.envp[index][separator + 1 .. separator + 1 + cwd.len], cwd);
-        @memcpy(request.envp[index][separator + 1 + cwd.len .. new_len], suffix);
+        @memcpy(request.envp[index][separator + 1 + cwd.len .. new_len], suffix_copy[0..suffix.len]);
         request.envp_lengths[index] = @intCast(new_len);
         entry.* = request.envp[index][0..new_len];
     }

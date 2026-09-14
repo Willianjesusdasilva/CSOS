@@ -326,7 +326,8 @@ fn cloneThread(flags: u64, stack: u64, parent_tid: u64, child_tid: u64, tls: u64
     } else if (stack < 8 or !validUserSlice(stack, 8) or !validUserSlice(tls, 8) or
         !validUserSlice(parent_tid, 4) or !validUserSlice(child_tid, 4)) return errno(14);
     for (1..user_threads.len) |slot| {
-        if (user_threads[slot].state != .unused and user_threads[slot].state != .exited) continue;
+        if (user_threads[slot].state != .unused and
+            !(user_threads[slot].state == .exited and user_threads[slot].kind == .thread)) continue;
         user_threads[slot] = .{ .state = .runnable, .kind = if (is_process_child) .process_child else .thread,
             .pid = @intCast(slot + 1), .clear_tid = child_tid,
             .parent_slot = current_thread,
@@ -4299,6 +4300,14 @@ fn wait4(pid: u64, status: u64, options: u64, usage: u64) u64 {
         break;
     }
     if (matching_child and (options & 1) == 0 and user_threads_enabled) {
+        user_threads[current_thread].wait_address = 0;
+        user_threads[current_thread].pending_read_socket = null;
+        user_threads[current_thread].pending_read_address = 0;
+        user_threads[current_thread].pending_read_length = 0;
+        user_threads[current_thread].pending_read_eof = false;
+        user_threads[current_thread].pending_poll_address = 0;
+        user_threads[current_thread].pending_poll_count = 0;
+        user_threads[current_thread].pending_poll_sockets = .{false} ** 32;
         user_threads[current_thread].state = .blocked;
         user_threads[current_thread].wait_child_pid = if (pid == 0) ~@as(u64, 0) else pid;
         user_threads[current_thread].wait_status = status;

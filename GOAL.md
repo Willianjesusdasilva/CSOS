@@ -364,12 +364,19 @@ histórico (`CSOS Git runtime ready`). O runtime desativa a manutenção
 automática em background para não criar um daemon fora do escopo do bootstrap.
 
 O transporte local ainda não está validado: no probe atual, `git init --bare`
-conclui, mas o primeiro `git push` para esse remoto fica bloqueado depois da
-criação do processo-filho e de threads do helper. Portanto, as referências
+conclui e o primeiro `git push` já consegue executar `unpack-objects` e iniciar
+`rev-list`, mas ainda fica bloqueado antes de concluir a drenagem/EOF dos pipes.
+Portanto, as referências
 anteriores a `FETCH_HEAD`/`git-upload-pack` são histórico de investigação, não
 um gate concluído. O próximo requisito é fechar o lifecycle de spawn/pipe/EOF
 desse helper; só depois disso o `git pull` real, reboot e uso da nova revisão
 podem ser declarados.
+
+O caminho de `exec` agora copia com segurança variáveis Git `/./...` sem
+sobreposição de buffer, preserva PIDs de filhos até o `wait4` e impede wakeups
+de futex/pipe/poll de acordarem uma thread bloqueada em `wait4`. Esses fixes
+avançaram o probe até os helpers de transporte, mas não constituem ainda o
+gate P1.
 
 Pipes duplicados para o descritor 0 passam pelo namespace de sockets; leituras
 agora também acordam escritores bloqueados em `POLLOUT`, e `poll(..., -1)` cede
