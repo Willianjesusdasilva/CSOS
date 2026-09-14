@@ -252,6 +252,9 @@ const UserThread = struct {
     rsp: u64 = 0, result: u64 = 0, fs: u64 = 0,
     workspace_id: u8 = 0,
     clear_tid: u64 = 0, wait_address: u64 = 0,
+    pending_read_socket: ?usize = null,
+    pending_read_address: u64 = 0,
+    pending_read_length: usize = 0,
     stdio_sockets: [3]?usize = .{ null, null, null },
     robust: u64 = 0, robust_size: u64 = 0,
     exec_request: ?ExecRequest = null,
@@ -3662,6 +3665,7 @@ fn socketSend(index: usize, data: []const u8) u64 {
             sockets[peer].local_buffer[position] = data[offset];
         }
         sockets[peer].local_len += count;
+        wakeSocketReaders(peer);
         return count;
     }
     const stack = network_stack orelse return errno(100);
@@ -3670,11 +3674,47 @@ fn socketSend(index: usize, data: []const u8) u64 {
     return errno(107);
 }
 
+fn wakeSocketReaders(index: usize) void {
+    if (sockets[index].local_len == 0) return;
+    for (&user_threads) |*thread| {
+        if (thread.state != .blocked or thread.pending_read_socket != index) continue;
+        const address = thread.pending_read_address;
+        const length = @min(thread.pending_read_length, sockets[index].local_len);
+        if (!validUserSlice(address, length)) {
+            thread.pending_read_socket = null;
+            thread.pending_read_address = 0;
+            thread.pending_read_length = 0;
+            thread.state = .runnable;
+            thread.result = errno(14);
+            continue;
+        }
+        const output: [*]u8 = @ptrFromInt(address);
+        var offset: usize = 0;
+        while (offset < length) : (offset += 1) {
+            const position = (sockets[index].local_head + offset) % sockets[index].local_buffer.len;
+            output[offset] = sockets[index].local_buffer[position];
+        }
+        sockets[index].local_head = (sockets[index].local_head + length) % sockets[index].local_buffer.len;
+        sockets[index].local_len -= length;
+        thread.pending_read_socket = null;
+        thread.pending_read_address = 0;
+        thread.pending_read_length = 0;
+        thread.state = .runnable;
+        thread.result = length;
+    }
+}
+
 fn socketReceive(index: usize, data: []u8) u64 {
     if (sockets[index].local_pair) {
         if (sockets[index].local_len == 0) {
             if (sockets[index].peer_closed) return 0;
             if (sockets[index].nonblocking) return errno(11);
+            if (!user_threads_enabled) return errno(11);
+            user_threads[current_thread].pending_read_socket = index;
+            user_threads[current_thread].pending_read_address = @intFromPtr(data.ptr);
+            user_threads[current_thread].pending_read_length = data.len;
+            user_threads[current_thread].state = .blocked;
+            thread_switch_requested = true;
             return 0;
         }
         const count = @min(data.len, sockets[index].local_len);
