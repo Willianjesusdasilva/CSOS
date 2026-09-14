@@ -256,6 +256,7 @@ const UserThread = struct {
     pending_read_address: u64 = 0,
     pending_read_length: usize = 0,
     stdio_sockets: [3]?usize = .{ null, null, null },
+    stdio_cloexec: [3]bool = .{ false, false, false },
     robust: u64 = 0, robust_size: u64 = 0,
     exec_request: ?ExecRequest = null,
     fx: [512]u8 align(16) = @splat(0),
@@ -319,6 +320,7 @@ fn cloneThread(flags: u64, stack: u64, parent_tid: u64, child_tid: u64, tls: u64
             .pid = @intCast(slot + 1), .clear_tid = child_tid,
             .workspace_id = user_threads[current_thread].workspace_id };
         user_threads[slot].stdio_sockets = user_threads[current_thread].stdio_sockets;
+        user_threads[slot].stdio_cloexec = user_threads[current_thread].stdio_cloexec;
         for (&sockets) |*socket_entry| {
             if (socket_entry.allocated) socket_entry.refs += 1;
         }
@@ -604,7 +606,10 @@ pub fn resetExitStatus() void { process_exit_status = 0xffffffffffffffff; }
 /// exec images retain inherited descriptors until they exit; the outer Git
 /// command owns the final cleanup.
 pub fn closeProcessSockets() void {
-    for (&user_threads) |*thread| thread.stdio_sockets = .{ null, null, null };
+    for (&user_threads) |*thread| {
+        thread.stdio_sockets = .{ null, null, null };
+        thread.stdio_cloexec = .{ false, false, false };
+    }
     for (&sockets) |*entry| {
         if (entry.connection) |*connection| if (network_stack) |stack| stack.tcpClose(connection) catch {};
         entry.* = .{};
@@ -1054,6 +1059,14 @@ pub fn closeOnExecSockets() void {
     var index: usize = 0;
     while (index < sockets.len) : (index += 1) {
         if (sockets[index].allocated and sockets[index].close_on_exec) {
+            var stdio_keeps_reference = false;
+            for (user_threads[current_thread].stdio_sockets, 0..) |entry, fd| {
+                if (entry == index and !user_threads[current_thread].stdio_cloexec[fd]) {
+                    stdio_keeps_reference = true;
+                    break;
+                }
+            }
+            if (stdio_keeps_reference) continue;
             const shared = sockets[index].refs > 1;
             releaseSocketRef(index);
             // The remaining reference belongs to the parent process; do not
@@ -1067,6 +1080,7 @@ fn close(fd: u64) u64 {
     if (socketIndex(fd)) |index| {
         if (fd < 3) {
             user_threads[current_thread].stdio_sockets[@intCast(fd)] = null;
+            user_threads[current_thread].stdio_cloexec[@intCast(fd)] = false;
             releaseSocketRef(index);
             return 0;
         }
@@ -1088,6 +1102,7 @@ fn duplicate(old_fd: u64, new_fd: u64) u64 {
             // clear; Git relies on this when wiring pipe ends to stdio
             // before exec'ing receive-pack/upload-pack.
             sockets[source].close_on_exec = false;
+            user_threads[current_thread].stdio_cloexec[@intCast(new_fd)] = false;
             user_threads[current_thread].stdio_sockets[@intCast(new_fd)] = source;
             return new_fd;
         }
@@ -1096,7 +1111,14 @@ fn duplicate(old_fd: u64, new_fd: u64) u64 {
 }
 
 fn fcntl(fd: u64, command: u64, argument: u64) u64 {
-    if (socketIndex(fd)) |index| return switch (command) {
+    if (socketIndex(fd)) |index| {
+        if (fd < 3 and command == 1) return @intFromBool(user_threads[current_thread].stdio_cloexec[@intCast(fd)]);
+        if (fd < 3 and command == 2) {
+            if ((argument & ~@as(u64, 1)) != 0) return errno(22);
+            user_threads[current_thread].stdio_cloexec[@intCast(fd)] = (argument & 1) != 0;
+            return 0;
+        }
+        return switch (command) {
         1 => @intFromBool(sockets[index].close_on_exec),
         2 => blk: {
             if ((argument & ~@as(u64, 1)) != 0) break :blk errno(22);
@@ -1117,7 +1139,8 @@ fn fcntl(fd: u64, command: u64, argument: u64) u64 {
             break :blk 0;
         },
         else => errno(22),
-    };
+        };
+    }
     return switch (command) {
         0, 1030 => blk: {
             const copy = vfs.duplicateMinimum(@intCast(fd), @intCast(argument)) catch |err| break :blk vfsError(err);
