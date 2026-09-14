@@ -1332,6 +1332,19 @@ fn toFatName(path: []const u8) ?[11]u8 {
     // Git uses a handful of names that do not fit the FAT 8.3 spelling used
     // by the bootstrap volume. Keep the userspace path names stable while
     // assigning deterministic on-disk aliases.
+    if (std.mem.endsWith(u8, path, ".lock")) {
+        const base_len = path.len - ".lock".len;
+        if (base_len != 0 and base_len <= 8) {
+            var lock_alias: [11]u8 = .{' '} ** 11;
+            for (path[0..base_len], 0..) |character, index| {
+                lock_alias[index] = if (character >= 'a' and character <= 'z') character - 32 else character;
+            }
+            lock_alias[8] = 'L';
+            lock_alias[9] = 'C';
+            lock_alias[10] = 'K';
+            return lock_alias;
+        }
+    }
     if (std.mem.eql(u8, path, "config.lock")) return "CONFIG  LCK".*;
     if (std.mem.eql(u8, path, "config")) return "CONFIG     ".*;
     if (std.mem.eql(u8, path, "HEAD.lock")) return "HEAD    LCK".*;
@@ -1431,6 +1444,10 @@ test "FAT path conversion aliases Git object IDs" {
 
 test "FAT path conversion aliases Git packed refs lock" {
     try std.testing.expectEqualStrings("PACKED  LCK", &(toFatName("packed-refs.lock") orelse unreachable));
+}
+
+test "FAT path conversion aliases branch lock files" {
+    try std.testing.expectEqualStrings("MAIN    LCK", &(toFatName("main.lock") orelse unreachable));
 }
 
 fn runtimeLibraryFatAlias(path: []const u8) ?[11]u8 {
