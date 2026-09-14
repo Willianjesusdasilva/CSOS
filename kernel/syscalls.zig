@@ -1305,35 +1305,10 @@ pub fn closeOnExecSockets() void {
             if (entry == index and user_threads[current_thread].stdio_cloexec[fd]) should_close = true;
         }
         if (should_close) {
-            const shared = sockets[index].refs > 1;
-            const owner_workspace = user_threads[current_thread].workspace_id;
             releaseSocketRef(index);
             user_threads[current_thread].direct_socket_refs[index] = false;
             user_threads[current_thread].direct_socket_cloexec[index] = false;
             user_threads[current_thread].owned_socket_refs[index] = false;
-            // A forked exec child inherits a process-owned CLOEXEC endpoint
-            // that the parent has already made obsolete.  Drop one such
-            // endpoint per distinct parent workspace so local pipes reach EOF.
-            var seen_workspaces: [16]u8 = undefined;
-            var seen_count: usize = 0;
-            for (&user_threads) |*peer| {
-                if (peer.workspace_id == owner_workspace or !peer.direct_socket_refs[index] or
-                    !peer.direct_socket_cloexec[index]) continue;
-                var seen = false;
-                for (seen_workspaces[0..seen_count]) |seen_workspace| if (seen_workspace == peer.workspace_id) { seen = true; break; };
-                if (seen) continue;
-                seen_workspaces[seen_count] = peer.workspace_id;
-                seen_count += 1;
-                for (&user_threads) |*same| if (same.workspace_id == peer.workspace_id) {
-                    same.direct_socket_refs[index] = false;
-                    same.direct_socket_cloexec[index] = false;
-                    same.owned_socket_refs[index] = false;
-                };
-                if (sockets[index].allocated) releaseSocketRef(index);
-            }
-            // The remaining reference belongs to the parent process; do not
-            // apply the child-only close-on-exec action again on nested execs.
-            if (shared and sockets[index].allocated) sockets[index].close_on_exec = false;
         }
     }
 }
