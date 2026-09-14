@@ -286,6 +286,8 @@ const UserThread = struct {
     pending_wait_address: u64 = 0,
     stdio_sockets: [3]?usize = .{ null, null, null },
     stdio_cloexec: [3]bool = .{ false, false, false },
+    direct_socket_refs: [32]bool = .{false} ** 32,
+    direct_socket_cloexec: [32]bool = .{false} ** 32,
     owned_socket_refs: [32]bool = .{false} ** 32,
     cwd: [256]u8 = .{0} ** 256,
     cwd_len: usize = 1,
@@ -356,6 +358,8 @@ fn cloneThread(flags: u64, stack: u64, parent_tid: u64, child_tid: u64, tls: u64
             .workspace_id = user_threads[current_thread].workspace_id };
         user_threads[slot].stdio_sockets = user_threads[current_thread].stdio_sockets;
         user_threads[slot].stdio_cloexec = user_threads[current_thread].stdio_cloexec;
+        user_threads[slot].direct_socket_refs = user_threads[current_thread].direct_socket_refs;
+        user_threads[slot].direct_socket_cloexec = user_threads[current_thread].direct_socket_cloexec;
         user_threads[slot].cwd = user_threads[current_thread].cwd;
         user_threads[slot].cwd_len = user_threads[current_thread].cwd_len;
         if (is_process_child) {
@@ -660,6 +664,8 @@ pub fn closeProcessSockets() void {
     for (&user_threads) |*thread| {
         thread.stdio_sockets = .{ null, null, null };
         thread.stdio_cloexec = .{ false, false, false };
+        thread.direct_socket_refs = .{false} ** 32;
+        thread.direct_socket_cloexec = .{false} ** 32;
     }
     for (&sockets) |*entry| {
         if (entry.connection) |*connection| if (network_stack) |stack| stack.tcpClose(connection) catch {};
@@ -1148,17 +1154,17 @@ fn releaseSocketRef(index: usize) void {
 pub fn closeOnExecSockets() void {
     var index: usize = 0;
     while (index < sockets.len) : (index += 1) {
-        if (sockets[index].allocated and sockets[index].close_on_exec) {
-            var stdio_keeps_reference = false;
-            for (user_threads[current_thread].stdio_sockets, 0..) |entry, fd| {
-                if (entry == index and !user_threads[current_thread].stdio_cloexec[fd]) {
-                    stdio_keeps_reference = true;
-                    break;
-                }
-            }
-            if (stdio_keeps_reference) continue;
+        if (!sockets[index].allocated) continue;
+        var should_close = user_threads[current_thread].direct_socket_refs[index] and
+            user_threads[current_thread].direct_socket_cloexec[index];
+        for (user_threads[current_thread].stdio_sockets, 0..) |entry, fd| {
+            if (entry == index and user_threads[current_thread].stdio_cloexec[fd]) should_close = true;
+        }
+        if (should_close) {
             const shared = sockets[index].refs > 1;
             releaseSocketRef(index);
+            user_threads[current_thread].direct_socket_refs[index] = false;
+            user_threads[current_thread].direct_socket_cloexec[index] = false;
             user_threads[current_thread].owned_socket_refs[index] = false;
             // The remaining reference belongs to the parent process; do not
             // apply the child-only close-on-exec action again on nested execs.
@@ -1177,6 +1183,8 @@ fn close(fd: u64) u64 {
             return 0;
         }
         user_threads[current_thread].owned_socket_refs[index] = false;
+        user_threads[current_thread].direct_socket_refs[index] = false;
+        user_threads[current_thread].direct_socket_cloexec[index] = false;
         releaseSocketRef(index);
         return 0;
     }
@@ -1194,7 +1202,8 @@ fn duplicate(old_fd: u64, new_fd: u64) u64 {
             // dup2/dup3 create a descriptor whose close-on-exec flag is
             // clear; Git relies on this when wiring pipe ends to stdio
             // before exec'ing receive-pack/upload-pack.
-            sockets[source].close_on_exec = false;
+            // The stdio descriptor has its own CLOEXEC bit; changing it must
+            // not mutate the backing socket or the parent's descriptor.
             user_threads[current_thread].stdio_cloexec[@intCast(new_fd)] = false;
             user_threads[current_thread].stdio_sockets[@intCast(new_fd)] = source;
             return new_fd;
@@ -1212,10 +1221,14 @@ fn fcntl(fd: u64, command: u64, argument: u64) u64 {
             return 0;
         }
         return switch (command) {
-        1 => @intFromBool(sockets[index].close_on_exec),
+        1 => @intFromBool(if (fd >= socket_fd_base) user_threads[current_thread].direct_socket_cloexec[index] else sockets[index].close_on_exec),
         2 => blk: {
             if ((argument & ~@as(u64, 1)) != 0) break :blk errno(22);
-            sockets[index].close_on_exec = (argument & 1) != 0;
+            if (fd >= socket_fd_base) {
+                user_threads[current_thread].direct_socket_cloexec[index] = (argument & 1) != 0;
+            } else {
+                sockets[index].close_on_exec = (argument & 1) != 0;
+            }
             break :blk 0;
         },
         // Sockets are opened read/write.  Linux exposes that access mode in
@@ -3675,6 +3688,8 @@ fn socket(domain: u64, kind: u64, protocol: u64) u64 {
     for (&sockets, 0..) |*entry, index| {
         if (!entry.allocated) {
             entry.* = .{ .allocated = true, .refs = 1, .close_on_exec = (kind & 0x80000) != 0, .nonblocking = (kind & 0x800) != 0 };
+            user_threads[current_thread].direct_socket_refs[index] = true;
+            user_threads[current_thread].direct_socket_cloexec[index] = (kind & 0x80000) != 0;
             return socket_fd_base + index;
         }
     }
@@ -3694,6 +3709,10 @@ fn socketPair(domain: u64, kind: u64, protocol: u64, output: u64) u64 {
     if (first == null or second == null) return errno(24);
     sockets[first.?] = .{ .allocated = true, .refs = 1, .local_pair = true, .peer_index = second, .close_on_exec = (kind & 0x80000) != 0, .nonblocking = (kind & 0x800) != 0 };
     sockets[second.?] = .{ .allocated = true, .refs = 1, .local_pair = true, .peer_index = first, .close_on_exec = (kind & 0x80000) != 0, .nonblocking = (kind & 0x800) != 0 };
+    user_threads[current_thread].direct_socket_refs[first.?] = true;
+    user_threads[current_thread].direct_socket_refs[second.?] = true;
+    user_threads[current_thread].direct_socket_cloexec[first.?] = (kind & 0x80000) != 0;
+    user_threads[current_thread].direct_socket_cloexec[second.?] = (kind & 0x80000) != 0;
     if (user_threads_enabled and user_threads[current_thread].kind == .process_child) {
         user_threads[current_thread].owned_socket_refs[first.?] = true;
         user_threads[current_thread].owned_socket_refs[second.?] = true;
@@ -3994,7 +4013,7 @@ fn socketIndexForThread(thread_index: usize, fd: u64) ?usize {
     if (fd < 3) return user_threads[thread_index].stdio_sockets[@intCast(fd)];
     if (fd < socket_fd_base or fd >= socket_fd_base + sockets.len) return null;
     const index: usize = @intCast(fd - socket_fd_base);
-    return if (sockets[index].allocated) index else null;
+    return if (sockets[index].allocated and user_threads[thread_index].direct_socket_refs[index]) index else null;
 }
 
 fn archPrctl(code: u64, address: u64) u64 {
