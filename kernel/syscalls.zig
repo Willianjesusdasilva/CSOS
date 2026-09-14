@@ -659,6 +659,7 @@ pub fn resetExecThreadTls() void {
 pub const UserResume = struct {
     frame: [14]u64,
     rsp: u64,
+    result: u64,
     fs: u64,
     fx: [512]u8 align(16),
 };
@@ -677,6 +678,12 @@ pub fn finishProcessChild(pid: u32, status: u8) ?UserResume {
         child.exit_status = status;
         child.state = .exited;
         const parent = &user_threads[child.parent_slot];
+        // The parent may not have reached wait4 yet: the loader runs an
+        // exec'd child immediately after fork, while the parent's syscall
+        // frame is already saved by user_thread_resume.  Restore that frame
+        // for both cases.  wait4 still receives its pending result below
+        // when the parent was blocked; an unblocked parent simply continues
+        // after clone and can reap the exited child normally.
         if (parent.state == .blocked and parent.wait_child_pid != 0 and
             (parent.wait_child_pid == ~@as(u64, 0) or parent.wait_child_pid == pid)) {
             parent.pending_wait_status = status;
@@ -687,9 +694,11 @@ pub fn finishProcessChild(pid: u32, status: u8) ?UserResume {
             parent.state = .runnable;
             current_thread = child.parent_slot;
             current_pid = parent.pid;
-            return .{ .frame = parent.frame, .rsp = parent.rsp, .fs = parent.fs, .fx = parent.fx };
+            return .{ .frame = parent.frame, .rsp = parent.rsp, .result = parent.result, .fs = parent.fs, .fx = parent.fx };
         }
-        return null;
+        current_thread = child.parent_slot;
+        current_pid = parent.pid;
+        return .{ .frame = parent.frame, .rsp = parent.rsp, .result = parent.result, .fs = parent.fs, .fx = parent.fx };
     }
     return null;
 }

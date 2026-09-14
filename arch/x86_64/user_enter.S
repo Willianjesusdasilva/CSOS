@@ -32,6 +32,9 @@ enter_user:
 // restore the complete saved SYSRET register frame.
 .global resume_user_frame
 resume_user_frame:
+    // The kernel target uses the MS x64 C ABI: RCX=frame, RDX=stack,
+    // R8=syscall result.
+    movq %rdx, resume_user_stack(%rip)
     pushq %rbp
     pushq %rbx
     pushq %rdi
@@ -43,7 +46,7 @@ resume_user_frame:
     movq %rsp, user_kernel_rsp(%rip)
     leaq .Luser_return(%rip), %r11
     movq %r11, user_kernel_rip(%rip)
-    movq %rdx, %rax
+    movq %r8, %rax
     movq %rcx, %r12
     movq 0(%r12), %rcx
     movq 8(%r12), %r11
@@ -59,7 +62,8 @@ resume_user_frame:
     movq 96(%r12), %rbx
     movq 104(%r12), %rdx
     movq 40(%r12), %r12
-    movq %rax, %rsp
+    // RAX remains the syscall result; restore the saved userspace stack.
+    movq resume_user_stack(%rip), %rsp
     sysretq
 
 user_exit_trampoline:
@@ -80,4 +84,6 @@ user_exit_trampoline:
 user_kernel_rsp:
     .quad 0
 user_kernel_rip:
+    .quad 0
+resume_user_stack:
     .quad 0

@@ -122,7 +122,7 @@ fn applyStagedCopies(_: u64) callconv(.c) void {
 }
 
 extern fn enter_user(entry: u64, stack: u64) callconv(.c) void;
-extern fn resume_user_frame(frame: *const [14]u64, stack: u64) callconv(.c) noreturn;
+extern fn resume_user_frame(frame: *const [14]u64, stack: u64, result: u64) callconv(.c) noreturn;
 
 pub fn runBusyBox(kernel_root: u64, pages: *physical.Allocator, arguments: []const []const u8) !void {
     image = busybox_image;
@@ -960,7 +960,7 @@ fn runImageWithWorkspace(
                 active_workspace = workspace;
                 address_space.activate();
                 syscalls.restoreUserResumeContext(&resumed_frame);
-                resume_user_frame(&resumed_frame.frame, resumed_frame.rsp);
+                resume_user_frame(&resumed_frame.frame, resumed_frame.rsp, resumed_frame.result);
             }
             syscalls.resetExitStatus();
             active_workspace = workspace;
