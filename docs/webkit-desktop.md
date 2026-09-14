@@ -266,6 +266,12 @@ vira `#DF`/triple fault, sem alcançar `page_fault_dispatch`. A próxima
 correção deve garantir a entrada de exceção e a pilha RSP0/IST no
 address-space filho antes de tentar mascarar a falta.
 
+Leitura adicional no runtime mostrou que a entrada 14 já está zerada antes de
+`cloneProcessWorkspace` começar, embora `idt.install()` a inicialize com um
+gate válido. A mesma página física continua mapeada no CR3 filho; o problema
+é, portanto, corrupção/reuso da memória da IDT durante a inicialização do
+kernel (antes do WebProcess), e não uma cópia incorreta do page table do filho.
+
 ### Bloqueio atual do artefato WebProcess
 
 Em 2026-09-12, uma tentativa reproduzível de construir o alvo
