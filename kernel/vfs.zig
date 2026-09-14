@@ -540,7 +540,12 @@ fn openFatRelative(volume: *fat16.Volume, directory_fd: usize, path: []const u8,
             continue;
         }
         const name = toFatName(component) orelse return error.Invalid;
-        const entry = try volume.findDirectoryEntry(cluster, &name);
+        const entry = volume.findDirectoryEntry(cluster, &name) catch |err| blk: {
+            if (err != error.NotFound or component_index + 1 != component_count or (flags & 0x40) == 0)
+                return err;
+            try volume.createDirectoryFile(cluster, &name);
+            break :blk try volume.findDirectoryEntry(cluster, &name);
+        };
         final_name = entry.name;
         final_entry = entry;
         final_parent_cluster = cluster;
