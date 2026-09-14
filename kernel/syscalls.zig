@@ -1176,6 +1176,17 @@ fn clearWorkspaceDirectSocket(owner: usize, index: usize) void {
     }
 }
 
+fn clearWorkspaceStdioSocket(owner: usize, index: usize, fd: usize) void {
+    const workspace = user_threads[owner].workspace_id;
+    for (&user_threads) |*peer| {
+        if (peer.workspace_id != workspace) continue;
+        if (peer.stdio_sockets[fd] == index) {
+            peer.stdio_sockets[fd] = null;
+            peer.stdio_cloexec[fd] = false;
+        }
+    }
+}
+
 fn publishDirectSocket(owner: usize, index: usize, cloexec: bool) void {
     const owner_workspace = user_threads[owner].workspace_id;
     for (&user_threads) |*peer| {
@@ -1231,9 +1242,7 @@ pub fn closeOnExecSockets() void {
 fn close(fd: u64) u64 {
     if (socketIndex(fd)) |index| {
         if (fd < 3) {
-            user_threads[current_thread].stdio_sockets[@intCast(fd)] = null;
-            user_threads[current_thread].stdio_cloexec[@intCast(fd)] = false;
-            user_threads[current_thread].owned_socket_refs[index] = false;
+            clearWorkspaceStdioSocket(current_thread, index, @intCast(fd));
             releaseSocketRef(index);
             return 0;
         }
