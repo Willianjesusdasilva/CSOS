@@ -4249,6 +4249,10 @@ fn execve(path: u64, argv: u64, envp: u64) u64 {
     }
     user_threads[current_thread].exec_request = request;
     thread_switch_requested = true;
+    // The bootstrap image may exec before cooperative user threads exist.
+    // In that path user_thread_resume is bypassed by the assembly entry, so
+    // arm the loader pause here instead of returning to the old image.
+    exec_pause_requested = true;
     if (execve_hook) |hook| return hook(path, argv, envp);
     return errno(38);
 }
@@ -4272,6 +4276,7 @@ fn execveAt(directory_fd: u64, path: u64, argv: u64, envp: u64, flags: u64) u64 
         }
         user_threads[current_thread].exec_request = request;
         thread_switch_requested = true;
+        exec_pause_requested = true;
         if (execve_hook) |hook| return hook(0, argv, envp);
         return errno(38);
     }
