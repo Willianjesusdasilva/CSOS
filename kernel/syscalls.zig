@@ -256,8 +256,12 @@ const UserThread = struct {
     pending_read_socket: ?usize = null,
     pending_read_address: u64 = 0,
     pending_read_length: usize = 0,
+    pending_read_eof: bool = false,
     pending_poll_address: u64 = 0,
     pending_poll_count: u64 = 0,
+    pending_poll_sockets: [32]bool = .{false} ** 32,
+    pending_wait_status: ?u8 = null,
+    pending_wait_address: u64 = 0,
     stdio_sockets: [3]?usize = .{ null, null, null },
     stdio_cloexec: [3]bool = .{ false, false, false },
     robust: u64 = 0, robust_size: u64 = 0,
@@ -404,6 +408,9 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
             current_thread = slot;
             current_pid = user_threads[slot].pid;
             if (workspace_activate_hook) |hook| hook(user_threads[slot].workspace_id);
+            completePendingSocketRead(slot);
+            completePendingPoll(slot);
+            completePendingWaitStatus(slot);
         } else {
             // No runnable task or external futex producer in this initial
             // single-process scheduler. Fail explicitly, never spin a waiter.
@@ -656,8 +663,8 @@ pub fn finishProcessChild(pid: u32, status: u8) ?UserResume {
         const parent = &user_threads[child.parent_slot];
         if (parent.state == .blocked and parent.wait_child_pid != 0 and
             (parent.wait_child_pid == ~@as(u64, 0) or parent.wait_child_pid == pid)) {
-            if (parent.wait_status != 0 and validUserSlice(parent.wait_status, 4))
-                @as(*align(1) u32, @ptrFromInt(parent.wait_status)).* = @as(u32, status) << 8;
+            parent.pending_wait_status = status;
+            parent.pending_wait_address = parent.wait_status;
             parent.result = pid;
             parent.wait_child_pid = 0;
             parent.wait_status = 0;
@@ -1075,6 +1082,15 @@ fn releaseSocketRef(index: usize) void {
     }
     if (sockets[index].peer_index) |peer| {
         sockets[peer].peer_closed = true;
+        for (&user_threads) |*thread| {
+            if (thread.pending_read_socket == peer) {
+                thread.pending_read_eof = true;
+                thread.state = .runnable;
+                thread_switch_requested = true;
+            }
+        }
+        wakeSocketReaders(peer);
+        wakeSocketPollers(peer);
     }
     if (sockets[index].connection) |*connection| if (network_stack) |stack| stack.tcpClose(connection) catch {};
     sockets[index] = .{};
@@ -3430,6 +3446,14 @@ fn poll(address: u64, count: u64, timeout: i64) u64 {
         if (user_threads_enabled and has_local_pair) {
             user_threads[current_thread].pending_poll_address = address;
             user_threads[current_thread].pending_poll_count = count;
+            user_threads[current_thread].pending_poll_sockets = .{false} ** 32;
+            var interest_index: u64 = 0;
+            while (interest_index < count) : (interest_index += 1) {
+                const item: [*]u8 = @ptrFromInt(address + interest_index * 8);
+                const fd = read32(item);
+                if (socketIndexForThread(current_thread, fd)) |socket_index|
+                    user_threads[current_thread].pending_poll_sockets[socket_index] = true;
+            }
             user_threads[current_thread].state = .blocked;
             thread_switch_requested = true;
             return 0;
@@ -3741,69 +3765,128 @@ fn socketSend(index: usize, data: []const u8) u64 {
 }
 
 fn wakeSocketPollers(index: usize) void {
-    if (sockets[index].local_len == 0) return;
-    for (&user_threads, 0..) |*thread, thread_index| {
-        if (thread.state != .blocked or thread.pending_poll_address == 0) continue;
-        const address = thread.pending_poll_address;
-        const count = thread.pending_poll_count;
-        const bytes = std.math.mul(u64, count, 8) catch continue;
-        if (count > 64 or (count != 0 and !validUserSlice(address, bytes))) continue;
-        var ready: u64 = 0;
-        var poll_index: u64 = 0;
-        while (poll_index < count) : (poll_index += 1) {
-            const item: [*]u8 = @ptrFromInt(address + poll_index * 8);
-            const fd = read32(item);
-            if (socketIndexForThread(thread_index, fd)) |socket_index| {
-                var revents: u16 = 0;
-                const events = read16(item + 4);
-                if ((events & 1) != 0 and sockets[socket_index].local_pair and sockets[socket_index].local_len != 0) revents |= 1;
-                if (sockets[socket_index].local_pair and sockets[socket_index].peer_closed) revents |= 0x10 | 1;
-                if ((events & 4) != 0 and sockets[socket_index].local_pair) {
-                    if (sockets[socket_index].peer_index) |peer| {
-                        if (sockets[peer].local_len < sockets[peer].local_buffer.len) revents |= 4;
-                    }
-                }
-                put16(item + 6, revents);
-                if (revents != 0) ready += 1;
-            }
-        }
-        if (ready != 0) {
-            thread.pending_poll_address = 0;
-            thread.pending_poll_count = 0;
-            thread.state = .runnable;
-            thread.result = ready;
-        }
+    if (sockets[index].local_len == 0 and !sockets[index].peer_closed) return;
+    for (&user_threads) |*thread| {
+        if (thread.state != .blocked or thread.pending_poll_address == 0 or !thread.pending_poll_sockets[index]) continue;
+        // The pollfd array belongs to the blocked thread's address space.
+        // Leave it untouched until that workspace is active again.
+        thread.state = .runnable;
+        thread_switch_requested = true;
     }
 }
 
+fn completePendingPoll(thread_index: usize) void {
+    if (thread_index >= user_threads.len) return;
+    const thread = &user_threads[thread_index];
+    if (thread.pending_poll_address == 0) return;
+    const address = thread.pending_poll_address;
+    const count = thread.pending_poll_count;
+    const bytes = std.math.mul(u64, count, 8) catch {
+        thread.pending_poll_address = 0;
+        thread.pending_poll_count = 0;
+        thread.pending_poll_sockets = .{false} ** 32;
+        thread.result = errno(22);
+        return;
+    };
+    if (count > 64 or (count != 0 and !validUserSlice(address, bytes))) {
+        thread.pending_poll_address = 0;
+        thread.pending_poll_count = 0;
+        thread.pending_poll_sockets = .{false} ** 32;
+        thread.result = errno(14);
+        return;
+    }
+    var ready: u64 = 0;
+    var poll_index: u64 = 0;
+    while (poll_index < count) : (poll_index += 1) {
+        const item: [*]u8 = @ptrFromInt(address + poll_index * 8);
+        const fd = read32(item);
+        var revents: u16 = 0;
+        const events = read16(item + 4);
+        if (socketIndexForThread(thread_index, fd)) |socket_index| {
+            if ((events & 1) != 0 and sockets[socket_index].local_pair and sockets[socket_index].local_len != 0) revents |= 1;
+            if (sockets[socket_index].local_pair and sockets[socket_index].peer_closed) revents |= 0x10 | 1;
+            if ((events & 4) != 0 and sockets[socket_index].local_pair) {
+                if (sockets[socket_index].peer_index) |peer| {
+                    if (sockets[peer].local_len < sockets[peer].local_buffer.len) revents |= 4;
+                }
+            }
+        }
+        put16(item + 6, revents);
+        if (revents != 0) ready += 1;
+    }
+    thread.pending_poll_address = 0;
+    thread.pending_poll_count = 0;
+    thread.pending_poll_sockets = .{false} ** 32;
+    thread.result = ready;
+}
+
+fn completePendingWaitStatus(thread_index: usize) void {
+    if (thread_index >= user_threads.len) return;
+    const thread = &user_threads[thread_index];
+    const status = thread.pending_wait_status orelse return;
+    const address = thread.pending_wait_address;
+    if (address != 0 and validUserSlice(address, 4))
+        @as(*align(1) u32, @ptrFromInt(address)).* = @as(u32, status) << 8;
+    thread.pending_wait_status = null;
+    thread.pending_wait_address = 0;
+}
+
 fn wakeSocketReaders(index: usize) void {
-    if (sockets[index].local_len == 0) return;
+    if (sockets[index].local_len == 0 and !sockets[index].peer_closed) return;
     for (&user_threads) |*thread| {
         if (thread.state != .blocked or thread.pending_read_socket != index) continue;
-        const address = thread.pending_read_address;
-        const length = @min(thread.pending_read_length, sockets[index].local_len);
-        if (!validUserSlice(address, length)) {
-            thread.pending_read_socket = null;
-            thread.pending_read_address = 0;
-            thread.pending_read_length = 0;
-            thread.state = .runnable;
-            thread.result = errno(14);
-            continue;
-        }
-        const output: [*]u8 = @ptrFromInt(address);
-        var offset: usize = 0;
-        while (offset < length) : (offset += 1) {
-            const position = (sockets[index].local_head + offset) % sockets[index].local_buffer.len;
-            output[offset] = sockets[index].local_buffer[position];
-        }
-        sockets[index].local_head = (sockets[index].local_head + length) % sockets[index].local_buffer.len;
-        sockets[index].local_len -= length;
+        // The blocked thread may belong to another address space.  Do not
+        // dereference its userspace address while the producer's CR3 is
+        // active; completion is performed after the scheduler activates the
+        // reader workspace.
+        thread.state = .runnable;
+        thread_switch_requested = true;
+    }
+}
+
+fn completePendingSocketRead(thread_index: usize) void {
+    if (thread_index >= user_threads.len) return;
+    const thread = &user_threads[thread_index];
+    const index = thread.pending_read_socket orelse return;
+    if (thread.pending_read_eof) {
         thread.pending_read_socket = null;
         thread.pending_read_address = 0;
         thread.pending_read_length = 0;
-        thread.state = .runnable;
-        thread.result = length;
+        thread.pending_read_eof = false;
+        thread.result = 0;
+        return;
     }
+    if (sockets[index].local_len == 0) {
+        if (sockets[index].peer_closed) {
+            thread.pending_read_socket = null;
+            thread.pending_read_address = 0;
+            thread.pending_read_length = 0;
+            thread.result = 0;
+        }
+        return;
+    }
+    const address = thread.pending_read_address;
+    const length = @min(thread.pending_read_length, sockets[index].local_len);
+    if (!validUserSlice(address, length)) {
+        thread.pending_read_socket = null;
+        thread.pending_read_address = 0;
+        thread.pending_read_length = 0;
+        thread.result = errno(14);
+        return;
+    }
+    const output: [*]u8 = @ptrFromInt(address);
+    var offset: usize = 0;
+    while (offset < length) : (offset += 1) {
+        const position = (sockets[index].local_head + offset) % sockets[index].local_buffer.len;
+        output[offset] = sockets[index].local_buffer[position];
+    }
+    sockets[index].local_head = (sockets[index].local_head + length) % sockets[index].local_buffer.len;
+    sockets[index].local_len -= length;
+    thread.pending_read_socket = null;
+    thread.pending_read_address = 0;
+    thread.pending_read_length = 0;
+    thread.pending_read_eof = false;
+    thread.result = length;
 }
 
 fn socketReceive(index: usize, data: []u8) u64 {
@@ -3815,6 +3898,7 @@ fn socketReceive(index: usize, data: []u8) u64 {
             user_threads[current_thread].pending_read_socket = index;
             user_threads[current_thread].pending_read_address = @intFromPtr(data.ptr);
             user_threads[current_thread].pending_read_length = data.len;
+            user_threads[current_thread].pending_read_eof = false;
             user_threads[current_thread].state = .blocked;
             thread_switch_requested = true;
             return 0;
@@ -3994,11 +4078,21 @@ fn exitThread(status: u64) u64 {
     const thread = &user_threads[current_thread];
     thread.exit_status = status;
     if (thread.kind == .process_child) {
+        var fd_index: usize = 0;
+        while (fd_index < thread.stdio_sockets.len) : (fd_index += 1) {
+            if (thread.stdio_sockets[fd_index]) |socket_index| {
+                thread.stdio_sockets[fd_index] = null;
+                thread.stdio_cloexec[fd_index] = false;
+                releaseSocketRef(socket_index);
+            }
+        }
+    }
+    if (thread.kind == .process_child) {
         for (&user_threads) |*parent| {
             if (parent.state != .blocked or parent.wait_child_pid == 0) continue;
             if (parent.wait_child_pid != ~@as(u64, 0) and parent.wait_child_pid != thread.pid) continue;
-            if (parent.wait_status != 0 and validUserSlice(parent.wait_status, 4))
-                @as(*align(1) u32, @ptrFromInt(parent.wait_status)).* = @truncate((status & 0xff) << 8);
+            parent.pending_wait_status = @truncate(status & 0xff);
+            parent.pending_wait_address = parent.wait_status;
             parent.result = thread.pid;
             parent.wait_child_pid = 0;
             parent.wait_status = 0;
@@ -4119,9 +4213,11 @@ pub fn takeExecRequest() ?ExecRequestEnvelope {
     // A syscall can yield immediately and select the parent, so do not infer
     // ownership from current_thread. Scan the fixed scheduler table and
     // return the originating pid with the copied request.
-    for (&user_threads) |*thread| {
+    for (&user_threads, 0..) |*thread, thread_index| {
         if (thread.exec_request) |request| {
             thread.exec_request = null;
+            current_thread = thread_index;
+            current_pid = thread.pid;
             return .{ .thread_id = thread.pid, .workspace_id = thread.workspace_id, .request = request };
         }
     }

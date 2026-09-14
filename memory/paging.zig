@@ -154,6 +154,24 @@ pub const AddressSpace = struct {
         return .{ .writable = (entry.* & 0x002) != 0, .executable = (entry.* & (@as(u64, 1) << 63)) == 0 };
     }
 
+    /// Return the physical page backing a mapped userspace address.
+    /// Callers use this for process isolation while preserving the virtual
+    /// layout of a cloned address space.
+    pub fn userPhysical(self: *const AddressSpace, virtual: u64) ?u64 {
+        if (!isUserAddress(virtual)) return null;
+        const entry = userLeaf(self.root, virtual) orelse return null;
+        if ((entry.* & 1) == 0) return null;
+        return (entry.* & address_mask) | (virtual & 0xfff);
+    }
+
+    pub fn userPageAccessed(self: *const AddressSpace, virtual: u64) ?bool {
+        if (!isUserAddress(virtual)) return null;
+        const entry = userLeaf(self.root, virtual) orelse return null;
+        if ((entry.* & 1) == 0) return null;
+        return (entry.* & (@as(u64, 1) << 5)) != 0 or
+            (entry.* & (@as(u64, 1) << 6)) != 0;
+    }
+
     pub fn protectUserPage(self: *AddressSpace, virtual: u64, writable: bool, executable: bool) bool {
         if (!isUserPageAddress(virtual)) return false;
         const entry = userLeaf(self.root, virtual) orelse return false;

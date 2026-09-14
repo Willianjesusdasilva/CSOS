@@ -85,6 +85,10 @@ const LoaderWorkspace = struct {
     borrowed_owned: bool = false,
     stack_physical: u64 = 0,
     stack_pages: u64 = 0,
+    break_base: u64 = 0,
+    break_length: u64 = 0,
+    mmap_base: u64 = 0,
+    mmap_length: u64 = 0,
 };
 // A real `git pull` can have the parent, transport helper and upload-pack
 // alive simultaneously. Keep a bounded pool rather than serializing those
@@ -304,6 +308,10 @@ fn cloneProcessWorkspace(parent_id: u8, slot: u32) callconv(.c) u16 {
         child.owned_count = 0;
         child.stack_physical = parent.stack_physical;
         child.stack_pages = parent.stack_pages;
+        child.break_base = parent.break_base;
+        child.break_length = parent.break_length;
+        child.mmap_base = parent.mmap_base;
+        child.mmap_length = parent.mmap_length;
         cloneWritableProcessPages(child, pages) catch {
             child.image_space.destroy();
             releaseOwned(pages, child.owned[0..child.owned_count]);
@@ -343,6 +351,27 @@ fn cloneWritableProcessPages(child: *LoaderWorkspace, pages: *physical.Allocator
         try own(&child.owned, &child.owned_count, copy, 1);
         mapping.physical = copy;
         mapping.owner_index = child.owned_count - 1;
+    }
+    try cloneWritableVirtualRange(child, pages, child.break_base, child.break_length);
+    try cloneWritableVirtualRange(child, pages, child.mmap_base, child.mmap_length);
+}
+
+fn cloneWritableVirtualRange(child: *LoaderWorkspace, pages: *physical.Allocator, virtual: u64, length: u64) !void {
+    const source_space = child.address_space orelse return error.AddressSpaceMissing;
+    var offset: u64 = 0;
+    while (offset < length) : (offset += page_size) {
+        const page_virtual = virtual + offset;
+        const permissions = source_space.userPermissions(page_virtual) orelse continue;
+        if (!permissions.writable) continue;
+        if (!(source_space.userPageAccessed(page_virtual) orelse false)) continue;
+        const source_physical = source_space.userPhysical(page_virtual) orelse continue;
+        const copy = pages.allocate(1) orelse return error.OutOfMemory;
+        errdefer pages.release(copy, 1) catch {};
+        const source: [*]const u8 = @ptrFromInt(source_physical);
+        const destination: [*]u8 = @ptrFromInt(copy);
+        @memcpy(destination[0..page_size], source[0..page_size]);
+        try child.image_space.mapUserPage(page_virtual, copy, true, permissions.executable);
+        try own(&child.owned, &child.owned_count, copy, 1);
     }
 }
 
@@ -811,6 +840,10 @@ fn runImageWithWorkspace(
     // transport helper can coexist with its parent. The mmap syscall can
     // still reserve larger virtual ranges on demand.
     const mmap_arena_pages: u64 = if (preserve_scheduler) 8192 else 65536;
+    workspace.break_base = break_base;
+    workspace.break_length = arena_pages * page_size;
+    workspace.mmap_base = mmap_address;
+    workspace.mmap_length = mmap_arena_pages * page_size;
     try mapAnonymous(address_space, pages, owned, owned_count, break_base, arena_pages);
     try mapAnonymous(address_space, pages, owned, owned_count, mmap_address, mmap_arena_pages);
     const stack_pointer = try buildInitialStack(stack_pages, initial_stack_size, entry, interpreter_base, load_bias, program_offset, program_entry_size, program_count, arguments, environment, initializers[0..initializer_count], &musl_bootstrap);
