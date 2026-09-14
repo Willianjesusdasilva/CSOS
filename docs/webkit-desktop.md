@@ -221,9 +221,18 @@ quadraticamente lento. Com isso o smoke agora alcança `WPE shm ready`,
 `WebKit TLS ready`, `WebKit backend ready` e `WebKit view begin`.
 O retorno `CSOS WPE WebKit launcher returned` ainda não foi observado: o bloqueio
 agora avançou além de `webkit_web_view_new()` até a criação de subprocesso GIO:
-o smoke falha em `g_subprocess` porque o processo auxiliar ainda não completa
-seu ciclo `clone`/`execve` no loader CSOS. `WebKit view ready` e o loop GLib
-continuam pendentes.
+ o smoke falha em `g_subprocess` porque o processo auxiliar ainda não completa
+ seu ciclo `clone`/`execve` no loader CSOS. `WebKit view ready` e o loop GLib
+ continuam pendentes.
+
+### Avanço incremental do subprocesso WPE (2026-09-14)
+
+O dispatcher agora aceita `F_DUPFD_CLOEXEC` para os descritores locais usados
+por WPE e reconhece o formato musl `clone(CLONE_VM|CLONE_VFORK|SIGCHLD)`
+(`0x4111`), incluindo o callback e a stack ABI x86-64. O smoke QEMU confirma
+que o GIO passa do assertion inicial e chega ao clone `16657`. O callback ainda
+não completa a retomada `execve`/saída no workspace filho; portanto este é um
+avanço de ABI, não a validação final do WebProcess.
 HTML/CSS/JavaScript no CSOS continua um gate aberto, não uma validação final.
 
 ### Bloqueio atual do artefato WebProcess

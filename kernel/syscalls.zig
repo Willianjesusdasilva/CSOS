@@ -263,6 +263,7 @@ fn restoreRawSyscallFrame(raw: *[14]u64, frame: [14]u64) void {
 const UserThread = struct {
     state: enum { unused, runnable, blocked, exited } = .unused,
     kind: enum { thread, process_child } = .thread,
+    vfork_child: bool = false,
     pid: u32 = 0,
     exit_status: u64 = 0,
     wait_child_pid: u64 = 0,
@@ -298,7 +299,7 @@ const UserThread = struct {
 var user_threads: [16]UserThread = @splat(.{});
 var current_thread: usize = 0;
 var current_pid: u32 = 1;
-var pending_clone: ?struct { slot: usize, stack: u64, tls: u64, process_child: bool } = null;
+var pending_clone: ?struct { slot: usize, stack: u64, tls: u64, process_child: bool, entry: u64, clone_child: bool } = null;
 var deferred_process_child: ?usize = null;
 var thread_switch_requested: bool = false;
 var workspace_clone_hook: ?*const fn (u8, u32) callconv(.c) u16 = null;
@@ -339,20 +340,25 @@ fn wakeUserThreads(address: u64, maximum: u64) u64 {
     return count;
 }
 
-fn cloneThread(flags: u64, stack: u64, parent_tid: u64, child_tid: u64, tls: u64) u64 {
+fn cloneThread(flags: u64, stack: u64, parent_tid: u64, child_tid: u64, tls: u64, clone_entry: u64) u64 {
     serial.write("userspace clone flags: "); serial.writeDecimal(flags); serial.write("\n");
     // musl pthread_create flags, plus the Linux fork form (SIGCHLD) used by
     // Git and other runtimes to create a process child before execve.
-    const is_process_child = flags == 17;
+    const is_clone_child = flags == 0x4111;
+    const is_process_child = flags == 17 or is_clone_child;
     if (flags != 0x7d0f00 and !is_process_child) return errno(22);
-    if (is_process_child) {
+    if (flags == 17) {
         if (stack != 0 or parent_tid != 0 or child_tid != 0 or tls != 0) return errno(22);
+    } else if (is_clone_child) {
+        const aligned_stack = stack & ~@as(u64, 15);
+        if (clone_entry == 0 or aligned_stack < 8 or !validUserSlice(aligned_stack - 8, 8)) return errno(14);
     } else if (stack < 8 or !validUserSlice(stack, 8) or !validUserSlice(tls, 8) or
         !validUserSlice(parent_tid, 4) or !validUserSlice(child_tid, 4)) return errno(14);
     for (1..user_threads.len) |slot| {
         if (user_threads[slot].state != .unused and
             !(user_threads[slot].state == .exited and user_threads[slot].kind == .thread)) continue;
         user_threads[slot] = .{ .state = .runnable, .kind = if (is_process_child) .process_child else .thread,
+            .vfork_child = is_clone_child,
             .pid = @intCast(slot + 1), .clear_tid = child_tid,
             .parent_slot = current_thread,
             .workspace_id = user_threads[current_thread].workspace_id };
@@ -426,7 +432,8 @@ fn cloneThread(flags: u64, stack: u64, parent_tid: u64, child_tid: u64, tls: u64
                 user_threads[slot].workspace_id = @intCast(child_workspace);
             }
         }
-        pending_clone = .{ .slot = slot, .stack = stack, .tls = tls, .process_child = is_process_child };
+        pending_clone = .{ .slot = slot, .stack = stack, .tls = tls, .process_child = is_process_child,
+            .entry = clone_entry, .clone_child = is_clone_child };
         // A fork child must not run while the parent still holds musl's
         // fork/loader lock. Let the parent return from clone and complete a
         // short syscall window first; a later boundary performs the switch.
@@ -448,7 +455,22 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
     var created_process_child = false;
     if (pending_clone) |child| {
         user_threads[child.slot].frame = captureRawSyscallFrame(frame);
-        user_threads[child.slot].rsp = if (child.process_child) old.rsp else child.stack;
+        if (child.clone_child) {
+            const aligned_stack = child.stack & ~@as(u64, 15);
+            const child_arg: *const u64 = @ptrFromInt(aligned_stack - 8);
+            // musl's x86-64 __clone normally pops the callback argument and
+            // calls the callback after the syscall.  Start at that callback
+            // directly, with the argument in RDI; posix_spawn callbacks
+            // either execve or call _exit and do not return.
+            user_threads[child.slot].frame[0] = child.entry;
+            user_threads[child.slot].frame[9] = child_arg.*;
+            // __clone's assembly pops the argument, then CALLs the
+            // callback; entering directly must preserve the same ABI stack
+            // alignment (RSP % 16 == 8 at function entry).
+            user_threads[child.slot].rsp = aligned_stack - 8;
+        } else {
+            user_threads[child.slot].rsp = if (child.process_child) old.rsp else child.stack;
+        }
         user_threads[child.slot].fs = if (child.process_child) old.fs else child.tls;
         user_threads[child.slot].fx = old.fx;
         // clone returns the child TID only to the caller in the parent.  The
@@ -458,6 +480,9 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
         if (child.process_child) {
             deferred_process_child = child.slot;
             created_process_child = true;
+            // CLONE_VFORK suspends the caller until the callback has either
+            // exec'd or exited; schedule that child immediately.
+            thread_switch_requested = child.clone_child;
         }
     }
     if (!created_process_child and deferred_process_child != null and old.state == .runnable) {
@@ -479,7 +504,8 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
             // finish its pipe work first.
             if (deferred_process_child) |child_slot| {
                 const parent_slot = user_threads[child_slot].parent_slot;
-                if (user_threads[child_slot].state == .runnable and user_threads[parent_slot].state != .runnable) {
+                if (user_threads[child_slot].state == .runnable and
+                    (user_threads[parent_slot].state != .runnable or user_threads[child_slot].vfork_child)) {
                     selected = child_slot;
                     deferred_process_child = null;
                 }
@@ -880,14 +906,14 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         54 => setSocketOption(arg1, arg2, arg3, arg4, arg5),
         55 => getSocketOption(arg1, arg2, arg3, arg4, arg5),
         22 => pipe2(arg1, 0),
-        56 => cloneThread(arg1, arg2, arg3, arg4, arg5),
+        56 => cloneThread(arg1, arg2, arg3, arg4, arg5, arg6),
         // fork creates a cooperative process child; execve remains the
         // explicit image-replacement boundary.
-        57 => cloneThread(17, 0, 0, 0, 0),
+        57 => cloneThread(17, 0, 0, 0, 0, 0),
         // Git's run-command backend may select vfork on x86-64.  CSOS uses
         // the same bounded cooperative process-child path; the scheduler
         // still guarantees the parent can wait for the child before reuse.
-        58 => cloneThread(17, 0, 0, 0, 0),
+        58 => cloneThread(17, 0, 0, 0, 0, 0),
         293 => pipe2(arg1, arg2),
         59 => execve(arg1, arg2, arg3),
         60 => exitThread(arg1),
@@ -1340,6 +1366,18 @@ fn duplicate(old_fd: u64, new_fd: u64) u64 {
 
 fn fcntl(fd: u64, command: u64, argument: u64) u64 {
     if (socketIndex(fd)) |index| {
+        if (command == 0 or command == 1030) {
+            // WPE passes already-high local descriptors to F_DUPFD_CLOEXEC
+            // with a low minimum.  They cannot collide with stdio targets,
+            // so retaining the descriptor is equivalent for this bounded
+            // descriptor model and avoids inventing a second socket alias.
+            // The CSOS descriptor namespace has no independent alias table;
+            // preserve the live socket identity.  The spawn file actions
+            // immediately remap it to their target descriptors, so retaining
+            // this high descriptor is safe even when the requested minimum
+            // is one slot above it.
+            return fd;
+        }
         if (fd < 3 and command == 1) return @intFromBool(user_threads[current_thread].stdio_cloexec[@intCast(fd)]);
         if (fd < 3 and command == 2) {
             if ((argument & ~@as(u64, 1)) != 0) return errno(22);
