@@ -984,6 +984,24 @@ pub fn rmdirAt(directory_fd_in: i64, path: []const u8) !void {
 pub fn renameAt(directory_fd_in: i64, old_path: []const u8, new_path: []const u8) !void {
     const directory_fd = effectiveDirectoryFd(directory_fd_in);
     if (disk) |volume| if (directory_fd >= 3 and @as(usize, @intCast(directory_fd)) < descriptors.len and
+        descriptors[@intCast(directory_fd)].node == .fat_directory and old_path.len != 0 and new_path.len != 0 and
+        old_path[0] != '/' and new_path[0] != '/' and std.mem.indexOfScalar(u8, old_path, '/') != null and
+        std.mem.indexOfScalar(u8, new_path, '/') != null)
+    {
+        const source_fd = try openAt(directory_fd, old_path, 0);
+        defer close(source_fd) catch {};
+        if (descriptors[source_fd].kind != .file or descriptors[source_fd].node != .disk) return error.IsDirectory;
+        const old_resolved = ResolvedFatPath{ .entry = .{ .name = descriptors[source_fd].fat_name, .size = @intCast(descriptors[source_fd].size) }, .parent_cluster = descriptors[source_fd].fat_parent_cluster };
+        const new_parent_path = nestedParentPath(new_path) orelse return error.Invalid;
+        const target_fd = try openAt(directory_fd, new_parent_path, 0);
+        defer close(target_fd) catch {};
+        if (descriptors[target_fd].node != .fat_directory) return error.NotDirectory;
+        const new_name = toFatName(lastPathComponent(new_path)) orelse return error.Invalid;
+        if (old_resolved.parent_cluster == descriptors[target_fd].fat_cluster)
+            return volume.renameDirectoryFile(old_resolved.parent_cluster, &old_resolved.entry.name, &new_name);
+        return moveFatFileAcrossDirectories(directory_fd, old_path, new_path, old_resolved);
+    };
+    if (disk) |volume| if (directory_fd >= 3 and @as(usize, @intCast(directory_fd)) < descriptors.len and
         descriptors[@intCast(directory_fd)].node == .fat_directory and
         std.mem.indexOfScalar(u8, old_path, '/') == null and std.mem.indexOfScalar(u8, new_path, '/') == null)
     {
