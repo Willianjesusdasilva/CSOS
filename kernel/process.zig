@@ -2063,6 +2063,10 @@ pub fn handlePageFault(address: u64, instruction: u64, code: u64) callconv(.c) b
     const page_virtual = address & ~(page_size - 1);
     for (mappings) |*mapping| {
         if (mapping.virtual != page_virtual) continue;
+        if (mapping.resident) {
+            address_space.mapUserPage(page_virtual, mapping.physical, mapping.writable, mapping.executable) catch return false;
+            return true;
+        }
         // File-backed mappings cannot be restored over a protection fault;
         // anonymous MAP_NORESERVE pages below are intentionally writable.
         if ((code & 1) != 0) return false;
