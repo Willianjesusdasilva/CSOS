@@ -378,6 +378,11 @@ de futex/pipe/poll de acordarem uma thread bloqueada em `wait4`. Esses fixes
 avançaram o probe até os helpers de transporte, mas não constituem ainda o
 gate P1.
 
+O retorno de um helper `exec` agora restaura o frame, a pilha e o resultado do
+syscall do processo-pai usando a ABI MS x64 do kernel. O smoke básico continua
+passando no QEMU após essa mudança; o push local completo ainda precisa provar
+o ciclo final de `rev-list`/EOF.
+
 Pipes duplicados para o descritor 0 passam pelo namespace de sockets; leituras
 agora também acordam escritores bloqueados em `POLLOUT`, e `poll(..., -1)` cede
 a CPU corretamente. Wakeups de `read`/`poll` e o status de `wait4` são
