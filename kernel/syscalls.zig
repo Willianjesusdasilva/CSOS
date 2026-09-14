@@ -1084,6 +1084,10 @@ fn duplicate(old_fd: u64, new_fd: u64) u64 {
         if (new_fd < 3) {
             if (user_threads[current_thread].stdio_sockets[@intCast(new_fd)] != null) _ = close(new_fd);
             sockets[source].refs += 1;
+            // dup2/dup3 create a descriptor whose close-on-exec flag is
+            // clear; Git relies on this when wiring pipe ends to stdio
+            // before exec'ing receive-pack/upload-pack.
+            sockets[source].close_on_exec = false;
             user_threads[current_thread].stdio_sockets[@intCast(new_fd)] = source;
             return new_fd;
         }
