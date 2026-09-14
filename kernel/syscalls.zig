@@ -405,14 +405,16 @@ fn cloneThread(flags: u64, stack: u64, parent_tid: u64, child_tid: u64, tls: u64
             // EOF when a nested helper exited.
             for (&sockets, 0..) |*socket_entry, index| {
                 if (!socket_entry.allocated) continue;
-                var inherited = user_threads[slot].direct_socket_refs[index];
-                if (!inherited) {
-                    for (user_threads[slot].stdio_sockets) |entry| {
-                        if (entry == index) { inherited = true; break; }
-                    }
+                // `direct_socket_refs` represents the high descriptor
+                // namespace, while stdio has three independent aliases.
+                // Count every inherited alias: dup2() commonly leaves the
+                // original CLOEXEC fd alongside a non-CLOEXEC stdio fd.
+                var inherited_refs: u16 = @intFromBool(user_threads[slot].direct_socket_refs[index]);
+                for (user_threads[slot].stdio_sockets) |entry| {
+                    if (entry == index) inherited_refs += 1;
                 }
-                if (inherited) {
-                    socket_entry.refs += 1;
+                if (inherited_refs != 0) {
+                    socket_entry.refs += inherited_refs;
                     user_threads[slot].owned_socket_refs[index] = true;
                 }
             }
