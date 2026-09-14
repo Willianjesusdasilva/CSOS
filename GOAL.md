@@ -445,6 +445,12 @@ processo-pai antes de restaurar seu frame após a saída de um filho `exec`.
 sem criar a ref remota (`fatal: Needed a single revision`). O bloqueio segue
 no estado do `receive-pack` após a transferência do pack.
 
+Atualização: o transporte local agora trata `shutdown` half-duplex e bloqueia
+writers em pipes cheios, acordando-os quando o leitor drena o buffer. O smoke
+e os testes unitários continuam passando, mas o probe de `git push` ainda não
+cria a ref remota; P1 permanece aberto e o próximo diagnóstico deve seguir o
+estado do `receive-pack`/`rev-list`.
+
 ---
 
 # P2 — Bare-metal e Alpine Recovery
