@@ -122,8 +122,12 @@ fn pageFault() callconv(.naked) void {
         \\subq $48, %%rsp
         \\movq %%rax, 32(%%rsp)
         \\movq %%cr2, %%rdi
-        \\movq 56(%%rax), %%rsi
-        \\movq 64(%%rax), %%rdx
+        // A page fault pushes error-code, RIP, CS, RFLAGS, RSP and SS;
+        // after the seven saved registers the error code is at +56 and RIP
+        // at +64.  Keep the hook arguments in (address, RIP, error-code)
+        // order so lazy MAP_NORESERVE faults can be resolved correctly.
+        \\movq 64(%%rax), %%rsi
+        \\movq 56(%%rax), %%rdx
         \\callq page_fault_dispatch
         \\testb %%al, %%al
         \\jz 1f

@@ -4271,8 +4271,13 @@ fn mmap(requested: u64, length: u64, protection: u64, flags: u64, fd: u64, file_
         // Keep them in the canonical user range; pages are committed later by
         // the normal protection path.
         const virtual_limit: u64 = 0x00007f0000000000;
-        const large_reservation = aligned_length > (1 << 30);
-        if (!large_reservation and (address > mmap_limit or aligned_length > mmap_limit - address)) return errno(12);
+        // A MAP_NORESERVE request is virtual-only when it does not fit the
+        // eagerly-backed arena.  WebKit's bmalloc uses reservations in the
+        // 128 MiB range even though the process starts with a much smaller
+        // resident window; rejecting those requests makes the allocator
+        // receive ENOMEM and eventually trip its alignment assertion.
+        const eager_fits = address <= mmap_limit and aligned_length <= mmap_limit - address;
+        const large_reservation = !eager_fits;
         const reserve_address = if (!large_reservation)
             address
         else if (requested != 0 and requested >= noreserve_next and requested <= virtual_limit and aligned_length <= virtual_limit - requested)
