@@ -390,6 +390,13 @@ reapedar o PID; o bloqueio restante ocorre logo depois, quando o processo-pai
 precisa continuar na userspace com o frame de retorno preservado. O
 `rev-list`/EOF e o `git push` ainda não são gates concluídos.
 
+Atualização: o retorno nested agora completa o status pendente de `wait4` depois
+de reativar o workspace do processo-pai, e o término de um processo considera
+somente threads do próprio workspace. O smoke básico continua passando; no
+probe de `git push`, `pack-objects` agora termina com status zero e o parent é
+restaurado, mas o transporte ainda não conclui a drenagem/EOF. Portanto, P1
+continua aberto e o próximo fix permanece no lifecycle dos pipes.
+
 O rastreamento mais recente estreitou o bloqueio: durante o `git push`, o
 `receive-pack` (pid 2) espera o helper `rev-list` enquanto uma thread do mesmo
 workspace permanece bloqueada lendo o socket de entrada. A tabela atual trata
