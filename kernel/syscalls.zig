@@ -303,7 +303,10 @@ var user_threads: [16]UserThread = @splat(.{});
 var current_thread: usize = 0;
 var current_pid: u32 = 1;
 var pending_clone: ?struct { slot: usize, stack: u64, tls: u64, process_child: bool, entry: u64, clone_child: bool } = null;
-var deferred_process_child: ?usize = null;
+// Process children may be forked in bursts (for example receive-pack starts
+// several Git helpers before the parent blocks). Keep every deferred child;
+// a single slot loses siblings and can starve one of the helpers forever.
+var deferred_process_children: u16 = 0;
 var thread_switch_requested: bool = false;
 var workspace_clone_hook: ?*const fn (u8, u32) callconv(.c) u16 = null;
 var workspace_activate_hook: ?*const fn (u8) callconv(.c) void = null;
@@ -488,14 +491,14 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
         user_threads[child.slot].result = 0;
         pending_clone = null;
         if (child.process_child) {
-            deferred_process_child = child.slot;
+            deferred_process_children |= @as(u16, 1) << @intCast(child.slot);
             created_process_child = true;
             // CLONE_VFORK suspends the caller until the callback has either
             // exec'd or exited; schedule that child immediately.
             thread_switch_requested = child.clone_child;
         }
     }
-    if (!created_process_child and deferred_process_child != null and old.state == .runnable) {
+    if (!created_process_child and deferred_process_children != 0 and old.state == .runnable) {
         thread_switch_requested = true;
     }
     if (user_threads_done) return result;
@@ -512,12 +515,14 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
             // forked process child before unrelated runnable threads.  Keep
             // the deferred marker until that point so an older sibling can
             // finish its pipe work first.
-            if (deferred_process_child) |child_slot| {
+            for (0..user_threads.len) |child_slot| {
+                if ((deferred_process_children & (@as(u16, 1) << @intCast(child_slot))) == 0) continue;
                 const parent_slot = user_threads[child_slot].parent_slot;
                 if (user_threads[child_slot].state == .runnable and
                     (user_threads[parent_slot].state != .runnable or user_threads[child_slot].vfork_child)) {
                     selected = child_slot;
-                    deferred_process_child = null;
+                    deferred_process_children &= ~(@as(u16, 1) << @intCast(child_slot));
+                    break;
                 }
             }
             if (selected == null) {
@@ -592,7 +597,7 @@ pub fn configure(base: u64, size: u64, stack: u64, stack_length: u64, initial_br
     user_threads[0].cwd_len = 1;
     _ = vfs.changeDirectory("/") catch {};
     pending_clone = null;
-    deferred_process_child = null;
+    deferred_process_children = 0;
     thread_switch_requested = false;
     workspace_clone_hook = null;
     workspace_activate_hook = null;
