@@ -264,6 +264,7 @@ var user_threads: [16]UserThread = @splat(.{});
 var current_thread: usize = 0;
 var current_pid: u32 = 1;
 var pending_clone: ?struct { slot: usize, stack: u64, tls: u64, process_child: bool } = null;
+var deferred_process_child: ?usize = null;
 var thread_switch_requested: bool = false;
 var workspace_clone_hook: ?*const fn (u8, u32) callconv(.c) u16 = null;
 var workspace_activate_hook: ?*const fn (u8) callconv(.c) void = null;
@@ -341,14 +342,10 @@ fn cloneThread(flags: u64, stack: u64, parent_tid: u64, child_tid: u64, tls: u64
             }
         }
         pending_clone = .{ .slot = slot, .stack = stack, .tls = tls, .process_child = is_process_child };
-        // A newly-created thread must get a chance to run before the parent
-        // can spin on its startup handshake in userspace. Linux may preempt
-        // here; CSOS uses the cooperative syscall boundary instead.
-        thread_switch_requested = true;
-        // Let the parent return from clone and finish the runtime's startup
-        // handshake first.  The next blocking/yielding syscall performs the
-        // cooperative switch; this avoids starving runtimes whose child
-        // bootstrap briefly runs without entering the kernel.
+        // A fork child must not run while the parent still holds musl's
+        // fork/loader lock. Let the parent return from clone and complete
+        // one syscall first; the next syscall boundary performs the switch.
+        thread_switch_requested = !is_process_child;
         return tid;
     }
     return errno(11);
@@ -370,6 +367,11 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
         user_threads[child.slot].fx = old.fx;
         user_threads[child.slot].result = if (child.process_child) 0 else result;
         pending_clone = null;
+        if (child.process_child) deferred_process_child = child.slot;
+    }
+    if (deferred_process_child != null and old.state == .runnable) {
+        thread_switch_requested = true;
+        deferred_process_child = null;
     }
     if (user_threads_done) return result;
     if (thread_switch_requested or old.state != .runnable) {
@@ -444,6 +446,7 @@ pub fn configure(base: u64, size: u64, stack: u64, stack_length: u64, initial_br
     current_pid = 1;
     user_threads[0].pid = 1;
     pending_clone = null;
+    deferred_process_child = null;
     thread_switch_requested = false;
     workspace_clone_hook = null;
     workspace_activate_hook = null;
