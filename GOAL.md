@@ -371,10 +371,11 @@ um gate concluído. O próximo requisito é fechar o lifecycle de spawn/pipe/EOF
 desse helper; só depois disso o `git pull` real, reboot e uso da nova revisão
 podem ser declarados.
 
-Pipes duplicados para o descritor 0 passam pelo namespace de sockets,
-`poll(..., -1)` cede a CPU corretamente, e wakeups de `read`/`poll` e o status
-de `wait4` são concluídos somente depois que o workspace/CR3 do thread
-destinatário está ativo. O smoke básico continua alcançando
+Pipes duplicados para o descritor 0 passam pelo namespace de sockets; leituras
+agora também acordam escritores bloqueados em `POLLOUT`, e `poll(..., -1)` cede
+a CPU corretamente. Wakeups de `read`/`poll` e o status de `wait4` são
+concluídos somente depois que o workspace/CR3 do thread destinatário está
+ativo. O smoke básico continua alcançando
 `CSOS Git runtime ready` no QEMU; o probe termina com QEMU encerrado.
 
 ---
