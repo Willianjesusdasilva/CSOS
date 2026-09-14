@@ -379,9 +379,11 @@ avançaram o probe até os helpers de transporte, mas não constituem ainda o
 gate P1.
 
 O retorno de um helper `exec` agora restaura o frame, a pilha e o resultado do
-syscall do processo-pai usando a ABI MS x64 do kernel. O smoke básico continua
-passando no QEMU após essa mudança; o push local completo ainda precisa provar
-o ciclo final de `rev-list`/EOF.
+syscall do processo-pai usando a ABI MS x64 do kernel. A captura/restauração
+também converte explicitamente entre a ordem bruta da pilha de `syscall_entry`
+e o frame canônico de `UserThread`, evitando que o pai retome com RIP/argumentos
+trocados. O smoke básico continua passando no QEMU; o push local avançou até
+os helpers de transporte, mas ainda precisa provar o ciclo final de `rev-list`/EOF.
 
 O probe estendido confirma que o helper filho termina e que `wait4` consegue
 reapedar o PID; o bloqueio restante ocorre logo depois, quando o processo-pai

@@ -238,6 +238,28 @@ pub export var syscall_kernel_rsp: u64 = 0;
 pub export var syscall_user_rsp: u64 = 0;
 pub export var user_threads_enabled: bool = false;
 pub export var user_threads_done: bool = false;
+
+fn captureRawSyscallFrame(raw: *const [14]u64) [14]u64 {
+    return .{ raw[13], raw[12], raw[11], raw[10], raw[9], raw[8], raw[7],
+        raw[6], raw[5], raw[4], raw[3], raw[2], raw[1], raw[0] };
+}
+
+fn restoreRawSyscallFrame(raw: *[14]u64, frame: [14]u64) void {
+    raw[13] = frame[0];
+    raw[12] = frame[1];
+    raw[11] = frame[2];
+    raw[10] = frame[3];
+    raw[9] = frame[4];
+    raw[8] = frame[5];
+    raw[7] = frame[6];
+    raw[6] = frame[7];
+    raw[5] = frame[8];
+    raw[4] = frame[9];
+    raw[3] = frame[10];
+    raw[2] = frame[11];
+    raw[1] = frame[12];
+    raw[0] = frame[13];
+}
 const UserThread = struct {
     state: enum { unused, runnable, blocked, exited } = .unused,
     kind: enum { thread, process_child } = .thread,
@@ -378,13 +400,13 @@ fn cloneThread(flags: u64, stack: u64, parent_tid: u64, child_tid: u64, tls: u64
 export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
     if (!user_threads_enabled) return result;
     const old = &user_threads[current_thread];
-    old.frame = frame.*; old.rsp = syscall_user_rsp; old.result = result;
+    old.frame = captureRawSyscallFrame(frame); old.rsp = syscall_user_rsp; old.result = result;
     old.fs = readMsr(0xc0000100);
     asm volatile ("fxsave64 (%[p])" : : [p] "r" (&old.fx) : .{ .memory = true });
     if (old.exec_request != null) exec_pause_requested = true;
     var created_process_child = false;
     if (pending_clone) |child| {
-        user_threads[child.slot].frame = frame.*;
+        user_threads[child.slot].frame = captureRawSyscallFrame(frame);
         user_threads[child.slot].rsp = if (child.process_child) old.rsp else child.stack;
         user_threads[child.slot].fs = if (child.process_child) old.fs else child.tls;
         user_threads[child.slot].fx = old.fx;
@@ -432,7 +454,7 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
         }
     }
     const next = &user_threads[current_thread];
-    frame.* = next.frame; syscall_user_rsp = next.rsp;
+    restoreRawSyscallFrame(frame, next.frame); syscall_user_rsp = next.rsp;
     writeMsr(0xc0000100, next.fs);
     asm volatile ("fxrstor64 (%[p])" : : [p] "r" (&next.fx) : .{ .memory = true });
     return next.result;
