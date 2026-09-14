@@ -998,6 +998,10 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         144 => setScheduler(arg1, arg2, arg3),
         145 => getScheduler(arg1),
         148 => schedRrInterval(arg1, arg2),
+        149 => memoryLock(arg1, arg2),
+        150 => memoryUnlock(arg1, arg2),
+        151 => memoryLockAll(arg1),
+        152 => memoryUnlockAll(),
         157 => prctl(arg1, arg2, arg3),
         158 => archPrctl(arg1, arg2),
         160 => setRlimit(arg1, arg2),
@@ -4587,6 +4591,28 @@ fn madvise(address: u64, length: u64, advice: u64) u64 {
     if (!lazy_range and !validUserSlice(address, length)) return errno(22);
     // Hints are accepted, but reclaim remains controlled by the process
     // lifecycle and never trusts userspace to discard live mappings.
+    return 0;
+}
+
+fn memoryLock(address: u64, length: u64) u64 {
+    if (length == 0 or !validUserSlice(address, length)) return errno(14);
+    // CSOS does not reclaim locked user pages in the current loader model;
+    // accepting the validated range preserves the Linux ABI without making
+    // an unverified physical-pinning claim.
+    return 0;
+}
+
+fn memoryUnlock(address: u64, length: u64) u64 {
+    if (length == 0 or !validUserSlice(address, length)) return errno(14);
+    return 0;
+}
+
+fn memoryLockAll(flags: u64) u64 {
+    if ((flags & ~@as(u64, 3)) != 0) return errno(22);
+    return 0;
+}
+
+fn memoryUnlockAll() u64 {
     return 0;
 }
 
