@@ -383,6 +383,11 @@ syscall do processo-pai usando a ABI MS x64 do kernel. O smoke básico continua
 passando no QEMU após essa mudança; o push local completo ainda precisa provar
 o ciclo final de `rev-list`/EOF.
 
+O probe estendido confirma que o helper filho termina e que `wait4` consegue
+reapedar o PID; o bloqueio restante ocorre logo depois, quando o processo-pai
+precisa continuar na userspace com o frame de retorno preservado. O
+`rev-list`/EOF e o `git push` ainda não são gates concluídos.
+
 Pipes duplicados para o descritor 0 passam pelo namespace de sockets; leituras
 agora também acordam escritores bloqueados em `POLLOUT`, e `poll(..., -1)` cede
 a CPU corretamente. Wakeups de `read`/`poll` e o status de `wait4` são
