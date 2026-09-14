@@ -3826,7 +3826,13 @@ fn socket(domain: u64, kind: u64, protocol: u64) u64 {
 }
 
 fn socketPair(domain: u64, kind: u64, protocol: u64, output: u64) u64 {
-    if (domain != 1 or (kind & 0xf) != 1 or (kind & ~@as(u64, 0x80801)) != 0 or protocol != 0) return errno(97);
+    // WPE/GLib ProcessLauncher uses SOCK_SEQPACKET for its local control
+    // channel.  The bounded local transport preserves the same bidirectional
+    // semantics while allowing the existing poll/read/write ABI to carry the
+    // startup handshake.
+    const socket_kind = kind & 0xf;
+    if (domain != 1 or (socket_kind != 1 and socket_kind != 5) or
+        (kind & ~@as(u64, 0x80805)) != 0 or protocol != 0) return errno(97);
     if (!validUserSlice(output, 8)) return errno(14);
     var first: ?usize = null;
     var second: ?usize = null;

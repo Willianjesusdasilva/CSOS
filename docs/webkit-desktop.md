@@ -220,7 +220,10 @@ vez, evitando que a imagem grande do WebKit torne o seed dos diretórios UI
 quadraticamente lento. Com isso o smoke agora alcança `WPE shm ready`,
 `WebKit TLS ready`, `WebKit backend ready` e `WebKit view begin`.
 O retorno `CSOS WPE WebKit launcher returned` ainda não foi observado: o bloqueio
-real permanece dentro de `webkit_web_view_new()`, antes de `WebKit view ready`.
+agora avançou além de `webkit_web_view_new()` até a criação de subprocesso GIO:
+o smoke falha em `g_subprocess` porque o processo auxiliar ainda não completa
+seu ciclo `clone`/`execve` no loader CSOS. `WebKit view ready` e o loop GLib
+continuam pendentes.
 HTML/CSS/JavaScript no CSOS continua um gate aberto, não uma validação final.
 
 ### Bloqueio atual do artefato WebProcess
