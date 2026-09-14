@@ -305,6 +305,7 @@ var thread_switch_requested: bool = false;
 var workspace_clone_hook: ?*const fn (u8, u32) callconv(.c) u16 = null;
 var workspace_activate_hook: ?*const fn (u8) callconv(.c) void = null;
 var workspace_release_hook: ?*const fn (u8) callconv(.c) void = null;
+pub var process_clone_hint_address: u64 = 0;
 const max_exec_arguments = 32;
 const max_exec_string = 256;
 pub const ExecRequest = struct {
@@ -350,8 +351,11 @@ fn cloneThread(flags: u64, stack: u64, parent_tid: u64, child_tid: u64, tls: u64
     if (flags == 17) {
         if (stack != 0 or parent_tid != 0 or child_tid != 0 or tls != 0) return errno(22);
     } else if (is_clone_child) {
-        const aligned_stack = stack & ~@as(u64, 15);
-        if (clone_entry == 0 or aligned_stack < 8 or !validUserSlice(aligned_stack - 8, 8)) return errno(14);
+        // musl's x86-64 __clone aligns RSI and subtracts eight before the
+        // syscall, leaving the callback argument at the kernel-visible
+        // stack value itself.
+        if (clone_entry == 0 or !validUserSlice(stack, 8)) return errno(14);
+        process_clone_hint_address = read64(@as([*]const u8, @ptrFromInt(stack)));
     } else if (stack < 8 or !validUserSlice(stack, 8) or !validUserSlice(tls, 8) or
         !validUserSlice(parent_tid, 4) or !validUserSlice(child_tid, 4)) return errno(14);
     for (1..user_threads.len) |slot| {
@@ -427,10 +431,12 @@ fn cloneThread(flags: u64, stack: u64, parent_tid: u64, child_tid: u64, tls: u64
                 const child_workspace = hook(user_threads[current_thread].workspace_id, @intCast(slot));
                 if (child_workspace == 0xffff) {
                     user_threads[slot] = .{};
+                    process_clone_hint_address = 0;
                     return errno(12);
                 }
                 user_threads[slot].workspace_id = @intCast(child_workspace);
             }
+            process_clone_hint_address = 0;
         }
         pending_clone = .{ .slot = slot, .stack = stack, .tls = tls, .process_child = is_process_child,
             .entry = clone_entry, .clone_child = is_clone_child };
@@ -456,8 +462,7 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
     if (pending_clone) |child| {
         user_threads[child.slot].frame = captureRawSyscallFrame(frame);
         if (child.clone_child) {
-            const aligned_stack = child.stack & ~@as(u64, 15);
-            const child_arg: *const u64 = @ptrFromInt(aligned_stack - 8);
+            const child_arg: *const u64 = @ptrFromInt(child.stack);
             // musl's x86-64 __clone normally pops the callback argument and
             // calls the callback after the syscall.  Start at that callback
             // directly, with the argument in RDI; posix_spawn callbacks
@@ -467,7 +472,7 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
             // __clone's assembly pops the argument, then CALLs the
             // callback; entering directly must preserve the same ABI stack
             // alignment (RSP % 16 == 8 at function entry).
-            user_threads[child.slot].rsp = aligned_stack - 8;
+            user_threads[child.slot].rsp = child.stack;
         } else {
             user_threads[child.slot].rsp = if (child.process_child) old.rsp else child.stack;
         }

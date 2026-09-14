@@ -14,6 +14,8 @@ const ui_runtime_image = @embedFile("ui_runtime_elf");
 const interpreter_image = @embedFile("interpreter_elf");
 const dynamic_image = @embedFile("dynamic_elf");
 const webkit_launcher_image = @embedFile("webkit_launcher_elf");
+const wpe_web_process_image = @embedFile("wpe_web_process_elf");
+const wpe_network_process_image = @embedFile("wpe_network_process_elf");
 var image: []const u8 = busybox_image;
 const stack_address: u64 = 0x0000009000000000;
 const mmap_address: u64 = 0x000000a000000000;
@@ -318,6 +320,12 @@ fn cloneProcessWorkspace(parent_id: u8, slot: u32) callconv(.c) u16 {
             child.* = .{};
             return 0xffff;
         };
+        cloneWritableHintPage(child, pages, syscalls.process_clone_hint_address) catch {
+            child.image_space.destroy();
+            releaseOwned(pages, child.owned[0..child.owned_count]);
+            child.* = .{};
+            return 0xffff;
+        };
         child.user_region_count = parent.user_region_count;
         child.load_bias = parent.load_bias;
         child.pages = pages;
@@ -373,6 +381,25 @@ fn cloneWritableVirtualRange(child: *LoaderWorkspace, pages: *physical.Allocator
         try child.image_space.mapUserPage(page_virtual, copy, true, permissions.executable);
         try own(&child.owned, &child.owned_count, copy, 1);
     }
+}
+
+fn cloneWritableHintPage(child: *LoaderWorkspace, pages: *physical.Allocator, hint: u64) !void {
+    if (hint == 0) return;
+    const page_virtual = hint & ~@as(u64, page_size - 1);
+    const permissions = child.image_space.userPermissions(page_virtual) orelse return;
+    if (!permissions.writable) return;
+    if (findMapping(child.mappings[0..child.mapping_count], page_virtual)) |mapping| {
+        if (mapping.owner_index < child.owned_count and child.owned[mapping.owner_index].address != 0) return;
+    }
+    const source_physical = child.image_space.userPhysical(page_virtual) orelse return;
+    const copy = pages.allocate(1) orelse return error.OutOfMemory;
+    errdefer pages.release(copy, 1) catch {};
+    const source: [*]const u8 = @ptrFromInt(source_physical);
+    const destination: [*]u8 = @ptrFromInt(copy);
+    @memcpy(destination[0..page_size], source[0..page_size]);
+    _ = child.image_space.unmapUserPage(page_virtual);
+    try child.image_space.mapUserPage(page_virtual, copy, true, permissions.executable);
+    try own(&child.owned, &child.owned_count, copy, 1);
 }
 
 fn cloneWritableRange(child: *LoaderWorkspace, pages: *physical.Allocator, virtual: u64, source_base: u64, count: u64) !void {
@@ -449,6 +476,14 @@ fn isShellExecutablePath(path: []const u8) bool {
     return std.mem.eql(u8, basename, "sh") or std.mem.eql(u8, basename, "sh.exe");
 }
 
+fn isWpeWebProcessPath(path: []const u8) bool {
+    return std.mem.endsWith(u8, path, "WPEWebProcess") or std.mem.endsWith(u8, path, "WPEWebProcess.exe");
+}
+
+fn isWpeNetworkProcessPath(path: []const u8) bool {
+    return std.mem.endsWith(u8, path, "WPENetworkProcess") or std.mem.endsWith(u8, path, "WPENetworkProcess.exe");
+}
+
 fn runExecRequest(kernel_root: u64, pages: *physical.Allocator, envelope: syscalls.ExecRequestEnvelope) anyerror!void {
     if (envelope.workspace_id >= loader_workspaces.len) return error.InvalidExecWorkspace;
     const workspace = &loader_workspaces[envelope.workspace_id];
@@ -460,6 +495,10 @@ fn runExecRequest(kernel_root: u64, pages: *physical.Allocator, envelope: syscal
     const path = request.path[0..request.path_len];
     image = if (isGitExecutablePath(path))
         @embedFile("git_runtime_elf")
+    else if (isWpeWebProcessPath(path))
+        wpe_web_process_image
+    else if (isWpeNetworkProcessPath(path))
+        wpe_network_process_image
     else if (equal(path, "/bin/busybox") or equal(path, "/bin/sh") or isShellExecutablePath(path))
         busybox_image
     else

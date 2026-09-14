@@ -233,6 +233,13 @@ por WPE e reconhece o formato musl `clone(CLONE_VM|CLONE_VFORK|SIGCHLD)`
 que o GIO passa do assertion inicial e chega ao clone `16657`. O callback ainda
 não completa a retomada `execve`/saída no workspace filho; portanto este é um
 avanço de ABI, não a validação final do WebProcess.
+
+O loader agora também aceita os artefatos reais `WPEWebProcess` e
+`WPENetworkProcess` através de `-Dwebkit-web-process` e
+`-Dwebkit-network-process`, e copia a página do argumento do `vfork` para o
+workspace filho. Com os binários de `C:/w/zig-out/webkit-linux6/bin`, o erro
+`ExecImageNotFound` deixa de ocorrer; o smoke ainda aguarda o carregamento e o
+handshake do processo auxiliar.
 HTML/CSS/JavaScript no CSOS continua um gate aberto, não uma validação final.
 
 ### Bloqueio atual do artefato WebProcess

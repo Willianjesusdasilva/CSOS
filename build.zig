@@ -4,6 +4,8 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
     const webkit_runtime_probe = b.option([]const u8, "webkit-runtime-probe", "Opt-in musl pthread prerequisite probe ELF; not the WebKit engine");
     const webkit_launcher = b.option([]const u8, "webkit-launcher", "Opt-in Zig WPE WebKit launcher ELF");
+    const webkit_web_process = b.option([]const u8, "webkit-web-process", "Opt-in WPEWebProcess ELF");
+    const webkit_network_process = b.option([]const u8, "webkit-network-process", "Opt-in WPENetworkProcess ELF");
     const glib_runtime_probe = b.option([]const u8, "glib-runtime-probe", "Opt-in upstream GLib userspace ELF");
     const git_runtime = b.option([]const u8, "git-runtime", "Opt-in upstream Git ELF for local system updates");
     const libdrm_probe = b.option([]const u8, "libdrm-probe", "Path to the static upstream libdrm probe ELF (opt-in Ring 3 validation)");
@@ -480,6 +482,8 @@ pub fn build(b: *std.Build) void {
     if (libdrm_probe) |path| process_module.addAnonymousImport("libdrm_probe_elf", .{ .root_source_file = b.path(path) });
     if (webkit_runtime_probe) |path| process_module.addAnonymousImport("webkit_runtime_probe_elf", .{ .root_source_file = b.path(path) });
     if (webkit_launcher) |path| process_module.addAnonymousImport("webkit_launcher_elf", .{ .root_source_file = b.path(path) }) else process_module.addAnonymousImport("webkit_launcher_elf", .{ .root_source_file = dynamic_hello.getEmittedBin() });
+    if (webkit_web_process) |path| process_module.addAnonymousImport("wpe_web_process_elf", .{ .root_source_file = .{ .cwd_relative = path } }) else process_module.addAnonymousImport("wpe_web_process_elf", .{ .root_source_file = dynamic_hello.getEmittedBin() });
+    if (webkit_network_process) |path| process_module.addAnonymousImport("wpe_network_process_elf", .{ .root_source_file = .{ .cwd_relative = path } }) else process_module.addAnonymousImport("wpe_network_process_elf", .{ .root_source_file = dynamic_hello.getEmittedBin() });
     if (glib_runtime_probe) |path| process_module.addAnonymousImport("glib_runtime_probe_elf", .{ .root_source_file = b.path(path) });
     if (git_runtime) |path| process_module.addAnonymousImport("git_runtime_elf", .{ .root_source_file = .{ .cwd_relative = path } }) else process_module.addAnonymousImport("git_runtime_elf", .{ .root_source_file = dynamic_hello.getEmittedBin() });
     if (radv_loader_probe) |path|
