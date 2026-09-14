@@ -906,7 +906,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         42 => connect(arg1, arg2, arg3),
         44 => sendTo(arg1, arg2, arg3),
         45 => receiveFrom(arg1, arg2, arg3),
-        48 => shutdown(arg1),
+        48 => shutdown(arg1, arg2),
         51 => socketName(arg1, arg2, arg3, false),
         52 => socketName(arg1, arg2, arg3, true),
         53 => socketPair(arg1, arg2, arg3, arg4),
@@ -3825,6 +3825,8 @@ const Socket = struct {
     local_head: usize = 0,
     local_len: usize = 0,
     peer_closed: bool = false,
+    read_closed: bool = false,
+    write_closed: bool = false,
     close_on_exec: bool = false,
     nonblocking: bool = false,
     connection: ?net.TcpConnection = null,
@@ -3974,8 +3976,24 @@ fn receiveFrom(fd: u64, address: u64, length: u64) u64 {
     return socketReceive(index, bytes[0..@intCast(length)]);
 }
 
-fn shutdown(fd: u64) u64 {
+fn shutdown(fd: u64, how: u64) u64 {
     const index = socketIndex(fd) orelse return errno(9);
+    if (how > 2) return errno(22);
+    if (sockets[index].local_pair) {
+        if (how == 0 or how == 2) {
+            sockets[index].read_closed = true;
+            sockets[index].local_len = 0;
+        }
+        if (how == 1 or how == 2) {
+            sockets[index].write_closed = true;
+            if (sockets[index].peer_index) |peer| {
+                sockets[peer].peer_closed = true;
+                wakeSocketReaders(peer);
+                wakeSocketPollers(peer);
+            }
+        }
+        return 0;
+    }
     const stack = network_stack orelse return errno(100);
     if (sockets[index].connection) |*connection| stack.tcpClose(connection) catch return errno(5) else return errno(107);
     return 0;
@@ -3983,6 +4001,7 @@ fn shutdown(fd: u64) u64 {
 
 fn socketSend(index: usize, data: []const u8) u64 {
     if (sockets[index].local_pair) {
+        if (sockets[index].write_closed) return errno(32);
         const peer = sockets[index].peer_index orelse return errno(32);
         if (!sockets[peer].allocated) return errno(32);
         const available = sockets[peer].local_buffer.len - sockets[peer].local_len;
@@ -4144,6 +4163,7 @@ fn completePendingSocketRead(thread_index: usize) void {
 
 fn socketReceive(index: usize, data: []u8) u64 {
     if (sockets[index].local_pair) {
+        if (sockets[index].read_closed) return 0;
         if (sockets[index].local_len == 0) {
             if (sockets[index].peer_closed) return 0;
             if (sockets[index].nonblocking) return errno(11);
