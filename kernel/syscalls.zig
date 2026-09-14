@@ -631,7 +631,20 @@ pub fn resetExecThreadTls() void {
 /// the kernel loader. The image no longer has a userspace frame from which
 /// exitThread can report, but wait4 still needs the normal exited transition
 /// and parent wakeup.
-pub const UserResume = struct { frame: [14]u64, rsp: u64 };
+pub const UserResume = struct {
+    frame: [14]u64,
+    rsp: u64,
+    fs: u64,
+    fx: [512]u8 align(16),
+};
+
+/// Restore the non-GPR execution state saved for a parent while its process
+/// child was running an exec replacement.  The assembly resume path restores
+/// the SYSRET register frame, but TLS and SIMD state live outside that frame.
+pub fn restoreUserResumeContext(saved: *const UserResume) void {
+    writeMsr(0xc0000100, saved.fs);
+    asm volatile ("fxrstor64 (%[p])" : : [p] "r" (&saved.fx) : .{ .memory = true });
+}
 
 pub fn finishProcessChild(pid: u32, status: u8) ?UserResume {
     for (&user_threads) |*child| {
@@ -649,7 +662,7 @@ pub fn finishProcessChild(pid: u32, status: u8) ?UserResume {
             parent.state = .runnable;
             current_thread = child.parent_slot;
             current_pid = parent.pid;
-            return .{ .frame = parent.frame, .rsp = parent.rsp };
+            return .{ .frame = parent.frame, .rsp = parent.rsp, .fs = parent.fs, .fx = parent.fx };
         }
         return null;
     }

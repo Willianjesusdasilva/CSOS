@@ -854,6 +854,7 @@ fn runImageWithWorkspace(
             if (syscalls.finishProcessChild(exec_request.thread_id, syscalls.exitStatus() orelse 0)) |resumed_frame| {
                 active_workspace = workspace;
                 address_space.activate();
+                syscalls.restoreUserResumeContext(&resumed_frame);
                 resume_user_frame(&resumed_frame.frame, resumed_frame.rsp);
             }
             syscalls.resetExitStatus();
