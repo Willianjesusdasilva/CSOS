@@ -343,8 +343,8 @@ fn cloneThread(flags: u64, stack: u64, parent_tid: u64, child_tid: u64, tls: u64
         }
         pending_clone = .{ .slot = slot, .stack = stack, .tls = tls, .process_child = is_process_child };
         // A fork child must not run while the parent still holds musl's
-        // fork/loader lock. Let the parent return from clone and complete
-        // one syscall first; the next syscall boundary performs the switch.
+        // fork/loader lock. Let the parent return from clone and complete a
+        // short syscall window first; a later boundary performs the switch.
         thread_switch_requested = !is_process_child;
         return tid;
     }
@@ -360,6 +360,7 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
     old.fs = readMsr(0xc0000100);
     asm volatile ("fxsave64 (%[p])" : : [p] "r" (&old.fx) : .{ .memory = true });
     if (old.exec_request != null) exec_pause_requested = true;
+    var created_process_child = false;
     if (pending_clone) |child| {
         user_threads[child.slot].frame = frame.*;
         user_threads[child.slot].rsp = if (child.process_child) old.rsp else child.stack;
@@ -367,9 +368,12 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
         user_threads[child.slot].fx = old.fx;
         user_threads[child.slot].result = if (child.process_child) 0 else result;
         pending_clone = null;
-        if (child.process_child) deferred_process_child = child.slot;
+        if (child.process_child) {
+            deferred_process_child = child.slot;
+            created_process_child = true;
+        }
     }
-    if (deferred_process_child != null and old.state == .runnable) {
+    if (!created_process_child and deferred_process_child != null and old.state == .runnable) {
         thread_switch_requested = true;
         deferred_process_child = null;
     }
