@@ -215,8 +215,12 @@ backend FDO reais. `build.zig` e `tools/make-fat16.ps1` empacotam o launcher,
 QEMU. O loader ELF aceita esses aliases, mapeia o engine grande e trata
 relocations que atravessam páginas. O smoke alcança `FAT WebKit entry ready` e
 `Linux PT_INTERP loader ready`; o backend FDO é inicializado em modo SHM para
-QEMU. O retorno `CSOS WPE WebKit launcher returned` ainda não foi observado:
-o processo excede o timeout atual antes de completar o loop GLib. Portanto,
+QEMU. A busca de clusters FAT foi otimizada para varrer cada setor da FAT uma
+vez, evitando que a imagem grande do WebKit torne o seed dos diretórios UI
+quadraticamente lento. Com isso o smoke agora alcança `WPE shm ready`,
+`WebKit TLS ready`, `WebKit backend ready` e `WebKit view begin`.
+O retorno `CSOS WPE WebKit launcher returned` ainda não foi observado: o bloqueio
+real permanece dentro de `webkit_web_view_new()`, antes de `WebKit view ready`.
 HTML/CSS/JavaScript no CSOS continua um gate aberto, não uma validação final.
 
 ### Bloqueio atual do artefato WebProcess

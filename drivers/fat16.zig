@@ -812,8 +812,16 @@ pub const Volume = struct {
 
     fn findFree(self: *Volume, start: u16) !u16 {
         var cluster: u32 = start;
+        var loaded_sector: u32 = std.math.maxInt(u32);
         while (cluster < self.cluster_count + 2 and cluster < 0xfff0) : (cluster += 1) {
-            if (try self.fatEntry(@intCast(cluster)) == 0) return @intCast(cluster);
+            const byte_offset = cluster * 2;
+            const sector = self.fat_start + byte_offset / 512;
+            if (sector != loaded_sector) {
+                try self.storage.readBlock(sector, self.buffer);
+                loaded_sector = sector;
+            }
+            const bytes: [*]const u8 = @ptrFromInt(self.buffer);
+            if (get16(bytes + byte_offset % 512) == 0) return @intCast(cluster);
         }
         return error.DiskFull;
     }
