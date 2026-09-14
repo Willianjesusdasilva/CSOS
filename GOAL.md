@@ -425,6 +425,13 @@ saída antes de devolver o frame ao parent. O probe estendido deixou de travar
 após `wait4` e passou a reportar `remote end hung up unexpectedly`; o próximo
 bloqueio está no handshake final do `receive-pack`.
 
+Atualização: o fork agora contabiliza somente sockets realmente herdados pelo
+filho, e o encerramento de imagens `exec` libera seus descritores pelo PID
+antes do `wait4`. O agendamento de filhos aninhados aguarda o bloqueio do pai
+para não interromper o produtor do pipe. O smoke normal continua passando no
+QEMU; o probe estendido não reporta mais `remote end hung up`, mas ainda não
+produziu a conclusão verificável do `git push`. P1 permanece aberto.
+
 ---
 
 # P2 — Bare-metal e Alpine Recovery

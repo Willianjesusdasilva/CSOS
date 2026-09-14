@@ -358,6 +358,19 @@ fn cloneThread(flags: u64, stack: u64, parent_tid: u64, child_tid: u64, tls: u64
             .workspace_id = user_threads[current_thread].workspace_id };
         user_threads[slot].stdio_sockets = user_threads[current_thread].stdio_sockets;
         user_threads[slot].stdio_cloexec = user_threads[current_thread].stdio_cloexec;
+        // Threads share the process descriptor table.  A fork/clone may be
+        // issued by a thread whose local snapshot predates a pipe-to-stdio
+        // dup performed by a sibling, so merge the workspace's STDIO view
+        // before copying it into the new thread/process.
+        for (user_threads, 0..) |peer, peer_index| {
+            if (peer_index == current_thread or peer.workspace_id != user_threads[current_thread].workspace_id) continue;
+            for (peer.stdio_sockets, 0..) |entry, fd| {
+                if (user_threads[slot].stdio_sockets[fd] == null and entry != null) {
+                    user_threads[slot].stdio_sockets[fd] = entry;
+                    user_threads[slot].stdio_cloexec[fd] = peer.stdio_cloexec[fd];
+                }
+            }
+        }
         user_threads[slot].direct_socket_refs = user_threads[current_thread].direct_socket_refs;
         user_threads[slot].direct_socket_cloexec = user_threads[current_thread].direct_socket_cloexec;
         user_threads[slot].cwd = user_threads[current_thread].cwd;
@@ -376,8 +389,19 @@ fn cloneThread(flags: u64, stack: u64, parent_tid: u64, child_tid: u64, tls: u64
                     }
                 }
             }
+            // A fork duplicates only descriptors visible in the process
+            // table.  Incrementing every allocated socket kept unrelated
+            // pipe endpoints alive and prevented the peer from observing
+            // EOF when a nested helper exited.
             for (&sockets, 0..) |*socket_entry, index| {
-                if (socket_entry.allocated) {
+                if (!socket_entry.allocated) continue;
+                var inherited = user_threads[slot].direct_socket_refs[index];
+                if (!inherited) {
+                    for (user_threads[slot].stdio_sockets) |entry| {
+                        if (entry == index) { inherited = true; break; }
+                    }
+                }
+                if (inherited) {
                     socket_entry.refs += 1;
                     user_threads[slot].owned_socket_refs[index] = true;
                 }
@@ -438,7 +462,6 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
     }
     if (!created_process_child and deferred_process_child != null and old.state == .runnable) {
         thread_switch_requested = true;
-        deferred_process_child = null;
     }
     if (user_threads_done) return result;
     if (thread_switch_requested or old.state != .runnable) {
@@ -450,9 +473,22 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
             // would make the pending request run with the wrong CR3.
             selected = current_thread;
         } else {
-            for (1..user_threads.len + 1) |step| {
-                const slot = (current_thread + step) % user_threads.len;
-                if (user_threads[slot].state == .runnable) { selected = slot; break; }
+            // Once the parent has blocked (read/wait/poll), run its newly
+            // forked process child before unrelated runnable threads.  Keep
+            // the deferred marker until that point so an older sibling can
+            // finish its pipe work first.
+            if (deferred_process_child) |child_slot| {
+                const parent_slot = user_threads[child_slot].parent_slot;
+                if (user_threads[child_slot].state == .runnable and user_threads[parent_slot].state != .runnable) {
+                    selected = child_slot;
+                    deferred_process_child = null;
+                }
+            }
+            if (selected == null) {
+                for (1..user_threads.len + 1) |step| {
+                    const slot = (current_thread + step) % user_threads.len;
+                    if (user_threads[slot].state == .runnable) { selected = slot; break; }
+                }
             }
         }
         if (selected) |slot| {
@@ -707,6 +743,33 @@ pub const UserResume = struct {
     fx: [512]u8 align(16),
 };
 
+fn closeProcessSocketRefs(thread_index: usize) void {
+    if (thread_index >= user_threads.len) return;
+    var fd_index: usize = 0;
+    while (fd_index < user_threads[thread_index].stdio_sockets.len) : (fd_index += 1) {
+        if (user_threads[thread_index].stdio_sockets[fd_index]) |socket_index| {
+            user_threads[thread_index].stdio_sockets[fd_index] = null;
+            user_threads[thread_index].stdio_cloexec[fd_index] = false;
+            user_threads[thread_index].owned_socket_refs[socket_index] = false;
+            if (sockets[socket_index].allocated) releaseSocketRef(socket_index);
+        }
+    }
+    for (&user_threads[thread_index].owned_socket_refs, 0..) |*owned, socket_index| {
+        if (!owned.*) continue;
+        owned.* = false;
+        if (sockets[socket_index].allocated) releaseSocketRef(socket_index);
+    }
+}
+
+/// Release an exec replacement's inherited local descriptors by its Linux
+/// pid.  The scheduler may have resumed another thread by the time the
+/// loader returns, so using current_thread here would clean the wrong table.
+pub fn closeProcessSocketsForPid(pid: u32) void {
+    if (pid == 0) return;
+    const thread_index: usize = @intCast(pid - 1);
+    closeProcessSocketRefs(thread_index);
+}
+
 /// Restore the non-GPR execution state saved for a parent while its process
 /// child was running an exec replacement.  The assembly resume path restores
 /// the SYSRET register frame, but TLS and SIMD state live outside that frame.
@@ -716,8 +779,9 @@ pub fn restoreUserResumeContext(saved: *const UserResume) void {
 }
 
 pub fn finishProcessChild(pid: u32, status: u8) ?UserResume {
-    for (&user_threads) |*child| {
+    for (&user_threads, 0..) |*child, child_index| {
         if (child.kind != .process_child or child.pid != pid) continue;
+        closeProcessSocketRefs(child_index);
         child.exit_status = status;
         child.state = .exited;
         const parent = &user_threads[child.parent_slot];
@@ -4077,7 +4141,16 @@ fn socketIndex(fd: u64) ?usize {
 
 fn socketIndexForThread(thread_index: usize, fd: u64) ?usize {
     if (thread_index >= user_threads.len) return null;
-    if (fd < 3) return user_threads[thread_index].stdio_sockets[@intCast(fd)];
+    if (fd < 3) {
+        if (user_threads[thread_index].stdio_sockets[@intCast(fd)]) |index| return index;
+        const workspace = user_threads[thread_index].workspace_id;
+        for (user_threads) |peer| {
+            if (peer.workspace_id == workspace) {
+                if (peer.stdio_sockets[@intCast(fd)]) |index| return index;
+            }
+        }
+        return null;
+    }
     if (fd < socket_fd_base or fd >= socket_fd_base + sockets.len) return null;
     const index: usize = @intCast(fd - socket_fd_base);
     if (!sockets[index].allocated) return null;
@@ -4236,20 +4309,7 @@ fn exitThread(status: u64) u64 {
     const thread = &user_threads[current_thread];
     thread.exit_status = status;
     if (thread.kind == .process_child) {
-        var fd_index: usize = 0;
-        while (fd_index < thread.stdio_sockets.len) : (fd_index += 1) {
-            if (thread.stdio_sockets[fd_index]) |socket_index| {
-                thread.stdio_sockets[fd_index] = null;
-                thread.stdio_cloexec[fd_index] = false;
-                thread.owned_socket_refs[socket_index] = false;
-                releaseSocketRef(socket_index);
-            }
-        }
-        for (&thread.owned_socket_refs, 0..) |*owned, socket_index| {
-            if (!owned.*) continue;
-            owned.* = false;
-            if (sockets[socket_index].allocated) releaseSocketRef(socket_index);
-        }
+        closeProcessSocketRefs(current_thread);
     }
     if (thread.kind == .process_child) {
         for (&user_threads) |*parent| {
