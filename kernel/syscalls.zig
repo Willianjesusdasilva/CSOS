@@ -372,7 +372,9 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
         user_threads[child.slot].rsp = if (child.process_child) old.rsp else child.stack;
         user_threads[child.slot].fs = if (child.process_child) old.fs else child.tls;
         user_threads[child.slot].fx = old.fx;
-        user_threads[child.slot].result = if (child.process_child) 0 else result;
+        // clone returns the child TID only to the caller in the parent.  The
+        // new thread/process observes the Linux child return value zero.
+        user_threads[child.slot].result = 0;
         pending_clone = null;
         if (child.process_child) {
             deferred_process_child = child.slot;

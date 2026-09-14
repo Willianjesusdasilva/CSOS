@@ -83,6 +83,8 @@ const LoaderWorkspace = struct {
     owner_pid: u32 = 0,
     pool_id: u8 = 0,
     borrowed_owned: bool = false,
+    stack_physical: u64 = 0,
+    stack_pages: u64 = 0,
 };
 // A real `git pull` can have the parent, transport helper and upload-pack
 // alive simultaneously. Keep a bounded pool rather than serializing those
@@ -288,17 +290,26 @@ fn cloneProcessWorkspace(parent_id: u8, slot: u32) callconv(.c) u16 {
     const pages = parent.pages orelse return 0xffff;
     for (&loader_workspaces, 0..) |*child, index| {
         if (index == parent_id or child.leased) continue;
-        // Git's fork/vfork children exec almost immediately.  Clone only the
-        // page-table hierarchy: leaf pages remain shared, while the child can
-        // safely replace/destroy its tables during exec without invalidating
-        // the parent's active address space.
+        // Git's fork/vfork children exec almost immediately. Clone the page
+        // table hierarchy and isolate writable image/stack pages so post-fork
+        // libc cleanup cannot corrupt the parent's live frame.
         child.image_space = source_space.clone() catch return 0xffff;
         child.address_space = &child.image_space;
         @memcpy(child.mappings[0..parent.mapping_count], parent.mappings[0..parent.mapping_count]);
-        @memcpy(child.owned[0..parent.owned_count], parent.owned[0..parent.owned_count]);
         @memcpy(child.user_regions[0..parent.user_region_count], parent.user_regions[0..parent.user_region_count]);
         child.mapping_count = parent.mapping_count;
-        child.owned_count = parent.owned_count;
+        // Do not share writable user pages across fork.  The child executes
+        // post-fork libc cleanup before execve and can write its stack/TLS;
+        // sharing those leaves corrupts the parent's saved return frame.
+        child.owned_count = 0;
+        child.stack_physical = parent.stack_physical;
+        child.stack_pages = parent.stack_pages;
+        cloneWritableProcessPages(child, pages) catch {
+            child.image_space.destroy();
+            releaseOwned(pages, child.owned[0..child.owned_count]);
+            child.* = .{};
+            return 0xffff;
+        };
         child.user_region_count = parent.user_region_count;
         child.load_bias = parent.load_bias;
         child.pages = pages;
@@ -307,10 +318,47 @@ fn cloneProcessWorkspace(parent_id: u8, slot: u32) callconv(.c) u16 {
         child.leased = true;
         child.owner_pid = slot + 1;
         child.pool_id = @intCast(index);
-        child.borrowed_owned = true;
+        child.borrowed_owned = false;
         return @intCast(index);
     }
     return 0xffff;
+}
+
+fn cloneWritableProcessPages(child: *LoaderWorkspace, pages: *physical.Allocator) !void {
+    try cloneWritableRange(child, pages, stack_address, child.stack_physical, child.stack_pages);
+    for (child.mappings[0..child.mapping_count]) |*mapping| {
+        if (!mapping.writable or !mapping.resident or mapping.physical == 0) {
+            // Read-only pages can remain shared.  They must not be treated as
+            // child-owned reclaim candidates, since their owner is the parent.
+            mapping.reclaimable = false;
+            mapping.owner_index = 0;
+            continue;
+        }
+        const copy = pages.allocate(1) orelse return error.OutOfMemory;
+        errdefer pages.release(copy, 1) catch {};
+        const source: [*]const u8 = @ptrFromInt(mapping.physical);
+        const destination: [*]u8 = @ptrFromInt(copy);
+        @memcpy(destination[0..page_size], source[0..page_size]);
+        try child.image_space.mapUserPage(mapping.virtual, copy, mapping.writable, mapping.executable);
+        try own(&child.owned, &child.owned_count, copy, 1);
+        mapping.physical = copy;
+        mapping.owner_index = child.owned_count - 1;
+    }
+}
+
+fn cloneWritableRange(child: *LoaderWorkspace, pages: *physical.Allocator, virtual: u64, source_base: u64, count: u64) !void {
+    if (source_base == 0 or count == 0) return;
+    var index: u64 = 0;
+    while (index < count) : (index += 1) {
+        const source_physical = source_base + index * page_size;
+        const copy = pages.allocate(1) orelse return error.OutOfMemory;
+        errdefer pages.release(copy, 1) catch {};
+        const source: [*]const u8 = @ptrFromInt(source_physical);
+        const destination: [*]u8 = @ptrFromInt(copy);
+        @memcpy(destination[0..page_size], source[0..page_size]);
+        try child.image_space.mapUserPage(virtual + index * page_size, copy, true, false);
+        try own(&child.owned, &child.owned_count, copy, 1);
+    }
 }
 
 fn activateProcessWorkspace(id: u8) callconv(.c) void {
@@ -745,6 +793,8 @@ fn runImageWithWorkspace(
     while (stack_page < stack_page_count) : (stack_page += 1) {
         try address_space.mapUserPage(stack_address + stack_page * page_size, stack_pages + stack_page * page_size, true, false);
     }
+    workspace.stack_physical = stack_pages;
+    workspace.stack_pages = stack_page_count;
     const entry_permissions = address_space.userPermissions(execution_entry) orelse return error.EntryNotMapped;
     const stack_permissions = address_space.userPermissions(stack_address) orelse return error.StackNotMapped;
     if (!entry_permissions.executable or entry_permissions.writable) return error.InvalidEntryPermissions;
@@ -823,6 +873,8 @@ fn runImageWithWorkspace(
         workspace.active_owned = null;
         workspace.load_bias = 0;
         workspace.user_region_count = 0;
+        workspace.stack_physical = 0;
+        workspace.stack_pages = 0;
         workspace.leased = false;
         workspace.owner_pid = 0;
         syscalls.configureMmap(null, null, null);
