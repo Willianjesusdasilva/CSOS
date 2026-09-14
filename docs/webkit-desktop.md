@@ -250,6 +250,15 @@ Linux PT_INTERP loader ready. O próximo gate é o handshake IPC completar e
 produzir WebKit view ready; a página HTML ainda não foi entregue ao
 compositor.
 
+### Diagnóstico do scheduler do WebProcess (2026-09-14)
+
+Uma execução instrumentada e depois limpa confirmou que o `clone` interno do
+launcher (`0x7d0f00`) cria e alterna threads normalmente. Em seguida, o
+`clone(CLONE_VM|CLONE_VFORK|SIGCHLD)` do WebProcess (`16657`) também cria a task
+filha e ela é selecionada pelo scheduler. Assim, o bloqueio atual está depois
+da entrada da task filha — no retorno `execve`, na entrega de page fault ou no
+handshake IPC — e não na criação/seleção cooperativa do processo.
+
 ### Bloqueio atual do artefato WebProcess
 
 Em 2026-09-12, uma tentativa reproduzível de construir o alvo
