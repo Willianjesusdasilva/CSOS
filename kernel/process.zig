@@ -957,14 +957,19 @@ fn runImageWithWorkspace(
             // loader before the Git process could complete its handshake.
             try runExecRequest(kernel_root, pages, exec_request);
             if (syscalls.finishProcessChild(exec_request.thread_id, syscalls.exitStatus() orelse 0)) |resumed_frame| {
-                active_workspace = workspace;
-                address_space.activate();
+                const parent_workspace = if (resumed_frame.workspace_id < loader_workspaces.len)
+                    &loader_workspaces[resumed_frame.workspace_id]
+                else
+                    workspace;
+                active_workspace = parent_workspace;
+                (parent_workspace.address_space orelse address_space).activate();
                 syscalls.restoreUserResumeContext(&resumed_frame);
                 resume_user_frame(&resumed_frame.frame, resumed_frame.rsp, resumed_frame.result);
+                active_workspace = parent_workspace;
             }
             syscalls.resetExitStatus();
-            active_workspace = workspace;
-            address_space.activate();
+            const resumed_workspace = active_workspace orelse workspace;
+            (resumed_workspace.address_space orelse address_space).activate();
             lifecycle = .resuming;
             continue;
         }

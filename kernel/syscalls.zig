@@ -689,6 +689,7 @@ pub const UserResume = struct {
     rsp: u64,
     result: u64,
     fs: u64,
+    workspace_id: u8,
     fx: [512]u8 align(16),
 };
 
@@ -722,11 +723,11 @@ pub fn finishProcessChild(pid: u32, status: u8) ?UserResume {
             parent.state = .runnable;
             current_thread = child.parent_slot;
             current_pid = parent.pid;
-            return .{ .frame = parent.frame, .rsp = parent.rsp, .result = parent.result, .fs = parent.fs, .fx = parent.fx };
+            return .{ .frame = parent.frame, .rsp = parent.rsp, .result = parent.result, .fs = parent.fs, .workspace_id = parent.workspace_id, .fx = parent.fx };
         }
         current_thread = child.parent_slot;
         current_pid = parent.pid;
-        return .{ .frame = parent.frame, .rsp = parent.rsp, .result = parent.result, .fs = parent.fs, .fx = parent.fx };
+        return .{ .frame = parent.frame, .rsp = parent.rsp, .result = parent.result, .fs = parent.fs, .workspace_id = parent.workspace_id, .fx = parent.fx };
     }
     return null;
 }
