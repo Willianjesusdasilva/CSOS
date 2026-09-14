@@ -363,6 +363,19 @@ fn cloneThread(flags: u64, stack: u64, parent_tid: u64, child_tid: u64, tls: u64
         user_threads[slot].cwd = user_threads[current_thread].cwd;
         user_threads[slot].cwd_len = user_threads[current_thread].cwd_len;
         if (is_process_child) {
+            // Linux threads in one process share the descriptor table.  A
+            // fork may therefore be issued by a thread other than the one
+            // that created a pipe/socket; merge the workspace's direct fd
+            // view before creating the child's private workspace.
+            for (user_threads, 0..) |peer, peer_index| {
+                if (peer_index == current_thread or peer.workspace_id != user_threads[current_thread].workspace_id) continue;
+                for (peer.direct_socket_refs, 0..) |present, socket_index| {
+                    if (present) {
+                        user_threads[slot].direct_socket_refs[socket_index] = true;
+                        user_threads[slot].direct_socket_cloexec[socket_index] = peer.direct_socket_cloexec[socket_index];
+                    }
+                }
+            }
             for (&sockets, 0..) |*socket_entry, index| {
                 if (socket_entry.allocated) {
                     socket_entry.refs += 1;
