@@ -308,8 +308,10 @@ avanço não deve ser contado como HTML/CSS/JavaScript entregue ao compositor.
 O scheduler também passou a ceder no caminho `FUTEX_WAIT` que retorna
 `EAGAIN`, evitando starvation quando um processo WPE gira em `ppoll` ou espera
 uma condição já alterada. O smoke seguinte confirmou a criação do segundo
-processo WPE; o próximo diagnóstico deve seguir a mensagem IPC que falta após
-essa criação.
+processo WPE e o primeiro `mmap` do WebProcess. Logo depois, `clone(0x7d0f00)`
+cria a thread pthread de inicialização, mas ela não chega ao primeiro syscall
+dentro do timeout; o bloqueio está na inicialização/retorno cooperativo dessa
+thread, antes do handshake IPC.
 
 ## Referências upstream
 
