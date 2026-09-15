@@ -541,6 +541,12 @@ o release idempotente e evitando que a segunda passagem do hook ressuscite um
 filho já encerrado. Os testes e o smoke básico passam; o probe de `push` ainda
 não completa o transporte, então P1 permanece aberto.
 
+Atualização: o scheduler agora prioriza um parent runnable que possui
+`pending_wait_status` antes de selecionar helpers deferred. Isso garante que
+um `wait4` acordado retome seu frame na próxima troca cooperativa. O smoke
+básico continua passando; o probe de `push` não mudou e ainda não conclui o
+handshake, mantendo P1 aberto.
+
 ---
 
 # P2 — Bare-metal e Alpine Recovery

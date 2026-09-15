@@ -589,6 +589,23 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
             // would make the pending request run with the wrong CR3.
             selected = current_thread;
         } else {
+            // A child-exit wakeup carries a pending wait status and must take
+            // precedence over unrelated deferred helpers.  Otherwise a busy
+            // receive-pack workspace can repeatedly schedule transport
+            // children while the parent remains runnable but never resumes
+            // the saved wait4 frame.
+            for (0..user_threads.len) |waiter_slot| {
+                if (user_threads[waiter_slot].state == .runnable and
+                    user_threads[waiter_slot].pending_wait_status != null) {
+                    selected = waiter_slot;
+                    break;
+                }
+            }
+            if (selected != null) {
+                // Skip deferred-child selection below; the waiter owns the
+                // next syscall-return boundary and completes its status when
+                // activated.
+            } else {
             // Once the parent has blocked (read/wait/poll), run its newly
             // forked process child before unrelated runnable threads.  Keep
             // the deferred marker until that point so an older sibling can
@@ -608,6 +625,7 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
                     const slot = (current_thread + step) % user_threads.len;
                     if (user_threads[slot].state == .runnable) { selected = slot; break; }
                 }
+            }
             }
         }
         if (selected) |slot| {
