@@ -1427,14 +1427,12 @@ pub fn closeOnExecSockets() void {
         if (!sockets[index].allocated) continue;
         const workspace = user_threads[current_thread].workspace_id;
         if (workspace_socket_refs[workspace][index] and workspace_socket_cloexec[workspace][index]) {
+            // The direct descriptor is workspace-owned. Clear every thread's
+            // published view before dropping the single table reference;
+            // clearing only current_thread leaves an inherited endpoint alive
+            // across exec and prevents pipe EOF.
+            clearWorkspaceDirectSocket(current_thread, index);
             releaseSocketRef(index);
-            user_threads[current_thread].direct_socket_refs[index] = false;
-            user_threads[current_thread].direct_socket_cloexec[index] = false;
-            user_threads[current_thread].owned_socket_refs[index] = false;
-            workspace_socket_refs[workspace][index] = false;
-            workspace_socket_cloexec[workspace][index] = false;
-            if (workspace_socket_aliases[workspace][index] != 0)
-                workspace_socket_aliases[workspace][index] -= 1;
         }
         for (user_threads[current_thread].stdio_sockets, 0..) |entry, fd| {
             if (entry == index and user_threads[current_thread].stdio_cloexec[fd]) {
