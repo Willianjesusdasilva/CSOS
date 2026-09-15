@@ -562,6 +562,11 @@ no repositório bare remoto e o runtime retorna ao marcador final. O probe foi
 removido do caminho normal; `git pull`, reboot e uso da revisão nova ainda
 precisam ser validados antes de fechar P1.
 
+O probe seguinte tentou consumir essa ref com `git clone --branch main` no
+QEMU. O clone ainda não recebe a branch anunciada (`Remote branch main not
+found in upstream origin`), portanto o bloqueio mudou para a listagem/handshake
+do `upload-pack`; P1 continua aberto. O QEMU foi encerrado após o teste.
+
 Atualização: `closeOnExecSockets()` agora usa exclusivamente a tabela de stdio
 do workspace, eliminando a última decisão de `CLOEXEC` baseada no cache da
 thread atual. O smoke básico permanece válido; o probe de `push` ainda não
