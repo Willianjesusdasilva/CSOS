@@ -300,6 +300,7 @@ pub fn activateWorkspace(id: u8) void {
 /// sibling thread whose workspace table is not the currently active VFS slot.
 pub fn setWorkspaceDirectory(id: u8, path: []const u8) void {
     if (id >= max_workspaces or path.len == 0 or path.len > 256) return;
+    workspace_directory_fd[id] = current_directory_fd;
     @memset(&workspace_directory_path[id], 0);
     @memcpy(workspace_directory_path[id][0..path.len], path);
     workspace_directory_length[id] = path.len;
