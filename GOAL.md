@@ -660,6 +660,16 @@ threads. Fork/exec agora clonam esse namespace, e resolução/close/exec limpam
 as entradas compartilhadas. O gate host, os testes e o smoke QEMU passam; o
 probe de `push` ainda não conclui o handshake, portanto P1 permanece aberto.
 
+Atualização verificável (2026-09-15): o fluxo real `git push` foi executado duas
+vezes no QEMU sem instrumentação temporária e atingiu
+`CSOS Git runtime ready`. O `receive-pack` concluiu e a ref remota foi criada.
+Em seguida, o caminho normal `git pull --ff-only` foi executado em um disco
+persistente: o primeiro boot passou pelo `Fast-forward` e atingiu
+`CSOS Git system checkout revision active`; um segundo boot sem `-ResetDisk`
+reutilizou o mesmo armazenamento e atingiu o mesmo marcador. O gate isolado de
+dois pipes, `zig build test`, push real e pull/reboot persistente estão agora
+validados no QEMU; a instalação física continua pertencendo ao P2.
+
 Atualização: a criação de sockets e pipes agora reserva o slot numérico direto
 na tabela do workspace antes de reutilizar um índice global, e o thread que
 faz `fork()` permanece ativo durante o cleanup pós-fork antes de o filho
@@ -714,6 +724,16 @@ do `rsp0` usado pelo launcher/`syscall_entry`. O boot normal e o smoke Git
 continuam verdes; isso estabelece a infraestrutura segura para uma futura
 preempção userspace sem sobrescrever frames suspensos. O timer userspace ainda
 não é armado no boot, portanto o transporte `push` permanece aberto.
+
+Fechamento verificável de P1 (2026-09-15): após a implementação do namespace
+de descritores por workspace, o `git push` real foi executado duas vezes no
+QEMU sem instrumentação temporária e atingiu `CSOS Git runtime ready`, com
+`receive-pack` concluindo e criando a ref remota. O fluxo normal de
+`git pull --ff-only` passou por `Fast-forward` no primeiro boot; um segundo
+boot no mesmo disco, sem `-ResetDisk`, atingiu `CSOS Git system checkout
+revision active`. O gate isolado de dois pipes, `zig build test`, push real e
+pull/reboot persistente estão validados em QEMU. P1 está concluído em QEMU;
+instalação física permanece no P2.
 
 ---
 
