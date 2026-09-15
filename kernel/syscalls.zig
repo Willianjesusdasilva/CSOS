@@ -4961,7 +4961,8 @@ fn wait4(pid: u64, status: u64, options: u64, usage: u64) u64 {
     if (usage != 0 and !validUserSlice(usage, 144)) return errno(14);
     var matching_child = false;
     for (&user_threads) |*child| {
-        if (child.kind != .process_child or child.parent_slot != current_thread or child.state != .exited) continue;
+        if (child.kind != .process_child or child.parent_slot != current_thread or
+            child.state != .exited or !workspaceDone(child.workspace_id)) continue;
         if (pid > 0 and pid != ~@as(u64, 0) and child.pid != pid) continue;
         if (status != 0) @as(*align(1) u32, @ptrFromInt(status)).* = @truncate((child.exit_status & 0xff) << 8);
         const child_pid = child.pid;
@@ -4970,7 +4971,8 @@ fn wait4(pid: u64, status: u64, options: u64, usage: u64) u64 {
         return child_pid;
     }
     for (user_threads) |child| {
-        if (child.kind != .process_child or child.parent_slot != current_thread or child.state == .unused) continue;
+        if (child.kind != .process_child or child.parent_slot != current_thread or
+            child.state == .unused or workspaceDone(child.workspace_id)) continue;
         if (pid > 0 and pid != ~@as(u64, 0) and child.pid != pid) continue;
         matching_child = true;
         break;
