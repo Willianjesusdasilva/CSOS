@@ -269,7 +269,12 @@ pub fn reset() void {
 /// close/dup operations occur only in the active workspace snapshot.
 pub fn cloneWorkspace(parent: u8, child: u8) void {
     if (parent >= max_workspaces or child >= max_workspaces or parent == child) return;
-    if (active_workspace == parent) workspace_descriptors[parent] = descriptors;
+    if (active_workspace == parent) {
+        workspace_descriptors[parent] = descriptors;
+        workspace_directory_fd[parent] = current_directory_fd;
+        workspace_directory_path[parent] = current_directory_path;
+        workspace_directory_length[parent] = current_directory_length;
+    }
     workspace_descriptors[child] = workspace_descriptors[parent];
     workspace_directory_fd[child] = workspace_directory_fd[parent];
     workspace_directory_path[child] = workspace_directory_path[parent];
