@@ -441,7 +441,11 @@ fn releaseProcessWorkspace(id: u8) callconv(.c) void {
     if (!workspace.leased) return;
     syscalls.releaseWorkspaceSockets(workspace.pool_id);
     vfs.releaseWorkspace(workspace.pool_id);
-    paging.activateRoot(workspace.image_space.root);
+    // The reap hook runs while the parent workspace is executing.  Activating
+    // the child's CR3 here and destroying it would return from wait4 with a
+    // page table that no longer exists, effectively losing the parent frame.
+    // The child address space can be destroyed while inactive; the scheduler
+    // keeps the parent's CR3 current until an explicit workspace switch.
     if (workspace.address_space) |address_space| address_space.destroy();
     if (!workspace.borrowed_owned) {
         if (workspace.pages) |pages| {

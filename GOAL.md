@@ -552,6 +552,11 @@ do workspace, eliminando a última decisão de `CLOEXEC` baseada no cache da
 thread atual. O smoke básico permanece válido; o probe de `push` ainda não
 conclui o handshake e P1 segue aberto.
 
+Atualização: o hook de reap não ativa mais o CR3 do workspace-filho antes de
+destruí-lo. O parent mantém seu address space ativo durante `wait4`, evitando
+que o retorno do syscall continue sobre uma page table já destruída. Testes e
+smoke QEMU passam; o `push` real ainda não conclui, então P1 permanece aberto.
+
 Atualização: a tabela de descritores no nível do workspace passou a ser a
 fonte de verdade para aliases e stdio, em vez de depender apenas dos caches de
 threads. Fork/exec agora clonam esse namespace, e resolução/close/exec limpam
