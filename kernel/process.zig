@@ -958,6 +958,7 @@ fn runImageWithWorkspace(
     workspace.load_bias = load_bias;
     workspace.user_region_count = 0;
     active_workspace = workspace;
+    if (!preserve_scheduler) syscalls.setTopLevelWorkspace(workspace.pool_id);
     for (mappings[0..mapping_count.*]) |mapping| {
         try user_regions.append(&workspace.user_regions, &workspace.user_region_count, mapping.virtual, page_size);
     }

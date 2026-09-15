@@ -312,6 +312,7 @@ var workspace_socket_cloexec: [16][32]bool = .{.{false} ** 32} ** 16;
 var workspace_socket_aliases: [16][32]u8 = .{.{0} ** 32} ** 16;
 var workspace_done: [16]bool = .{false} ** 16;
 var workspace_exit_status: [16]u8 = .{0} ** 16;
+var top_level_workspace: u8 = 0xff;
 var current_thread: usize = 0;
 var current_pid: u32 = 1;
 var pending_clone: ?struct { slot: usize, stack: u64, tls: u64, process_child: bool, entry: u64, clone_child: bool } = null;
@@ -628,6 +629,7 @@ pub fn configure(base: u64, size: u64, stack: u64, stack_length: u64, initial_br
     workspace_socket_aliases = .{.{0} ** 32} ** 16;
     workspace_done = .{false} ** 16;
     workspace_exit_status = .{0} ** 16;
+    top_level_workspace = 0xff;
     current_thread = 0;
     current_pid = 1;
     user_threads[0].pid = 1;
@@ -785,6 +787,10 @@ pub fn exitStatus() ?u8 {
 
 pub fn resetExitStatus() void { process_exit_status = 0xffffffffffffffff; }
 pub fn resetUserThreadsDone() void { user_threads_done = false; }
+
+pub fn setTopLevelWorkspace(workspace: u8) void {
+    top_level_workspace = workspace;
+}
 
 pub fn workspaceDone(workspace: u8) bool {
     return workspace < workspace_done.len and workspace_done[workspace];
@@ -4567,7 +4573,7 @@ fn exitThread(status: u64) u64 {
         // Only the top-level image owns the global run loop. A process child
         // must finish its own nested loader without terminating its parent or
         // sibling workspaces (receive-pack relies on this distinction).
-        if (!anyLiveUserThread()) return exitSyscall(status);
+        if (thread.workspace_id == top_level_workspace or !anyLiveUserThread()) return exitSyscall(status);
         thread_switch_requested = true;
         return 0;
     }
