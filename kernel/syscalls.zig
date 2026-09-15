@@ -978,6 +978,12 @@ pub fn finishProcessChild(pid: u32, status: u8) ?UserResume {
             peer.state = .exited;
         }
         releaseWorkspaceSockets(child_workspace);
+        // releaseWorkspaceSockets() clears reusable workspace metadata.  A
+        // process that has just completed exec must remain observable to
+        // wait4() until the parent reaps it, so publish the terminal state
+        // again after descriptor cleanup.
+        workspace_done[child_workspace] = true;
+        workspace_exit_status[child_workspace] = status;
         child.exit_status = status;
         child.state = .exited;
         const parent = &user_threads[child.parent_slot];
