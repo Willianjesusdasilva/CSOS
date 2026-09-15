@@ -260,6 +260,12 @@ fn restoreRawSyscallFrame(raw: *[14]u64, frame: [14]u64) void {
     raw[1] = frame[12];
     raw[0] = frame[13];
 }
+const SocketFdAlias = struct {
+    fd: u32 = 0,
+    socket_index: u8 = 0,
+    close_on_exec: bool = false,
+    used: bool = false,
+};
 const UserThread = struct {
     state: enum { unused, runnable, blocked, exited } = .unused,
     kind: enum { thread, process_child } = .thread,
@@ -293,6 +299,7 @@ const UserThread = struct {
     direct_socket_refs: [32]bool = .{false} ** 32,
     direct_socket_cloexec: [32]bool = .{false} ** 32,
     owned_socket_refs: [32]bool = .{false} ** 32,
+    socket_fd_aliases: [16]SocketFdAlias = .{SocketFdAlias{}} ** 16,
     cwd: [256]u8 = .{0} ** 256,
     cwd_len: usize = 1,
     robust: u64 = 0, robust_size: u64 = 0,
@@ -402,6 +409,10 @@ fn cloneThread(flags: u64, stack: u64, parent_tid: u64, child_tid: u64, tls: u64
         }
         user_threads[slot].direct_socket_refs = user_threads[current_thread].direct_socket_refs;
         user_threads[slot].direct_socket_cloexec = user_threads[current_thread].direct_socket_cloexec;
+        // Descriptor aliases are part of the process descriptor view too.
+        // Threads share them directly; a forked process receives a copied
+        // view below while its workspace reference ledger is cloned.
+        user_threads[slot].socket_fd_aliases = user_threads[current_thread].socket_fd_aliases;
         user_threads[slot].cwd = user_threads[current_thread].cwd;
         user_threads[slot].cwd_len = user_threads[current_thread].cwd_len;
         if (is_process_child) {
@@ -845,6 +856,7 @@ pub const UserResume = struct {
 
 fn closeProcessSocketRefs(thread_index: usize) void {
     if (thread_index >= user_threads.len) return;
+    for (&user_threads[thread_index].socket_fd_aliases) |*alias| closeSocketAlias(thread_index, alias);
     var fd_index: usize = 0;
     while (fd_index < user_threads[thread_index].stdio_sockets.len) : (fd_index += 1) {
         if (user_threads[thread_index].stdio_sockets[fd_index]) |socket_index| {
@@ -893,6 +905,7 @@ pub fn releaseWorkspaceSockets(workspace: u8) void {
         thread.stdio_sockets = .{ null, null, null };
         thread.stdio_cloexec = .{ false, false, false };
         thread.owned_socket_refs = .{false} ** 32;
+        thread.socket_fd_aliases = .{SocketFdAlias{}} ** 16;
     }
     workspace_socket_refs[workspace] = .{false} ** 32;
     workspace_socket_cloexec[workspace] = .{false} ** 32;
@@ -1407,6 +1420,8 @@ fn publishDirectSocket(owner: usize, index: usize, cloexec: bool) void {
 }
 
 pub fn closeOnExecSockets() void {
+    for (&user_threads[current_thread].socket_fd_aliases) |*alias|
+        if (alias.used and alias.close_on_exec) closeSocketAlias(current_thread, alias);
     var index: usize = 0;
     while (index < sockets.len) : (index += 1) {
         if (!sockets[index].allocated) continue;
@@ -1435,6 +1450,10 @@ fn close(fd: u64) u64 {
         if (fd < 3) {
             clearWorkspaceStdioSocket(current_thread, index, @intCast(fd));
             releaseSocketRef(index);
+            return 0;
+        }
+        if (socketAliasForThread(current_thread, fd)) |alias| {
+            closeSocketAlias(current_thread, alias);
             return 0;
         }
         clearWorkspaceDirectSocket(current_thread, index);
@@ -1471,16 +1490,15 @@ fn duplicate(old_fd: u64, new_fd: u64) u64 {
 fn fcntl(fd: u64, command: u64, argument: u64) u64 {
     if (socketIndex(fd)) |index| {
         if (command == 0 or command == 1030) {
-            // WPE passes already-high local descriptors to F_DUPFD_CLOEXEC
-            // with a low minimum.  They cannot collide with stdio targets,
-            // so retaining the descriptor is equivalent for this bounded
-            // descriptor model and avoids inventing a second socket alias.
-            // The CSOS descriptor namespace has no independent alias table;
-            // preserve the live socket identity.  The spawn file actions
-            // immediately remap it to their target descriptors, so retaining
-            // this high descriptor is safe even when the requested minimum
-            // is one slot above it.
-            return fd;
+            const duplicate_minimum = if (command == 1030) @max(argument, socket_fd_base + sockets.len) else @max(argument, socket_fd_base);
+            return allocateSocketAlias(current_thread, index, duplicate_minimum, command == 1030) orelse errno(24);
+        }
+        if (socketAliasForThread(current_thread, fd)) |alias| {
+            if (command == 1) return @intFromBool(alias.close_on_exec);
+            if (command == 2) { if ((argument & ~@as(u64, 1)) != 0) return errno(22); alias.close_on_exec = (argument & 1) != 0; return 0; }
+            if (command == 3) return @as(u64, 2) | if (sockets[index].nonblocking) @as(u64, 0x800) else 0;
+            if (command == 4) { if ((argument & ~@as(u64, 0x8802)) != 0) return errno(22); sockets[index].nonblocking = (argument & 0x800) != 0; return 0; }
+            return errno(22);
         }
         if (fd < 3 and command == 1) return @intFromBool(user_threads[current_thread].stdio_cloexec[@intCast(fd)]);
         if (fd < 3 and command == 2) {
@@ -4365,8 +4383,19 @@ fn socketIndex(fd: u64) ?usize {
     return socketIndexForThread(current_thread, fd);
 }
 
+fn socketAliasForThread(thread_index: usize, fd: u64) ?*SocketFdAlias {
+    if (thread_index >= user_threads.len or fd > std.math.maxInt(u32)) return null;
+    for (&user_threads[thread_index].socket_fd_aliases) |*alias|
+        if (alias.used and alias.fd == @as(u32, @intCast(fd))) return alias;
+    return null;
+}
+
 fn socketIndexForThread(thread_index: usize, fd: u64) ?usize {
     if (thread_index >= user_threads.len) return null;
+    if (socketAliasForThread(thread_index, fd)) |alias| {
+        const index: usize = alias.socket_index;
+        return if (index < sockets.len and sockets[index].allocated) index else null;
+    }
     if (fd < 3) {
         if (user_threads[thread_index].stdio_sockets[@intCast(fd)]) |index| return index;
         const workspace = user_threads[thread_index].workspace_id;
@@ -4386,6 +4415,44 @@ fn socketIndexForThread(thread_index: usize, fd: u64) ?usize {
         if (peer.workspace_id == workspace and peer.direct_socket_refs[index]) return index;
     }
     return null;
+}
+
+fn allocateSocketAlias(thread_index: usize, source: usize, minimum: u64, cloexec: bool) ?u64 {
+    if (thread_index >= user_threads.len or source >= sockets.len) return null;
+    var fd: u64 = @max(minimum, socket_fd_base + sockets.len);
+    for (&user_threads[thread_index].socket_fd_aliases) |*alias| {
+        if (alias.used) continue;
+        // F_DUPFD must never reuse a live alias in the same descriptor view.
+        while (fd <= std.math.maxInt(u32)) {
+            var collision = false;
+            for (user_threads[thread_index].socket_fd_aliases) |existing| {
+                if (existing.used and existing.fd == @as(u32, @intCast(fd))) {
+                    collision = true;
+                    break;
+                }
+            }
+            if (!collision) break;
+            fd += 1;
+        }
+        if (fd > std.math.maxInt(u32)) return null;
+        alias.* = .{ .fd = @intCast(fd), .socket_index = @intCast(source), .close_on_exec = cloexec, .used = true };
+        const workspace = user_threads[thread_index].workspace_id;
+        if (workspace_socket_aliases[workspace][source] != std.math.maxInt(u8))
+            workspace_socket_aliases[workspace][source] += 1;
+        sockets[source].refs += 1;
+        return fd;
+    }
+    return null;
+}
+
+fn closeSocketAlias(thread_index: usize, alias: *SocketFdAlias) void {
+    if (!alias.used) return;
+    const index: usize = alias.socket_index;
+    const workspace = user_threads[thread_index].workspace_id;
+    alias.used = false;
+    if (workspace_socket_aliases[workspace][index] != 0)
+        workspace_socket_aliases[workspace][index] -= 1;
+    if (index < sockets.len and sockets[index].allocated) releaseSocketRef(index);
 }
 
 fn archPrctl(code: u64, address: u64) u64 {
