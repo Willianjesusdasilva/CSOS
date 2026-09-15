@@ -95,6 +95,9 @@ var descriptors: [max_fds]Descriptor = .{Descriptor{}} ** max_fds;
 const max_workspaces = 16;
 var workspace_descriptors: [max_workspaces][max_fds]Descriptor = .{.{Descriptor{}} ** max_fds} ** max_workspaces;
 var active_workspace: u8 = 0;
+var workspace_directory_fd: [max_workspaces]i64 = @splat(-100);
+var workspace_directory_path: [max_workspaces][256]u8 = .{.{0} ** 256} ** max_workspaces;
+var workspace_directory_length: [max_workspaces]usize = @splat(1);
 var next_generation: u32 = 1;
 var generations_exhausted = false;
 var disk: ?*fat16.Volume = null;
@@ -246,6 +249,9 @@ pub fn reset() void {
     descriptors = .{Descriptor{}} ** max_fds;
     workspace_descriptors = .{.{Descriptor{}} ** max_fds} ** max_workspaces;
     active_workspace = 0;
+    workspace_directory_fd = @splat(-100);
+    workspace_directory_path = .{.{0} ** 256} ** max_workspaces;
+    workspace_directory_length = @splat(1);
     next_generation = 1;
     generations_exhausted = false;
     current_directory_fd = -100;
@@ -255,6 +261,7 @@ pub fn reset() void {
     descriptors[1].kind = .console;
     descriptors[2].kind = .console;
     workspace_descriptors[0] = descriptors;
+    workspace_directory_path[0][0] = '/';
 }
 
 /// Clone the parent's descriptor namespace for a forked process.  Descriptor
@@ -264,6 +271,9 @@ pub fn cloneWorkspace(parent: u8, child: u8) void {
     if (parent >= max_workspaces or child >= max_workspaces or parent == child) return;
     if (active_workspace == parent) workspace_descriptors[parent] = descriptors;
     workspace_descriptors[child] = workspace_descriptors[parent];
+    workspace_directory_fd[child] = workspace_directory_fd[parent];
+    workspace_directory_path[child] = workspace_directory_path[parent];
+    workspace_directory_length[child] = workspace_directory_length[parent];
 }
 
 /// Make a process workspace current.  The previous table is persisted before
@@ -271,7 +281,13 @@ pub fn cloneWorkspace(parent: u8, child: u8) void {
 pub fn activateWorkspace(id: u8) void {
     if (id >= max_workspaces or id == active_workspace) return;
     workspace_descriptors[active_workspace] = descriptors;
+    workspace_directory_fd[active_workspace] = current_directory_fd;
+    workspace_directory_path[active_workspace] = current_directory_path;
+    workspace_directory_length[active_workspace] = current_directory_length;
     descriptors = workspace_descriptors[id];
+    current_directory_fd = workspace_directory_fd[id];
+    current_directory_path = workspace_directory_path[id];
+    current_directory_length = workspace_directory_length[id];
     active_workspace = id;
 }
 
@@ -282,6 +298,10 @@ pub fn releaseWorkspace(id: u8) void {
         active_workspace = 0;
     }
     workspace_descriptors[id] = .{Descriptor{}} ** max_fds;
+    workspace_directory_fd[id] = -100;
+    workspace_directory_path[id] = .{0} ** 256;
+    workspace_directory_path[id][0] = '/';
+    workspace_directory_length[id] = 1;
 }
 
 fn effectiveDirectoryFd(directory_fd: i64) i64 {
