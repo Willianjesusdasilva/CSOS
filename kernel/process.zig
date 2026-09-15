@@ -1108,6 +1108,7 @@ fn runImageWithWorkspace(
             // original image.  Returning here would terminate the parent
             // loader before the Git process could complete its handshake.
             try runExecRequest(kernel_root, pages, exec_request);
+            syscalls.releaseVforkParent(exec_request.thread_id);
             const child_workspace = if (exec_request.workspace_id < loader_workspaces.len)
                 &loader_workspaces[exec_request.workspace_id]
             else
@@ -1174,7 +1175,23 @@ fn runImageWithWorkspace(
 
 fn validMappedUserSlice(address: u64, length: u64) callconv(.c) bool {
     const workspace = active_workspace orelse return false;
-    return user_regions.contains(workspace.user_regions[0..workspace.user_region_count], address, length);
+    if (user_regions.contains(workspace.user_regions[0..workspace.user_region_count], address, length)) return true;
+    // MAP_NORESERVE reservations used by WebKit's bmalloc live above the
+    // eagerly-backed mmap arena and are intentionally absent from the compact
+    // region ledger.  They are still valid only after a page fault has
+    // committed the page in this workspace's address space; check both ends
+    // before allowing a syscall to dereference the slice.
+    // A WebKit process may pass a pointer returned from a fixed-address
+    // MAP_NORESERVE request below 0xc000..., so the reservation begins at the
+    // process mmap base rather than at the lazy-only high range.
+    const noreserve_start: u64 = workspace.mmap_base;
+    const noreserve_end: u64 = 0x00007f0000000000;
+    if (length == 0 or address < noreserve_start or address >= noreserve_end or
+        length > noreserve_end - address) return false;
+    const address_space = workspace.address_space orelse return false;
+    const last = address + length - 1;
+    return address_space.userPermissions(address) != null and
+        address_space.userPermissions(last) != null;
 }
 
 fn protectMmap(address: u64, length: u64, writable: bool, executable: bool) callconv(.c) bool {

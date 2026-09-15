@@ -730,18 +730,35 @@ pub fn isEventfd(fd: usize) bool {
 
 pub fn readEventfd(fd: usize, output: []u8) !usize {
     if (!isEventfd(fd) or output.len < 8) return error.BadFd;
+    const generation = descriptors[fd].generation;
     if (descriptors[fd].event_counter == 0) return error.WouldBlock;
     const value: *align(1) u64 = @ptrCast(output.ptr);
     value.* = descriptors[fd].event_counter;
+    // Forked workspaces retain descriptors with the same generation.  The
+    // event counter belongs to that shared open-file description, while close
+    // still removes only the caller's descriptor-table entry.
     descriptors[fd].event_counter = 0;
+    for (&workspace_descriptors, 0..) |*workspace, workspace_index| {
+        if (workspace_index == active_workspace) continue;
+        for (workspace) |*entry| {
+            if (entry.kind == .eventfd and entry.generation == generation) entry.event_counter = 0;
+        }
+    }
     return 8;
 }
 
 pub fn writeEventfd(fd: usize, input: []const u8) !usize {
     if (!isEventfd(fd) or input.len < 8) return error.BadFd;
     const value: *align(1) const u64 = @ptrCast(input.ptr);
+    const generation = descriptors[fd].generation;
     if (value.* > std.math.maxInt(u64) - descriptors[fd].event_counter) return error.Overflow;
     descriptors[fd].event_counter += value.*;
+    for (&workspace_descriptors, 0..) |*workspace, workspace_index| {
+        if (workspace_index == active_workspace) continue;
+        for (workspace) |*entry| {
+            if (entry.kind == .eventfd and entry.generation == generation) entry.event_counter += value.*;
+        }
+    }
     return 8;
 }
 

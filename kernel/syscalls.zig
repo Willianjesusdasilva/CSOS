@@ -341,6 +341,7 @@ var deferred_process_children: u16 = 0;
 // parent blocks, while a new helper thread is part of the same workspace.
 var deferred_user_threads: u16 = 0;
 var active_user_thread: ?usize = null;
+var released_vfork_parent: ?usize = null;
 // A pthread clone is created while the caller still owns musl's thread-list
 // lock.  Let the caller return through one syscall boundary before selecting
 // the new thread, otherwise the child can enter pthread bookkeeping too early
@@ -738,6 +739,16 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
                 // next syscall-return boundary and completes its status when
                 // activated.
             } else {
+            if (released_vfork_parent) |parent_slot| {
+                if (parent_slot < user_threads.len and user_threads[parent_slot].state == .runnable) {
+                    selected = parent_slot;
+                }
+                released_vfork_parent = null;
+            }
+            if (selected != null) {
+                // Successful vfork exec has an explicit wake target. Resume
+                // the launcher before allowing the child to create workers.
+            } else {
             // Keep a freshly-created pthread on the CPU until it reaches its
             // first blocking boundary.  The parent may already be waiting on
             // the pipe it owns, and selecting that waiter after one signal
@@ -748,6 +759,7 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
                 } else {
                     active_user_thread = null;
                 }
+            }
             }
             if (selected != null) {
                 // The new helper remains preferred until it blocks/exits.
@@ -898,6 +910,7 @@ pub fn configure(base: u64, size: u64, stack: u64, stack_length: u64, initial_br
     deferred_process_children = 0;
     deferred_user_threads = 0;
     active_user_thread = null;
+    released_vfork_parent = null;
     defer_user_thread_switch = false;
     thread_switch_requested = false;
     workspace_clone_hook = null;
@@ -1186,6 +1199,27 @@ pub fn releaseWorkspaceSockets(workspace: u8) void {
 pub fn restoreUserResumeContext(saved: *const UserResume) void {
     writeMsr(0xc0000100, saved.fs);
     asm volatile ("fxrstor64 (%[p])" : : [p] "r" (&saved.fx) : .{ .memory = true });
+}
+
+/// CLONE_VFORK suspends the calling thread until the child has either exited
+/// or successfully replaced its image with execve.  The loader handles the
+/// replacement image outside the syscall frame, so explicitly hand the CPU
+/// back to that caller once exec staging succeeds; otherwise an exec'd WPE
+/// helper can keep polling forever while its launcher remains runnable but
+/// never resumes to complete the IPC handshake.
+pub fn releaseVforkParent(child_pid: u32) void {
+    if (child_pid == 0 or child_pid - 1 >= user_threads.len) return;
+    const child = &user_threads[child_pid - 1];
+    if (!child.vfork_child or child.parent_slot >= user_threads.len) return;
+    const parent = &user_threads[child.parent_slot];
+    // The parent may have been marked blocked by the cooperative boundary
+    // while the vfork child was loading.  Successful exec is the wake event;
+    // restore the saved post-clone frame regardless of that transient state.
+    parent.state = .runnable;
+    active_user_thread = child.parent_slot;
+    released_vfork_parent = child.parent_slot;
+    defer_user_thread_switch = false;
+    thread_switch_requested = true;
 }
 
 pub fn finishProcessChild(pid: u32, status: u8) ?UserResume {

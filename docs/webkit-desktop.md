@@ -290,6 +290,21 @@ build foram finalizados, sem QEMU aberto. Esse é um bloqueio de ferramenta ou
 geração do cross-build, distinto do bloqueio de `webkit_web_view_new()` no
 runtime CSOS.
 
+### Avanço estrutural do processo WPE (2026-09-15)
+
+O launcher agora completa o `clone(CLONE_VM|CLONE_VFORK|SIGCHLD)`, entra no
+callback musl e executa o `execve` real de `WPENetworkProcess` no workspace
+filho. O loader libera explicitamente o parent do `vfork` após o novo image
+ser instalado; slices dentro das reservas `MAP_NORESERVE` são validados pelo
+CR3 do workspace; e eventfds clonados compartilham o contador subjacente por
+geração, mantendo `close` local à tabela de cada workspace. O smoke QEMU
+confirma o carregamento do processo de rede e o retorno do launcher ao
+scheduler, sem os `EFAULT` de `poll` observados anteriormente.
+
+`WebKit view ready` ainda não foi observado. O bloqueio restante é o
+handshake IPC entre o launcher e os processos WPE depois dessa retomada; este
+avanço não deve ser contado como HTML/CSS/JavaScript entregue ao compositor.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de

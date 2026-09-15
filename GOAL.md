@@ -1912,6 +1912,14 @@ O compositor nativo e parser HTML atual são bootstrap.
 
 Não gastar ciclos tentando transformar o parser bootstrap em substituto do WebKit.
 
+Atualização verificável (2026-09-15): o launcher WPE já cria o processo filho
+com `CLONE_VFORK`, executa `WPENetworkProcess` no workspace isolado e retoma o
+parent após o `execve`. O loader agora valida slices `MAP_NORESERVE` pelo CR3
+do workspace e eventfds clonados compartilham o objeto subjacente por geração.
+O QEMU confirma o carregamento do processo de rede sem os `EFAULT` de `poll`;
+`WebKit view ready` e o handshake IPC ainda estão pendentes. P1 permanece
+fechado conforme seu gate próprio; o próximo bloqueio é M20/M21, não Git.
+
 ---
 
 # M24–M26
