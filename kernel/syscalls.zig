@@ -1476,9 +1476,15 @@ fn duplicate(old_fd: u64, new_fd: u64) u64 {
             // before exec'ing receive-pack/upload-pack.
             // The stdio descriptor has its own CLOEXEC bit; changing it must
             // not mutate the backing socket or the parent's descriptor.
-            user_threads[current_thread].stdio_cloexec[@intCast(new_fd)] = false;
-            user_threads[current_thread].stdio_sockets[@intCast(new_fd)] = source;
             const workspace = user_threads[current_thread].workspace_id;
+            // stdio aliases belong to the workspace descriptor table, not to
+            // the thread that happened to perform dup2. Publish the same
+            // endpoint to every live thread in this process workspace.
+            for (&user_threads) |*peer| {
+                if (peer.workspace_id != workspace) continue;
+                peer.stdio_cloexec[@intCast(new_fd)] = false;
+                peer.stdio_sockets[@intCast(new_fd)] = source;
+            }
             if (workspace_socket_aliases[workspace][source] != std.math.maxInt(u8))
                 workspace_socket_aliases[workspace][source] += 1;
             return new_fd;
