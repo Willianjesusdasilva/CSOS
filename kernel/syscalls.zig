@@ -1428,6 +1428,29 @@ fn releaseSocketRef(index: usize) void {
         wakeSocketPollers(peer);
     }
     if (sockets[index].connection) |*connection| if (network_stack) |stack| stack.tcpClose(connection) catch {};
+    // Once the final object reference is gone, no workspace may retain the
+    // old numeric identity.  Clear every published map before the slot is
+    // reused; otherwise a later socket() can inherit a stale fd->index entry
+    // from an unrelated process and connect the wrong pipe endpoints.
+    for (0..workspace_socket_fd_map.len) |workspace| {
+        for (&workspace_socket_fd_map[workspace]) |*mapped| {
+            if (mapped.* == index) mapped.* = null;
+        }
+        workspace_socket_refs[workspace][index] = false;
+        workspace_socket_cloexec[workspace][index] = false;
+        workspace_socket_aliases[workspace][index] = 0;
+    }
+    for (&user_threads) |*thread| {
+        thread.direct_socket_refs[index] = false;
+        thread.direct_socket_cloexec[index] = false;
+        thread.owned_socket_refs[index] = false;
+        for (&thread.socket_fd_map) |*mapped| {
+            if (mapped.* == index) mapped.* = null;
+        }
+        for (&thread.socket_fd_aliases) |*alias| {
+            if (alias.used and alias.socket_index == index) alias.* = .{};
+        }
+    }
     sockets[index] = .{};
 }
 
