@@ -4501,13 +4501,23 @@ fn installSocketAliasAt(thread_index: usize, source: usize, fd: u64) ?u64 {
     // threads.  dup2() must therefore publish the target alias to every
     // thread before returning; installing it only in the caller makes a
     // sibling helper resolve the same numeric fd to an unrelated endpoint.
+    // A stale copy can exist only in a sibling cache after a scheduler
+    // switch.  Treat it exactly like dup2() replacing an occupied target:
+    // remove the shared alias once, then install the new one everywhere.
+    var replaced_sibling = false;
+    for (&user_threads, 0..) |*peer, peer_index| {
+        if (peer.workspace_id != workspace) continue;
+        for (&peer.socket_fd_aliases) |*alias| {
+            if (!alias.used or alias.fd != @as(u32, @intCast(fd))) continue;
+            closeSocketAlias(peer_index, alias);
+            replaced_sibling = true;
+            break;
+        }
+        if (replaced_sibling) break;
+    }
     var peer_count: usize = 0;
     for (user_threads) |peer| {
-        if (peer.workspace_id != workspace) continue;
-        peer_count += 1;
-        for (peer.socket_fd_aliases) |alias| {
-            if (alias.used and alias.fd == @as(u32, @intCast(fd))) return null;
-        }
+        if (peer.workspace_id == workspace) peer_count += 1;
     }
     if (peer_count == 0) return null;
     for (user_threads) |peer| {
