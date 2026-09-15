@@ -667,11 +667,12 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
             // directly, with the argument in RDI; posix_spawn callbacks
             // either execve or call _exit and do not return.
             user_threads[child.slot].frame[0] = child.entry;
-            user_threads[child.slot].frame[9] = child_arg.*;
-            // __clone's assembly pops the argument, then CALLs the
-            // callback; entering directly must preserve the same ABI stack
-            // alignment (RSP % 16 == 8 at function entry).
-            user_threads[child.slot].rsp = child.stack;
+            user_threads[child.slot].frame[5] = child_arg.*;
+            // The vfork/posix_spawn path uses musl's clone_start, which pops
+            // the argument and JMPs to the callback (no return address). The
+            // direct entry therefore resumes one word above the argument,
+            // matching the callback's real post-pop stack pointer.
+            user_threads[child.slot].rsp = child.stack + 8;
         } else {
             if (child.process_child) {
                 user_threads[child.slot].rsp = old.rsp;
@@ -685,7 +686,7 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
                 // value: it is already 8 mod 16, the ABI alignment expected
                 // at a normal C function entry after a call instruction.
                 user_threads[child.slot].frame[0] = child.entry;
-                user_threads[child.slot].frame[9] = read64(@as([*]const u8, @ptrFromInt(child.stack)));
+                user_threads[child.slot].frame[5] = read64(@as([*]const u8, @ptrFromInt(child.stack)));
                 user_threads[child.slot].rsp = child.stack;
             }
         }
@@ -698,16 +699,26 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
         if (child.process_child) {
             deferred_process_children |= @as(u16, 1) << @intCast(child.slot);
             created_process_child = true;
-            // Keep the forking thread on CPU through its post-fork cleanup
-            // (close inherited pipe ends, then publish the notify read).
-            // A sibling may already be blocked on a shared descriptor; if
-            // the child runs first it can consume bytes from the parent's
-            // still-open endpoint and truncate the second transport pipe.
-            active_user_thread = current_thread;
-            defer_user_thread_switch = true;
-            // CLONE_VFORK suspends the caller until the callback has either
-            // exec'd or exited; schedule that child immediately.
-            thread_switch_requested = child.clone_child;
+            if (child.clone_child) {
+                // CLONE_VFORK suspends the caller until the callback has
+                // either exec'd or exited.  Keep the child as the active
+                // task; leaving the parent in active_user_thread would make
+                // the scheduler select it repeatedly and starve the vfork
+                // child before it can reach execve.
+                active_user_thread = child.slot;
+                defer_user_thread_switch = false;
+                thread_switch_requested = true;
+            } else {
+                // Keep the forking thread on CPU through its post-fork
+                // cleanup (close inherited pipe ends, then publish the
+                // notify read). A sibling may already be blocked on a shared
+                // descriptor; if the child runs first it can consume bytes
+                // from the parent's still-open endpoint and truncate the
+                // second transport pipe.
+                active_user_thread = current_thread;
+                defer_user_thread_switch = true;
+                thread_switch_requested = false;
+            }
         } else {
             deferred_user_threads |= @as(u16, 1) << @intCast(child.slot);
             active_user_thread = current_thread;
