@@ -4497,16 +4497,40 @@ fn installSocketAliasAt(thread_index: usize, source: usize, fd: u64) ?u64 {
     if (thread_index >= user_threads.len or source >= sockets.len or fd > std.math.maxInt(u32)) return null;
     if (socketAliasForThread(thread_index, fd)) |alias| closeSocketAlias(thread_index, alias);
     const workspace = user_threads[thread_index].workspace_id;
-    for (user_threads[thread_index].socket_fd_aliases) |alias| if (alias.used and alias.fd == @as(u32, @intCast(fd))) return null;
-    for (&user_threads[thread_index].socket_fd_aliases) |*alias| {
-        if (alias.used) continue;
-        alias.* = .{ .fd = @intCast(fd), .socket_index = @intCast(source), .close_on_exec = false, .used = true };
-        if (workspace_socket_aliases[workspace][source] != std.math.maxInt(u8))
-            workspace_socket_aliases[workspace][source] += 1;
-        sockets[source].refs += 1;
-        return fd;
+    // A workspace owns one descriptor table shared by all of its live
+    // threads.  dup2() must therefore publish the target alias to every
+    // thread before returning; installing it only in the caller makes a
+    // sibling helper resolve the same numeric fd to an unrelated endpoint.
+    var peer_count: usize = 0;
+    for (user_threads) |peer| {
+        if (peer.workspace_id != workspace) continue;
+        peer_count += 1;
+        for (peer.socket_fd_aliases) |alias| {
+            if (alias.used and alias.fd == @as(u32, @intCast(fd))) return null;
+        }
     }
-    return null;
+    if (peer_count == 0) return null;
+    for (user_threads) |peer| {
+        if (peer.workspace_id != workspace) continue;
+        var has_free = false;
+        for (peer.socket_fd_aliases) |alias| {
+            if (!alias.used) { has_free = true; break; }
+        }
+        if (!has_free) return null;
+    }
+    for (&user_threads) |*peer| {
+        if (peer.workspace_id != workspace) continue;
+        for (&peer.socket_fd_aliases) |*alias| {
+            if (!alias.used) {
+                alias.* = .{ .fd = @intCast(fd), .socket_index = @intCast(source), .close_on_exec = false, .used = true };
+                break;
+            }
+        }
+    }
+    if (workspace_socket_aliases[workspace][source] != std.math.maxInt(u8))
+        workspace_socket_aliases[workspace][source] += 1;
+    sockets[source].refs += 1;
+    return fd;
 }
 
 fn closeSocketAlias(thread_index: usize, alias: *SocketFdAlias) void {
