@@ -1118,7 +1118,7 @@ pub fn restoreUserResumeContext(saved: *const UserResume) void {
 
 pub fn finishProcessChild(pid: u32, status: u8) ?UserResume {
     for (&user_threads) |*child| {
-        if (child.kind != .process_child or child.pid != pid) continue;
+        if (child.kind != .process_child or child.pid != pid or child.state == .exited) continue;
         // The process descriptor table is owned by the workspace. Releasing
         // only the leader's cache leaves helper-thread copies alive and can
         // prevent pipe EOF from reaching the waiting parent.
@@ -4005,6 +4005,13 @@ fn access(path_address: u64, mode: u32) u64 {
 }
 
 fn fstat(fd: u64, output_address: u64) u64 {
+    if (socketIndex(fd)) |index| {
+        // Pipes/socketpairs are real open-file descriptions, not console
+        // descriptors. Git's unpack/index helpers fstat(0) before reading
+        // the inherited transport; reporting the pipe type keeps that
+        // inspection from falling through to the VFS numeric table.
+        return writeStat(output_address, .{ .mode = 0o010600, .size = sockets[index].local_len, .directory = false });
+    }
     if (fd <= 2) return writeStat(output_address, .{ .mode = 0o020666, .size = 0, .directory = false });
     const info = vfs.infoFd(@intCast(fd)) catch |err| return vfsError(err);
     return writeStat(output_address, info);
@@ -4018,6 +4025,7 @@ fn statfs(path_address: u64, output_address: u64) u64 {
 }
 
 fn fstatfs(fd: u64, output_address: u64) u64 {
+    if (socketIndex(fd) != null) return writeStatfs(output_address);
     _ = vfs.infoFd(@intCast(fd)) catch |err| return vfsError(err);
     return writeStatfs(output_address);
 }
@@ -5169,7 +5177,10 @@ fn exitThread(status: u64) u64 {
         // Only the top-level image owns the global run loop. A process child
         // must finish its own nested loader without terminating its parent or
         // sibling workspaces (receive-pack relies on this distinction).
-        if (thread.workspace_id == top_level_workspace or !anyLiveUserThread()) return exitSyscall(status);
+        // A helper pthread can belong to the top-level workspace while its
+        // process leader is blocked in wait4.  Its return must not terminate
+        // the loader globally; only the bootstrap leader owns that boundary.
+        if ((thread.workspace_id == top_level_workspace and thread.pid == 1) or !anyLiveUserThread()) return exitSyscall(status);
         thread_switch_requested = true;
         return 0;
     }

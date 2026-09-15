@@ -412,6 +412,28 @@ pub fn openAt(directory_fd_in: i64, path: []const u8, flags: u64) !usize {
     var trimmed_length = path.len;
     while (trimmed_length > 1 and path[trimmed_length - 1] == '/') : (trimmed_length -= 1) {}
     if (trimmed_length != path.len) return openAt(directory_fd_in, path[0..trimmed_length], flags);
+    if (std.mem.indexOf(u8, path, "/./")) |dot| {
+        var resolved: [256]u8 = undefined;
+        const cwd = currentWorkingDirectory();
+        const suffix = path[dot + 2 ..];
+        const target_len = cwd.len + suffix.len;
+        if (target_len > resolved.len) return error.NameTooLong;
+        @memcpy(resolved[0..cwd.len], cwd);
+        @memcpy(resolved[cwd.len..target_len], suffix);
+        return openAt(directory_fd_in, resolved[0..target_len], flags);
+    }
+    // Git spells paths relative to GIT_DIR as `./HEAD`, `./objects`, etc.
+    // Normalize that relative prefix against the workspace cwd before the
+    // FAT resolver sees it; otherwise it can fall through to the synthetic
+    // root and make a valid bare repository look nonexistent.
+    if (path.len > 2 and std.mem.startsWith(u8, path, "./")) {
+        var resolved: [256]u8 = undefined;
+        const cwd = currentWorkingDirectory();
+        if (cwd.len + path.len - 1 > resolved.len) return error.NameTooLong;
+        @memcpy(resolved[0..cwd.len], cwd);
+        @memcpy(resolved[cwd.len .. cwd.len + path.len - 1], path[1..]);
+        return openAt(directory_fd_in, resolved[0 .. cwd.len + path.len - 1], flags);
+    }
     // Git's quarantine paths use `/./...` as an absolute spelling of a path
     // relative to the repository cwd.  Preserve that contract per workspace;
     // treating it as the FAT root would put incoming objects in `/objects`
@@ -464,6 +486,21 @@ pub fn openAt(directory_fd_in: i64, path: []const u8, flags: u64) !usize {
     var fd: usize = 3;
     while (fd < descriptors.len and descriptors[fd].kind != .unused) : (fd += 1) {}
     if (fd == descriptors.len) return error.TooManyFiles;
+    // A relative `.` names the caller's current directory.  Git's bare
+    // receive-pack helpers rely on this when they export GIT_DIR=. after
+    // chdir into the repository.  Preserve the complete directory
+    // descriptor (including FAT cluster and volume), rather than resolving
+    // `.` as the synthetic filesystem root.
+    if (std.mem.eql(u8, path, ".") and directory_fd >= 3 and
+        @as(usize, @intCast(directory_fd)) < descriptors.len and
+        descriptors[@intCast(directory_fd)].kind == .directory)
+    {
+        descriptors[fd] = descriptors[@intCast(directory_fd)];
+        descriptors[fd].generation = try newGeneration();
+        descriptors[fd].close_on_exec = (flags & 0x80000) != 0;
+        descriptors[fd].offset = 0;
+        return fd;
+    }
     if (directoryVolume(directory_fd)) |volume| if (directory_fd >= 3 and @as(usize, @intCast(directory_fd)) < descriptors.len and
         descriptors[@intCast(directory_fd)].node == .fat_directory and
         path.len != 0 and path[0] != '/' and std.mem.indexOfScalar(u8, path, '/') != null)
@@ -995,8 +1032,17 @@ pub fn linkAt(old_directory_fd: i64, old_path: []const u8, new_directory_fd: i64
 }
 
 pub fn mkdirAt(directory_fd_in: i64, path: []const u8, mode: u64) !void {
+    if (std.mem.indexOf(u8, path, "/./")) |dot| {
+        var resolved: [256]u8 = undefined;
+        const cwd = currentWorkingDirectory();
+        const suffix = path[dot + 2 ..];
+        const target_len = cwd.len + suffix.len;
+        if (target_len > resolved.len) return error.NameTooLong;
+        @memcpy(resolved[0..cwd.len], cwd);
+        @memcpy(resolved[cwd.len..target_len], suffix);
+        return mkdirAt(directory_fd_in, resolved[0..target_len], mode);
+    }
     const directory_fd = effectiveDirectoryFd(directory_fd_in);
-    _ = mode;
     if (disk) |volume| {
         // Git's receive-pack changes into the bare repository and creates
         // quarantine directories with relative paths such as
@@ -1210,6 +1256,24 @@ pub fn infoAt(directory_fd_in: i64, path: []const u8) !Info {
     var trimmed_length = path.len;
     while (trimmed_length > 1 and path[trimmed_length - 1] == '/') : (trimmed_length -= 1) {}
     if (trimmed_length != path.len) return infoAt(directory_fd_in, path[0..trimmed_length]);
+    if (std.mem.indexOf(u8, path, "/./")) |dot| {
+        var resolved: [256]u8 = undefined;
+        const cwd = currentWorkingDirectory();
+        const suffix = path[dot + 2 ..];
+        const target_len = cwd.len + suffix.len;
+        if (target_len > resolved.len) return error.NameTooLong;
+        @memcpy(resolved[0..cwd.len], cwd);
+        @memcpy(resolved[cwd.len..target_len], suffix);
+        return infoAt(directory_fd_in, resolved[0..target_len]);
+    }
+    if (path.len > 2 and std.mem.startsWith(u8, path, "./")) {
+        var resolved: [256]u8 = undefined;
+        const cwd = currentWorkingDirectory();
+        if (cwd.len + path.len - 1 > resolved.len) return error.NameTooLong;
+        @memcpy(resolved[0..cwd.len], cwd);
+        @memcpy(resolved[cwd.len .. cwd.len + path.len - 1], path[1..]);
+        return infoAt(directory_fd_in, resolved[0 .. cwd.len + path.len - 1]);
+    }
     if (nix_disk != null and path.len >= 4 and std.mem.startsWith(u8, path, "/nix") and
         (path.len == 4 or path[4] == '/'))
     {
@@ -1218,6 +1282,10 @@ pub fn infoAt(directory_fd_in: i64, path: []const u8) !Info {
         return infoFd(fd);
     }
     const directory_fd = effectiveDirectoryFd(directory_fd_in);
+    if (std.mem.eql(u8, path, ".") and directory_fd >= 3 and
+        @as(usize, @intCast(directory_fd)) < descriptors.len and
+        descriptors[@intCast(directory_fd)].kind == .directory)
+        return infoFd(@intCast(directory_fd));
     if (directory_fd >= 3 and @as(usize, @intCast(directory_fd)) < descriptors.len and
         descriptors[@intCast(directory_fd)].node == .fat_directory and path.len != 0 and path[0] != '/' and
         std.mem.indexOfScalar(u8, path, '/') != null)

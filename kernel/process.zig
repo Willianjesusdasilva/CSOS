@@ -203,6 +203,13 @@ pub fn runGitRuntime(kernel_root: u64, pages: *physical.Allocator) !void {
     if (update_checkout == null) {
         const clone_arguments = [_][]const u8{"/bin/git", "clone", "/data/origin", "/data/update"};
         try runGitCommand(kernel_root, pages, &clone_arguments);
+        // The compact FAT layout keeps a worktree's object database below
+        // `.git/objects`, while Git's local transport may publish the
+        // checkout-root spelling `/data/update/./objects` as an alternate.
+        // Keep that advertised directory present so receive-pack can validate
+        // the inherited object namespace without confusing it with the bare
+        // repository's quarantine directory.
+        vfs.mkdirAt(-100, "/data/update/objects", 0) catch {};
         const update_commit_arguments = [_][]const u8{"/bin/git", "-c", "user.name=CSOS", "-c", "user.email=csos@local", "-C", "/data/update", "commit", "--allow-empty", "-m", "system-update"};
         try runGitCommand(kernel_root, pages, &update_commit_arguments);
         const update_fetch_arguments = [_][]const u8{"/bin/git", "--git-dir=/data/origin", "fetch", "/data/update", "master:master"};
@@ -1050,6 +1057,45 @@ fn runImageWithWorkspace(
         const current_space = current.address_space orelse address_space;
         current_space.activate();
         enter_user(user_instruction, user_stack);
+        // An exec replacement runs from this outer scheduler loop after its
+        // image has been staged.  Its exit therefore does not carry a fresh
+        // exec_request through the branch below; reap the completed child at
+        // the workspace boundary and resume the saved parent wait frame.
+        var completed_child: ?*LoaderWorkspace = null;
+        for (&loader_workspaces) |*candidate| {
+            if (candidate.leased and candidate.pool_id != workspace.pool_id and
+                syscalls.workspaceDone(candidate.pool_id)) {
+                completed_child = candidate;
+                break;
+            }
+        }
+        if (completed_child) |running| {
+            const child_pid = running.owner_pid;
+            if (syscalls.finishProcessChild(child_pid, syscalls.workspaceExitStatus(running.pool_id))) |resumed_frame| {
+                const parent_workspace = if (resumed_frame.workspace_id < loader_workspaces.len)
+                    &loader_workspaces[resumed_frame.workspace_id]
+                else
+                    workspace;
+                active_workspace = parent_workspace;
+                vfs.activateWorkspace(parent_workspace.pool_id);
+                (parent_workspace.address_space orelse address_space).activate();
+                syscalls.configureMmap(&protectMmap, &unmapMmap, &mapDevice);
+                syscalls.configureUserSlice(&validMappedUserSlice);
+                syscalls.configureProcessWorkspaces(parent_workspace.pool_id, &cloneProcessWorkspace, &activateProcessWorkspace, &releaseProcessWorkspace);
+                syscalls.configureExecve(&acceptExecve);
+                syscalls.restoreUserResumeContext(&resumed_frame);
+                syscalls.completeCurrentPendingIo();
+                syscalls.completeCurrentPendingWaitStatus();
+                syscalls.resetExitStatus();
+                syscalls.resetUserThreadsDone();
+                resume_user_frame(&resumed_frame.frame, resumed_frame.rsp, resumed_frame.result);
+                active_workspace = parent_workspace;
+                vfs.activateWorkspace(parent_workspace.pool_id);
+                const resumed_space = parent_workspace.address_space orelse address_space;
+                resumed_space.activate();
+                continue;
+            }
+        }
         if (preserve_scheduler and syscalls.workspaceDone(workspace.pool_id)) {
             break;
         }
