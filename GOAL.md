@@ -682,6 +682,16 @@ final do `git push`/retomada do `receive-pack` ainda não foi observado, então
 P1 permanece aberto; o próximo diagnóstico é a continuação do parent após o
 `wait4` do `rev-list`.
 
+Atualização: o probe de `git push` foi repetido com rastreamento temporário e
+limite estendido. O filho `rev-list` termina, o parent retoma após `wait4` e
+executa o `fcntl` final; depois disso não há novo syscall nem o marcador do
+runtime, mesmo após 180 segundos de guest time. Isso confirma um spin na
+continuação userspace do `receive-pack`, e não apenas atraso de drenagem do
+segundo pipe. Toda a instrumentação foi removida; o smoke normal continua
+alcançando `CSOS Git runtime ready` e `zig build test` permanece verde. O
+próximo redesenho deve tratar preempção/retomada de threads userspace após o
+reap, mantendo a tabela de FDs por workspace como fonte de verdade.
+
 ---
 
 # P2 — Bare-metal e Alpine Recovery
