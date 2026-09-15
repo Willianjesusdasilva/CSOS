@@ -692,6 +692,15 @@ alcançando `CSOS Git runtime ready` e `zig build test` permanece verde. O
 próximo redesenho deve tratar preempção/retomada de threads userspace após o
 reap, mantendo a tabela de FDs por workspace como fonte de verdade.
 
+Atualização: o boundary de saída de uma thread agora repara futexes de
+ownership que ainda nomeiam o thread encerrado e acorda waiters do mesmo
+workspace. Isso cobre locks de runtime abandonados durante `pthread_exit` sem
+introduzir uma regra específica para Git; `zig build test` e o smoke normal
+continuam verdes. O probe temporário de `git push` ainda não fornece a
+conclusão verificável do transporte, portanto P1 permanece aberto. O próximo
+passo é fechar a retomada/join cooperativa e validar novamente a ref remota,
+`git pull` e reboot.
+
 ---
 
 # P2 — Bare-metal e Alpine Recovery

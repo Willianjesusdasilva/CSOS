@@ -393,6 +393,27 @@ fn wakeUserThreads(address: u64, maximum: u64) u64 {
     return count;
 }
 
+/// A userspace thread may terminate while holding a futex-backed runtime lock.
+/// Linux's robust-thread machinery normally repairs those locks; the compact
+/// CSOS scheduler has no asynchronous signal/reaper path, so perform the same
+/// ownership handoff at the exit boundary.  Only wake waiters in the exiting
+/// thread's workspace, and only when the futex word explicitly names that
+/// thread as its owner.  Unrelated futexes and other workspaces are untouched.
+fn releaseOwnedFutexesOnExit(thread: *const UserThread) void {
+    for (&user_threads) |*waiter| {
+        if (waiter.workspace_id != thread.workspace_id or waiter.state != .blocked or
+            waiter.wait_address == 0 or !validUserSlice(waiter.wait_address, 4)) continue;
+        const word: *align(1) volatile u32 = @ptrFromInt(waiter.wait_address);
+        if (word.* != @as(u32, @intCast(thread.pid))) continue;
+        word.* = 0;
+        waiter.state = .runnable;
+        waiter.wait_address = 0;
+        waiter.result = 0;
+        thread_switch_requested = true;
+        user_futex_wakes += 1;
+    }
+}
+
 // Linux x86-64 clone(2) arguments are flags, child_stack, parent_tid,
 // child_tid, tls. Keep this order explicit: swapping tls/ctid makes a new
 // pthread inherit the child-tid address as FS and hang before its first
@@ -5112,6 +5133,7 @@ fn exitThread(status: u64) u64 {
         @as(*align(1) u32, @ptrFromInt(thread.clear_tid)).* = 0;
         _ = wakeUserThreads(thread.clear_tid, ~@as(u64, 0));
     }
+    releaseOwnedFutexesOnExit(thread);
     thread.state = .exited;
     var workspace_has_live_thread = false;
     if (thread.kind == .process_child) {
