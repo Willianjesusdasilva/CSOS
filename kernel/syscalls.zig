@@ -4017,6 +4017,12 @@ fn writev(fd: u64, address: u64, count: u64) u64 {
         const result = write(fd, base, length);
         if (@as(i64, @bitCast(result)) < 0) return result;
         total += result;
+        // writev is a stream operation: once an element is only partially
+        // written (including a blocked socket returning zero), the caller
+        // owns the remaining iovecs and must retry from this position. Do
+        // not silently consume later elements or lose the tail of a Git
+        // sideband/pipe frame.
+        if (result != length) break;
     }
     return total;
 }
