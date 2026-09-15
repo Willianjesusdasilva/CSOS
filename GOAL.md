@@ -547,6 +547,11 @@ um `wait4` acordado retome seu frame na próxima troca cooperativa. O smoke
 básico continua passando; o probe de `push` não mudou e ainda não conclui o
 handshake, mantendo P1 aberto.
 
+Atualização: `closeOnExecSockets()` agora usa exclusivamente a tabela de stdio
+do workspace, eliminando a última decisão de `CLOEXEC` baseada no cache da
+thread atual. O smoke básico permanece válido; o probe de `push` ainda não
+conclui o handshake e P1 segue aberto.
+
 Atualização: a tabela de descritores no nível do workspace passou a ser a
 fonte de verdade para aliases e stdio, em vez de depender apenas dos caches de
 threads. Fork/exec agora clonam esse namespace, e resolução/close/exec limpam

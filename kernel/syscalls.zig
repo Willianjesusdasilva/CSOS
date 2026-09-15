@@ -1605,12 +1605,12 @@ fn publishDirectSocket(owner: usize, index: usize, cloexec: bool) void {
 }
 
 pub fn closeOnExecSockets() void {
-    for (&user_threads[current_thread].socket_fd_aliases) |*alias|
+    const workspace = user_threads[current_thread].workspace_id;
+    for (&workspace_fd_aliases[workspace]) |*alias|
         if (alias.used and alias.close_on_exec) closeSocketAlias(current_thread, alias);
     var index: usize = 0;
     while (index < sockets.len) : (index += 1) {
         if (!sockets[index].allocated) continue;
-        const workspace = user_threads[current_thread].workspace_id;
         if (workspace_socket_refs[workspace][index] and workspace_socket_cloexec[workspace][index]) {
             // The direct descriptor is workspace-owned. Clear every thread's
             // published view before dropping the single table reference;
@@ -1619,8 +1619,8 @@ pub fn closeOnExecSockets() void {
             clearWorkspaceDirectSocket(current_thread, index, socket_fd_base + index);
             releaseSocketRef(index);
         }
-        for (user_threads[current_thread].stdio_sockets, 0..) |entry, fd| {
-            if (entry == index and user_threads[current_thread].stdio_cloexec[fd]) {
+        for (workspace_stdio_sockets[workspace], 0..) |entry, fd| {
+            if (entry == index and workspace_stdio_cloexec[workspace][fd]) {
                 clearWorkspaceStdioSocket(current_thread, index, fd);
                 releaseSocketRef(index);
             }
