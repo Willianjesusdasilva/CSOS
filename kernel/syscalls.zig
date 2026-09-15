@@ -335,6 +335,11 @@ var pending_clone: ?struct { slot: usize, stack: u64, tls: u64, process_child: b
 // several Git helpers before the parent blocks). Keep every deferred child;
 // a single slot loses siblings and can starve one of the helpers forever.
 var deferred_process_children: u16 = 0;
+// Threads created by pthread/clone must get one scheduling turn before the
+// creating process can continue a protocol that depends on their pipe work.
+// Keep this separate from process children: the latter are deferred until a
+// parent blocks, while a new helper thread is part of the same workspace.
+var deferred_user_threads: u16 = 0;
 var thread_switch_requested: bool = false;
 var workspace_clone_hook: ?*const fn (u8, u32) callconv(.c) u16 = null;
 var workspace_activate_hook: ?*const fn (u8) callconv(.c) void = null;
@@ -577,13 +582,19 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
             // alignment (RSP % 16 == 8 at function entry).
             user_threads[child.slot].rsp = child.stack;
         } else {
-            user_threads[child.slot].rsp = if (child.process_child) old.rsp else child.stack;
-            // musl's x86-64 clone wrapper keeps the thread start routine in
-            // r9 across the syscall and calls it after popping the argument
-            // from the child stack.  Reassert it in the child frame instead
-            // of relying on a caller-specific register snapshot.
-            if (!child.process_child and child.entry != 0)
-                user_threads[child.slot].frame[7] = child.entry;
+            if (child.process_child) {
+                user_threads[child.slot].rsp = old.rsp;
+            } else {
+                // Enter the musl thread trampoline directly.  The kernel
+                // already owns the child context, so reproducing the small
+                // __clone pop/call sequence in userspace would leave the
+                // saved return frame dependent on caller register state.
+                // The callback argument is the word written by __clone at
+                // the supplied child stack; skip it when entering directly.
+                user_threads[child.slot].frame[0] = child.entry;
+                user_threads[child.slot].frame[9] = read64(@as([*]const u8, @ptrFromInt(child.stack)));
+                user_threads[child.slot].rsp = child.stack + 8;
+            }
         }
         user_threads[child.slot].fs = if (child.process_child) old.fs else child.tls;
         user_threads[child.slot].fx = old.fx;
@@ -597,6 +608,9 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
             // CLONE_VFORK suspends the caller until the callback has either
             // exec'd or exited; schedule that child immediately.
             thread_switch_requested = child.clone_child;
+        } else {
+            deferred_user_threads |= @as(u16, 1) << @intCast(child.slot);
+            thread_switch_requested = true;
         }
     }
     if (!created_process_child and deferred_process_children != 0 and old.state == .runnable) {
@@ -647,6 +661,22 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
             if (selected != null) {
                 // The I/O waiter owns the next boundary.
             } else {
+            // A newly-created pthread commonly owns the other end of a pipe
+            // or socket needed by the caller.  Give it a first turn before
+            // round-robin can repeatedly select an unrelated runnable image.
+            for (0..user_threads.len) |thread_slot| {
+                if ((deferred_user_threads & (@as(u16, 1) << @intCast(thread_slot))) == 0) continue;
+                if (user_threads[thread_slot].state != .runnable) {
+                    deferred_user_threads &= ~(@as(u16, 1) << @intCast(thread_slot));
+                    continue;
+                }
+                selected = thread_slot;
+                deferred_user_threads &= ~(@as(u16, 1) << @intCast(thread_slot));
+                break;
+            }
+            if (selected != null) {
+                // The freshly-created helper owns the next boundary.
+            } else {
             // Once the parent has blocked (read/wait/poll), run its newly
             // forked process child before unrelated runnable threads.  Keep
             // the deferred marker until that point so an older sibling can
@@ -674,6 +704,7 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
                     const slot = (current_thread + step) % user_threads.len;
                     if (user_threads[slot].state == .runnable) { selected = slot; break; }
                 }
+            }
             }
             }
             }
@@ -755,6 +786,7 @@ pub fn configure(base: u64, size: u64, stack: u64, stack_length: u64, initial_br
     _ = vfs.changeDirectory("/") catch {};
     pending_clone = null;
     deferred_process_children = 0;
+    deferred_user_threads = 0;
     thread_switch_requested = false;
     workspace_clone_hook = null;
     workspace_activate_hook = null;
@@ -1456,7 +1488,10 @@ fn read(fd: u64, address: u64, length: u64) u64 {
         const hook = stdin_hook orelse return 0;
         return hook(output, length_usize);
     }
-    if (socketIndex(fd)) |index| return socketReceive(index, output[0..length_usize]);
+    const socket_index = socketIndex(fd);
+    if (socket_index) |index| {
+        return socketReceive(index, output[0..length_usize]);
+    }
     return vfs.read(@intCast(fd), output[0..length_usize]) catch |err| vfsError(err);
 }
 
