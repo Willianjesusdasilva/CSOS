@@ -956,8 +956,10 @@ pub fn releaseWorkspaceSockets(workspace: u8) void {
     workspace_socket_ref_counts[workspace] = .{0} ** 32;
     workspace_socket_fd_map[workspace] = .{null} ** 32;
     workspace_socket_aliases[workspace] = .{0} ** 32;
-    workspace_done[workspace] = false;
-    workspace_exit_status[workspace] = 0;
+    // Keep workspace_done/exit_status intact until wait4 has reaped the
+    // process. Descriptor teardown may run both at exit and from the reap
+    // hook; clearing terminal state here makes a second teardown turn a
+    // completed child back into an invisible, permanently-waited process.
 }
 
 /// Restore the non-GPR execution state saved for a parent while its process

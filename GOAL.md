@@ -535,6 +535,12 @@ aliases múltiplos apenas com um booleano. Os testes Zig passam e o smoke básic
 continua válido. O probe de `push` ainda fica aguardando antes do marcador, por
 isso P1 continua aberto.
 
+Atualização: o teardown de descritores deixou de apagar `workspace_done` e o
+status de saída. O estado terminal agora sobrevive até o `wait4`/reap, tornando
+o release idempotente e evitando que a segunda passagem do hook ressuscite um
+filho já encerrado. Os testes e o smoke básico passam; o probe de `push` ainda
+não completa o transporte, então P1 permanece aberto.
+
 ---
 
 # P2 — Bare-metal e Alpine Recovery
