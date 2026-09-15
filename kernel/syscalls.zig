@@ -317,6 +317,9 @@ var workspace_socket_cloexec: [16][32]bool = .{.{false} ** 32} ** 16;
 // Real descriptor references owned by each workspace. Publication booleans
 // cannot represent multiple stdio/dup aliases inherited across fork.
 var workspace_socket_ref_counts: [16][32]u16 = .{.{0} ** 32} ** 16;
+var workspace_stdio_sockets: [16][3]?usize = [_][3]?usize{.{null, null, null}} ** 16;
+var workspace_stdio_cloexec: [16][3]bool = [_][3]bool{.{false, false, false}} ** 16;
+var workspace_fd_aliases: [16][16]SocketFdAlias = [_][16]SocketFdAlias{.{SocketFdAlias{}} ** 16} ** 16;
 var workspace_socket_fd_map: [16][32]?usize = .{.{null} ** 32} ** 16;
 // Total aliases (high descriptors plus stdin/stdout/stderr) owned by each
 // process workspace. The boolean table above only describes high fds; this
@@ -517,6 +520,9 @@ fn cloneThread(flags: u64, stack: u64, parent_tid: u64, child_tid: u64, tls: u64
                 workspace_socket_refs[child_workspace] = workspace_socket_refs[user_threads[current_thread].workspace_id];
                 workspace_socket_cloexec[child_workspace] = workspace_socket_cloexec[user_threads[current_thread].workspace_id];
                 workspace_socket_ref_counts[child_workspace] = workspace_socket_ref_counts[user_threads[current_thread].workspace_id];
+                workspace_stdio_sockets[child_workspace] = workspace_stdio_sockets[user_threads[current_thread].workspace_id];
+                workspace_stdio_cloexec[child_workspace] = workspace_stdio_cloexec[user_threads[current_thread].workspace_id];
+                workspace_fd_aliases[child_workspace] = workspace_fd_aliases[user_threads[current_thread].workspace_id];
                 workspace_socket_fd_map[child_workspace] = workspace_socket_fd_map[user_threads[current_thread].workspace_id];
                 workspace_socket_aliases[child_workspace] = workspace_socket_aliases[user_threads[current_thread].workspace_id];
                 workspace_done[child_workspace] = false;
@@ -689,6 +695,9 @@ pub fn configure(base: u64, size: u64, stack: u64, stack_length: u64, initial_br
     workspace_socket_refs = .{.{false} ** 32} ** 16;
     workspace_socket_cloexec = .{.{false} ** 32} ** 16;
     workspace_socket_ref_counts = .{.{0} ** 32} ** 16;
+    workspace_stdio_sockets = [_][3]?usize{.{null, null, null}} ** 16;
+    workspace_stdio_cloexec = [_][3]bool{.{false, false, false}} ** 16;
+    workspace_fd_aliases = [_][16]SocketFdAlias{.{SocketFdAlias{}} ** 16} ** 16;
     workspace_socket_fd_map = .{.{null} ** 32} ** 16;
     workspace_socket_aliases = .{.{0} ** 32} ** 16;
     workspace_done = .{false} ** 16;
@@ -972,6 +981,9 @@ pub fn releaseWorkspaceSockets(workspace: u8) void {
     workspace_socket_refs[workspace] = .{false} ** 32;
     workspace_socket_cloexec[workspace] = .{false} ** 32;
     workspace_socket_ref_counts[workspace] = .{0} ** 32;
+    workspace_stdio_sockets[workspace] = .{null, null, null};
+    workspace_stdio_cloexec[workspace] = .{false, false, false};
+    workspace_fd_aliases[workspace] = .{SocketFdAlias{}} ** 16;
     workspace_socket_fd_map[workspace] = .{null} ** 32;
     workspace_socket_aliases[workspace] = .{0} ** 32;
     // Keep workspace_done/exit_status intact until wait4 has reaped the
@@ -1458,6 +1470,9 @@ fn socketHasPublishedIdentity(index: usize) bool {
     for (workspace_socket_aliases) |workspace_aliases| {
         if (workspace_aliases[index] != 0) return true;
     }
+    for (workspace_fd_aliases) |aliases| {
+        for (aliases) |alias| if (alias.used and alias.socket_index == index) return true;
+    }
     for (user_threads) |thread| {
         if (thread.stdio_sockets[0] == index or thread.stdio_sockets[1] == index or thread.stdio_sockets[2] == index)
             return true;
@@ -1510,6 +1525,11 @@ fn releaseSocketRef(index: usize) void {
             if (alias.used and alias.socket_index == index) alias.* = .{};
         }
     }
+    for (&workspace_fd_aliases) |*aliases| {
+        for (aliases) |*alias| {
+            if (alias.used and alias.socket_index == index) alias.* = .{};
+        }
+    }
     sockets[index] = .{};
 }
 
@@ -1554,6 +1574,10 @@ fn clearWorkspaceStdioSocket(owner: usize, index: usize, fd: usize) void {
         workspace_socket_aliases[workspace][index] -= 1;
     if (workspace_socket_ref_counts[workspace][index] != 0)
         workspace_socket_ref_counts[workspace][index] -= 1;
+    if (fd < workspace_stdio_sockets[workspace].len and workspace_stdio_sockets[workspace][fd] == index) {
+        workspace_stdio_sockets[workspace][fd] = null;
+        workspace_stdio_cloexec[workspace][fd] = false;
+    }
     for (&user_threads) |*peer| {
         if (peer.workspace_id != workspace) continue;
         if (peer.stdio_sockets[fd] == index) {
@@ -1636,6 +1660,8 @@ fn duplicate(old_fd: u64, new_fd: u64) u64 {
             // The stdio descriptor has its own CLOEXEC bit; changing it must
             // not mutate the backing socket or the parent's descriptor.
             const workspace = user_threads[current_thread].workspace_id;
+            workspace_stdio_sockets[workspace][@intCast(new_fd)] = source;
+            workspace_stdio_cloexec[workspace][@intCast(new_fd)] = false;
             // stdio aliases belong to the workspace descriptor table, not to
             // the thread that happened to perform dup2. Publish the same
             // endpoint to every live thread in this process workspace.
@@ -4558,6 +4584,9 @@ fn socketIndex(fd: u64) ?usize {
 
 fn socketAliasForThread(thread_index: usize, fd: u64) ?*SocketFdAlias {
     if (thread_index >= user_threads.len or fd > std.math.maxInt(u32)) return null;
+    const workspace = user_threads[thread_index].workspace_id;
+    for (&workspace_fd_aliases[workspace]) |*alias|
+        if (alias.used and alias.fd == @as(u32, @intCast(fd))) return alias;
     for (&user_threads[thread_index].socket_fd_aliases) |*alias|
         if (alias.used and alias.fd == @as(u32, @intCast(fd))) return alias;
     return null;
@@ -4570,8 +4599,9 @@ fn socketIndexForThread(thread_index: usize, fd: u64) ?usize {
         return if (index < sockets.len and sockets[index].allocated) index else null;
     }
     if (fd < 3) {
-        if (user_threads[thread_index].stdio_sockets[@intCast(fd)]) |index| return index;
         const workspace = user_threads[thread_index].workspace_id;
+        if (workspace_stdio_sockets[workspace][@intCast(fd)]) |index| return index;
+        if (user_threads[thread_index].stdio_sockets[@intCast(fd)]) |index| return index;
         for (user_threads) |peer| {
             if (peer.workspace_id == workspace) {
                 if (peer.stdio_sockets[@intCast(fd)]) |index| return index;
@@ -4632,6 +4662,12 @@ fn allocateSocketAlias(thread_index: usize, source: usize, minimum: u64, cloexec
                 break;
             }
         }
+        for (&workspace_fd_aliases[workspace]) |*workspace_alias| {
+            if (!workspace_alias.used) {
+                workspace_alias.* = .{ .fd = @intCast(fd), .socket_index = @intCast(source), .close_on_exec = cloexec, .used = true };
+                break;
+            }
+        }
         if (workspace_socket_aliases[workspace][source] != std.math.maxInt(u8))
             workspace_socket_aliases[workspace][source] += 1;
         if (workspace_socket_ref_counts[workspace][source] != std.math.maxInt(u16))
@@ -4686,6 +4722,12 @@ fn installSocketAliasAt(thread_index: usize, source: usize, fd: u64) ?u64 {
             }
         }
     }
+    for (&workspace_fd_aliases[workspace]) |*workspace_alias| {
+        if (!workspace_alias.used) {
+            workspace_alias.* = .{ .fd = @intCast(fd), .socket_index = @intCast(source), .close_on_exec = false, .used = true };
+            break;
+        }
+    }
     if (workspace_socket_aliases[workspace][source] != std.math.maxInt(u8))
         workspace_socket_aliases[workspace][source] += 1;
     if (workspace_socket_ref_counts[workspace][source] != std.math.maxInt(u16))
@@ -4706,6 +4748,10 @@ fn closeSocketAlias(thread_index: usize, alias: *SocketFdAlias) void {
             if (peer_alias.used and peer_alias.fd == fd and peer_alias.socket_index == index)
                 peer_alias.used = false;
         }
+    }
+    for (&workspace_fd_aliases[workspace]) |*workspace_alias| {
+        if (workspace_alias.used and workspace_alias.fd == fd and workspace_alias.socket_index == index)
+            workspace_alias.* = .{};
     }
     if (workspace_socket_aliases[workspace][index] != 0)
         workspace_socket_aliases[workspace][index] -= 1;

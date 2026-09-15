@@ -547,6 +547,12 @@ um `wait4` acordado retome seu frame na próxima troca cooperativa. O smoke
 básico continua passando; o probe de `push` não mudou e ainda não conclui o
 handshake, mantendo P1 aberto.
 
+Atualização: a tabela de descritores no nível do workspace passou a ser a
+fonte de verdade para aliases e stdio, em vez de depender apenas dos caches de
+threads. Fork/exec agora clonam esse namespace, e resolução/close/exec limpam
+as entradas compartilhadas. O gate host, os testes e o smoke QEMU passam; o
+probe de `push` ainda não conclui o handshake, portanto P1 permanece aberto.
+
 ---
 
 # P2 — Bare-metal e Alpine Recovery
