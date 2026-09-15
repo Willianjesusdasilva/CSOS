@@ -4440,7 +4440,12 @@ fn socketIndexForThread(thread_index: usize, fd: u64) ?usize {
     if (fd < socket_fd_base or fd >= socket_fd_base + sockets.len) return null;
     const slot: usize = @intCast(fd - socket_fd_base);
     const workspace = user_threads[thread_index].workspace_id;
-    const index: usize = user_threads[thread_index].socket_fd_map[slot] orelse slot;
+    // High descriptors are process/workspace-owned.  Never infer identity
+    // from the global socket slot: after fork/close that numeric fd may have
+    // been reused by another workspace, and the old fallback would silently
+    // connect unrelated pipe endpoints.  Every valid direct descriptor is
+    // published into this map by socket()/socketpair()/fork().
+    const index: usize = user_threads[thread_index].socket_fd_map[slot] orelse return null;
     if (!sockets[index].allocated) return null;
     if (workspace_socket_refs[workspace][index] or user_threads[thread_index].direct_socket_refs[index]) return index;
     for (user_threads) |peer| {
