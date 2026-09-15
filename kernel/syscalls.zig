@@ -1549,10 +1549,17 @@ fn socketHasPublishedIdentity(index: usize) bool {
 }
 
 fn releaseSocketRef(index: usize) void {
+    // A peer observes EOF only after the final reference to this endpoint is
+    // gone.  Published namespace entries are bookkeeping, not ownership: a
+    // fork/exec boundary can temporarily have a real reference that is not
+    // represented in one of those maps.  Closing the peer while `refs` is
+    // still non-zero truncates a pipe stream and is precisely the failure
+    // mode Git reports as a bad pack header.
     if (sockets[index].refs > 1) {
         sockets[index].refs -= 1;
-        if (socketHasPublishedIdentity(index)) return;
+        return;
     }
+    if (sockets[index].refs == 0) return;
     if (sockets[index].peer_index) |peer| {
         sockets[peer].peer_closed = true;
         for (&user_threads) |*thread| {
