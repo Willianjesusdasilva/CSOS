@@ -188,7 +188,6 @@ pub fn runGitRuntime(kernel_root: u64, pages: *physical.Allocator) !void {
     const revision_arguments = [_][]const u8{"/bin/git", "--git-dir=/data/repo8", "rev-parse", "--verify", "HEAD"};
     try runGitCommand(kernel_root, pages, &revision_arguments);
     const history_arguments = [_][]const u8{"/bin/git", "--git-dir=/data/repo8", "rev-list", "--count", "HEAD"};
-    try runGitCommand(kernel_root, pages, &history_arguments);
     return runGitCommand(kernel_root, pages, &history_arguments);
 }
 

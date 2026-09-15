@@ -306,6 +306,10 @@ var user_threads: [16]UserThread = @splat(.{});
 // the authoritative inherited descriptor view.
 var workspace_socket_refs: [16][32]bool = .{.{false} ** 32} ** 16;
 var workspace_socket_cloexec: [16][32]bool = .{.{false} ** 32} ** 16;
+// Total aliases (high descriptors plus stdin/stdout/stderr) owned by each
+// process workspace. The boolean table above only describes high fds; this
+// ledger is the refcount source used by fork/close/exec.
+var workspace_socket_aliases: [16][32]u8 = .{.{0} ** 32} ** 16;
 var current_thread: usize = 0;
 var current_pid: u32 = 1;
 var pending_clone: ?struct { slot: usize, stack: u64, tls: u64, process_child: bool, entry: u64, clone_child: bool } = null;
@@ -435,10 +439,8 @@ fn cloneThread(flags: u64, stack: u64, parent_tid: u64, child_tid: u64, tls: u64
                 // namespace, while stdio has three independent aliases.
                 // Count every inherited alias: dup2() commonly leaves the
                 // original CLOEXEC fd alongside a non-CLOEXEC stdio fd.
-                var inherited_refs: u16 = @intFromBool(user_threads[slot].direct_socket_refs[index]);
-                for (user_threads[slot].stdio_sockets) |entry| {
-                    if (entry == index) inherited_refs += 1;
-                }
+                const parent_workspace = user_threads[current_thread].workspace_id;
+                const inherited_refs: u16 = workspace_socket_aliases[parent_workspace][index];
                 if (inherited_refs != 0) {
                     socket_entry.refs += inherited_refs;
                     user_threads[slot].owned_socket_refs[index] = true;
@@ -465,6 +467,7 @@ fn cloneThread(flags: u64, stack: u64, parent_tid: u64, child_tid: u64, tls: u64
                 user_threads[slot].workspace_id = @intCast(child_workspace);
                 workspace_socket_refs[child_workspace] = workspace_socket_refs[user_threads[current_thread].workspace_id];
                 workspace_socket_cloexec[child_workspace] = workspace_socket_cloexec[user_threads[current_thread].workspace_id];
+                workspace_socket_aliases[child_workspace] = workspace_socket_aliases[user_threads[current_thread].workspace_id];
             }
             process_clone_hint_address = 0;
         }
@@ -614,6 +617,7 @@ pub fn configure(base: u64, size: u64, stack: u64, stack_length: u64, initial_br
     user_threads = @splat(.{});
     workspace_socket_refs = .{.{false} ** 32} ** 16;
     workspace_socket_cloexec = .{.{false} ** 32} ** 16;
+    workspace_socket_aliases = .{.{0} ** 32} ** 16;
     current_thread = 0;
     current_pid = 1;
     user_threads[0].pid = 1;
@@ -813,15 +817,23 @@ fn closeProcessSocketRefs(thread_index: usize) void {
     var fd_index: usize = 0;
     while (fd_index < user_threads[thread_index].stdio_sockets.len) : (fd_index += 1) {
         if (user_threads[thread_index].stdio_sockets[fd_index]) |socket_index| {
+            const workspace = user_threads[thread_index].workspace_id;
             user_threads[thread_index].stdio_sockets[fd_index] = null;
             user_threads[thread_index].stdio_cloexec[fd_index] = false;
             user_threads[thread_index].owned_socket_refs[socket_index] = false;
+            if (workspace_socket_aliases[workspace][socket_index] != 0)
+                workspace_socket_aliases[workspace][socket_index] -= 1;
             if (sockets[socket_index].allocated) releaseSocketRef(socket_index);
         }
     }
     for (&user_threads[thread_index].owned_socket_refs, 0..) |*owned, socket_index| {
         if (!owned.*) continue;
         owned.* = false;
+        const workspace = user_threads[thread_index].workspace_id;
+        workspace_socket_refs[workspace][socket_index] = false;
+        workspace_socket_cloexec[workspace][socket_index] = false;
+        if (workspace_socket_aliases[workspace][socket_index] != 0)
+            workspace_socket_aliases[workspace][socket_index] -= 1;
         if (sockets[socket_index].allocated) releaseSocketRef(socket_index);
     }
 }
@@ -853,6 +865,7 @@ pub fn releaseWorkspaceSockets(workspace: u8) void {
     }
     workspace_socket_refs[workspace] = .{false} ** 32;
     workspace_socket_cloexec[workspace] = .{false} ** 32;
+    workspace_socket_aliases[workspace] = .{0} ** 32;
 }
 
 /// Restore the non-GPR execution state saved for a parent while its process
@@ -1324,6 +1337,8 @@ fn clearWorkspaceDirectSocket(owner: usize, index: usize) void {
     const workspace = user_threads[owner].workspace_id;
     workspace_socket_refs[workspace][index] = false;
     workspace_socket_cloexec[workspace][index] = false;
+    if (workspace_socket_aliases[workspace][index] != 0)
+        workspace_socket_aliases[workspace][index] -= 1;
     for (&user_threads) |*peer| {
         if (peer.workspace_id != workspace) continue;
         peer.direct_socket_refs[index] = false;
@@ -1334,6 +1349,8 @@ fn clearWorkspaceDirectSocket(owner: usize, index: usize) void {
 
 fn clearWorkspaceStdioSocket(owner: usize, index: usize, fd: usize) void {
     const workspace = user_threads[owner].workspace_id;
+    if (workspace_socket_aliases[workspace][index] != 0)
+        workspace_socket_aliases[workspace][index] -= 1;
     for (&user_threads) |*peer| {
         if (peer.workspace_id != workspace) continue;
         if (peer.stdio_sockets[fd] == index) {
@@ -1347,6 +1364,8 @@ fn publishDirectSocket(owner: usize, index: usize, cloexec: bool) void {
     const owner_workspace = user_threads[owner].workspace_id;
     workspace_socket_refs[owner_workspace][index] = true;
     workspace_socket_cloexec[owner_workspace][index] = cloexec;
+    if (workspace_socket_aliases[owner_workspace][index] != std.math.maxInt(u8))
+        workspace_socket_aliases[owner_workspace][index] += 1;
     for (&user_threads) |*peer| {
         if (peer.workspace_id != owner_workspace) continue;
         peer.direct_socket_refs[index] = true;
@@ -1359,18 +1378,21 @@ pub fn closeOnExecSockets() void {
     while (index < sockets.len) : (index += 1) {
         if (!sockets[index].allocated) continue;
         const workspace = user_threads[current_thread].workspace_id;
-        var should_close = workspace_socket_refs[workspace][index] and
-            workspace_socket_cloexec[workspace][index];
-        for (user_threads[current_thread].stdio_sockets, 0..) |entry, fd| {
-            if (entry == index and user_threads[current_thread].stdio_cloexec[fd]) should_close = true;
-        }
-        if (should_close) {
+        if (workspace_socket_refs[workspace][index] and workspace_socket_cloexec[workspace][index]) {
             releaseSocketRef(index);
             user_threads[current_thread].direct_socket_refs[index] = false;
             user_threads[current_thread].direct_socket_cloexec[index] = false;
             user_threads[current_thread].owned_socket_refs[index] = false;
             workspace_socket_refs[workspace][index] = false;
             workspace_socket_cloexec[workspace][index] = false;
+            if (workspace_socket_aliases[workspace][index] != 0)
+                workspace_socket_aliases[workspace][index] -= 1;
+        }
+        for (user_threads[current_thread].stdio_sockets, 0..) |entry, fd| {
+            if (entry == index and user_threads[current_thread].stdio_cloexec[fd]) {
+                clearWorkspaceStdioSocket(current_thread, index, fd);
+                releaseSocketRef(index);
+            }
         }
     }
 }
@@ -1404,6 +1426,9 @@ fn duplicate(old_fd: u64, new_fd: u64) u64 {
             // not mutate the backing socket or the parent's descriptor.
             user_threads[current_thread].stdio_cloexec[@intCast(new_fd)] = false;
             user_threads[current_thread].stdio_sockets[@intCast(new_fd)] = source;
+            const workspace = user_threads[current_thread].workspace_id;
+            if (workspace_socket_aliases[workspace][source] != std.math.maxInt(u8))
+                workspace_socket_aliases[workspace][source] += 1;
             return new_fd;
         }
     }
