@@ -4712,21 +4712,6 @@ fn exitThread(status: u64) u64 {
     if (!user_threads_enabled) return exitSyscall(status);
     const thread = &user_threads[current_thread];
     thread.exit_status = status;
-    if (thread.kind == .process_child) {
-        closeProcessSocketRefs(current_thread);
-    }
-    if (thread.kind == .process_child) {
-        for (&user_threads) |*parent| {
-            if (parent.state != .blocked or parent.wait_child_pid == 0) continue;
-            if (parent.wait_child_pid != ~@as(u64, 0) and parent.wait_child_pid != thread.pid) continue;
-            parent.pending_wait_status = @truncate(status & 0xff);
-            parent.pending_wait_address = parent.wait_status;
-            parent.result = thread.pid;
-            parent.wait_child_pid = 0;
-            parent.wait_status = 0;
-            parent.state = .runnable;
-        }
-    }
     if (thread.clear_tid != 0 and validUserSlice(thread.clear_tid, 4)) {
         @as(*align(1) u32, @ptrFromInt(thread.clear_tid)).* = 0;
         _ = wakeUserThreads(thread.clear_tid, ~@as(u64, 0));
@@ -4741,6 +4726,24 @@ fn exitThread(status: u64) u64 {
         }
     }
     if (!workspace_has_live_thread) {
+        // A process owns one descriptor table for its whole workspace. Do
+        // not reap it when only the leader thread exits: detached helpers may
+        // still be using the transport and must keep their endpoints alive.
+        // The final thread performs the single workspace-wide close and is
+        // the only point at which wait4 may observe process termination.
+        if (thread.kind == .process_child) {
+            releaseWorkspaceSockets(thread.workspace_id);
+            for (&user_threads) |*parent| {
+                if (parent.state != .blocked or parent.wait_child_pid == 0) continue;
+                if (parent.wait_child_pid != ~@as(u64, 0) and parent.wait_child_pid != thread.pid) continue;
+                parent.pending_wait_status = @truncate(status & 0xff);
+                parent.pending_wait_address = parent.wait_status;
+                parent.result = thread.pid;
+                parent.wait_child_pid = 0;
+                parent.wait_status = 0;
+                parent.state = .runnable;
+            }
+        }
         workspace_done[thread.workspace_id] = true;
         workspace_exit_status[thread.workspace_id] = @truncate(status & 0xff);
         // Only the top-level image owns the global run loop. A process child
