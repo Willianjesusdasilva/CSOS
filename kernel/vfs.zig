@@ -412,6 +412,19 @@ pub fn openAt(directory_fd_in: i64, path: []const u8, flags: u64) !usize {
     var trimmed_length = path.len;
     while (trimmed_length > 1 and path[trimmed_length - 1] == '/') : (trimmed_length -= 1) {}
     if (trimmed_length != path.len) return openAt(directory_fd_in, path[0..trimmed_length], flags);
+    // Git's quarantine paths use `/./...` as an absolute spelling of a path
+    // relative to the repository cwd.  Preserve that contract per workspace;
+    // treating it as the FAT root would put incoming objects in `/objects`
+    // instead of `<repo>/objects` and makes receive-pack finish without a
+    // resolvable ref.
+    if (path.len > 3 and std.mem.startsWith(u8, path, "/./")) {
+        var resolved: [256]u8 = undefined;
+        const cwd = currentWorkingDirectory();
+        if (cwd.len + path.len - 2 > resolved.len) return error.NameTooLong;
+        @memcpy(resolved[0..cwd.len], cwd);
+        @memcpy(resolved[cwd.len .. cwd.len + path.len - 2], path[2..]);
+        return openAt(directory_fd_in, resolved[0 .. cwd.len + path.len - 2], flags);
+    }
     // Route /nix through the alternate FAT volume while reusing the same
     // path resolver.  The descriptor is pinned before the temporary route is
     // restored, so subsequent reads never fall back to /system.

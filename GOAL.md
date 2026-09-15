@@ -465,6 +465,14 @@ runtime Git completo (`init`, `add`, `commit`, `status`, `rev-parse` e
 termina em `fatal: Needed a single revision` sem criar a ref remota, portanto o
 gate P1 permanece aberto.
 
+Atualização: o lifecycle de sockets agora limpa a tabela publicada quando um
+workspace é reapedado, e a troca cooperativa ativa o workspace antes de
+aplicar o `cwd`, evitando que um filho altere a tabela VFS do pai. O resolvedor
+também trata o prefixo Git `/./...` relativo ao diretório corrente do
+workspace. `zig build test`, o smoke gráfico e o runtime Git básico passam no
+QEMU; o handshake final de `receive-pack` ainda precisa ser concluído antes
+de fechar P1.
+
 ---
 
 # P2 — Bare-metal e Alpine Recovery

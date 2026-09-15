@@ -557,8 +557,8 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
         if (selected) |slot| {
             current_thread = slot;
             current_pid = user_threads[slot].pid;
-            _ = vfs.changeDirectory(user_threads[slot].cwd[0..user_threads[slot].cwd_len]) catch {};
             if (workspace_activate_hook) |hook| hook(user_threads[slot].workspace_id);
+            _ = vfs.changeDirectory(user_threads[slot].cwd[0..user_threads[slot].cwd_len]) catch {};
             completePendingSocketRead(slot);
             completePendingPoll(slot);
             completePendingWaitStatus(slot);
@@ -833,6 +833,26 @@ pub fn closeProcessSocketsForPid(pid: u32) void {
     if (pid == 0) return;
     const thread_index: usize = @intCast(pid - 1);
     closeProcessSocketRefs(thread_index);
+}
+
+/// Drop the workspace's descriptor namespace after its process has been
+/// reaped. `closeProcessSocketRefs` releases aliases owned by the child, but
+/// the workspace publication tables are separate from the per-thread cache;
+/// leaving them populated makes a recycled workspace inherit stale pipe
+/// identities and can keep a Git receive-pack transport alive indefinitely.
+pub fn releaseWorkspaceSockets(workspace: u8) void {
+    if (workspace >= 16) return;
+    for (&user_threads, 0..) |*thread, thread_index| {
+        if (thread.workspace_id != workspace) continue;
+        closeProcessSocketRefs(thread_index);
+        thread.direct_socket_refs = .{false} ** 32;
+        thread.direct_socket_cloexec = .{false} ** 32;
+        thread.stdio_sockets = .{ null, null, null };
+        thread.stdio_cloexec = .{ false, false, false };
+        thread.owned_socket_refs = .{false} ** 32;
+    }
+    workspace_socket_refs[workspace] = .{false} ** 32;
+    workspace_socket_cloexec[workspace] = .{false} ** 32;
 }
 
 /// Restore the non-GPR execution state saved for a parent while its process

@@ -188,6 +188,7 @@ pub fn runGitRuntime(kernel_root: u64, pages: *physical.Allocator) !void {
     const revision_arguments = [_][]const u8{"/bin/git", "--git-dir=/data/repo8", "rev-parse", "--verify", "HEAD"};
     try runGitCommand(kernel_root, pages, &revision_arguments);
     const history_arguments = [_][]const u8{"/bin/git", "--git-dir=/data/repo8", "rev-list", "--count", "HEAD"};
+    try runGitCommand(kernel_root, pages, &history_arguments);
     return runGitCommand(kernel_root, pages, &history_arguments);
 }
 
@@ -434,6 +435,7 @@ fn releaseProcessWorkspace(id: u8) callconv(.c) void {
     if (id >= loader_workspaces.len) return;
     const workspace = &loader_workspaces[id];
     if (!workspace.leased) return;
+    syscalls.releaseWorkspaceSockets(workspace.pool_id);
     vfs.releaseWorkspace(workspace.pool_id);
     paging.activateRoot(workspace.image_space.root);
     if (workspace.address_space) |address_space| address_space.destroy();
