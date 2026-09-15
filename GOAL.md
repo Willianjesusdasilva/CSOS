@@ -456,6 +456,15 @@ arquivos relativos aninhados com `O_CREAT` e mapear locks de branches para
 aliases FAT válidos. Os testes continuam passando; o `push` completo ainda
 não cria a ref remota, portanto P1 permanece aberto.
 
+Atualização: foi adicionado um gate isolado de ownership de descritores que
+valida dois pipes, `fork`, `dup2`, `exec`/`CLOEXEC`, comunicação nos dois
+sentidos, `close`, refcount e `waitpid`; ele passa no `zig build test`. O VFS
+agora mantém snapshots de descritores e diretório corrente por workspace, e o
+runtime Git completo (`init`, `add`, `commit`, `status`, `rev-parse` e
+`rev-list`) volta a passar no QEMU com o ELF Git real. O `git push` local ainda
+termina em `fatal: Needed a single revision` sem criar a ref remota, portanto o
+gate P1 permanece aberto.
+
 ---
 
 # P2 — Bare-metal e Alpine Recovery
