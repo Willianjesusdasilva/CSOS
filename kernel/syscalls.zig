@@ -1409,10 +1409,26 @@ fn writeKernel(fd: u64, bytes: []const u8) !usize {
     return bytes.len;
 }
 
+fn socketHasPublishedIdentity(index: usize) bool {
+    for (workspace_socket_fd_map) |workspace_map| {
+        for (workspace_map) |mapped| if (mapped == index) return true;
+    }
+    for (workspace_socket_aliases) |workspace_aliases| {
+        if (workspace_aliases[index] != 0) return true;
+    }
+    for (user_threads) |thread| {
+        if (thread.stdio_sockets[0] == index or thread.stdio_sockets[1] == index or thread.stdio_sockets[2] == index)
+            return true;
+        if (thread.direct_socket_refs[index] or thread.owned_socket_refs[index]) return true;
+        for (thread.socket_fd_aliases) |alias| if (alias.used and alias.socket_index == index) return true;
+    }
+    return false;
+}
+
 fn releaseSocketRef(index: usize) void {
     if (sockets[index].refs > 1) {
         sockets[index].refs -= 1;
-        return;
+        if (socketHasPublishedIdentity(index)) return;
     }
     if (sockets[index].peer_index) |peer| {
         sockets[peer].peer_closed = true;
