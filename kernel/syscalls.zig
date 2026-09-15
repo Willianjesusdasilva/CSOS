@@ -4597,7 +4597,11 @@ fn completePendingSocketRead(thread_index: usize) void {
     if (thread_index >= user_threads.len) return;
     const thread = &user_threads[thread_index];
     const index = thread.pending_read_socket orelse return;
-    if (thread.pending_read_eof) {
+    // EOF is a state of the stream, not a priority over bytes already
+    // buffered.  A producer may close immediately after its final write;
+    // deliver that buffered data first and only complete the blocked read
+    // with zero once the queue is empty.
+    if (thread.pending_read_eof and sockets[index].local_len == 0) {
         thread.pending_read_socket = null;
         thread.pending_read_address = 0;
         thread.pending_read_length = 0;
