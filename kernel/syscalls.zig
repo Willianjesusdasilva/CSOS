@@ -3812,6 +3812,7 @@ fn chdir(address: u64) u64 {
     const length = @min(current.len, thread.cwd.len);
     @memcpy(thread.cwd[0..length], current[0..length]);
     thread.cwd_len = length;
+    vfs.setWorkspaceDirectory(thread.workspace_id, thread.cwd[0..length]);
     return 0;
 }
 

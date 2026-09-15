@@ -296,6 +296,15 @@ pub fn activateWorkspace(id: u8) void {
     active_workspace = id;
 }
 
+/// Publish a cwd change immediately, even when the syscall was issued by a
+/// sibling thread whose workspace table is not the currently active VFS slot.
+pub fn setWorkspaceDirectory(id: u8, path: []const u8) void {
+    if (id >= max_workspaces or path.len == 0 or path.len > 256) return;
+    @memset(&workspace_directory_path[id], 0);
+    @memcpy(workspace_directory_path[id][0..path.len], path);
+    workspace_directory_length[id] = path.len;
+}
+
 pub fn releaseWorkspace(id: u8) void {
     if (id >= max_workspaces) return;
     if (id == active_workspace) {
