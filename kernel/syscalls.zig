@@ -958,7 +958,26 @@ pub fn finishProcessChild(pid: u32, status: u8) ?UserResume {
         // The process descriptor table is owned by the workspace. Releasing
         // only the leader's cache leaves helper-thread copies alive and can
         // prevent pipe EOF from reaching the waiting parent.
-        releaseWorkspaceSockets(child.workspace_id);
+        const child_workspace = child.workspace_id;
+        for (&user_threads) |*peer| {
+            if (peer.workspace_id != child_workspace or peer.pid == pid) continue;
+            // exec replaces the entire process image. Old pthread helpers
+            // must not remain blocked on the scheduler after the leader has
+            // returned from its replacement image.
+            peer.exec_request = null;
+            peer.pending_read_socket = null;
+            peer.pending_read_address = 0;
+            peer.pending_read_length = 0;
+            peer.pending_read_eof = false;
+            peer.pending_write_socket = null;
+            peer.pending_write_address = 0;
+            peer.pending_write_length = 0;
+            peer.pending_poll_address = 0;
+            peer.pending_poll_count = 0;
+            peer.pending_poll_sockets = .{false} ** 32;
+            peer.state = .exited;
+        }
+        releaseWorkspaceSockets(child_workspace);
         child.exit_status = status;
         child.state = .exited;
         const parent = &user_threads[child.parent_slot];
