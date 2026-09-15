@@ -670,6 +670,18 @@ a alcançar `CSOS Git runtime ready` no QEMU. O `git push` real agora chega ao
 aberto e o próximo diagnóstico deve seguir a entrada/execução desse helper e
 o segundo pipe.
 
+Atualização: o contrato VFS agora preserva `.` e caminhos contendo `/./` em
+relação ao diretório corrente do workspace, incluindo `GIT_DIR=.` e o
+quarantine de objetos. `fstat`/`fstatfs` também identificam pipes como
+descritores de stream. No QEMU, o `unpack-objects` passou a drenar o pack,
+escrever os objetos e terminar com status zero; o `rev-list` subsequente
+também termina com status zero. O loader agora detecta workspaces execados
+concluídos no loop externo e evita que uma pthread auxiliar encerre o loader
+top-level. `zig build test` e o smoke Git normal continuam verdes. O marcador
+final do `git push`/retomada do `receive-pack` ainda não foi observado, então
+P1 permanece aberto; o próximo diagnóstico é a continuação do parent após o
+`wait4` do `rev-list`.
+
 ---
 
 # P2 — Bare-metal e Alpine Recovery
