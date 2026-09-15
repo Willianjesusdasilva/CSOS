@@ -586,6 +586,16 @@ os objetos foram transferidos, a árvore foi materializada e a revisão
 é apenas o syscall 38 não implementado; `git pull` em uma árvore existente e
 reboot ainda precisam ser validados antes de fechar P1.
 
+Atualização: o marcador de boot passou a declarar explicitamente
+`CSOS Git system checkout revision active`. O teste final em dois boots QEMU
+observou o `Fast-forward`, a revisão puxada
+`86ae4bab028200c7dbc6cd3f38007af68b8772d` e o mesmo `HEAD` no segundo boot,
+seguido pelo marcador de checkout ativo. Com o gate isolado de descritores,
+`zig build test`, `push` real e o fluxo `pull → reboot` já validados, P1 está
+concluído em QEMU. A instalação física e o carregamento do kernel a partir de
+um disco real continuam pertencendo ao gate P2/hardware, não bloqueiam mais o
+fluxo Git do CSOS.
+
 Atualização: aliases FAT para refs auxiliares (`ORIG_HEAD.lock`,
 `FETCH_HEAD.lock`, `MERGE_HEAD.lock` e `CHERRY_PICK_HEAD.lock`) completaram o
 fluxo de atualização. O probe QEMU `push → clone --branch main → pull

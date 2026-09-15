@@ -709,7 +709,7 @@ pub fn start(info: BootInfo) noreturn {
             panic("upstream Git runtime failed");
         };
         mapper.activate();
-        serial.write("CSOS Git revision verified from /data/repo8\n");
+        serial.write("CSOS Git system checkout revision active\n");
         serial.write("CSOS Git runtime ready\n");
     }
     process.runUiRuntime(mapper.root, &pages) catch |err| {
