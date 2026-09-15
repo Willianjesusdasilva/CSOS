@@ -340,6 +340,12 @@ var deferred_process_children: u16 = 0;
 // Keep this separate from process children: the latter are deferred until a
 // parent blocks, while a new helper thread is part of the same workspace.
 var deferred_user_threads: u16 = 0;
+var active_user_thread: ?usize = null;
+// A pthread clone is created while the caller still owns musl's thread-list
+// lock.  Let the caller return through one syscall boundary before selecting
+// the new thread, otherwise the child can enter pthread bookkeeping too early
+// and spin on a lock that the parent has not released yet.
+var defer_user_thread_switch: bool = false;
 var thread_switch_requested: bool = false;
 var workspace_clone_hook: ?*const fn (u8, u32) callconv(.c) u16 = null;
 var workspace_activate_hook: ?*const fn (u8) callconv(.c) void = null;
@@ -388,10 +394,10 @@ fn wakeUserThreads(address: u64, maximum: u64) u64 {
 }
 
 // Linux x86-64 clone(2) arguments are flags, child_stack, parent_tid,
-// tls, child_tid. Keep this order explicit: swapping tls/ctid makes a new
+// child_tid, tls. Keep this order explicit: swapping tls/ctid makes a new
 // pthread inherit the child-tid address as FS and hang before its first
 // userspace syscall.
-fn cloneThread(flags: u64, stack: u64, parent_tid: u64, tls: u64, child_tid: u64, clone_entry: u64) u64 {
+fn cloneThread(flags: u64, stack: u64, parent_tid: u64, child_tid: u64, tls: u64, clone_entry: u64) u64 {
     serial.write("userspace clone flags: "); serial.writeDecimal(flags); serial.write("\n");
     // musl pthread_create flags, plus the Linux fork form (SIGCHLD) used by
     // Git and other runtimes to create a process child before execve.
@@ -565,6 +571,13 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
     old.frame = captureRawSyscallFrame(frame); old.rsp = syscall_user_rsp; old.result = result;
     old.fs = readMsr(0xc0000100);
     asm volatile ("fxsave64 (%[p])" : : [p] "r" (&old.fx) : .{ .memory = true });
+    if (active_user_thread) |slot| {
+        if (slot == current_thread and old.state != .runnable) active_user_thread = null;
+    }
+    if (defer_user_thread_switch and pending_clone == null) {
+        defer_user_thread_switch = false;
+        thread_switch_requested = true;
+    }
     if (old.exec_request != null) exec_pause_requested = true;
     var created_process_child = false;
     if (pending_clone) |child| {
@@ -590,10 +603,12 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
                 // __clone pop/call sequence in userspace would leave the
                 // saved return frame dependent on caller register state.
                 // The callback argument is the word written by __clone at
-                // the supplied child stack; skip it when entering directly.
+                // the supplied child stack.  Keep the kernel-visible stack
+                // value: it is already 8 mod 16, the ABI alignment expected
+                // at a normal C function entry after a call instruction.
                 user_threads[child.slot].frame[0] = child.entry;
                 user_threads[child.slot].frame[9] = read64(@as([*]const u8, @ptrFromInt(child.stack)));
-                user_threads[child.slot].rsp = child.stack + 8;
+                user_threads[child.slot].rsp = child.stack;
             }
         }
         user_threads[child.slot].fs = if (child.process_child) old.fs else child.tls;
@@ -610,7 +625,8 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
             thread_switch_requested = child.clone_child;
         } else {
             deferred_user_threads |= @as(u16, 1) << @intCast(child.slot);
-            thread_switch_requested = true;
+            active_user_thread = child.slot;
+            defer_user_thread_switch = true;
         }
     }
     if (!created_process_child and deferred_process_children != 0 and old.state == .runnable) {
@@ -642,6 +658,20 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
                 // Skip deferred-child selection below; the waiter owns the
                 // next syscall-return boundary and completes its status when
                 // activated.
+            } else {
+            // Keep a freshly-created pthread on the CPU until it reaches its
+            // first blocking boundary.  The parent may already be waiting on
+            // the pipe it owns, and selecting that waiter after one signal
+            // mask syscall would recreate the starvation race.
+            if (active_user_thread) |thread_slot| {
+                if (user_threads[thread_slot].state == .runnable) {
+                    selected = thread_slot;
+                } else {
+                    active_user_thread = null;
+                }
+            }
+            if (selected != null) {
+                // The new helper remains preferred until it blocks/exits.
             } else {
             // A socket/poll wakeup carries a saved userspace frame that must
             // consume the newly available bytes before another runnable
@@ -704,6 +734,7 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
                     const slot = (current_thread + step) % user_threads.len;
                     if (user_threads[slot].state == .runnable) { selected = slot; break; }
                 }
+            }
             }
             }
             }
@@ -787,6 +818,8 @@ pub fn configure(base: u64, size: u64, stack: u64, stack_length: u64, initial_br
     pending_clone = null;
     deferred_process_children = 0;
     deferred_user_threads = 0;
+    active_user_thread = null;
+    defer_user_thread_switch = false;
     thread_switch_requested = false;
     workspace_clone_hook = null;
     workspace_activate_hook = null;
