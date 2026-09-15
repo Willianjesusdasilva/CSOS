@@ -719,6 +719,13 @@ futex continuam verdes. Isso melhora a semântica genérica de lifecycle, mas
 não fecha P1: o `git push` real ainda precisa concluir o transporte e a
 retomada userspace.
 
+Atualização (2026-09-15): o gate anterior de P1 permanece fechado. Como avanço
+posterior no roadmap, o probe upstream de GLib foi executado no QEMU e
+completou `GMainLoop` com `g_timeout_add`, emitindo
+`CSOS upstream GLib event-loop/timer PASS`. O event loop real está validado; o
+próximo requisito do caminho WebKit é iniciar o processo WPE e completar seu
+IPC, não reimplementar o loop no kernel.
+
 Atualização: o vetor de timer agora possui um `IST1` dedicado no TSS, isolado
 do `rsp0` usado pelo launcher/`syscall_entry`. O boot normal e o smoke Git
 continuam verdes; isso estabelece a infraestrutura segura para uma futura

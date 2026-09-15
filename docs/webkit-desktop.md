@@ -144,6 +144,12 @@ e `read()==1`, emitindo `CSOS WebKit prerequisite PASS: eventfd/poll` antes
 dos testes de threads. A evidência está em
 `zig-out/smoke-77ee2b5b060242629416990a2cf84fe1.serial.log`.
 
+Atualização (2026-09-15): o probe upstream `glib-runtime-probe` foi executado
+dentro do CSOS no QEMU e completou `GMainLoop` com `g_timeout_add`, emitindo
+`CSOS upstream GLib event-loop/timer PASS`. O teste não é um loop substituto:
+usa GLib compilada para o target musl e confirma o event loop/timer real. O
+próximo gate permanece o processo WPE/WebKit e seu transporte IPC.
+
 ### Dependência de build destravada: PCRE2
 
 O primeiro erro terminal do Meson foi `libpcre2-8 >= 10.32` ausente. PCRE2
