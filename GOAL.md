@@ -527,6 +527,14 @@ passam no QEMU. O probe de `push` ainda não conclui o handshake, então P1
 permanece aberto; o próximo diagnóstico deve seguir a drenagem final do
 `receive-pack` após esse encerramento atômico.
 
+Atualização: foi introduzido um ledger `u16` de referências reais por socket e
+workspace. O contador é clonado no fork, incrementado em criação/dup e
+decrementado em close; o teardown drena referências residuais antes de limpar
+o workspace. Isso elimina a perda de referências causada por representar
+aliases múltiplos apenas com um booleano. Os testes Zig passam e o smoke básico
+continua válido. O probe de `push` ainda fica aguardando antes do marcador, por
+isso P1 continua aberto.
+
 ---
 
 # P2 — Bare-metal e Alpine Recovery
