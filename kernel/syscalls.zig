@@ -620,6 +620,13 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
         if (child.process_child) {
             deferred_process_children |= @as(u16, 1) << @intCast(child.slot);
             created_process_child = true;
+            // Keep the forking thread on CPU through its post-fork cleanup
+            // (close inherited pipe ends, then publish the notify read).
+            // A sibling may already be blocked on a shared descriptor; if
+            // the child runs first it can consume bytes from the parent's
+            // still-open endpoint and truncate the second transport pipe.
+            active_user_thread = current_thread;
+            defer_user_thread_switch = true;
             // CLONE_VFORK suspends the caller until the callback has either
             // exec'd or exited; schedule that child immediately.
             thread_switch_requested = child.clone_child;
@@ -1614,6 +1621,11 @@ fn socketHasPublishedIdentity(index: usize) bool {
         for (thread.socket_fd_aliases) |alias| if (alias.used and alias.socket_index == index) return true;
     }
     return false;
+}
+
+fn workspaceDirectSlotFree(workspace: u8, index: usize) bool {
+    if (workspace >= workspace_socket_fd_map.len or index >= sockets.len) return false;
+    return workspace_socket_fd_map[workspace][index] == null;
 }
 
 fn releaseSocketRef(index: usize) void {
@@ -4363,7 +4375,7 @@ const Socket = struct {
 fn socket(domain: u64, kind: u64, protocol: u64) u64 {
     if (domain != 2 or (kind & 0xf) != 1 or (kind & ~@as(u64, 0x80801)) != 0 or (protocol != 0 and protocol != 6)) return errno(97);
     for (&sockets, 0..) |*entry, index| {
-        if (!entry.allocated) {
+        if (!entry.allocated and workspaceDirectSlotFree(user_threads[current_thread].workspace_id, index)) {
             entry.* = .{ .allocated = true, .refs = 1, .close_on_exec = (kind & 0x80000) != 0, .nonblocking = (kind & 0x800) != 0 };
             publishDirectSocket(current_thread, index, (kind & 0x80000) != 0);
             return socket_fd_base + index;
@@ -4384,7 +4396,7 @@ fn socketPair(domain: u64, kind: u64, protocol: u64, output: u64) u64 {
     var first: ?usize = null;
     var second: ?usize = null;
     for (&sockets, 0..) |*entry, index| {
-        if (!entry.allocated) {
+        if (!entry.allocated and workspaceDirectSlotFree(user_threads[current_thread].workspace_id, index)) {
             if (first == null) first = index else { second = index; break; }
         }
     }
