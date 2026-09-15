@@ -393,6 +393,56 @@ fn wakeUserThreads(address: u64, maximum: u64) u64 {
     return count;
 }
 
+fn markRobustFutexOwnerDied(address: u64, workspace: u8, pid: u32) void {
+    if (!validUserSlice(address, 4)) return;
+    const word: *align(1) volatile u32 = @ptrFromInt(address);
+    const owner = word.*;
+    if ((owner & 0x3fff_ffff) != (pid & 0x3fff_ffff)) return;
+    word.* = owner | 0x4000_0000;
+    for (&user_threads) |*waiter| {
+        if (waiter.workspace_id != workspace or waiter.state != .blocked or
+            waiter.wait_address != address) continue;
+        waiter.state = .runnable;
+        waiter.wait_address = 0;
+        waiter.result = 0;
+        thread_switch_requested = true;
+        user_futex_wakes += 1;
+    }
+}
+
+fn releaseRobustList(thread: *const UserThread) void {
+    const head = thread.robust;
+    if (head == 0 or thread.robust_size != 24 or !validUserSlice(head, 24)) return;
+    const next_ptr: *align(1) const u64 = @ptrFromInt(head);
+    const offset_ptr: *align(1) const i64 = @ptrFromInt(head + 8);
+    const pending_ptr: *align(1) const u64 = @ptrFromInt(head + 16);
+    const offset = offset_ptr.*;
+    var node = next_ptr.*;
+    var count: usize = 0;
+    while (node != 0 and node != head and count < 128) : (count += 1) {
+        if (!validUserSlice(node, 8)) break;
+        const node_next: *align(1) const u64 = @ptrFromInt(node);
+        const robust_futex = if (offset >= 0)
+            (std.math.add(u64, node, @intCast(offset)) catch break)
+        else blk: {
+            const distance: u64 = @intCast(-offset);
+            break :blk if (node < distance) break else node - distance;
+        };
+        markRobustFutexOwnerDied(robust_futex, thread.workspace_id, thread.pid);
+        node = node_next.*;
+    }
+    const pending = pending_ptr.*;
+    if (pending != 0 and validUserSlice(pending, 8)) {
+        const robust_futex = if (offset >= 0)
+            (std.math.add(u64, pending, @intCast(offset)) catch 0)
+        else blk: {
+            const distance: u64 = @intCast(-offset);
+            break :blk if (pending < distance) 0 else pending - distance;
+        };
+        if (robust_futex != 0) markRobustFutexOwnerDied(robust_futex, thread.workspace_id, thread.pid);
+    }
+}
+
 /// A userspace thread may terminate while holding a futex-backed runtime lock.
 /// Linux's robust-thread machinery normally repairs those locks; the compact
 /// CSOS scheduler has no asynchronous signal/reaper path, so perform the same
@@ -400,6 +450,7 @@ fn wakeUserThreads(address: u64, maximum: u64) u64 {
 /// thread's workspace, and only when the futex word explicitly names that
 /// thread as its owner.  Unrelated futexes and other workspaces are untouched.
 fn releaseOwnedFutexesOnExit(thread: *const UserThread) void {
+    releaseRobustList(thread);
     for (&user_threads) |*waiter| {
         if (waiter.workspace_id != thread.workspace_id or waiter.state != .blocked or
             waiter.wait_address == 0 or !validUserSlice(waiter.wait_address, 4)) continue;

@@ -701,6 +701,14 @@ conclusão verificável do transporte, portanto P1 permanece aberto. O próximo
 passo é fechar a retomada/join cooperativa e validar novamente a ref remota,
 `git pull` e reboot.
 
+Atualização: o reparo de saída foi ampliado para percorrer a `robust_list`
+registrada por cada thread, incluindo `list_op_pending`, marcar
+`FUTEX_OWNER_DIED` nos locks cujo TID pertence à thread encerrada e acordar
+waiters do mesmo workspace. O teste do host e o probe QEMU de pthreads/TLS/
+futex continuam verdes. Isso melhora a semântica genérica de lifecycle, mas
+não fecha P1: o `git push` real ainda precisa concluir o transporte e a
+retomada userspace.
+
 ---
 
 # P2 — Bare-metal e Alpine Recovery
