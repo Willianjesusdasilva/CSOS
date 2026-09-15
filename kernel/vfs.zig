@@ -899,6 +899,14 @@ pub fn truncate(fd: usize, length: usize) !void {
 }
 
 pub fn unlinkAt(directory_fd_in: i64, path: []const u8) !void {
+    if (path.len > 3 and std.mem.startsWith(u8, path, "/./")) {
+        var resolved: [256]u8 = undefined;
+        const cwd = currentWorkingDirectory();
+        if (cwd.len + path.len - 2 > resolved.len) return error.NameTooLong;
+        @memcpy(resolved[0..cwd.len], cwd);
+        @memcpy(resolved[cwd.len .. cwd.len + path.len - 2], path[2..]);
+        return unlinkAt(directory_fd_in, resolved[0 .. cwd.len + path.len - 2]);
+    }
     const directory_fd = effectiveDirectoryFd(directory_fd_in);
     if (disk) |volume| if (directory_fd >= 3 and @as(usize, @intCast(directory_fd)) < descriptors.len and
         descriptors[@intCast(directory_fd)].node == .fat_directory and path.len != 0 and path[0] != '/' and
@@ -1067,6 +1075,28 @@ pub fn rmdirAt(directory_fd_in: i64, path: []const u8) !void {
 }
 
 pub fn renameAt(directory_fd_in: i64, old_path: []const u8, new_path: []const u8) !void {
+    if ((old_path.len > 3 and std.mem.startsWith(u8, old_path, "/./")) or
+        (new_path.len > 3 and std.mem.startsWith(u8, new_path, "/./")))
+    {
+        var old_resolved: [256]u8 = undefined;
+        var new_resolved: [256]u8 = undefined;
+        const cwd = currentWorkingDirectory();
+        var old_slice = old_path;
+        var new_slice = new_path;
+        if (old_path.len > 3 and std.mem.startsWith(u8, old_path, "/./")) {
+            if (cwd.len + old_path.len - 2 > old_resolved.len) return error.NameTooLong;
+            @memcpy(old_resolved[0..cwd.len], cwd);
+            @memcpy(old_resolved[cwd.len .. cwd.len + old_path.len - 2], old_path[2..]);
+            old_slice = old_resolved[0 .. cwd.len + old_path.len - 2];
+        }
+        if (new_path.len > 3 and std.mem.startsWith(u8, new_path, "/./")) {
+            if (cwd.len + new_path.len - 2 > new_resolved.len) return error.NameTooLong;
+            @memcpy(new_resolved[0..cwd.len], cwd);
+            @memcpy(new_resolved[cwd.len .. cwd.len + new_path.len - 2], new_path[2..]);
+            new_slice = new_resolved[0 .. cwd.len + new_path.len - 2];
+        }
+        return renameAt(directory_fd_in, old_slice, new_slice);
+    }
     const directory_fd = effectiveDirectoryFd(directory_fd_in);
     if (disk) |volume| if (directory_fd >= 3 and @as(usize, @intCast(directory_fd)) < descriptors.len and
         descriptors[@intCast(directory_fd)].node == .fat_directory and old_path.len != 0 and new_path.len != 0 and
