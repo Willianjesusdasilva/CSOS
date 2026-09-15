@@ -444,6 +444,31 @@ fn cloneThread(flags: u64, stack: u64, parent_tid: u64, child_tid: u64, tls: u64
                         user_threads[slot].direct_socket_cloexec[socket_index] = peer.direct_socket_cloexec[socket_index];
                     }
                 }
+                // Consolidate the complete descriptor identity, not only
+                // the presence bit. A sibling may have performed socket()
+                // or dup2() after the caller's local snapshot was taken.
+                for (peer.socket_fd_map, 0..) |mapped, fd_slot| {
+                    if (mapped != null)
+                        user_threads[slot].socket_fd_map[fd_slot] = mapped;
+                }
+                for (peer.socket_fd_aliases) |peer_alias| {
+                    if (!peer_alias.used) continue;
+                    var already_present = false;
+                    for (user_threads[slot].socket_fd_aliases) |child_alias| {
+                        if (child_alias.used and child_alias.fd == peer_alias.fd and
+                            child_alias.socket_index == peer_alias.socket_index) {
+                            already_present = true;
+                            break;
+                        }
+                    }
+                    if (already_present) continue;
+                    for (&user_threads[slot].socket_fd_aliases) |*child_alias| {
+                        if (!child_alias.used) {
+                            child_alias.* = peer_alias;
+                            break;
+                        }
+                    }
+                }
             }
             // A fork duplicates only descriptors visible in the process
             // table.  Incrementing every allocated socket kept unrelated
