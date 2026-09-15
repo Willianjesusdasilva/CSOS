@@ -473,6 +473,14 @@ workspace. `zig build test`, o smoke gráfico e o runtime Git básico passam no
 QEMU; o handshake final de `receive-pack` ainda precisa ser concluído antes
 de fechar P1.
 
+Atualização: o VFS agora normaliza caminhos `/./...` também em `renameat` e
+`unlinkat`, e `mkdir(".")` retorna sucesso conforme POSIX. No probe estendido,
+`receive-pack` promove `refs/heads/main.lock` para `refs/heads/main`; o bloqueio
+restante ocorre depois, ao abrir `objects/maintenance.lock`, antes de o
+processo retornar ao loader. O push real no QEMU ainda não é considerado
+concluído; o próximo gate é fechar esse wait pós-receive sem mascarar a
+manutenção automática.
+
 ---
 
 # P2 — Bare-metal e Alpine Recovery
