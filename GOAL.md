@@ -600,6 +600,14 @@ e reinicialização do caminho Git. O boot completo posterior ainda para durante
 M13 antes de `CSOS boot health ready`, e a prova de iniciar uma revisão puxada
 em vez do bootstrap atual permanece pendente para fechar P1.
 
+Atualização: o runtime Git passou a ser idempotente entre boots, preservando a
+revisão existente em vez de criar outro commit bootstrap. Em um disco novo, o
+primeiro e o segundo boot sem `-ResetDisk` retornaram o mesmo hash
+`7e594f26ab4f8fa454e0941f80db293043575517` no QEMU. O caminho
+`push → clone → pull --ff-only` também permanece validado; falta apenas ligar
+explicitamente essa revisão persistida ao checkout `/system` antes de fechar
+P1.
+
 Atualização: aliases FAT para refs auxiliares (`ORIG_HEAD.lock`,
 `FETCH_HEAD.lock`, `MERGE_HEAD.lock` e `CHERRY_PICK_HEAD.lock`) completaram o
 fluxo de atualização. O probe QEMU `push → clone --branch main → pull

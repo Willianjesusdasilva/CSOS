@@ -177,12 +177,15 @@ pub fn runGlibRuntimeProbe(kernel_root: u64, pages: *physical.Allocator) !void {
 }
 
 pub fn runGitRuntime(kernel_root: u64, pages: *physical.Allocator) !void {
-    const init_arguments = [_][]const u8{"/bin/git", "init", "--bare", "/data/repo8"};
-    try runGitCommand(kernel_root, pages, &init_arguments);
-    const add_arguments = [_][]const u8{"/bin/git", "--git-dir=/data/repo8", "--work-tree=/system", "add", "CONFIG/DEFAULTS/README.TXT"};
-    try runGitCommand(kernel_root, pages, &add_arguments);
-    const commit_arguments = [_][]const u8{"/bin/git", "-c", "user.name=CSOS", "-c", "user.email=csos@local", "--git-dir=/data/repo8", "--work-tree=/system", "commit", "--allow-empty", "-m", "bootstrap"};
-    try runGitCommand(kernel_root, pages, &commit_arguments);
+    const existing_revision = vfs.infoAt(-100, "/data/repo8/refs/heads/master") catch null;
+    if (existing_revision == null) {
+        const init_arguments = [_][]const u8{"/bin/git", "init", "--bare", "/data/repo8"};
+        try runGitCommand(kernel_root, pages, &init_arguments);
+        const add_arguments = [_][]const u8{"/bin/git", "--git-dir=/data/repo8", "--work-tree=/system", "add", "CONFIG/DEFAULTS/README.TXT"};
+        try runGitCommand(kernel_root, pages, &add_arguments);
+        const commit_arguments = [_][]const u8{"/bin/git", "-c", "user.name=CSOS", "-c", "user.email=csos@local", "--git-dir=/data/repo8", "--work-tree=/system", "commit", "--allow-empty", "-m", "bootstrap"};
+        try runGitCommand(kernel_root, pages, &commit_arguments);
+    }
     const status_arguments = [_][]const u8{"/bin/git", "--git-dir=/data/repo8", "--work-tree=/system", "status", "--porcelain"};
     try runGitCommand(kernel_root, pages, &status_arguments);
     const revision_arguments = [_][]const u8{"/bin/git", "--git-dir=/data/repo8", "rev-parse", "--verify", "HEAD"};
