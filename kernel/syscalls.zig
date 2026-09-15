@@ -629,6 +629,24 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
                 // next syscall-return boundary and completes its status when
                 // activated.
             } else {
+            // A socket/poll wakeup carries a saved userspace frame that must
+            // consume the newly available bytes before another runnable
+            // workspace can spin.  Prioritize these I/O waiters just like
+            // wait4 waiters; otherwise a receive-pack pipe can be woken yet
+            // never resume its pending read.
+            for (0..user_threads.len) |io_slot| {
+                const io_thread = &user_threads[io_slot];
+                if (io_thread.state == .runnable and
+                    (io_thread.pending_read_socket != null or
+                        io_thread.pending_write_socket != null or
+                        io_thread.pending_poll_address != 0)) {
+                    selected = io_slot;
+                    break;
+                }
+            }
+            if (selected != null) {
+                // The I/O waiter owns the next boundary.
+            } else {
             // Once the parent has blocked (read/wait/poll), run its newly
             // forked process child before unrelated runnable threads.  Keep
             // the deferred marker until that point so an older sibling can
@@ -656,6 +674,7 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
                     const slot = (current_thread + step) % user_threads.len;
                     if (user_threads[slot].state == .runnable) { selected = slot; break; }
                 }
+            }
             }
             }
         }
@@ -1156,6 +1175,11 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         // driven by the kernel scheduler, so an unarmed alarm is the only
         // valid result in this bootstrap path.
         25 => 0,
+        // setitimer(2): the cooperative scheduler owns timer delivery. Git's
+        // pack/index helpers use this only as a watchdog; accepting the
+        // request prevents a spurious ENOSYS path from corrupting the helper
+        // protocol while leaving delivery to the existing scheduler clock.
+        38 => 0,
         28 => madvise(arg1, arg2, arg3),
         33 => duplicate(arg1, arg2),
         39 => current_pid,
