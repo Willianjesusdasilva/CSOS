@@ -660,6 +660,16 @@ threads. Fork/exec agora clonam esse namespace, e resolução/close/exec limpam
 as entradas compartilhadas. O gate host, os testes e o smoke QEMU passam; o
 probe de `push` ainda não conclui o handshake, portanto P1 permanece aberto.
 
+Atualização: a criação de sockets e pipes agora reserva o slot numérico direto
+na tabela do workspace antes de reutilizar um índice global, e o thread que
+faz `fork()` permanece ativo durante o cleanup pós-fork antes de o filho
+cooperativo ser escalonado. Isso elimina a colisão observada entre o pipe de
+notificação e o stdin do helper: `zig build test` e o smoke Git básico voltam
+a alcançar `CSOS Git runtime ready` no QEMU. O `git push` real agora chega ao
+`receive-pack`, mas `unpack-objects` ainda termina com status 128; P1 continua
+aberto e o próximo diagnóstico deve seguir a entrada/execução desse helper e
+o segundo pipe.
+
 ---
 
 # P2 — Bare-metal e Alpine Recovery
