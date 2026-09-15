@@ -108,6 +108,9 @@ test "isolated two-pipe fork dup2 exec close waitpid gate" {
     var echoed: [4]u8 = undefined;
     try std.testing.expectEqual(@as(usize, 4), try parent.read(4, &echoed));
     try std.testing.expectEqualStrings("echo", &echoed);
+    const refs_before_alias_close = b_write.refs;
+    child.close(10);
+    try std.testing.expectEqual(refs_before_alias_close - 1, b_write.refs);
     try child.install(9, &a_read, true); child.exec();
     try std.testing.expect(child.entries[9] == null);
     try std.testing.expectEqual(@as(usize, 4), try parent.write(3, "ping"));
@@ -121,7 +124,7 @@ test "isolated two-pipe fork dup2 exec close waitpid gate" {
     var state = ChildState{ .exited = true, .status = 0 };
     try std.testing.expectEqual(@as(u8, 0), try waitpid(&state));
     parent.close(3); parent.close(4); parent.close(5); parent.close(6);
-    child.close(0); child.close(1); child.close(3); child.close(4); child.close(5); child.close(6); child.close(10);
+    child.close(0); child.close(1); child.close(3); child.close(4); child.close(5); child.close(6);
     try std.testing.expectEqual(@as(usize, 0), a_read.refs);
     try std.testing.expectEqual(@as(usize, 0), a_write.refs);
     try std.testing.expectEqual(@as(usize, 0), b_read.refs);
