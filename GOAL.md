@@ -1109,6 +1109,14 @@ Atualização: a imagem FAT16 foi regenerada e montada como namespace 2 em QEMU;
 o bloqueio concreto permanece na continuação cooperativa dos inicializadores
 compartilhados após esse ponto. Portanto P4 segue aberto, mas o transporte da
 imagem e a resolução inicial do `/nix` já estão demonstrados no QEMU.
+
+Atualização: o rastreamento temporário isolou a continuação seguinte: depois de
+`Linux PT-INTERP loader ready`, o Nix chama `clone(0x7d0f00)` para criar uma
+thread; o scheduler entrega a thread filha, mas nenhum syscall posterior chega
+antes do timeout. O atraso de um boundary foi testado e removido por não
+resolver o caso. O próximo redesenho deve tratar o retorno cooperativo da
+thread/TLS e a preempção de userspace; não há novo patch específico de Git
+pendente nesse caminho.
 Isso ainda não conta como P4 concluído: o binário e os perfis precisam executar
 e sobreviver a reboot dentro do CSOS.
 
