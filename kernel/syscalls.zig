@@ -375,7 +375,11 @@ fn wakeUserThreads(address: u64, maximum: u64) u64 {
     return count;
 }
 
-fn cloneThread(flags: u64, stack: u64, parent_tid: u64, child_tid: u64, tls: u64, clone_entry: u64) u64 {
+// Linux x86-64 clone(2) arguments are flags, child_stack, parent_tid,
+// tls, child_tid. Keep this order explicit: swapping tls/ctid makes a new
+// pthread inherit the child-tid address as FS and hang before its first
+// userspace syscall.
+fn cloneThread(flags: u64, stack: u64, parent_tid: u64, tls: u64, child_tid: u64, clone_entry: u64) u64 {
     serial.write("userspace clone flags: "); serial.writeDecimal(flags); serial.write("\n");
     // musl pthread_create flags, plus the Linux fork form (SIGCHLD) used by
     // Git and other runtimes to create a process child before execve.
@@ -567,6 +571,12 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
             user_threads[child.slot].rsp = child.stack;
         } else {
             user_threads[child.slot].rsp = if (child.process_child) old.rsp else child.stack;
+            // musl's x86-64 clone wrapper keeps the thread start routine in
+            // r9 across the syscall and calls it after popping the argument
+            // from the child stack.  Reassert it in the child frame instead
+            // of relying on a caller-specific register snapshot.
+            if (!child.process_child and child.entry != 0)
+                user_threads[child.slot].frame[7] = child.entry;
         }
         user_threads[child.slot].fs = if (child.process_child) old.fs else child.tls;
         user_threads[child.slot].fx = old.fx;
