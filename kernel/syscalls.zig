@@ -339,6 +339,13 @@ var thread_switch_requested: bool = false;
 var workspace_clone_hook: ?*const fn (u8, u32) callconv(.c) u16 = null;
 var workspace_activate_hook: ?*const fn (u8) callconv(.c) void = null;
 var workspace_release_hook: ?*const fn (u8) callconv(.c) void = null;
+
+fn workspaceHasBlockedThread(workspace: u8) bool {
+    for (user_threads) |thread| {
+        if (thread.workspace_id == workspace and thread.state == .blocked) return true;
+    }
+    return false;
+}
 pub var process_clone_hint_address: u64 = 0;
 const max_exec_arguments = 32;
 const max_exec_string = 256;
@@ -629,11 +636,16 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
             for (0..user_threads.len) |child_slot| {
                 if ((deferred_process_children & (@as(u16, 1) << @intCast(child_slot))) == 0) continue;
                 const parent_slot = user_threads[child_slot].parent_slot;
-                if (parent_slot >= user_threads.len or
-                    user_threads[parent_slot].workspace_id != user_threads[child_slot].workspace_id)
+                // A forked process owns a distinct workspace descriptor
+                // table.  The parent slot is the ownership relation; the
+                // workspace ids must intentionally differ here.
+                if (parent_slot >= user_threads.len)
                     continue;
                 if (user_threads[child_slot].state == .runnable and
-                    (user_threads[parent_slot].state != .runnable or user_threads[child_slot].vfork_child)) {
+                    (user_threads[parent_slot].state != .runnable or
+                        workspaceHasBlockedThread(user_threads[parent_slot].workspace_id) or
+                        user_threads[parent_slot].kind == .process_child or
+                        user_threads[child_slot].vfork_child)) {
                     selected = child_slot;
                     deferred_process_children &= ~(@as(u16, 1) << @intCast(child_slot));
                     break;
