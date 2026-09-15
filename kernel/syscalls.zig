@@ -924,9 +924,12 @@ pub fn restoreUserResumeContext(saved: *const UserResume) void {
 }
 
 pub fn finishProcessChild(pid: u32, status: u8) ?UserResume {
-    for (&user_threads, 0..) |*child, child_index| {
+    for (&user_threads) |*child| {
         if (child.kind != .process_child or child.pid != pid) continue;
-        closeProcessSocketRefs(child_index);
+        // The process descriptor table is owned by the workspace. Releasing
+        // only the leader's cache leaves helper-thread copies alive and can
+        // prevent pipe EOF from reaching the waiting parent.
+        releaseWorkspaceSockets(child.workspace_id);
         child.exit_status = status;
         child.state = .exited;
         const parent = &user_threads[child.parent_slot];
