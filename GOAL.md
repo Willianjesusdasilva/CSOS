@@ -1092,6 +1092,13 @@ tem 512 entradas, a próxima implementação deve importar diretórios reais
 `tools/make-nix-fat16.ps1` agora gera uma imagem FAT16 separada com essa
 hierarquia (validada com `/nix/bin/nix` e 111 bibliotecas em `/nix/lib`). Ainda
 falta o kernel montar essa imagem como a árvore persistente `/nix`.
+
+Atualização: a imagem FAT16 foi regenerada e montada como namespace 2 em QEMU;
+`/nix/bin/nix` foi encontrado pelo VFS e o loader CSOS alcançou
+`Linux PT-INTERP loader ready`. A execução ainda não retorna ao marcador Nix:
+o bloqueio concreto permanece na continuação cooperativa dos inicializadores
+compartilhados após esse ponto. Portanto P4 segue aberto, mas o transporte da
+imagem e a resolução inicial do `/nix` já estão demonstrados no QEMU.
 Isso ainda não conta como P4 concluído: o binário e os perfis precisam executar
 e sobreviver a reboot dentro do CSOS.
 
