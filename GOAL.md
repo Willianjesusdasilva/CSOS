@@ -586,6 +586,13 @@ os objetos foram transferidos, a árvore foi materializada e a revisão
 é apenas o syscall 38 não implementado; `git pull` em uma árvore existente e
 reboot ainda precisam ser validados antes de fechar P1.
 
+Atualização: aliases FAT para refs auxiliares (`ORIG_HEAD.lock`,
+`FETCH_HEAD.lock`, `MERGE_HEAD.lock` e `CHERRY_PICK_HEAD.lock`) completaram o
+fluxo de atualização. O probe QEMU `push → clone --branch main → pull
+--ff-only` termina com `Already up to date` e retorna ao marcador Git. Isso
+valida transporte e checkout; reboot persistente usando a nova revisão ainda
+é o requisito restante do gate P1.
+
 Atualização: `closeOnExecSockets()` agora usa exclusivamente a tabela de stdio
 do workspace, eliminando a última decisão de `CLOEXEC` baseada no cache da
 thread atual. O smoke básico permanece válido; o probe de `push` ainda não

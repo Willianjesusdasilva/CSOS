@@ -1372,7 +1372,7 @@ fn formatFatName(fat_name: *const [11]u8, output: *[12]u8) usize {
     var length: usize = 0;
     var index: usize = 0;
     while (index < 8 and fat_name[index] != ' ') : (index += 1) {
-        output[length] = fat_name[index];
+        output[length] = if (fat_name[index] >= 'A' and fat_name[index] <= 'Z') fat_name[index] + 32 else fat_name[index];
         length += 1;
     }
     var extension_length: usize = 0;
@@ -1383,7 +1383,7 @@ fn formatFatName(fat_name: *const [11]u8, output: *[12]u8) usize {
         length += 1;
         index = 8;
         while (index < 11 and fat_name[index] != ' ') : (index += 1) {
-            output[length] = fat_name[index];
+            output[length] = if (fat_name[index] >= 'A' and fat_name[index] <= 'Z') fat_name[index] + 32 else fat_name[index];
             length += 1;
         }
     }
@@ -1393,9 +1393,9 @@ fn formatFatName(fat_name: *const [11]u8, output: *[12]u8) usize {
 test "VFS formats FAT 8.3 names for directory records" {
     var output: [12]u8 = undefined;
     try std.testing.expectEqual(@as(usize, 10), formatFatName("README  TXT", &output));
-    try std.testing.expectEqualSlices(u8, "README.TXT", output[0..10]);
+    try std.testing.expectEqualSlices(u8, "readme.txt", output[0..10]);
     try std.testing.expectEqual(@as(usize, 3), formatFatName("BIN        ", &output));
-    try std.testing.expectEqualSlices(u8, "BIN", output[0..3]);
+    try std.testing.expectEqualSlices(u8, "bin", output[0..3]);
 }
 
 fn resolve(directory_fd: i64, path: []const u8) !Node {
@@ -1500,9 +1500,13 @@ fn toFatName(path: []const u8) ?[11]u8 {
     if (std.mem.eql(u8, path, "COMMIT_EDITMSG")) return "COMMIT  MSG".*;
     if (std.mem.eql(u8, path, "MERGE_MSG")) return "MERGE   MSG".*;
     if (std.mem.eql(u8, path, "FETCH_HEAD")) return "FETCH   HED".*;
+    if (std.mem.eql(u8, path, "FETCH_HEAD.lock")) return "FETCH   LCK".*;
     if (std.mem.eql(u8, path, "ORIG_HEAD")) return "ORIG    HED".*;
+    if (std.mem.eql(u8, path, "ORIG_HEAD.lock")) return "ORIG    LCK".*;
     if (std.mem.eql(u8, path, "MERGE_HEAD")) return "MERGE   HED".*;
+    if (std.mem.eql(u8, path, "MERGE_HEAD.lock")) return "MERGE   LCK".*;
     if (std.mem.eql(u8, path, "CHERRY_PICK_HEAD")) return "CHERRY  HED".*;
+    if (std.mem.eql(u8, path, "CHERRY_PICK_HEAD.lock")) return "CHERRY  LCK".*;
     if (std.mem.eql(u8, path, "master.lock")) return "MASTER  LCK".*;
     if (std.mem.eql(u8, path, "AUTO_MERGE.lock")) return "AUTOMRG LCK".*;
     if (std.mem.eql(u8, path, "AUTO_MERGE")) return "AUTOMERG   ".*;
