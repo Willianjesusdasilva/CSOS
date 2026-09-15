@@ -1490,6 +1490,7 @@ fn toFatName(path: []const u8) ?[11]u8 {
     if (std.mem.eql(u8, path, "HEAD.lock")) return "HEAD    LCK".*;
     if (std.mem.eql(u8, path, "index.lock")) return "INDEX   LCK".*;
     if (std.mem.eql(u8, path, "packed-refs")) return "PACKED  REF".*;
+    if (std.mem.eql(u8, path, "packed-refs.new")) return "PACKED  NEW".*;
     if (std.mem.eql(u8, path, "packed-refs.lock")) return "PACKED  LCK".*;
     if (std.mem.eql(u8, path, "description")) return "DESCRIP ION".*;
     if (std.mem.eql(u8, path, "alternates")) return "ALTERNATALT".*;
@@ -1584,6 +1585,10 @@ test "FAT path conversion aliases Git object IDs" {
 
 test "FAT path conversion aliases Git packed refs lock" {
     try std.testing.expectEqualStrings("PACKED  LCK", &(toFatName("packed-refs.lock") orelse unreachable));
+}
+
+test "FAT path conversion aliases Git packed refs temporary" {
+    try std.testing.expectEqualStrings("PACKED  NEW", &(toFatName("packed-refs.new") orelse unreachable));
 }
 
 test "FAT path conversion aliases branch lock files" {

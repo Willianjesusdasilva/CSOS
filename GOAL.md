@@ -567,6 +567,13 @@ QEMU. O clone ainda não recebe a branch anunciada (`Remote branch main not
 found in upstream origin`), portanto o bloqueio mudou para a listagem/handshake
 do `upload-pack`; P1 continua aberto. O QEMU foi encerrado após o teste.
 
+Atualização: a causa imediata da ausência de anúncio era a falta do alias FAT
+para `packed-refs.new`. Esse alias foi adicionado e o clone agora transfere os
+objetos e chega ao checkout; o novo bloqueio é a criação de
+`CONFIG/DEFAULTS/README.TXT`, que retorna `EEXIST` durante a materialização da
+árvore. O `push` permanece validado, mas `fetch/pull` e reboot ainda não estão
+fechados.
+
 Atualização: `closeOnExecSockets()` agora usa exclusivamente a tabela de stdio
 do workspace, eliminando a última decisão de `CLOEXEC` baseada no cache da
 thread atual. O smoke básico permanece válido; o probe de `push` ainda não
