@@ -341,6 +341,16 @@ como o `clone_start` de musl após o `pop %rdi`/`jmp`. O probe real de
 após a alteração. O smoke WPE ainda não alcançou `WebKit view ready`; a
 execução seguinte permanece necessária para validar o callback e o handshake.
 
+Uma execução instrumentada em 15/09/2026 foi correlacionada com o disassembly
+upstream de `WebKit::ProcessLauncher::launchProcess()`: após a criação da
+thread, o pai pode permanecer em um `lock cmpxchg` de `WordLock`, sem syscall,
+enquanto o worker precisa executar para liberar o estado. O scheduler
+cooperativo atual só troca contexto em syscall/bloqueio; portanto a primeira
+thread WPE permanece deferred e o pai pode girar indefinidamente antes do
+segundo `clone`. O próximo ajuste deve introduzir preempção de userspace
+preservando frames, TLS, CR3 e ownership de workspace, ou outro ponto de
+yield comprovadamente equivalente; não é correto fabricar `WebKit view ready`.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de
