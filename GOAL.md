@@ -494,6 +494,13 @@ conclui: o cliente fica aguardando antes de receber a resposta do
 `upload-pack`. O push local permanece validado; o próximo trabalho é o
 handshake de leitura do fetch, seguido por `git pull` e reboot.
 
+Atualização: o gate isolado de descritores foi ampliado para cobrir `dup()` e
+o namespace de aliases de sockets passou a ser publicado por workspace entre
+threads, com uma referência compartilhada ao objeto subjacente. `zig build
+test` e o smoke do Git continuam passando no QEMU. O probe combinado de
+transporte ainda não produz um novo marcador verificável; suas alterações de
+teste permanecem fora do runtime normal.
+
 ---
 
 # P2 — Bare-metal e Alpine Recovery
