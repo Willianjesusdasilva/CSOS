@@ -4420,7 +4420,8 @@ fn socketIndexForThread(thread_index: usize, fd: u64) ?usize {
 fn allocateSocketAlias(thread_index: usize, source: usize, minimum: u64, cloexec: bool) ?u64 {
     if (thread_index >= user_threads.len or source >= sockets.len) return null;
     var fd: u64 = @max(minimum, socket_fd_base + sockets.len);
-    for (&user_threads[thread_index].socket_fd_aliases) |*alias| {
+    const workspace = user_threads[thread_index].workspace_id;
+    for (user_threads[thread_index].socket_fd_aliases) |alias| {
         if (alias.used) continue;
         // F_DUPFD must never reuse a live alias in the same descriptor view.
         while (fd <= std.math.maxInt(u32)) {
@@ -4435,8 +4436,10 @@ fn allocateSocketAlias(thread_index: usize, source: usize, minimum: u64, cloexec
             fd += 1;
         }
         if (fd > std.math.maxInt(u32)) return null;
-        alias.* = .{ .fd = @intCast(fd), .socket_index = @intCast(source), .close_on_exec = cloexec, .used = true };
-        const workspace = user_threads[thread_index].workspace_id;
+        const alias_slot = for (&user_threads[thread_index].socket_fd_aliases, 0..) |*candidate, candidate_index| {
+            if (!candidate.used) break candidate_index;
+        } else return null;
+        user_threads[thread_index].socket_fd_aliases[alias_slot] = .{ .fd = @intCast(fd), .socket_index = @intCast(source), .close_on_exec = cloexec, .used = true };
         if (workspace_socket_aliases[workspace][source] != std.math.maxInt(u8))
             workspace_socket_aliases[workspace][source] += 1;
         sockets[source].refs += 1;
