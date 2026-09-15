@@ -593,6 +593,13 @@ fluxo de atualização. O probe QEMU `push → clone --branch main → pull
 valida transporte e checkout; reboot persistente usando a nova revisão ainda
 é o requisito restante do gate P1.
 
+Atualização: um disco NVMe persistente foi usado em boots consecutivos. O
+segundo boot reutilizou a imagem sem `-ResetDisk`, reexecutou o runtime Git e
+retornou a `CSOS Git runtime ready`; isso confirma persistência do armazenamento
+e reinicialização do caminho Git. O boot completo posterior ainda para durante
+M13 antes de `CSOS boot health ready`, e a prova de iniciar uma revisão puxada
+em vez do bootstrap atual permanece pendente para fechar P1.
+
 Atualização: aliases FAT para refs auxiliares (`ORIG_HEAD.lock`,
 `FETCH_HEAD.lock`, `MERGE_HEAD.lock` e `CHERRY_PICK_HEAD.lock`) completaram o
 fluxo de atualização. O probe QEMU `push → clone --branch main → pull
