@@ -1732,7 +1732,30 @@ fn fcntl(fd: u64, command: u64, argument: u64) u64 {
         }
         if (socketAliasForThread(current_thread, fd)) |alias| {
             if (command == 1) return @intFromBool(alias.close_on_exec);
-            if (command == 2) { if ((argument & ~@as(u64, 1)) != 0) return errno(22); alias.close_on_exec = (argument & 1) != 0; return 0; }
+            if (command == 2) {
+                if ((argument & ~@as(u64, 1)) != 0) return errno(22);
+                const cloexec = (argument & 1) != 0;
+                const workspace = user_threads[current_thread].workspace_id;
+                // Aliases are one workspace descriptor table, even though
+                // each cooperative thread keeps a local cache.  Publishing
+                // F_SETFD only to the caller leaves a sibling's fork with a
+                // stale CLOEXEC bit and keeps receive-pack pipes open after
+                // exec. Update every cache and the canonical workspace entry.
+                for (&user_threads) |*peer| {
+                    if (peer.workspace_id != workspace) continue;
+                    for (&peer.socket_fd_aliases) |*peer_alias| {
+                        if (peer_alias.used and peer_alias.fd == alias.fd and
+                            peer_alias.socket_index == alias.socket_index)
+                            peer_alias.close_on_exec = cloexec;
+                    }
+                }
+                for (&workspace_fd_aliases[workspace]) |*workspace_alias| {
+                    if (workspace_alias.used and workspace_alias.fd == alias.fd and
+                        workspace_alias.socket_index == alias.socket_index)
+                        workspace_alias.close_on_exec = cloexec;
+                }
+                return 0;
+            }
             if (command == 3) return @as(u64, 2) | if (sockets[index].nonblocking) @as(u64, 0x800) else 0;
             if (command == 4) { if ((argument & ~@as(u64, 0x8802)) != 0) return errno(22); sockets[index].nonblocking = (argument & 0x800) != 0; return 0; }
             return errno(22);
@@ -1740,7 +1763,12 @@ fn fcntl(fd: u64, command: u64, argument: u64) u64 {
         if (fd < 3 and command == 1) return @intFromBool(user_threads[current_thread].stdio_cloexec[@intCast(fd)]);
         if (fd < 3 and command == 2) {
             if ((argument & ~@as(u64, 1)) != 0) return errno(22);
-            user_threads[current_thread].stdio_cloexec[@intCast(fd)] = (argument & 1) != 0;
+            const workspace = user_threads[current_thread].workspace_id;
+            const cloexec = (argument & 1) != 0;
+            workspace_stdio_cloexec[workspace][@intCast(fd)] = cloexec;
+            for (&user_threads) |*peer| {
+                if (peer.workspace_id == workspace) peer.stdio_cloexec[@intCast(fd)] = cloexec;
+            }
             return 0;
         }
         return switch (command) {
