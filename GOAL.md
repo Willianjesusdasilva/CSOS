@@ -547,6 +547,11 @@ um `wait4` acordado retome seu frame na próxima troca cooperativa. O smoke
 básico continua passando; o probe de `push` não mudou e ainda não conclui o
 handshake, mantendo P1 aberto.
 
+Atualização: o caminho de reap do `wait4` agora reativa explicitamente o
+workspace/CR3 do caller depois de destruir o filho. Isso cobre a transição
+normal e o nested loader. O smoke básico passa; o probe de `push` ainda não
+conclui o transporte, mantendo P1 aberto.
+
 Atualização: `closeOnExecSockets()` agora usa exclusivamente a tabela de stdio
 do workspace, eliminando a última decisão de `CLOEXEC` baseada no cache da
 thread atual. O smoke básico permanece válido; o probe de `push` ainda não

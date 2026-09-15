@@ -5131,6 +5131,11 @@ fn wait4(pid: u64, status: u64, options: u64, usage: u64) u64 {
         if (status != 0) @as(*align(1) u32, @ptrFromInt(status)).* = @truncate((child.exit_status & 0xff) << 8);
         const child_pid = child.pid;
         if (workspace_release_hook) |hook| hook(child.workspace_id);
+        // Releasing a child may destroy its address space while the parent is
+        // still executing this syscall. Reassert the caller's workspace and
+        // CR3 before returning, so the saved wait4 frame cannot resume on a
+        // stale child context.
+        if (workspace_activate_hook) |activate| activate(user_threads[current_thread].workspace_id);
         child.* = .{};
         return child_pid;
     }
