@@ -1506,6 +1506,7 @@ fn toFatName(path: []const u8) ?[11]u8 {
     if (std.mem.eql(u8, path, "CHERRY_PICK_HEAD")) return "CHERRY  HED".*;
     if (std.mem.eql(u8, path, "master.lock")) return "MASTER  LCK".*;
     if (std.mem.eql(u8, path, "AUTO_MERGE.lock")) return "AUTOMRG LCK".*;
+    if (std.mem.eql(u8, path, "AUTO_MERGE")) return "AUTOMERG   ".*;
     if (std.mem.startsWith(u8, path, "tmp_obj_") or std.mem.startsWith(u8, path, "tmp_objdir-")) return "TMPOBJ  TMP".*;
     // Git object IDs are 40 hexadecimal characters. Preserve enough of the
     // digest in the FAT alias to keep normal object fan-out collision-free.

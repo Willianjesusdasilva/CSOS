@@ -574,6 +574,10 @@ objetos e chega ao checkout; o novo bloqueio é a criação de
 árvore. O `push` permanece validado, mas `fetch/pull` e reboot ainda não estão
 fechados.
 
+O alias de `AUTO_MERGE` também foi adicionado. Com isso, o checkout consegue
+atualizar `HEAD` e materializar a revisão; ainda retorna `EEXIST` para o arquivo
+de configuração da árvore, então o gate de `pull` segue aberto.
+
 Atualização: `closeOnExecSockets()` agora usa exclusivamente a tabela de stdio
 do workspace, eliminando a última decisão de `CLOEXEC` baseada no cache da
 thread atual. O smoke básico permanece válido; o probe de `push` ainda não
