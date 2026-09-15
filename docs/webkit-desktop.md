@@ -320,6 +320,12 @@ deferred é escalonada. O smoke QEMU passou a mostrar um segundo
 thread atravessou parte adicional do bootstrap. `WebKit view ready` ainda não
 foi produzido.
 
+Correção adicional: após `execve`, o scheduler mantém o processo substituto
+como contexto ativo em vez de selecionar imediatamente o launcher pai. O
+smoke seguinte confirmou `Linux PT_INTERP loader ready` logo após
+`CSOS WPE WebProcess scheduled`; o próximo bloqueio permanece dentro do
+bootstrap/IPC do WebProcess, antes de `WebKit view ready`.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de

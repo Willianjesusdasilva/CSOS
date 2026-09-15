@@ -550,6 +550,7 @@ fn runExecRequest(kernel_root: u64, pages: *physical.Allocator, envelope: syscal
     const workspace = &loader_workspaces[envelope.workspace_id];
     if (!workspace.leased) return error.InvalidExecWorkspace;
     var request = envelope.request;
+    syscalls.activateExecThread(envelope.thread_id);
     // Linux closes O_CLOEXEC descriptors in the child before the replacement
     // image starts; this EOF is how the parent detects a successful exec.
     syscalls.closeOnExecSockets();

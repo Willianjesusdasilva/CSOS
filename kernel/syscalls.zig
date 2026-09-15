@@ -1221,10 +1221,25 @@ pub fn releaseVforkParent(child_pid: u32) void {
     // while the vfork child was loading.  Successful exec is the wake event;
     // restore the saved post-clone frame regardless of that transient state.
     parent.state = .runnable;
-    active_user_thread = child.parent_slot;
-    released_vfork_parent = child.parent_slot;
+    // Keep the exec'd child on CPU; the parent is merely made runnable here.
+    // Selecting the parent immediately can retarget the active workspace to
+    // the launcher before the replacement image reaches its first IPC wait.
+    active_user_thread = child_pid - 1;
+    released_vfork_parent = null;
     defer_user_thread_switch = false;
-    thread_switch_requested = true;
+    thread_switch_requested = false;
+}
+
+/// Make an exec replacement operate on the scheduler slot that issued the
+/// request.  The loader runs outside the syscall frame; without this handoff
+/// `configureProcessWorkspaces` could retarget slot 0 (the launcher) and the
+/// replacement image would create its pthreads on the wrong process context.
+pub fn activateExecThread(child_pid: u32) void {
+    if (child_pid == 0 or child_pid - 1 >= user_threads.len) return;
+    const slot = child_pid - 1;
+    current_thread = slot;
+    current_pid = user_threads[slot].pid;
+    if (workspace_activate_hook) |hook| hook(user_threads[slot].workspace_id);
 }
 
 pub fn finishProcessChild(pid: u32, status: u8) ?UserResume {
