@@ -3993,6 +3993,8 @@ const Socket = struct {
     allocated: bool = false,
     refs: u16 = 0,
     local_pair: bool = false,
+    readable: bool = true,
+    writable: bool = true,
     peer_index: ?usize = null,
     local_buffer: [4096]u8 = .{0} ** 4096,
     local_head: usize = 0,
@@ -4174,6 +4176,7 @@ fn shutdown(fd: u64, how: u64) u64 {
 
 fn socketSend(index: usize, data: []const u8) u64 {
     if (sockets[index].local_pair) {
+        if (!sockets[index].writable) return errno(9);
         if (sockets[index].write_closed) return errno(32);
         const peer = sockets[index].peer_index orelse return errno(32);
         if (!sockets[peer].allocated) return errno(32);
@@ -4370,6 +4373,7 @@ fn completePendingSocketRead(thread_index: usize) void {
 
 fn socketReceive(index: usize, data: []u8) u64 {
     if (sockets[index].local_pair) {
+        if (!sockets[index].readable) return errno(9);
         if (sockets[index].read_closed) return 0;
         if (sockets[index].local_len == 0) {
             if (sockets[index].peer_closed) return 0;
@@ -4730,7 +4734,13 @@ fn tgkill(pid: u64, tid: u64, signal: u64) u64 {
 
 fn pipe2(output: u64, flags: u64) u64 {
     if ((flags & ~@as(u64, 0x80800)) != 0) return errno(22);
-    return socketPair(1, 1 | (flags & 0x80800), 0, output);
+    const result = socketPair(1, 1 | (flags & 0x80800), 0, output);
+    if (@as(i64, @bitCast(result)) < 0) return result;
+    const first = @as(usize, @intCast(@as(*align(1) u32, @ptrFromInt(output)).* - socket_fd_base));
+    const second = @as(usize, @intCast(@as(*align(1) u32, @ptrFromInt(output + 4)).* - socket_fd_base));
+    sockets[first].readable = true; sockets[first].writable = false;
+    sockets[second].readable = false; sockets[second].writable = true;
+    return 0;
 }
 
 /// Replace the current image through the process loader.  The hook is kept
