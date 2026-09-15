@@ -819,6 +819,11 @@ O staging reproduzível da instalação bare-metal está disponível em
 `tools/prepare-bare-metal-install.ps1`; ele gera o ESP e o manifesto sem
 modificar discos físicos. A instalação efetiva em hardware continua pendente.
 
+Atualização: o staging foi regenerado com a ESP empacotada (`CSOS` como
+entrada padrão e `CSOS Recovery` como entrada secundária), gerando o manifesto
+SHA-256 em `zig-out/bare-metal-install/current`. Nenhum disco físico foi
+modificado; a instalação real continua sendo o único item aberto do gate P2.
+
 O fluxo automatizado `tools/test-p2-recovery-flow.ps1` também confirmou em
 QEMU a sequência seed → `git reset --hard HEAD~1` → boot CSOS, incluindo o
 marcador `CSOS graphical session ready`. A instalação bare-metal ainda não foi
