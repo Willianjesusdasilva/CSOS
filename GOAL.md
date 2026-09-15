@@ -481,6 +481,14 @@ processo retornar ao loader. O push real no QEMU ainda não é considerado
 concluído; o próximo gate é fechar esse wait pós-receive sem mascarar a
 manutenção automática.
 
+Atualização: o workspace top-level agora é identificado explicitamente no
+loader; a conclusão do processo principal não fica condicionada a threads
+detached de workspaces filhos. O probe temporário `repo8 → repo9` confirmou no
+QEMU o fluxo completo de `git push`, incluindo `receive-pack`, promoção da ref
+remota e retorno ao marcador `CSOS Git runtime ready`. O caminho normal continua
+sem esse probe embutido; P1 ainda requer validar `git pull`, reboot e uso da
+revisão instalada.
+
 ---
 
 # P2 — Bare-metal e Alpine Recovery
