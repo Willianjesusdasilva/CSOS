@@ -501,6 +501,15 @@ test` e o smoke do Git continuam passando no QEMU. O probe combinado de
 transporte ainda não produz um novo marcador verificável; suas alterações de
 teste permanecem fora do runtime normal.
 
+Atualização: `dup2()` para descritores de socket altos agora publica o alias
+atomicamente em todas as threads do workspace, incluindo a verificação de
+capacidade antes da instalação. O encerramento de um processo também remove
+os mapas de descritores diretos publicados nas threads irmãs antes de liberar
+o endpoint. `zig build test` e o smoke Git básico passam no QEMU, mas o probe
+temporário `repo8 → repo9` ainda trava antes do marcador final; o transporte
+`push` e o handshake `fetch/pull` continuam fora do gate P1. O probe foi
+removido do runtime normal e o QEMU foi encerrado após o teste.
+
 ---
 
 # P2 — Bare-metal e Alpine Recovery
