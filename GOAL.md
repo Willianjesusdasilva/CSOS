@@ -489,6 +489,11 @@ remota e retorno ao marcador `CSOS Git runtime ready`. O caminho normal continua
 sem esse probe embutido; P1 ainda requer validar `git pull`, reboot e uso da
 revisão instalada.
 
+O teste seguinte (`remote add` + `fetch` do repositório local) ainda não
+conclui: o cliente fica aguardando antes de receber a resposta do
+`upload-pack`. O push local permanece validado; o próximo trabalho é o
+handshake de leitura do fetch, seguido por `git pull` e reboot.
+
 ---
 
 # P2 — Bare-metal e Alpine Recovery
