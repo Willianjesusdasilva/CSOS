@@ -1380,20 +1380,33 @@ fn releaseSocketRef(index: usize) void {
     sockets[index] = .{};
 }
 
-fn clearWorkspaceDirectSocket(owner: usize, index: usize) void {
+fn clearWorkspaceDirectSocket(owner: usize, index: usize, fd: u64) void {
     const workspace = user_threads[owner].workspace_id;
-    workspace_socket_refs[workspace][index] = false;
-    workspace_socket_cloexec[workspace][index] = false;
-    if (workspace_socket_aliases[workspace][index] != 0)
-        workspace_socket_aliases[workspace][index] -= 1;
+    var removed = false;
     for (&user_threads) |*peer| {
         if (peer.workspace_id != workspace) continue;
-        peer.direct_socket_refs[index] = false;
-        peer.direct_socket_cloexec[index] = false;
-        for (&peer.socket_fd_map) |*mapped| {
-            if (mapped.* == index) mapped.* = null;
+        if (fd >= socket_fd_base and fd < socket_fd_base + sockets.len) {
+            const slot: usize = @intCast(fd - socket_fd_base);
+            if (peer.socket_fd_map[slot] == index) {
+                peer.socket_fd_map[slot] = null;
+                removed = true;
+            }
         }
-        peer.owned_socket_refs[index] = false;
+        var still_mapped = false;
+        for (peer.socket_fd_map) |mapped| if (mapped == index) { still_mapped = true; break; };
+        if (!still_mapped) {
+            peer.direct_socket_refs[index] = false;
+            peer.direct_socket_cloexec[index] = false;
+            peer.owned_socket_refs[index] = false;
+        }
+    }
+    if (removed and workspace_socket_aliases[workspace][index] != 0)
+        workspace_socket_aliases[workspace][index] -= 1;
+    var still_workspace_mapped = false;
+    for (user_threads) |peer| if (peer.workspace_id == workspace and peer.direct_socket_refs[index]) { still_workspace_mapped = true; break; };
+    if (!still_workspace_mapped) {
+        workspace_socket_refs[workspace][index] = false;
+        workspace_socket_cloexec[workspace][index] = false;
     }
 }
 
@@ -1436,7 +1449,7 @@ pub fn closeOnExecSockets() void {
             // published view before dropping the single table reference;
             // clearing only current_thread leaves an inherited endpoint alive
             // across exec and prevents pipe EOF.
-            clearWorkspaceDirectSocket(current_thread, index);
+            clearWorkspaceDirectSocket(current_thread, index, socket_fd_base + index);
             releaseSocketRef(index);
         }
         for (user_threads[current_thread].stdio_sockets, 0..) |entry, fd| {
@@ -1459,7 +1472,7 @@ fn close(fd: u64) u64 {
             closeSocketAlias(current_thread, alias);
             return 0;
         }
-        clearWorkspaceDirectSocket(current_thread, index);
+        clearWorkspaceDirectSocket(current_thread, index, fd);
         releaseSocketRef(index);
         return 0;
     }
