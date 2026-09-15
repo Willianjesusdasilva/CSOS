@@ -147,6 +147,8 @@ test "isolated two-pipe fork dup2 exec close waitpid gate" {
     var output: [4]u8 = undefined;
     try std.testing.expectEqual(@as(usize, 4), try parent.read(4, &output));
     try std.testing.expectEqualStrings("pong", &output);
+    var pending_state = ChildState{};
+    try std.testing.expectError(error.WouldBlock, waitpid(&pending_state));
     var state = ChildState{ .exited = true, .status = 0 };
     try std.testing.expectEqual(@as(u8, 0), try waitpid(&state));
     parent.close(3); parent.close(4); parent.close(5); parent.close(6);
