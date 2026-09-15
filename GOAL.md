@@ -510,6 +510,15 @@ temporário `repo8 → repo9` ainda trava antes do marcador final; o transporte
 `push` e o handshake `fetch/pull` continuam fora do gate P1. O probe foi
 removido do runtime normal e o QEMU foi encerrado após o teste.
 
+Atualização: o gate host de descritores agora expõe explicitamente a identidade
+do workspace (`WorkspaceTable`) e valida isolamento entre tabelas numéricas,
+fork com descrições subjacentes compartilhadas, direção dos endpoints,
+`dup`/`dup2`, `CLOEXEC`, fechamento e refcounts até zero. O gate e todos os
+testes Zig passam. O probe temporário de `push` real ainda não conclui no
+QEMU: `repo9` é criado, mas o transporte fica aguardando antes do marcador;
+essa evidência mantém P1 aberto e direciona o próximo redesenho para o ciclo
+de término/EOF dos workspaces, não para novos casos especiais de Git.
+
 ---
 
 # P2 — Bare-metal e Alpine Recovery

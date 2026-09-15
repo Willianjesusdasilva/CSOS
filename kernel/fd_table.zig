@@ -85,6 +85,28 @@ pub const Table = struct {
     }
 };
 
+/// A process owns one descriptor table for the lifetime of its workspace.
+/// Threads may share the table, while fork creates a new table that retains
+/// the same open-file descriptions.  Keeping the workspace identity beside
+/// the table makes accidental cross-process descriptor lookups impossible in
+/// tests and mirrors the ownership contract used by the kernel runtime.
+pub const WorkspaceTable = struct {
+    workspace_id: u32,
+    table: Table = .{},
+
+    pub fn init(workspace_id: u32) WorkspaceTable {
+        return .{ .workspace_id = workspace_id };
+    }
+
+    pub fn fork(self: *const WorkspaceTable, child_workspace_id: u32) WorkspaceTable {
+        return .{ .workspace_id = child_workspace_id, .table = self.table.fork() };
+    }
+
+    pub fn closeAll(self: *WorkspaceTable) void {
+        for (self.table.entries, 0..) |entry, fd| if (entry != null) self.table.close(fd);
+    }
+};
+
 pub const ChildState = struct { exited: bool = false, status: u8 = 0 };
 pub fn waitpid(child: *const ChildState) !u8 {
     if (!child.exited) return error.WouldBlock;
@@ -133,4 +155,34 @@ test "isolated two-pipe fork dup2 exec close waitpid gate" {
     try std.testing.expectEqual(@as(usize, 0), a_write.refs);
     try std.testing.expectEqual(@as(usize, 0), b_read.refs);
     try std.testing.expectEqual(@as(usize, 0), b_write.refs);
+}
+
+test "workspace tables isolate numeric fds while sharing descriptions on fork" {
+    var pipe = Pipe{};
+    var read_description = Description{ .pipe = &pipe, .readable = true, .writable = false };
+    var write_description = Description{ .pipe = &pipe, .readable = false, .writable = true };
+    var parent = WorkspaceTable.init(10);
+    try parent.table.install(3, &write_description, false);
+    try parent.table.install(4, &read_description, false);
+    var child = parent.fork(11);
+    defer child.closeAll();
+    try std.testing.expectEqual(@as(u32, 10), parent.workspace_id);
+    try std.testing.expectEqual(@as(u32, 11), child.workspace_id);
+    try std.testing.expectEqual(@as(usize, 2), write_description.refs);
+    try std.testing.expectEqual(@as(usize, 2), read_description.refs);
+    var isolated = WorkspaceTable.init(12);
+    var isolated_buffer: [1]u8 = undefined;
+    try std.testing.expectError(error.BadFd, isolated.table.read(3, &isolated_buffer));
+    try std.testing.expectEqual(@as(usize, 3), try child.table.write(3, "ok!"));
+    var bytes: [3]u8 = undefined;
+    try std.testing.expectEqual(@as(usize, 3), try parent.table.read(4, &bytes));
+    try std.testing.expectEqualStrings("ok!", &bytes);
+    child.table.close(3);
+    try std.testing.expectEqual(@as(usize, 1), write_description.refs);
+    parent.table.close(3);
+    parent.table.close(4);
+    try std.testing.expectEqual(@as(usize, 0), write_description.refs);
+    try std.testing.expectEqual(@as(usize, 1), read_description.refs);
+    child.table.close(4);
+    try std.testing.expectEqual(@as(usize, 0), read_description.refs);
 }
