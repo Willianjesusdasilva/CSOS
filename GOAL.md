@@ -933,6 +933,11 @@ Estado atual: o caminho Alpine Recovery foi validado no QEMU com rede
 (`RECOVERY_SSH_COMMAND_OK`). Isso é evidência de QEMU, não ainda de hardware
 real. O teste reproduzível está em `tools/test-recovery-ssh.ps1`.
 
+Atualização: o teste foi reexecutado com a imagem persistente e chave de
+recuperação, retornando `RECOVERY_SSH_COMMAND_OK` por SSH e encerrando o QEMU
+ao final. Isso mantém P3 validado no Recovery/QEMU; ainda falta disponibilizar
+SSH no boot normal do CSOS ou validar o caminho equivalente em hardware real.
+
 ---
 
 # P4 — Nix
