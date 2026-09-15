@@ -314,6 +314,7 @@ var user_threads: [16]UserThread = @splat(.{});
 // the authoritative inherited descriptor view.
 var workspace_socket_refs: [16][32]bool = .{.{false} ** 32} ** 16;
 var workspace_socket_cloexec: [16][32]bool = .{.{false} ** 32} ** 16;
+var workspace_socket_fd_map: [16][32]?usize = .{.{null} ** 32} ** 16;
 // Total aliases (high descriptors plus stdin/stdout/stderr) owned by each
 // process workspace. The boolean table above only describes high fds; this
 // ledger is the refcount source used by fork/close/exec.
@@ -512,6 +513,7 @@ fn cloneThread(flags: u64, stack: u64, parent_tid: u64, child_tid: u64, tls: u64
                 user_threads[slot].workspace_id = @intCast(child_workspace);
                 workspace_socket_refs[child_workspace] = workspace_socket_refs[user_threads[current_thread].workspace_id];
                 workspace_socket_cloexec[child_workspace] = workspace_socket_cloexec[user_threads[current_thread].workspace_id];
+                workspace_socket_fd_map[child_workspace] = workspace_socket_fd_map[user_threads[current_thread].workspace_id];
                 workspace_socket_aliases[child_workspace] = workspace_socket_aliases[user_threads[current_thread].workspace_id];
                 workspace_done[child_workspace] = false;
                 workspace_exit_status[child_workspace] = 0;
@@ -664,6 +666,7 @@ pub fn configure(base: u64, size: u64, stack: u64, stack_length: u64, initial_br
     user_threads = @splat(.{});
     workspace_socket_refs = .{.{false} ** 32} ** 16;
     workspace_socket_cloexec = .{.{false} ** 32} ** 16;
+    workspace_socket_fd_map = .{.{null} ** 32} ** 16;
     workspace_socket_aliases = .{.{0} ** 32} ** 16;
     workspace_done = .{false} ** 16;
     workspace_exit_status = .{0} ** 16;
@@ -935,6 +938,7 @@ pub fn releaseWorkspaceSockets(workspace: u8) void {
     }
     workspace_socket_refs[workspace] = .{false} ** 32;
     workspace_socket_cloexec[workspace] = .{false} ** 32;
+    workspace_socket_fd_map[workspace] = .{null} ** 32;
     workspace_socket_aliases[workspace] = .{0} ** 32;
     workspace_done[workspace] = false;
     workspace_exit_status[workspace] = 0;
@@ -1415,6 +1419,9 @@ fn clearWorkspaceDirectSocket(owner: usize, index: usize, fd: u64) void {
         if (peer.workspace_id != workspace) continue;
         if (fd >= socket_fd_base and fd < socket_fd_base + sockets.len) {
             const slot: usize = @intCast(fd - socket_fd_base);
+            if (workspace_socket_fd_map[workspace][slot] == index) {
+                workspace_socket_fd_map[workspace][slot] = null;
+            }
             if (peer.socket_fd_map[slot] == index) {
                 peer.socket_fd_map[slot] = null;
                 removed = true;
@@ -1463,6 +1470,7 @@ fn publishDirectSocket(owner: usize, index: usize, cloexec: bool) void {
         peer.direct_socket_cloexec[index] = cloexec;
         peer.socket_fd_map[index] = index;
     }
+    workspace_socket_fd_map[owner_workspace][index] = index;
 }
 
 pub fn closeOnExecSockets() void {
@@ -4470,7 +4478,7 @@ fn socketIndexForThread(thread_index: usize, fd: u64) ?usize {
     // been reused by another workspace, and the old fallback would silently
     // connect unrelated pipe endpoints.  Every valid direct descriptor is
     // published into this map by socket()/socketpair()/fork().
-    const index: usize = user_threads[thread_index].socket_fd_map[slot] orelse return null;
+    const index: usize = workspace_socket_fd_map[workspace][slot] orelse return null;
     if (!sockets[index].allocated) return null;
     if (workspace_socket_refs[workspace][index] or user_threads[thread_index].direct_socket_refs[index]) return index;
     for (user_threads) |peer| {
