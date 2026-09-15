@@ -6,6 +6,8 @@ pub const Pipe = struct {
     buffer: [capacity]u8 = undefined,
     head: usize = 0,
     len: usize = 0,
+    readers: usize = 0,
+    writers: usize = 0,
     pub fn write(self: *Pipe, data: []const u8) usize {
         const count = @min(data.len, capacity - self.len);
         for (data[0..count], 0..) |byte, i| self.buffer[(self.head + self.len + i) % capacity] = byte;
@@ -29,18 +31,35 @@ pub const Description = struct {
 };
 const Entry = struct { description: *Description, cloexec: bool };
 
+fn retainDescription(description: *Description) void {
+    if (description.refs == 0) {
+        if (description.readable) description.pipe.readers += 1;
+        if (description.writable) description.pipe.writers += 1;
+    }
+    description.refs += 1;
+}
+
+fn releaseDescription(description: *Description) void {
+    if (description.refs == 0) return;
+    description.refs -= 1;
+    if (description.refs == 0) {
+        if (description.readable and description.pipe.readers != 0) description.pipe.readers -= 1;
+        if (description.writable and description.pipe.writers != 0) description.pipe.writers -= 1;
+    }
+}
+
 pub const Table = struct {
     entries: [64]?Entry = .{null} ** 64,
     pub fn fork(self: *const Table) Table {
         const child = self.*;
         for (self.entries) |entry| {
-            if (entry) |value| value.description.refs += 1;
+            if (entry) |value| retainDescription(value.description);
         }
         return child;
     }
     pub fn install(self: *Table, fd: usize, description: *Description, cloexec: bool) !void {
         if (fd >= self.entries.len or self.entries[fd] != null) return error.BadFd;
-        description.refs += 1;
+        retainDescription(description);
         self.entries[fd] = .{ .description = description, .cloexec = cloexec };
     }
     pub fn dup2(self: *Table, old: usize, new: usize) !void {
@@ -48,7 +67,7 @@ pub const Table = struct {
         const source = self.entries[old] orelse return error.BadFd;
         if (old == new) return;
         self.close(new);
-        source.description.refs += 1;
+        retainDescription(source.description);
         self.entries[new] = .{ .description = source.description, .cloexec = false };
     }
     pub fn dup(self: *Table, old: usize, minimum: usize) !usize {
@@ -57,7 +76,7 @@ pub const Table = struct {
         var fd = minimum;
         while (fd < self.entries.len and self.entries[fd] != null) : (fd += 1) {}
         if (fd == self.entries.len) return error.TooManyFiles;
-        source.description.refs += 1;
+        retainDescription(source.description);
         self.entries[fd] = .{ .description = source.description, .cloexec = false };
         return fd;
     }
@@ -71,16 +90,18 @@ pub const Table = struct {
         if (fd >= self.entries.len) return;
         const entry = self.entries[fd] orelse return;
         self.entries[fd] = null;
-        entry.description.refs -= 1;
+        releaseDescription(entry.description);
     }
     pub fn write(self: *const Table, fd: usize, data: []const u8) !usize {
         const entry = self.entries[fd] orelse return error.BadFd;
         if (!entry.description.writable) return error.NotWritable;
+        if (entry.description.pipe.readers == 0) return error.BrokenPipe;
         return entry.description.pipe.write(data);
     }
     pub fn read(self: *const Table, fd: usize, out: []u8) !usize {
         const entry = self.entries[fd] orelse return error.BadFd;
         if (!entry.description.readable) return error.NotReadable;
+        if (entry.description.pipe.writers == 0 and entry.description.pipe.len == 0) return 0;
         return entry.description.pipe.read(out);
     }
 };
@@ -187,4 +208,34 @@ test "workspace tables isolate numeric fds while sharing descriptions on fork" {
     try std.testing.expectEqual(@as(usize, 1), read_description.refs);
     child.table.close(4);
     try std.testing.expectEqual(@as(usize, 0), read_description.refs);
+}
+
+test "pipe endpoint lifetime reaches EOF and broken pipe after fork close" {
+    var pipe = Pipe{};
+    var reader = Description{ .pipe = &pipe, .readable = true, .writable = false };
+    var writer = Description{ .pipe = &pipe, .readable = false, .writable = true };
+    var parent = Table{};
+    try parent.install(3, &reader, false);
+    try parent.install(4, &writer, false);
+    var child = parent.fork();
+    try std.testing.expectEqual(@as(usize, 1), pipe.readers);
+    try std.testing.expectEqual(@as(usize, 1), pipe.writers);
+
+    parent.close(3);
+    child.close(4);
+    try std.testing.expectEqual(@as(usize, 1), pipe.writers);
+    parent.close(4);
+    try std.testing.expectEqual(@as(usize, 0), pipe.writers);
+    var output: [1]u8 = undefined;
+    try std.testing.expectEqual(@as(usize, 0), child.read(3, &output));
+
+    var broken_pipe = Pipe{};
+    var broken_reader = Description{ .pipe = &broken_pipe, .readable = true, .writable = false };
+    var broken_writer = Description{ .pipe = &broken_pipe, .readable = false, .writable = true };
+    var broken = Table{};
+    try broken.install(3, &broken_reader, false);
+    try broken.install(4, &broken_writer, false);
+    broken.close(3);
+    try std.testing.expectEqual(error.BrokenPipe, broken.write(4, "x"));
+    broken.close(4);
 }
