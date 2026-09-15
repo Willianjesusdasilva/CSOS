@@ -552,6 +552,16 @@ workspace/CR3 do caller depois de destruir o filho. Isso cobre a transição
 normal e o nested loader. O smoke básico passa; o probe de `push` ainda não
 conclui o transporte, mantendo P1 aberto.
 
+Atualização: a associação pai-filho do scheduler deixou de exigir o mesmo
+slot de thread e passou a usar a identidade do workspace. Isso permite que um
+worker faça `fork()` e outro worker do mesmo processo faça `wait4()`, mantendo
+o namespace de descritores compartilhado. O gate host, `zig build test` e o
+smoke básico continuam passando. O probe temporário agora confirma no QEMU o
+`git push` local completo: `receive-pack` termina, `refs/heads/main` é criada
+no repositório bare remoto e o runtime retorna ao marcador final. O probe foi
+removido do caminho normal; `git pull`, reboot e uso da revisão nova ainda
+precisam ser validados antes de fechar P1.
+
 Atualização: `closeOnExecSockets()` agora usa exclusivamente a tabela de stdio
 do workspace, eliminando a última decisão de `CLOEXEC` baseada no cache da
 thread atual. O smoke básico permanece válido; o probe de `push` ainda não

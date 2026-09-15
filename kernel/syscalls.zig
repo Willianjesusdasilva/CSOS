@@ -619,6 +619,9 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
             for (0..user_threads.len) |child_slot| {
                 if ((deferred_process_children & (@as(u16, 1) << @intCast(child_slot))) == 0) continue;
                 const parent_slot = user_threads[child_slot].parent_slot;
+                if (parent_slot >= user_threads.len or
+                    user_threads[parent_slot].workspace_id != user_threads[child_slot].workspace_id)
+                    continue;
                 if (user_threads[child_slot].state == .runnable and
                     (user_threads[parent_slot].state != .runnable or user_threads[child_slot].vfork_child)) {
                     selected = child_slot;
@@ -1034,7 +1037,24 @@ pub fn finishProcessChild(pid: u32, status: u8) ?UserResume {
         workspace_exit_status[child_workspace] = status;
         child.exit_status = status;
         child.state = .exited;
-        const parent = &user_threads[child.parent_slot];
+        // The child is owned by its parent's workspace.  Do not require the
+        // same scheduler slot: Git routinely forks from one worker and waits
+        // from another thread sharing the process descriptor table.
+        const parent_workspace = if (child.parent_slot < user_threads.len)
+            user_threads[child.parent_slot].workspace_id
+        else
+            0xff;
+        var parent_slot = child.parent_slot;
+        for (user_threads, 0..) |candidate, candidate_slot| {
+            if (candidate.workspace_id != parent_workspace or candidate.state != .blocked or
+                candidate.wait_child_pid == 0) continue;
+            if (candidate.wait_child_pid == ~@as(u64, 0) or candidate.wait_child_pid == pid) {
+                parent_slot = candidate_slot;
+                break;
+            }
+        }
+        if (parent_slot >= user_threads.len) return null;
+        const parent = &user_threads[parent_slot];
         // The parent may not have reached wait4 yet: the loader runs an
         // exec'd child immediately after fork, while the parent's syscall
         // frame is already saved by user_thread_resume.  Restore that frame
@@ -1049,11 +1069,11 @@ pub fn finishProcessChild(pid: u32, status: u8) ?UserResume {
             parent.wait_child_pid = 0;
             parent.wait_status = 0;
             parent.state = .runnable;
-            current_thread = child.parent_slot;
+            current_thread = parent_slot;
             current_pid = parent.pid;
             return .{ .frame = parent.frame, .rsp = parent.rsp, .result = parent.result, .fs = parent.fs, .workspace_id = parent.workspace_id, .fx = parent.fx };
         }
-        current_thread = child.parent_slot;
+        current_thread = parent_slot;
         current_pid = parent.pid;
         return .{ .frame = parent.frame, .rsp = parent.rsp, .result = parent.result, .fs = parent.fs, .workspace_id = parent.workspace_id, .fx = parent.fx };
     }
@@ -4953,9 +4973,17 @@ fn exitThread(status: u64) u64 {
         // The final thread performs the single workspace-wide close and is
         // the only point at which wait4 may observe process termination.
         if (thread.kind == .process_child) {
+            const parent_workspace = if (thread.parent_slot < user_threads.len)
+                user_threads[thread.parent_slot].workspace_id
+            else
+                0xff;
             releaseWorkspaceSockets(thread.workspace_id);
             for (&user_threads) |*parent| {
-                if (parent.state != .blocked or parent.wait_child_pid == 0) continue;
+                // wait4 belongs to the process/workspace, not to the
+                // particular helper thread that happened to issue fork().
+                // A receive-pack worker may fork while another worker waits.
+                if (parent.workspace_id != parent_workspace or
+                    parent.state != .blocked or parent.wait_child_pid == 0) continue;
                 if (parent.wait_child_pid != ~@as(u64, 0) and parent.wait_child_pid != thread.pid) continue;
                 parent.pending_wait_status = @truncate(status & 0xff);
                 parent.pending_wait_address = parent.wait_status;
@@ -5125,7 +5153,8 @@ fn wait4(pid: u64, status: u64, options: u64, usage: u64) u64 {
     if (usage != 0 and !validUserSlice(usage, 144)) return errno(14);
     var matching_child = false;
     for (&user_threads) |*child| {
-        if (child.kind != .process_child or child.parent_slot != current_thread or
+        if (child.kind != .process_child or child.parent_slot >= user_threads.len or
+            user_threads[child.parent_slot].workspace_id != user_threads[current_thread].workspace_id or
             child.state != .exited or !workspaceDone(child.workspace_id)) continue;
         if (pid > 0 and pid != ~@as(u64, 0) and child.pid != pid) continue;
         if (status != 0) @as(*align(1) u32, @ptrFromInt(status)).* = @truncate((child.exit_status & 0xff) << 8);
@@ -5140,7 +5169,8 @@ fn wait4(pid: u64, status: u64, options: u64, usage: u64) u64 {
         return child_pid;
     }
     for (user_threads) |child| {
-        if (child.kind != .process_child or child.parent_slot != current_thread or
+        if (child.kind != .process_child or child.parent_slot >= user_threads.len or
+            user_threads[child.parent_slot].workspace_id != user_threads[current_thread].workspace_id or
             child.state == .unused or workspaceDone(child.workspace_id)) continue;
         if (pid > 0 and pid != ~@as(u64, 0) and child.pid != pid) continue;
         matching_child = true;
