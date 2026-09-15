@@ -618,6 +618,15 @@ como `zig build test` e o smoke Git. P1 ainda não está fechado: falta fazer
 `git pull` instalar uma nova revisão no `/system` e provar que o reboot executa
 essa revisão, não apenas a preserva.
 
+Atualização: o fluxo do próprio `/system` agora cria um origin persistente,
+publica uma revisão posterior (`86ae4bab028200c7dbc6cd3f38007af68b8772d1`),
+executa `git pull --ff-only` e lê o novo `HEAD`. Em um segundo boot no mesmo
+disco, o mesmo hash foi recuperado sem recriar o checkout. O teste também
+mantém o gate isolado de dois pipes e os testes Zig verdes. O transporte
+`push` independente continua validado pelo probe `repo8 → repo9`; P1 ainda
+requer provar que o reboot carrega/usa o conteúdo da revisão puxada, não só
+que o hash persiste.
+
 Atualização: aliases FAT para refs auxiliares (`ORIG_HEAD.lock`,
 `FETCH_HEAD.lock`, `MERGE_HEAD.lock` e `CHERRY_PICK_HEAD.lock`) completaram o
 fluxo de atualização. O probe QEMU `push → clone --branch main → pull

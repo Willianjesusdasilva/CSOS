@@ -189,6 +189,27 @@ pub fn runGitRuntime(kernel_root: u64, pages: *physical.Allocator) !void {
         const system_commit_arguments = [_][]const u8{"/bin/git", "-c", "user.name=CSOS", "-c", "user.email=csos@local", "-C", "/system", "commit", "--allow-empty", "-m", "system-bootstrap"};
         try runGitCommand(kernel_root, pages, &system_commit_arguments);
     }
+    const system_origin_revision = vfs.infoAt(-100, "/data/origin/refs/heads/master") catch null;
+    if (system_origin_revision == null) {
+        const origin_clone_arguments = [_][]const u8{"/bin/git", "clone", "--bare", "/system", "/data/origin"};
+        try runGitCommand(kernel_root, pages, &origin_clone_arguments);
+        const remote_add_arguments = [_][]const u8{"/bin/git", "-C", "/system", "remote", "add", "origin", "/data/origin"};
+        try runGitCommand(kernel_root, pages, &remote_add_arguments);
+    }
+    // Publish one deterministic follow-up revision only on the first boot.
+    // The persisted clone is the local stand-in for the developer's remote;
+    // the important gate is that /system itself advances through pull.
+    const update_checkout = vfs.infoAt(-100, "/data/update/.git/HEAD") catch null;
+    if (update_checkout == null) {
+        const clone_arguments = [_][]const u8{"/bin/git", "clone", "/data/origin", "/data/update"};
+        try runGitCommand(kernel_root, pages, &clone_arguments);
+        const update_commit_arguments = [_][]const u8{"/bin/git", "-c", "user.name=CSOS", "-c", "user.email=csos@local", "-C", "/data/update", "commit", "--allow-empty", "-m", "system-update"};
+        try runGitCommand(kernel_root, pages, &update_commit_arguments);
+        const update_fetch_arguments = [_][]const u8{"/bin/git", "--git-dir=/data/origin", "fetch", "/data/update", "master:master"};
+        try runGitCommand(kernel_root, pages, &update_fetch_arguments);
+        const pull_arguments = [_][]const u8{"/bin/git", "-C", "/system", "pull", "--ff-only", "origin", "master"};
+        try runGitCommand(kernel_root, pages, &pull_arguments);
+    }
     const system_revision_arguments = [_][]const u8{"/bin/git", "-C", "/system", "rev-parse", "--verify", "HEAD"};
     try runGitCommand(kernel_root, pages, &system_revision_arguments);
     const existing_revision = vfs.infoAt(-100, "/data/repo8/refs/heads/master") catch null;
