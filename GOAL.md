@@ -608,6 +608,16 @@ primeiro e o segundo boot sem `-ResetDisk` retornaram o mesmo hash
 explicitamente essa revisão persistida ao checkout `/system` antes de fechar
 P1.
 
+Atualização: o caminho normal agora inicializa o próprio `/system` como um
+checkout Git persistente e executa `rev-parse --verify HEAD` nele, em vez de
+deixar a revisão observável somente no repositório de fixture `/data/repo8`.
+Em boots consecutivos no mesmo disco QEMU, `/system` preservou a revisão
+`c633f4c746e2c2a1f3d745168739904a94f6cd7c`. O gate isolado de dois pipes,
+`fork`/`dup2`/`exec`, fechamento, refcount e `waitpid` continua passando, assim
+como `zig build test` e o smoke Git. P1 ainda não está fechado: falta fazer
+`git pull` instalar uma nova revisão no `/system` e provar que o reboot executa
+essa revisão, não apenas a preserva.
+
 Atualização: aliases FAT para refs auxiliares (`ORIG_HEAD.lock`,
 `FETCH_HEAD.lock`, `MERGE_HEAD.lock` e `CHERRY_PICK_HEAD.lock`) completaram o
 fluxo de atualização. O probe QEMU `push → clone --branch main → pull

@@ -177,6 +177,20 @@ pub fn runGlibRuntimeProbe(kernel_root: u64, pages: *physical.Allocator) !void {
 }
 
 pub fn runGitRuntime(kernel_root: u64, pages: *physical.Allocator) !void {
+    // The system checkout itself is the update target. Keep this small
+    // bootstrap repository persistent across boots so the revision executed
+    // by CSOS is observable independently from the transport fixtures below.
+    const system_revision = vfs.infoAt(-100, "/system/.git/HEAD") catch null;
+    if (system_revision == null) {
+        const system_init_arguments = [_][]const u8{"/bin/git", "init", "/system"};
+        try runGitCommand(kernel_root, pages, &system_init_arguments);
+        const system_add_arguments = [_][]const u8{"/bin/git", "-C", "/system", "add", "CONFIG/DEFAULTS/README.TXT"};
+        try runGitCommand(kernel_root, pages, &system_add_arguments);
+        const system_commit_arguments = [_][]const u8{"/bin/git", "-c", "user.name=CSOS", "-c", "user.email=csos@local", "-C", "/system", "commit", "--allow-empty", "-m", "system-bootstrap"};
+        try runGitCommand(kernel_root, pages, &system_commit_arguments);
+    }
+    const system_revision_arguments = [_][]const u8{"/bin/git", "-C", "/system", "rev-parse", "--verify", "HEAD"};
+    try runGitCommand(kernel_root, pages, &system_revision_arguments);
     const existing_revision = vfs.infoAt(-100, "/data/repo8/refs/heads/master") catch null;
     if (existing_revision == null) {
         const init_arguments = [_][]const u8{"/bin/git", "init", "--bare", "/data/repo8"};
