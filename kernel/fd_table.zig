@@ -51,6 +51,16 @@ pub const Table = struct {
         source.description.refs += 1;
         self.entries[new] = .{ .description = source.description, .cloexec = false };
     }
+    pub fn dup(self: *Table, old: usize, minimum: usize) !usize {
+        if (old >= self.entries.len) return error.BadFd;
+        const source = self.entries[old] orelse return error.BadFd;
+        var fd = minimum;
+        while (fd < self.entries.len and self.entries[fd] != null) : (fd += 1) {}
+        if (fd == self.entries.len) return error.TooManyFiles;
+        source.description.refs += 1;
+        self.entries[fd] = .{ .description = source.description, .cloexec = false };
+        return fd;
+    }
     pub fn exec(self: *Table) void {
         var fd: usize = 0;
         while (fd < self.entries.len) : (fd += 1) {
@@ -92,6 +102,12 @@ test "isolated two-pipe fork dup2 exec close waitpid gate" {
     try parent.install(5, &a_read, false); try parent.install(6, &b_write, false);
     var child = parent.fork();
     try child.dup2(5, 0); try child.dup2(6, 1);
+    const duplicated = try child.dup(1, 10);
+    try std.testing.expectEqual(@as(usize, 10), duplicated);
+    try std.testing.expectEqual(@as(usize, 4), try child.write(duplicated, "echo"));
+    var echoed: [4]u8 = undefined;
+    try std.testing.expectEqual(@as(usize, 4), try parent.read(4, &echoed));
+    try std.testing.expectEqualStrings("echo", &echoed);
     try child.install(9, &a_read, true); child.exec();
     try std.testing.expect(child.entries[9] == null);
     try std.testing.expectEqual(@as(usize, 4), try parent.write(3, "ping"));
@@ -105,7 +121,7 @@ test "isolated two-pipe fork dup2 exec close waitpid gate" {
     var state = ChildState{ .exited = true, .status = 0 };
     try std.testing.expectEqual(@as(u8, 0), try waitpid(&state));
     parent.close(3); parent.close(4); parent.close(5); parent.close(6);
-    child.close(0); child.close(1); child.close(3); child.close(4); child.close(5); child.close(6);
+    child.close(0); child.close(1); child.close(3); child.close(4); child.close(5); child.close(6); child.close(10);
     try std.testing.expectEqual(@as(usize, 0), a_read.refs);
     try std.testing.expectEqual(@as(usize, 0), a_write.refs);
     try std.testing.expectEqual(@as(usize, 0), b_read.refs);
