@@ -519,6 +519,14 @@ QEMU: `repo9` é criado, mas o transporte fica aguardando antes do marcador;
 essa evidência mantém P1 aberto e direciona o próximo redesenho para o ciclo
 de término/EOF dos workspaces, não para novos casos especiais de Git.
 
+Atualização: a saída do líder de um processo-filho agora aplica semântica de
+`exit_group`: threads auxiliares do mesmo workspace são invalidadas antes da
+liberação da tabela de descritores, evitando que leituras bloqueadas mantenham
+endpoints herdados vivos indefinidamente. `zig build test` e o smoke Git básico
+passam no QEMU. O probe de `push` ainda não conclui o handshake, então P1
+permanece aberto; o próximo diagnóstico deve seguir a drenagem final do
+`receive-pack` após esse encerramento atômico.
+
 ---
 
 # P2 — Bare-metal e Alpine Recovery

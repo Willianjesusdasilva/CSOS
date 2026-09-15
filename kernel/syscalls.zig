@@ -4820,11 +4820,35 @@ fn exitThread(status: u64) u64 {
     }
     thread.state = .exited;
     var workspace_has_live_thread = false;
-    for (user_threads) |other| {
-        if (other.workspace_id != thread.workspace_id) continue;
-        if (other.state == .runnable or other.state == .blocked) {
-            workspace_has_live_thread = true;
-            break;
+    if (thread.kind == .process_child) {
+        // A process exit is an exit_group: helper pthreads belong to the
+        // same process/workspace and must not keep inherited pipe endpoints
+        // alive after the leader has terminated.  Waiting for each helper to
+        // exit independently can deadlock receive-pack forever because those
+        // helpers are commonly blocked in read/poll on the same descriptor
+        // table.  Invalidate their waits before releasing workspace FDs.
+        for (&user_threads) |*peer| {
+            if (peer.workspace_id != thread.workspace_id or peer.pid == thread.pid) continue;
+            peer.exec_request = null;
+            peer.pending_read_socket = null;
+            peer.pending_read_address = 0;
+            peer.pending_read_length = 0;
+            peer.pending_read_eof = false;
+            peer.pending_write_socket = null;
+            peer.pending_write_address = 0;
+            peer.pending_write_length = 0;
+            peer.pending_poll_address = 0;
+            peer.pending_poll_count = 0;
+            peer.pending_poll_sockets = .{false} ** 32;
+            peer.state = .exited;
+        }
+    } else {
+        for (user_threads) |other| {
+            if (other.workspace_id != thread.workspace_id) continue;
+            if (other.state == .runnable or other.state == .blocked) {
+                workspace_has_live_thread = true;
+                break;
+            }
         }
     }
     if (!workspace_has_live_thread) {
