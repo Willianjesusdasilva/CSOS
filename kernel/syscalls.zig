@@ -860,12 +860,10 @@ fn closeProcessSocketRefs(thread_index: usize) void {
     var fd_index: usize = 0;
     while (fd_index < user_threads[thread_index].stdio_sockets.len) : (fd_index += 1) {
         if (user_threads[thread_index].stdio_sockets[fd_index]) |socket_index| {
-            const workspace = user_threads[thread_index].workspace_id;
-            user_threads[thread_index].stdio_sockets[fd_index] = null;
-            user_threads[thread_index].stdio_cloexec[fd_index] = false;
-            user_threads[thread_index].owned_socket_refs[socket_index] = false;
-            if (workspace_socket_aliases[workspace][socket_index] != 0)
-                workspace_socket_aliases[workspace][socket_index] -= 1;
+            // stdio entries are workspace-owned and may be mirrored in
+            // helper threads. Clear the entire workspace view before
+            // dropping this process reference.
+            clearWorkspaceStdioSocket(thread_index, socket_index, fd_index);
             if (sockets[socket_index].allocated) releaseSocketRef(socket_index);
         }
     }
