@@ -326,6 +326,12 @@ smoke seguinte confirmou `Linux PT_INTERP loader ready` logo após
 `CSOS WPE WebProcess scheduled`; o próximo bloqueio permanece dentro do
 bootstrap/IPC do WebProcess, antes de `WebKit view ready`.
 
+O trace temporário posterior confirmou que o WebProcess já executa a sequência
+real de `arch_prctl`, `set_tid_address`, `mmap`, `munmap`, futexes,
+`mprotect`, abertura/leitura de arquivos e chamadas internas de inicializador
+(`460`). Depois ele emite um novo `Linux PT_INTERP loader ready`, mas ainda
+não chega ao frame HTML. O trace foi removido; não há syscall falsa adicionada.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de
