@@ -298,6 +298,7 @@ const UserThread = struct {
     stdio_cloexec: [3]bool = .{ false, false, false },
     direct_socket_refs: [32]bool = .{false} ** 32,
     direct_socket_cloexec: [32]bool = .{false} ** 32,
+    socket_fd_map: [32]?usize = .{null} ** 32,
     owned_socket_refs: [32]bool = .{false} ** 32,
     socket_fd_aliases: [16]SocketFdAlias = .{SocketFdAlias{}} ** 16,
     cwd: [256]u8 = .{0} ** 256,
@@ -409,6 +410,7 @@ fn cloneThread(flags: u64, stack: u64, parent_tid: u64, child_tid: u64, tls: u64
         }
         user_threads[slot].direct_socket_refs = user_threads[current_thread].direct_socket_refs;
         user_threads[slot].direct_socket_cloexec = user_threads[current_thread].direct_socket_cloexec;
+        user_threads[slot].socket_fd_map = user_threads[current_thread].socket_fd_map;
         // Descriptor aliases are part of the process descriptor view too.
         // Threads share them directly; a forked process receives a copied
         // view below while its workspace reference ledger is cloned.
@@ -900,6 +902,7 @@ pub fn releaseWorkspaceSockets(workspace: u8) void {
         closeProcessSocketRefs(thread_index);
         thread.direct_socket_refs = .{false} ** 32;
         thread.direct_socket_cloexec = .{false} ** 32;
+        thread.socket_fd_map = .{null} ** 32;
         thread.stdio_sockets = .{ null, null, null };
         thread.stdio_cloexec = .{ false, false, false };
         thread.owned_socket_refs = .{false} ** 32;
@@ -1387,6 +1390,9 @@ fn clearWorkspaceDirectSocket(owner: usize, index: usize) void {
         if (peer.workspace_id != workspace) continue;
         peer.direct_socket_refs[index] = false;
         peer.direct_socket_cloexec[index] = false;
+        for (&peer.socket_fd_map) |*mapped| {
+            if (mapped.* == index) mapped.* = null;
+        }
         peer.owned_socket_refs[index] = false;
     }
 }
@@ -1414,6 +1420,7 @@ fn publishDirectSocket(owner: usize, index: usize, cloexec: bool) void {
         if (peer.workspace_id != owner_workspace) continue;
         peer.direct_socket_refs[index] = true;
         peer.direct_socket_cloexec[index] = cloexec;
+        peer.socket_fd_map[index] = index;
     }
 }
 
@@ -1481,6 +1488,21 @@ fn duplicate(old_fd: u64, new_fd: u64) u64 {
                 peer.stdio_cloexec[@intCast(new_fd)] = false;
                 peer.stdio_sockets[@intCast(new_fd)] = source;
             }
+            if (workspace_socket_aliases[workspace][source] != std.math.maxInt(u8))
+                workspace_socket_aliases[workspace][source] += 1;
+            return new_fd;
+        }
+        if (new_fd >= socket_fd_base and new_fd < socket_fd_base + sockets.len) {
+            const target: usize = @intCast(new_fd - socket_fd_base);
+            if (user_threads[current_thread].socket_fd_map[target] != null) _ = close(new_fd);
+            const workspace = user_threads[current_thread].workspace_id;
+            for (&user_threads) |*peer| {
+                if (peer.workspace_id != workspace) continue;
+                peer.socket_fd_map[target] = source;
+                peer.direct_socket_refs[source] = true;
+                peer.direct_socket_cloexec[source] = false;
+            }
+            sockets[source].refs += 1;
             if (workspace_socket_aliases[workspace][source] != std.math.maxInt(u8))
                 workspace_socket_aliases[workspace][source] += 1;
             return new_fd;
@@ -4409,10 +4431,11 @@ fn socketIndexForThread(thread_index: usize, fd: u64) ?usize {
         return null;
     }
     if (fd < socket_fd_base or fd >= socket_fd_base + sockets.len) return null;
-    const index: usize = @intCast(fd - socket_fd_base);
-    if (!sockets[index].allocated) return null;
+    const slot: usize = @intCast(fd - socket_fd_base);
     const workspace = user_threads[thread_index].workspace_id;
-    if (workspace_socket_refs[workspace][index]) return index;
+    const index: usize = user_threads[thread_index].socket_fd_map[slot] orelse slot;
+    if (!sockets[index].allocated) return null;
+    if (workspace_socket_refs[workspace][index] or user_threads[thread_index].direct_socket_refs[index]) return index;
     for (user_threads) |peer| {
         if (peer.workspace_id == workspace and peer.direct_socket_refs[index]) return index;
     }
