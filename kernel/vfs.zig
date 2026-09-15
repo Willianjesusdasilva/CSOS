@@ -88,6 +88,13 @@ pub const DrmPciIdentity = struct {
 };
 
 var descriptors: [max_fds]Descriptor = .{Descriptor{}} ** max_fds;
+// Each process workspace owns a descriptor-table snapshot.  `descriptors`
+// remains the hot table used by the VFS operations; switching workspaces
+// saves/restores that table so a child can close or dup descriptors without
+// mutating its parent's view.
+const max_workspaces = 16;
+var workspace_descriptors: [max_workspaces][max_fds]Descriptor = .{.{Descriptor{}} ** max_fds} ** max_workspaces;
+var active_workspace: u8 = 0;
 var next_generation: u32 = 1;
 var generations_exhausted = false;
 var disk: ?*fat16.Volume = null;
@@ -237,6 +244,8 @@ fn directoryVolume(fd: i64) ?*fat16.Volume {
 
 pub fn reset() void {
     descriptors = .{Descriptor{}} ** max_fds;
+    workspace_descriptors = .{.{Descriptor{}} ** max_fds} ** max_workspaces;
+    active_workspace = 0;
     next_generation = 1;
     generations_exhausted = false;
     current_directory_fd = -100;
@@ -245,6 +254,34 @@ pub fn reset() void {
     descriptors[0].kind = .console;
     descriptors[1].kind = .console;
     descriptors[2].kind = .console;
+    workspace_descriptors[0] = descriptors;
+}
+
+/// Clone the parent's descriptor namespace for a forked process.  Descriptor
+/// metadata (including offsets and CLOEXEC) is copied exactly; subsequent
+/// close/dup operations occur only in the active workspace snapshot.
+pub fn cloneWorkspace(parent: u8, child: u8) void {
+    if (parent >= max_workspaces or child >= max_workspaces or parent == child) return;
+    if (active_workspace == parent) workspace_descriptors[parent] = descriptors;
+    workspace_descriptors[child] = workspace_descriptors[parent];
+}
+
+/// Make a process workspace current.  The previous table is persisted before
+/// loading the target, which gives fork/exec children independent FD views.
+pub fn activateWorkspace(id: u8) void {
+    if (id >= max_workspaces or id == active_workspace) return;
+    workspace_descriptors[active_workspace] = descriptors;
+    descriptors = workspace_descriptors[id];
+    active_workspace = id;
+}
+
+pub fn releaseWorkspace(id: u8) void {
+    if (id >= max_workspaces) return;
+    if (id == active_workspace) {
+        descriptors = .{Descriptor{}} ** max_fds;
+        active_workspace = 0;
+    }
+    workspace_descriptors[id] = .{Descriptor{}} ** max_fds;
 }
 
 fn effectiveDirectoryFd(directory_fd: i64) i64 {

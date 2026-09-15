@@ -338,6 +338,7 @@ fn cloneProcessWorkspace(parent_id: u8, slot: u32) callconv(.c) u16 {
         child.owner_pid = slot + 1;
         child.pool_id = @intCast(index);
         child.borrowed_owned = false;
+        vfs.cloneWorkspace(parent.pool_id, child.pool_id);
         return @intCast(index);
     }
     return 0xffff;
@@ -424,6 +425,7 @@ fn activateProcessWorkspace(id: u8) callconv(.c) void {
     if (id >= loader_workspaces.len) return;
     const workspace = &loader_workspaces[id];
     const address_space = workspace.address_space orelse return;
+    vfs.activateWorkspace(workspace.pool_id);
     active_workspace = workspace;
     address_space.activate();
 }
@@ -432,6 +434,7 @@ fn releaseProcessWorkspace(id: u8) callconv(.c) void {
     if (id >= loader_workspaces.len) return;
     const workspace = &loader_workspaces[id];
     if (!workspace.leased) return;
+    vfs.releaseWorkspace(workspace.pool_id);
     paging.activateRoot(workspace.image_space.root);
     if (workspace.address_space) |address_space| address_space.destroy();
     if (!workspace.borrowed_owned) {
@@ -1016,6 +1019,7 @@ fn runImageWithWorkspace(
                 user_stack = child.execution_stack;
                 child.execution_ready = false;
                 active_workspace = child;
+                vfs.activateWorkspace(child.pool_id);
                 child.address_space.?.activate();
                 serial.write("CSOS WPE WebProcess scheduled\n");
                 lifecycle = .resuming;
@@ -1027,6 +1031,7 @@ fn runImageWithWorkspace(
                 else
                     workspace;
                 active_workspace = parent_workspace;
+                vfs.activateWorkspace(parent_workspace.pool_id);
                 (parent_workspace.address_space orelse address_space).activate();
                 // The nested exec loader temporarily installs its own
                 // userspace callbacks and clears them on return. Restore the
@@ -1044,6 +1049,7 @@ fn runImageWithWorkspace(
                 syscalls.resetUserThreadsDone();
                 resume_user_frame(&resumed_frame.frame, resumed_frame.rsp, resumed_frame.result);
                 active_workspace = parent_workspace;
+                vfs.activateWorkspace(parent_workspace.pool_id);
             }
             syscalls.resetExitStatus();
             const resumed_workspace = active_workspace orelse workspace;
