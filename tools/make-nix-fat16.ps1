@@ -1,11 +1,14 @@
 param(
     [Parameter(Mandatory = $true)][string]$ClosureArchive,
-    [string]$Output = (Join-Path $PSScriptRoot '..\zig-out\nix.img'),
+    [string]$Output,
     [int]$SizeMiB = 256,
-    [string]$CsosMuslLibc = (Join-Path $PSScriptRoot '..\.tools\musl-build-pic\lib\libc.so')
+    [string]$CsosMuslLibc
 )
 
 $ErrorActionPreference = 'Stop'
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+if ([string]::IsNullOrWhiteSpace($Output)) { $Output = Join-Path $repoRoot 'zig-out\nix.img' }
+if ([string]::IsNullOrWhiteSpace($CsosMuslLibc)) { $CsosMuslLibc = Join-Path $repoRoot '.tools\musl-build-pic\lib\libc.so' }
 $archive = (Resolve-Path -LiteralPath $ClosureArchive).Path
 $outputPath = [IO.Path]::GetFullPath($Output)
 $csosMuslLibcPath = [IO.Path]::GetFullPath($CsosMuslLibc)
