@@ -313,6 +313,13 @@ cria a thread pthread de inicialização, mas ela não chega ao primeiro syscall
 dentro do timeout; o bloqueio está na inicialização/retorno cooperativo dessa
 thread, antes do handshake IPC.
 
+Correção incremental em 15/09/2026: o criador agora permanece ativo até
+publicar o registro de início e executar `FUTEX_WAKE`; só então a thread
+deferred é escalonada. O smoke QEMU passou a mostrar um segundo
+`Linux PT_INTERP loader ready` após o `clone` do WebProcess, evidência de que a
+thread atravessou parte adicional do bootstrap. `WebKit view ready` ainda não
+foi produzido.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de

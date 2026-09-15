@@ -391,6 +391,11 @@ fn wakeUserThreads(address: u64, maximum: u64) u64 {
             count += 1;
         }
     }
+    if (deferred_user_threads != 0 and active_user_thread == current_thread) {
+        active_user_thread = null;
+        defer_user_thread_switch = false;
+        thread_switch_requested = true;
+    }
     return count;
 }
 
@@ -647,7 +652,7 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
     if (active_user_thread) |slot| {
         if (slot == current_thread and old.state != .runnable) active_user_thread = null;
     }
-    if (defer_user_thread_switch and pending_clone == null) {
+    if (defer_user_thread_switch and pending_clone == null and deferred_user_threads == 0) {
         defer_user_thread_switch = false;
         thread_switch_requested = true;
     }
@@ -705,7 +710,7 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
             thread_switch_requested = child.clone_child;
         } else {
             deferred_user_threads |= @as(u16, 1) << @intCast(child.slot);
-            active_user_thread = child.slot;
+            active_user_thread = current_thread;
             defer_user_thread_switch = true;
         }
     }
