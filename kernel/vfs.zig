@@ -1008,7 +1008,7 @@ pub fn mkdirAt(directory_fd_in: i64, path: []const u8, mode: u64) !void {
                 components[count] = component;
                 count += 1;
             }
-            if (count == 0) return error.Invalid;
+            if (count == 0) return;
             for (components[0 .. count - 1]) |component| {
                 const name = toFatName(component) orelse return error.Invalid;
                 const entry = try volume.findDirectoryEntry(cluster, &name);

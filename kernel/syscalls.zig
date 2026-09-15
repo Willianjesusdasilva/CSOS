@@ -310,6 +310,8 @@ var workspace_socket_cloexec: [16][32]bool = .{.{false} ** 32} ** 16;
 // process workspace. The boolean table above only describes high fds; this
 // ledger is the refcount source used by fork/close/exec.
 var workspace_socket_aliases: [16][32]u8 = .{.{0} ** 32} ** 16;
+var workspace_done: [16]bool = .{false} ** 16;
+var workspace_exit_status: [16]u8 = .{0} ** 16;
 var current_thread: usize = 0;
 var current_pid: u32 = 1;
 var pending_clone: ?struct { slot: usize, stack: u64, tls: u64, process_child: bool, entry: u64, clone_child: bool } = null;
@@ -443,7 +445,11 @@ fn cloneThread(flags: u64, stack: u64, parent_tid: u64, child_tid: u64, tls: u64
                 const inherited_refs: u16 = workspace_socket_aliases[parent_workspace][index];
                 if (inherited_refs != 0) {
                     socket_entry.refs += inherited_refs;
-                    user_threads[slot].owned_socket_refs[index] = true;
+                    // The child cleanup has separate paths for stdio aliases
+                    // and high descriptors. Do not invent a direct ownership
+                    // reference when the inherited table contains only
+                    // stdin/stdout/stderr aliases.
+                    user_threads[slot].owned_socket_refs[index] = user_threads[slot].direct_socket_refs[index];
                 }
             }
         }
@@ -468,6 +474,8 @@ fn cloneThread(flags: u64, stack: u64, parent_tid: u64, child_tid: u64, tls: u64
                 workspace_socket_refs[child_workspace] = workspace_socket_refs[user_threads[current_thread].workspace_id];
                 workspace_socket_cloexec[child_workspace] = workspace_socket_cloexec[user_threads[current_thread].workspace_id];
                 workspace_socket_aliases[child_workspace] = workspace_socket_aliases[user_threads[current_thread].workspace_id];
+                workspace_done[child_workspace] = false;
+                workspace_exit_status[child_workspace] = 0;
             }
             process_clone_hint_address = 0;
         }
@@ -618,6 +626,8 @@ pub fn configure(base: u64, size: u64, stack: u64, stack_length: u64, initial_br
     workspace_socket_refs = .{.{false} ** 32} ** 16;
     workspace_socket_cloexec = .{.{false} ** 32} ** 16;
     workspace_socket_aliases = .{.{0} ** 32} ** 16;
+    workspace_done = .{false} ** 16;
+    workspace_exit_status = .{0} ** 16;
     current_thread = 0;
     current_pid = 1;
     user_threads[0].pid = 1;
@@ -776,6 +786,21 @@ pub fn exitStatus() ?u8 {
 pub fn resetExitStatus() void { process_exit_status = 0xffffffffffffffff; }
 pub fn resetUserThreadsDone() void { user_threads_done = false; }
 
+pub fn workspaceDone(workspace: u8) bool {
+    return workspace < workspace_done.len and workspace_done[workspace];
+}
+
+pub fn workspaceExitStatus(workspace: u8) u8 {
+    return if (workspace < workspace_exit_status.len) workspace_exit_status[workspace] else 125;
+}
+
+fn anyLiveUserThread() bool {
+    for (user_threads) |thread| {
+        if (thread.state == .runnable or thread.state == .blocked) return true;
+    }
+    return false;
+}
+
 /// Reset local socket/pipe descriptors at a top-level image boundary. Child
 /// exec images retain inherited descriptors until they exit; the outer Git
 /// command owns the final cleanup.
@@ -866,6 +891,8 @@ pub fn releaseWorkspaceSockets(workspace: u8) void {
     workspace_socket_refs[workspace] = .{false} ** 32;
     workspace_socket_cloexec[workspace] = .{false} ** 32;
     workspace_socket_aliases[workspace] = .{0} ** 32;
+    workspace_done[workspace] = false;
+    workspace_exit_status[workspace] = 0;
 }
 
 /// Restore the non-GPR execution state saved for a parent while its process
@@ -4534,7 +4561,16 @@ fn exitThread(status: u64) u64 {
             break;
         }
     }
-    if (!workspace_has_live_thread) return exitSyscall(status);
+    if (!workspace_has_live_thread) {
+        workspace_done[thread.workspace_id] = true;
+        workspace_exit_status[thread.workspace_id] = @truncate(status & 0xff);
+        // Only the top-level image owns the global run loop. A process child
+        // must finish its own nested loader without terminating its parent or
+        // sibling workspaces (receive-pack relies on this distinction).
+        if (!anyLiveUserThread()) return exitSyscall(status);
+        thread_switch_requested = true;
+        return 0;
+    }
     for (user_threads) |other| {
         if (other.state == .runnable or other.state == .blocked) return 0;
     }

@@ -1002,6 +1002,9 @@ fn runImageWithWorkspace(
         const current_space = current.address_space orelse address_space;
         current_space.activate();
         enter_user(user_instruction, user_stack);
+        if (preserve_scheduler and syscalls.workspaceDone(workspace.pool_id)) {
+            break;
+        }
         const pause = syscalls.takePause() orelse break;
         if (syscalls.takeExecRequest()) |exec_request| {
             lifecycle = .frozen;
@@ -1026,7 +1029,7 @@ fn runImageWithWorkspace(
                 lifecycle = .resuming;
                 continue;
             };
-            if (syscalls.finishProcessChild(exec_request.thread_id, syscalls.exitStatus() orelse 0)) |resumed_frame| {
+            if (syscalls.finishProcessChild(exec_request.thread_id, syscalls.workspaceExitStatus(exec_request.workspace_id))) |resumed_frame| {
                 const parent_workspace = if (resumed_frame.workspace_id < loader_workspaces.len)
                     &loader_workspaces[resumed_frame.workspace_id]
                 else
