@@ -872,11 +872,11 @@ fn closeProcessSocketRefs(thread_index: usize) void {
     for (&user_threads[thread_index].owned_socket_refs, 0..) |*owned, socket_index| {
         if (!owned.*) continue;
         owned.* = false;
-        const workspace = user_threads[thread_index].workspace_id;
-        workspace_socket_refs[workspace][socket_index] = false;
-        workspace_socket_cloexec[workspace][socket_index] = false;
-        if (workspace_socket_aliases[workspace][socket_index] != 0)
-            workspace_socket_aliases[workspace][socket_index] -= 1;
+        // Direct descriptors are published to every thread in the process
+        // workspace.  Removing only the owner's boolean leaves stale fd
+        // maps in sibling helpers, so they can keep a pipe endpoint alive
+        // after exec/exit and prevent the peer from observing EOF.
+        clearWorkspaceDirectSocket(thread_index, socket_index, socket_fd_base + socket_index);
         if (sockets[socket_index].allocated) releaseSocketRef(socket_index);
     }
 }
