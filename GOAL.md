@@ -578,6 +578,14 @@ O alias de `AUTO_MERGE` também foi adicionado. Com isso, o checkout consegue
 atualizar `HEAD` e materializar a revisão; ainda retorna `EEXIST` para o arquivo
 de configuração da árvore, então o gate de `pull` segue aberto.
 
+Atualização: o caminho de abertura FAT agora trata criação repetida de arquivos
+regulares como operação idempotente para workers de checkout concorrentes. O
+probe QEMU `push → clone → checkout → rev-parse` completou sem `ProcessFailed`:
+os objetos foram transferidos, a árvore foi materializada e a revisão
+`00ce109c6cfa4d0433785ebdaa5cdbfcee928ab1` foi lida no clone. O aviso residual
+é apenas o syscall 38 não implementado; `git pull` em uma árvore existente e
+reboot ainda precisam ser validados antes de fechar P1.
+
 Atualização: `closeOnExecSockets()` agora usa exclusivamente a tabela de stdio
 do workspace, eliminando a última decisão de `CLOEXEC` baseada no cache da
 thread atual. O smoke básico permanece válido; o probe de `push` ainda não

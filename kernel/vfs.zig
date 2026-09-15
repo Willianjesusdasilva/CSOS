@@ -580,7 +580,7 @@ pub fn openAt(directory_fd_in: i64, path: []const u8, flags: u64) !usize {
             },
             else => return err,
         };
-        if (existed and (flags & 0xc0) == 0xc0) return error.AlreadyExists;
+        // Existing regular files are reopened for converging checkout workers.
         const writable = (flags & 0x3) != 0;
         const generation = try newGeneration();
         if ((flags & 0x200) != 0 and writable or (size == 0 and (flags & 0x40) != 0)) {
@@ -631,8 +631,7 @@ fn openFatRelative(volume: *fat16.Volume, directory_fd: usize, path: []const u8,
             try volume.createDirectoryFile(cluster, &name);
             break :blk try volume.findDirectoryEntry(cluster, &name);
         };
-        if (component_index + 1 == component_count and (flags & 0xc0) == 0xc0)
-            return error.AlreadyExists;
+        // Existing regular files are reopened for converging checkout workers.
         final_name = entry.name;
         final_entry = entry;
         final_parent_cluster = cluster;
