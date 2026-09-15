@@ -44,6 +44,7 @@ pub fn install() void {
     entries[13] = Entry.from(@ptrCast(&generalProtection));
     entries[14] = Entry.from(@ptrCast(&pageFault));
     entries[32] = Entry.from(@ptrCast(&timer));
+    entries[32].ist = 1;
     entries[48] = Entry.from(@ptrCast(&external));
     entries[49] = Entry.from(@ptrCast(&usbInterrupt));
     entries[50] = Entry.from(@ptrCast(&gpuInterrupt));

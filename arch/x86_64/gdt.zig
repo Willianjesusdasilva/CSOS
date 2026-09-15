@@ -31,6 +31,7 @@ const Tss = packed struct {
 
 var tss = Tss{};
 var privilege_stack: [64 * 1024]u8 align(16) = undefined;
+var interrupt_stack: [16 * 1024]u8 align(16) = undefined;
 
 const Register = packed struct {
     limit: u16,
@@ -39,6 +40,9 @@ const Register = packed struct {
 
 pub fn install() void {
     tss.rsp0 = @intFromPtr(&privilege_stack) + privilege_stack.len;
+    // Hardware interrupts arriving from ring 3 must not reuse rsp0: the
+    // userspace launcher keeps its suspended call frame there.
+    tss.ist1 = @intFromPtr(&interrupt_stack) + interrupt_stack.len;
     const base = @intFromPtr(&tss);
     const limit = @sizeOf(Tss) - 1;
     table[5] = limit |

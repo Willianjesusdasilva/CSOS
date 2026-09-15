@@ -709,6 +709,12 @@ futex continuam verdes. Isso melhora a semântica genérica de lifecycle, mas
 não fecha P1: o `git push` real ainda precisa concluir o transporte e a
 retomada userspace.
 
+Atualização: o vetor de timer agora possui um `IST1` dedicado no TSS, isolado
+do `rsp0` usado pelo launcher/`syscall_entry`. O boot normal e o smoke Git
+continuam verdes; isso estabelece a infraestrutura segura para uma futura
+preempção userspace sem sobrescrever frames suspensos. O timer userspace ainda
+não é armado no boot, portanto o transporte `push` permanece aberto.
+
 ---
 
 # P2 — Bare-metal e Alpine Recovery
