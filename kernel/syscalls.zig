@@ -4436,10 +4436,23 @@ fn allocateSocketAlias(thread_index: usize, source: usize, minimum: u64, cloexec
             fd += 1;
         }
         if (fd > std.math.maxInt(u32)) return null;
-        const alias_slot = for (&user_threads[thread_index].socket_fd_aliases, 0..) |*candidate, candidate_index| {
-            if (!candidate.used) break candidate_index;
-        } else return null;
-        user_threads[thread_index].socket_fd_aliases[alias_slot] = .{ .fd = @intCast(fd), .socket_index = @intCast(source), .close_on_exec = cloexec, .used = true };
+        // A workspace is the descriptor table owner. Every live thread in
+        // that workspace receives the same alias entry, while the underlying
+        // socket gets only one additional reference for the shared table.
+        for (user_threads) |peer| {
+            if (peer.workspace_id != workspace) continue;
+            var has_slot = false;
+            for (peer.socket_fd_aliases) |peer_alias| if (!peer_alias.used) { has_slot = true; break; };
+            if (!has_slot) return null;
+        }
+        for (&user_threads) |*peer| {
+            if (peer.workspace_id != workspace) continue;
+            for (&peer.socket_fd_aliases) |*peer_alias| {
+                if (peer_alias.used) continue;
+                peer_alias.* = .{ .fd = @intCast(fd), .socket_index = @intCast(source), .close_on_exec = cloexec, .used = true };
+                break;
+            }
+        }
         if (workspace_socket_aliases[workspace][source] != std.math.maxInt(u8))
             workspace_socket_aliases[workspace][source] += 1;
         sockets[source].refs += 1;
@@ -4452,7 +4465,15 @@ fn closeSocketAlias(thread_index: usize, alias: *SocketFdAlias) void {
     if (!alias.used) return;
     const index: usize = alias.socket_index;
     const workspace = user_threads[thread_index].workspace_id;
+    const fd = alias.fd;
     alias.used = false;
+    for (&user_threads) |*peer| {
+        if (peer.workspace_id != workspace) continue;
+        for (&peer.socket_fd_aliases) |*peer_alias| {
+            if (peer_alias.used and peer_alias.fd == fd and peer_alias.socket_index == index)
+                peer_alias.used = false;
+        }
+    }
     if (workspace_socket_aliases[workspace][index] != 0)
         workspace_socket_aliases[workspace][index] -= 1;
     if (index < sockets.len and sockets[index].allocated) releaseSocketRef(index);
