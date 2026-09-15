@@ -1920,6 +1920,11 @@ O QEMU confirma o carregamento do processo de rede sem os `EFAULT` de `poll`;
 `WebKit view ready` e o handshake IPC ainda estão pendentes. P1 permanece
 fechado conforme seu gate próprio; o próximo bloqueio é M20/M21, não Git.
 
+O caminho `FUTEX_WAIT` agora cede a CPU quando retorna `EAGAIN`, removendo
+starvation de launchers WPE em espera não bloqueante. O smoke QEMU seguinte
+confirmou a criação do segundo processo WPE; ainda falta observar a mensagem
+IPC que libera `webkit_web_view_new()`.
+
 ---
 
 # M24–M26

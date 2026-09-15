@@ -1107,7 +1107,7 @@ fn runImageWithWorkspace(
             // workspace so wait4 can observe the child exit and resume the
             // original image.  Returning here would terminate the parent
             // loader before the Git process could complete its handshake.
-            try runExecRequest(kernel_root, pages, exec_request);
+    try runExecRequest(kernel_root, pages, exec_request);
             syscalls.releaseVforkParent(exec_request.thread_id);
             const child_workspace = if (exec_request.workspace_id < loader_workspaces.len)
                 &loader_workspaces[exec_request.workspace_id]

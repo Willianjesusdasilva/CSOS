@@ -305,6 +305,12 @@ scheduler, sem os `EFAULT` de `poll` observados anteriormente.
 handshake IPC entre o launcher e os processos WPE depois dessa retomada; este
 avanço não deve ser contado como HTML/CSS/JavaScript entregue ao compositor.
 
+O scheduler também passou a ceder no caminho `FUTEX_WAIT` que retorna
+`EAGAIN`, evitando starvation quando um processo WPE gira em `ppoll` ou espera
+uma condição já alterada. O smoke seguinte confirmou a criação do segundo
+processo WPE; o próximo diagnóstico deve seguir a mensagem IPC que falta após
+essa criação.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de

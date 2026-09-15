@@ -4312,6 +4312,12 @@ fn poll(address: u64, count: u64, timeout: i64) u64 {
         }
         if (user_threads_enabled) thread_switch_requested = true;
         if (idle_hook) |hook| hook();
+    } else if (ready == 0 and timeout == 0 and active_user_thread == current_thread) {
+        // A newly-created helper is preferred until its first real blocking
+        // boundary.  A zero-timeout poll is not that boundary: clear the
+        // preference so a WPE/GIO worker cannot spin forever ahead of the
+        // launcher or another process that must feed its IPC channel.
+        active_user_thread = null;
     }
     return ready;
 }
@@ -5672,7 +5678,18 @@ fn futex(address: u64, operation: u64, expected: u64, timeout: u64, address2: u6
     const word: *align(1) volatile u32 = @ptrFromInt(address);
     switch (command) {
         0 => { // FUTEX_WAIT: never sleep indefinitely in the single-thread core.
-            if (word.* != @as(u32, @truncate(expected))) return errno(11);
+            if (word.* != @as(u32, @truncate(expected))) {
+                // Linux reports EAGAIN when the value changed before the
+                // wait was queued.  In the cooperative CSOS scheduler that
+                // fast path must still yield, otherwise a launcher can spin
+                // on a private futex forever and starve the worker that made
+                // the value change (notably WPE process startup).
+                if (user_threads_enabled) {
+                    active_user_thread = null;
+                    thread_switch_requested = true;
+                }
+                return errno(11);
+            }
             if (user_threads_enabled) {
                 user_threads[current_thread].state = .blocked;
                 user_futex_blocks += 1;
