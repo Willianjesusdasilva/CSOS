@@ -1,0 +1,113 @@
+//! Deterministic process-FD ownership gate, independent of kernel syscalls.
+const std = @import("std");
+
+pub const Pipe = struct {
+    const capacity = 4096;
+    buffer: [capacity]u8 = undefined,
+    head: usize = 0,
+    len: usize = 0,
+    pub fn write(self: *Pipe, data: []const u8) usize {
+        const count = @min(data.len, capacity - self.len);
+        for (data[0..count], 0..) |byte, i| self.buffer[(self.head + self.len + i) % capacity] = byte;
+        self.len += count;
+        return count;
+    }
+    pub fn read(self: *Pipe, out: []u8) usize {
+        const count = @min(out.len, self.len);
+        for (out[0..count], 0..) |*byte, i| byte.* = self.buffer[(self.head + i) % capacity];
+        self.head = (self.head + count) % capacity;
+        self.len -= count;
+        return count;
+    }
+};
+
+pub const Description = struct {
+    refs: usize = 0,
+    pipe: *Pipe,
+    readable: bool,
+    writable: bool,
+};
+const Entry = struct { description: *Description, cloexec: bool };
+
+pub const Table = struct {
+    entries: [64]?Entry = .{null} ** 64,
+    pub fn fork(self: *const Table) Table {
+        const child = self.*;
+        for (self.entries) |entry| {
+            if (entry) |value| value.description.refs += 1;
+        }
+        return child;
+    }
+    pub fn install(self: *Table, fd: usize, description: *Description, cloexec: bool) !void {
+        if (fd >= self.entries.len or self.entries[fd] != null) return error.BadFd;
+        description.refs += 1;
+        self.entries[fd] = .{ .description = description, .cloexec = cloexec };
+    }
+    pub fn dup2(self: *Table, old: usize, new: usize) !void {
+        if (old >= self.entries.len or new >= self.entries.len) return error.BadFd;
+        const source = self.entries[old] orelse return error.BadFd;
+        if (old == new) return;
+        self.close(new);
+        source.description.refs += 1;
+        self.entries[new] = .{ .description = source.description, .cloexec = false };
+    }
+    pub fn exec(self: *Table) void {
+        var fd: usize = 0;
+        while (fd < self.entries.len) : (fd += 1) {
+            if (self.entries[fd]) |entry| if (entry.cloexec) self.close(fd);
+        }
+    }
+    pub fn close(self: *Table, fd: usize) void {
+        if (fd >= self.entries.len) return;
+        const entry = self.entries[fd] orelse return;
+        self.entries[fd] = null;
+        entry.description.refs -= 1;
+    }
+    pub fn write(self: *const Table, fd: usize, data: []const u8) !usize {
+        const entry = self.entries[fd] orelse return error.BadFd;
+        if (!entry.description.writable) return error.NotWritable;
+        return entry.description.pipe.write(data);
+    }
+    pub fn read(self: *const Table, fd: usize, out: []u8) !usize {
+        const entry = self.entries[fd] orelse return error.BadFd;
+        if (!entry.description.readable) return error.NotReadable;
+        return entry.description.pipe.read(out);
+    }
+};
+
+pub const ChildState = struct { exited: bool = false, status: u8 = 0 };
+pub fn waitpid(child: *const ChildState) !u8 {
+    if (!child.exited) return error.WouldBlock;
+    return child.status;
+}
+
+test "isolated two-pipe fork dup2 exec close waitpid gate" {
+    var pipe_a = Pipe{}; var pipe_b = Pipe{};
+    var a_read = Description{ .pipe = &pipe_a, .readable = true, .writable = false };
+    var a_write = Description{ .pipe = &pipe_a, .readable = false, .writable = true };
+    var b_read = Description{ .pipe = &pipe_b, .readable = true, .writable = false };
+    var b_write = Description{ .pipe = &pipe_b, .readable = false, .writable = true };
+    var parent = Table{};
+    try parent.install(3, &a_write, false); try parent.install(4, &b_read, false);
+    try parent.install(5, &a_read, false); try parent.install(6, &b_write, false);
+    var child = parent.fork();
+    try child.dup2(5, 0); try child.dup2(6, 1);
+    try child.install(9, &a_read, true); child.exec();
+    try std.testing.expect(child.entries[9] == null);
+    try std.testing.expectEqual(@as(usize, 4), try parent.write(3, "ping"));
+    var input: [4]u8 = undefined;
+    try std.testing.expectEqual(@as(usize, 4), try child.read(0, &input));
+    try std.testing.expectEqualStrings("ping", &input);
+    try std.testing.expectEqual(@as(usize, 4), try child.write(1, "pong"));
+    var output: [4]u8 = undefined;
+    try std.testing.expectEqual(@as(usize, 4), try parent.read(4, &output));
+    try std.testing.expectEqualStrings("pong", &output);
+    var state = ChildState{ .exited = true, .status = 0 };
+    try std.testing.expectEqual(@as(u8, 0), try waitpid(&state));
+    parent.close(3); parent.close(4); parent.close(5); parent.close(6);
+    child.close(0); child.close(1); child.close(3); child.close(4); child.close(5); child.close(6);
+    try std.testing.expectEqual(@as(usize, 0), a_read.refs);
+    try std.testing.expectEqual(@as(usize, 0), a_write.refs);
+    try std.testing.expectEqual(@as(usize, 0), b_read.refs);
+    try std.testing.expectEqual(@as(usize, 0), b_write.refs);
+}
