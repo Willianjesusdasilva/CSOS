@@ -167,7 +167,18 @@ pub fn runWebkitRuntimeProbe(kernel_root: u64, pages: *physical.Allocator) !void
 pub fn runWebkitLauncher(kernel_root: u64, pages: *physical.Allocator) !void {
     image = webkit_launcher_image;
     const arguments = [_][]const u8{"/bin/csos-webkit"};
-    return runImage(kernel_root, pages, &arguments);
+    // WPE/GLib consult the process environment while creating the real
+    // WebKit process pool.  Give the launcher the same minimal userspace
+    // identity and search path used by filesystem applications so it does
+    // not fall back to an unknown uid or an unset home directory.
+    const environment = [_][]const u8{
+        "HOME=/home",
+        "USER=root",
+        "LOGNAME=root",
+        "PATH=/bin:/usr/bin",
+        "XDG_RUNTIME_DIR=/tmp",
+    };
+    return runImageWithEnvironment(kernel_root, pages, &arguments, &environment);
 }
 
 pub fn runGlibRuntimeProbe(kernel_root: u64, pages: *physical.Allocator) !void {
