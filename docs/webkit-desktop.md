@@ -650,6 +650,11 @@ callback e a configuração global do timer como causa suficiente; a próxima
 captura deve comparar o mapeamento efetivo do código do handler e das páginas
 de tabelas no CR3 filho, no instante anterior à entrega.
 
+Uma verificação instrumentada posterior confirmou `WPE timer page map=1`
+imediatamente antes de `CSOS WPE WebProcess scheduled`; portanto a página do
+handler está presente no CR3 filho. O `#GP(0x102)` ocorre ainda na validação
+do gate/segmentação, antes da primeira instrução do WebProcess.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de
