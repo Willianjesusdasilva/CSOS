@@ -23,7 +23,10 @@ pub fn init() !void {
 pub fn startPeriodicTimer() void {
     write(timer_divide, 0x3);
     write(timer_lvt, (1 << 17) | 32);
-    write(timer_initial_count, 1_000_000);
+    // Keep userspace preemption active without interrupting the WebKit/musl
+    // bootstrap at every short QEMU quantum.  The 10M reload was validated by
+    // the real pthread/TLS probe and leaves the timer available for fairness.
+    write(timer_initial_count, 10_000_000);
 }
 
 pub fn stopTimer() void {
