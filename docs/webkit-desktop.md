@@ -655,6 +655,12 @@ imediatamente antes de `CSOS WPE WebProcess scheduled`; portanto a página do
 handler está presente no CR3 filho. O `#GP(0x102)` ocorre ainda na validação
 do gate/segmentação, antes da primeira instrução do WebProcess.
 
+Uma captura do clone confirmou que IDT, GDT e o handler do timer resolvem para
+os mesmos endereços físicos do kernel (`WPE phys idt=1000968192`, com GDT e
+handler também em mapeamentos identity). Assim, a tradução dessas páginas não
+explica o `#GP(0x102)`; resta validar o descritor efetivo e a segmentação no
+instante da entrega pelo CPU.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de
