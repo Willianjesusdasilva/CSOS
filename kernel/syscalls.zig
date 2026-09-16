@@ -1917,6 +1917,12 @@ fn releaseSocketRef(index: usize) void {
         return;
     }
     if (sockets[index].refs == 0) return;
+    if (sockets[index].pending_rights_len != 0) {
+        for (sockets[index].pending_rights[0..sockets[index].pending_rights_len]) |source| {
+            if (source < sockets.len and sockets[source].refs != 0) sockets[source].refs -= 1;
+        }
+        sockets[index].pending_rights_len = 0;
+    }
     if (sockets[index].peer_index) |peer| {
         sockets[peer].peer_closed = true;
         for (&user_threads) |*thread| {
@@ -4661,6 +4667,8 @@ const Socket = struct {
     linger_seconds: u32 = 0,
     remote_address: [4]u8 = .{0} ** 4,
     remote_port: u16 = 0,
+    pending_rights: [8]usize = .{0} ** 8,
+    pending_rights_len: u8 = 0,
 };
 
 fn socket(domain: u64, kind: u64, protocol: u64) u64 {
@@ -4812,6 +4820,14 @@ fn sendMessage(fd: u64, message: u64, flags: u64) u64 {
     const vector = read64(header + 16);
     const count = read64(header + 24);
     if (count > 64 or (count != 0 and !validUserSlice(vector, count * 16))) return errno(14);
+    var rights: [8]usize = .{0} ** 8;
+    const rights_count = parseRights(header, &rights) catch return errno(22);
+    if (rights_count != 0) {
+        const peer = sockets[index].peer_index orelse return errno(95);
+        if (!sockets[index].local_pair or sockets[peer].pending_rights_len + rights_count > sockets[peer].pending_rights.len)
+            return errno(11);
+        for (rights[0..rights_count]) |source| if (!sockets[source].allocated) return errno(9);
+    }
     var total: u64 = 0;
     var item: u64 = 0;
     while (item < count) : (item += 1) {
@@ -4825,6 +4841,17 @@ fn sendMessage(fd: u64, message: u64, flags: u64) u64 {
         if (result > std.math.maxInt(u64) - total) return total;
         total += result;
         if (result < length) break;
+    }
+    if (rights_count != 0) {
+        const peer = sockets[index].peer_index.?;
+        const start = sockets[peer].pending_rights_len;
+        for (rights[0..rights_count], 0..) |source, offset| {
+            sockets[peer].pending_rights[start + offset] = source;
+            sockets[source].refs += 1;
+        }
+        sockets[peer].pending_rights_len += rights_count;
+        wakeSocketReaders(peer);
+        wakeSocketPollers(peer);
     }
     return total;
 }
@@ -4850,7 +4877,61 @@ fn receiveMessage(fd: u64, message: u64, flags: u64) u64 {
         total += result;
         if (result < length) break;
     }
+    deliverRights(index, @constCast(header), flags);
     return total;
+}
+
+const RightsError = error{InvalidControl, InvalidRights};
+
+fn parseRights(header: [*]const u8, output: *[8]usize) RightsError!u8 {
+    const control = read64(header + 32);
+    const control_length = read64(header + 40);
+    if (control_length == 0) return 0;
+    if (control == 0 or !validUserSlice(control, control_length) or control_length < 16) return error.InvalidControl;
+    const cmsg: [*]const u8 = @ptrFromInt(control);
+    const cmsg_length = read64(cmsg);
+    if (cmsg_length < 16 or cmsg_length > control_length or read32(cmsg + 8) != 1 or read32(cmsg + 12) != 1)
+        return error.InvalidControl;
+    const bytes = cmsg_length - 16;
+    if ((bytes & 3) != 0 or bytes / 4 > output.len) return error.InvalidRights;
+    const count: u8 = @intCast(bytes / 4);
+    for (0..count) |item| {
+        const fd = read32(cmsg + 16 + item * 4);
+        output[item] = socketIndex(fd) orelse return error.InvalidRights;
+    }
+    return count;
+}
+
+fn deliverRights(index: usize, header: [*]const u8, flags: u64) void {
+    const available = read64(header + 40);
+    const control = read64(header + 32);
+    if (sockets[index].pending_rights_len == 0) return;
+    const requested = @min(@as(usize, sockets[index].pending_rights_len), 8);
+    const capacity: usize = if (control != 0 and available >= 16 and validUserSlice(control, available))
+        @intCast(@min(available - 16, 8 * 4)) else 0;
+    const fit: usize = @min(requested, capacity / 4);
+    var written: usize = 0;
+    if (fit != 0) {
+        const target: [*]u8 = @ptrFromInt(control);
+        put64(target, 16 + fit * 4);
+        put32(target + 8, 1);
+        put32(target + 12, 1);
+        for (0..fit) |item| {
+            const source = sockets[index].pending_rights[item];
+            const alias = allocateSocketAlias(current_thread, source, socket_fd_base + sockets.len, (flags & 0x40000000) != 0) orelse break;
+            put32(target + 16 + written * 4, @intCast(alias));
+            sockets[source].refs -|= 1;
+            written += 1;
+        }
+    }
+    const old_flags = read32(header + 48);
+    if (written < requested) put32(@constCast(header) + 48, old_flags | 8); // MSG_CTRUNC
+    put64(@constCast(header) + 40, written * 4 + (if (written != 0) @as(usize, 16) else 0));
+    const remaining = requested - @min(written, requested);
+    if (remaining != 0) {
+        for (0..remaining) |offset| sockets[index].pending_rights[offset] = sockets[index].pending_rights[written + offset];
+    }
+    sockets[index].pending_rights_len = @intCast(remaining);
 }
 
 fn shutdown(fd: u64, how: u64) u64 {
