@@ -1150,6 +1150,10 @@ pub fn closeProcessSockets() void {
 /// the parent's FS remains saved in its scheduler frame.
 pub fn resetExecThreadTls() void {
     writeMsr(0xc0000100, 0);
+    // Keep the scheduler's saved context consistent with the MSR while the
+    // replacement image installs its own musl TLS.  Otherwise a timer/context
+    // switch during the ELF bootstrap could restore the parent's FS base.
+    if (current_thread < user_threads.len) user_threads[current_thread].fs = 0;
 }
 
 /// Complete an exec'd process child after its replacement image returns to
