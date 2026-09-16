@@ -278,7 +278,11 @@ const UserThread = struct {
     // returning with sysretq; retain the complete fifteen-word frame when
     // switching user threads.
     frame: [14]u64 = @splat(0),
-    rsp: u64 = 0, result: u64 = 0, fs: u64 = 0, timer_rax: u64 = 0, timer_rcx: u64 = 0,
+    rsp: u64 = 0, result: u64 = 0, fs: u64 = 0,
+    // Separate iretq state from the syscall/sysret frame above. Layout:
+    // RIP, RFLAGS, RSP, then RAX..R15 in architectural register order.
+    timer_frame: [18]u64 = .{0} ** 18,
+    timer_valid: bool = false,
     workspace_id: u8 = 0,
     parent_slot: usize = 0,
     clear_tid: u64 = 0, wait_address: u64 = 0,
@@ -647,6 +651,25 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
     if (!user_threads_enabled) return result;
     const old = &user_threads[current_thread];
     old.frame = captureRawSyscallFrame(frame); old.rsp = syscall_user_rsp; old.result = result;
+    old.timer_valid = false;
+    old.timer_frame[0] = old.frame[0];
+    old.timer_frame[1] = old.frame[1];
+    old.timer_frame[2] = old.rsp;
+    old.timer_frame[3] = result;
+    old.timer_frame[4] = old.frame[0];
+    old.timer_frame[5] = old.frame[13];
+    old.timer_frame[6] = old.frame[12];
+    old.timer_frame[7] = old.frame[11];
+    old.timer_frame[8] = old.frame[10];
+    old.timer_frame[9] = old.frame[9];
+    old.timer_frame[10] = old.frame[8];
+    old.timer_frame[11] = old.frame[7];
+    old.timer_frame[12] = old.frame[6];
+    old.timer_frame[13] = old.frame[1];
+    old.timer_frame[14] = old.frame[5];
+    old.timer_frame[15] = old.frame[4];
+    old.timer_frame[16] = old.frame[3];
+    old.timer_frame[17] = old.frame[2];
     old.fs = readMsr(0xc0000100);
     asm volatile ("fxsave64 (%[p])" : : [p] "r" (&old.fx) : .{ .memory = true });
     if (active_user_thread) |slot| {
@@ -1817,36 +1840,44 @@ pub export fn userTimerSwitch(registers: *anyopaque, user_frame: *anyopaque) cal
     }
     const next = selected orelse return false;
     const current = &user_threads[current_thread];
-    current.frame = .{ frame[0], frame[2], regs[14], regs[13], regs[12], regs[11], regs[9], regs[8], regs[7], regs[6], regs[5], regs[4], regs[3], regs[2] };
-    current.rsp = frame[3];
-    current.timer_rax = regs[0];
-    current.timer_rcx = regs[1];
+    current.timer_frame[0] = frame[0];
+    current.timer_frame[1] = frame[2];
+    current.timer_frame[2] = frame[3];
+    for (0..15) |index| current.timer_frame[3 + index] = regs[index];
+    current.timer_valid = true;
     current.fs = readMsr(0xc0000100);
     asm volatile ("fxsave64 (%[p])" : : [p] "r" (&current.fx) : .{ .memory = true });
     current_thread = next;
     current_pid = user_threads[next].pid;
     if (workspace_activate_hook) |hook| hook(user_threads[next].workspace_id);
     const replacement = &user_threads[next];
-    frame[0] = replacement.frame[0];
+    if (!replacement.timer_valid) {
+        replacement.timer_frame[0] = replacement.frame[0];
+        replacement.timer_frame[1] = replacement.frame[1];
+        replacement.timer_frame[2] = replacement.rsp;
+        replacement.timer_frame[3] = replacement.result;
+        replacement.timer_frame[4] = replacement.frame[0];
+        replacement.timer_frame[5] = replacement.frame[13];
+        replacement.timer_frame[6] = replacement.frame[12];
+        replacement.timer_frame[7] = replacement.frame[11];
+        replacement.timer_frame[8] = replacement.frame[10];
+        replacement.timer_frame[9] = replacement.frame[9];
+        replacement.timer_frame[10] = replacement.frame[8];
+        replacement.timer_frame[11] = replacement.frame[7];
+        replacement.timer_frame[12] = replacement.frame[6];
+        replacement.timer_frame[13] = replacement.frame[1];
+        replacement.timer_frame[14] = replacement.frame[5];
+        replacement.timer_frame[15] = replacement.frame[4];
+        replacement.timer_frame[16] = replacement.frame[3];
+        replacement.timer_frame[17] = replacement.frame[2];
+        replacement.timer_valid = true;
+    }
+    frame[0] = replacement.timer_frame[0];
     frame[1] = 0x23;
-    frame[2] = replacement.frame[1];
-    frame[3] = replacement.rsp;
+    frame[2] = replacement.timer_frame[1];
+    frame[3] = replacement.timer_frame[2];
     frame[4] = 0x1b;
-    regs[0] = replacement.timer_rax;
-    regs[1] = replacement.timer_rcx;
-    regs[2] = replacement.frame[13];
-    regs[3] = replacement.frame[12];
-    regs[4] = replacement.frame[11];
-    regs[5] = replacement.frame[10];
-    regs[6] = replacement.frame[9];
-    regs[7] = replacement.frame[8];
-    regs[8] = replacement.frame[7];
-    regs[9] = replacement.frame[6];
-    regs[10] = 0;
-    regs[11] = replacement.frame[5];
-    regs[12] = replacement.frame[4];
-    regs[13] = replacement.frame[3];
-    regs[14] = replacement.frame[2];
+    for (0..15) |index| regs[index] = replacement.timer_frame[3 + index];
     writeMsr(0xc0000100, replacement.fs);
     asm volatile ("fxrstor64 (%[p])" : : [p] "r" (&replacement.fx) : .{ .memory = true });
     return true;

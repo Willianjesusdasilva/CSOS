@@ -362,6 +362,12 @@ adicionais do WebProcess. O gate ainda para antes de `WebKit view ready`; não h
 evidência de handshake IPC completo, HTML carregado ou frame no compositor.
 O próximo diagnóstico deve seguir a primeira thread WPE após essas trocas.
 
+O estado usado por `iretq` passou a ser separado do frame `syscall/sysret`:
+cada thread mantém RIP, RFLAGS, RSP e os quinze GPRs do timer, enquanto o
+frame de syscall continua reservado para retornos Linux. O probe QEMU de
+pthread/TLS/DRM permanece aprovado após essa correção; o handshake WPE ainda
+é o gate aberto.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de
