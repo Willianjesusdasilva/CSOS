@@ -403,6 +403,16 @@ O smoke WPE também avançou por `WebKit view begin` e criou workers adicionais,
 mas ainda não produziu `WebKit view ready`; portanto este é um ajuste de
 frequência/estabilidade do scheduler, não a conclusão do gate WebKit.
 
+### Diagnóstico do caminho de spawn (2026-09-16)
+
+Uma execução de 30 segundos com instrumentação temporária no syscall `execve`
+não registrou nenhuma chamada com o caminho `WPEWebProcess`. O launcher ainda
+chega a `WebKit view begin` e cria clones `CLONE_VM|CLONE_VFORK`, mas o callback
+do filho não alcança o `execve` que substituiria a imagem. A instrumentação foi
+removida após o teste; não há syscall falsa nem marcador de sucesso no kernel.
+Isso estreita o bloqueio para o callback/file-actions do `posix_spawn` (antes da
+troca de imagem), e não para o loader ELF do WebProcess.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de
