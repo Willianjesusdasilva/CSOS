@@ -167,6 +167,11 @@ filho preserva o mapeamento da IDT (`child IDT map=1`). Portanto, o
 comparação deve focar o estado dos descritores GDT/TSS e da entrega do gate no
 CPU que executa o WebProcess.
 
+Uma verificação equivalente das quatro regiões reservadas de GDT/TSS/RSP0/IST1
+no mesmo `CR3` também retornou `map=1` para todas. Os dados estáticos de
+segmentação e as pilhas de exceção estão presentes no espaço filho; resta
+comparar o GDTR/TR efetivos no instante da entrega do timer.
+
 O trace de `dup2` em `zig-out/smoke-6a28284e86794e0b849dc459dc72bc60.serial.log`
 confirmou `dup enter`/`dup exit` para os dois remapeamentos do filho. Assim,
 `dup2` retorna normalmente; o próximo diagnóstico deve seguir o syscall
