@@ -85,6 +85,11 @@ diretamente no callback. A nova evidência confirma que o filho já executa
 `execve`/`WebKit view ready`, portanto o gate WPE permanece aberto e o próximo
 diagnóstico é o progresso dessa inicialização/lifecycle, não um mock de frame.
 
+Também foi corrigido o limite de `rt_sigaction`: a tabela agora reserva 65
+entradas, mantendo o índice zero inutilizado e aceitando corretamente o sinal
+Linux 64. O ajuste passou a suíte nativa; a execução WPE ainda precisa
+confirmar o avanço além da inicialização de sinais.
+
 ## Primeiro gate de runtime: evidência QEMU (2026-09-08)
 
 Foi acrescentado um executável **Zig**, ligado estaticamente à musl, que chama

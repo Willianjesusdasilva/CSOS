@@ -232,7 +232,8 @@ const DrmSyncobj = struct { allocated: bool = false, point: u64 = 0 };
 var drm_syncobjs: [max_drm_syncobjs]DrmSyncobj = .{DrmSyncobj{}} ** max_drm_syncobjs;
 const socket_fd_base: u64 = 256;
 var sockets: [32]Socket = .{Socket{}} ** 32;
-var signal_actions: [64][32]u8 = .{.{0} ** 32} ** 64;
+// Linux signal numbers are 1..64; keep slot zero unused for the ABI check.
+var signal_actions: [65][32]u8 = .{.{0} ** 32} ** 65;
 var unknown_seen: [512]bool = .{false} ** 512;
 pub export var syscall_kernel_rsp: u64 = 0;
 pub export var syscall_user_rsp: u64 = 0;
@@ -967,7 +968,7 @@ pub fn configure(base: u64, size: u64, stack: u64, stack_length: u64, initial_br
     user_futex_blocks = 0;
     user_futex_wakes = 0;
     sockets = .{Socket{}} ** sockets.len;
-    signal_actions = .{.{0} ** 32} ** 64;
+    signal_actions = .{.{0} ** 32} ** 65;
     user_base = base;
     user_size = size;
     stack_base = stack;
