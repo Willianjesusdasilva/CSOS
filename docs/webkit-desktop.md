@@ -75,6 +75,16 @@ auxiliar através do socket IPC. Portanto, o próximo gate não é apenas
 preempção de threads: exige processo filho, `execve`/loader independente,
 ownership de descritores e lifecycle de PID no kernel.
 
+Atualização (2026-09-16): a comparação com o `__clone` real da musl mostrou
+que o callback de `posix_spawn` entra em `0x88210` com RDI correto e RFLAGS
+com IF habilitado. O frame do filho estava, porém, um word acima do stack
+pointer fornecido pela musl; isso quebrava o alinhamento SysV de 16 bytes no
+prólogo SSE do WebKit. O commit `0917e9c8` preserva `child_stack` ao entrar
+diretamente no callback. A nova evidência confirma que o filho já executa
+`close` e a sequência inicial de `rt_sigaction`; ainda não chega a
+`execve`/`WebKit view ready`, portanto o gate WPE permanece aberto e o próximo
+diagnóstico é o progresso dessa inicialização/lifecycle, não um mock de frame.
+
 ## Primeiro gate de runtime: evidência QEMU (2026-09-08)
 
 Foi acrescentado um executável **Zig**, ligado estaticamente à musl, que chama
