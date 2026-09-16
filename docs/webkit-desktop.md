@@ -596,6 +596,16 @@ houve nenhuma marca de syscall posterior antes do encerramento do QEMU; o
 próximo diagnóstico deve verificar a primeira entrada em userspace/CR3 do
 WebProcess, antes de voltar ao caminho de futex ou IPC.
 
+### Entrada do workspace WebProcess (2026-09-16)
+
+Foi usado um marcador temporário no primeiro syscall do interpretador ELF. Em
+execuções que chegaram a `CSOS WPE WebProcess scheduled`, o marcador apareceu
+somente no launcher (`Linux PT_INTERP loader ready`), nunca no processo filho.
+Isso confirma que o ELF foi carregado, mas a primeira entrada ring-3 do novo
+workspace não alcança sequer `_start`; o próximo diagnóstico deve capturar a
+entrega do `iretq`/CR3 e possíveis exceções antes do primeiro syscall. O
+marcador foi removido após o teste.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de
