@@ -641,6 +641,15 @@ restaurar o hook não altera o diagnóstico. O próximo passo é validar o estad
 completo de TSS/IST e os seletores no instante da troca para o CR3 do
 WebProcess.
 
+### Separação entre timer comum e CR3 do WebProcess (2026-09-16)
+
+Um smoke sem WebKit manteve dezenas de interrupções reais do LAPIC em ring-3
+sem exceção. Repetindo o mesmo caminho com o launcher WPE, o primeiro
+`#GP(0x102)` aparece somente depois da ativação do CR3 filho. Isso elimina o
+callback e a configuração global do timer como causa suficiente; a próxima
+captura deve comparar o mapeamento efetivo do código do handler e das páginas
+de tabelas no CR3 filho, no instante anterior à entrega.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de
