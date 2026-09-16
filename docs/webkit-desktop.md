@@ -606,6 +606,15 @@ workspace não alcança sequer `_start`; o próximo diagnóstico deve capturar a
 entrega do `iretq`/CR3 e possíveis exceções antes do primeiro syscall. O
 marcador foi removido após o teste.
 
+### Watchpoint de descritores (2026-09-16)
+
+Um smoke com gdbstub observou simultaneamente o byte de atributos do gate do
+IDT e o descritor de código `GDT[1]` (`CS=0x08`). Ambos receberam somente a
+escrita esperada durante `idt.install`/`gdt.install`; nenhuma escrita posterior
+foi capturada antes do `#GP(0x102)`. A hipótese de corrupção direta dos
+descritores foi descartada. O diagnóstico deve agora comparar a tradução do
+endereço do IDT e a validação do gate após a troca para o CR3 do WebProcess.
+
 ### Exceção do timer em ring-3 (2026-09-16)
 
 O runner agora aceita `-CaptureExceptions`, preservando o log de exceções do
