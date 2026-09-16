@@ -694,6 +694,9 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
             // The direct trampoline entry follows the Win/SysV C ABI: its
             // first argument is RDI (raw syscall frame slot 9), not R12.
             user_threads[child.slot].frame[9] = child_arg.*;
+            // musl's child trampoline clears RBP before calling the callback;
+            // preserve that ABI invariant when entering the callback directly.
+            user_threads[child.slot].frame[5] = 0;
             // musl aligns the supplied stack down, stores the argument at
             // child_stack, then its clone child path pops that argument and
             // CALLs the callback.  Entering the callback directly must retain

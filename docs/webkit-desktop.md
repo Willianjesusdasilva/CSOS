@@ -525,6 +525,16 @@ execução. Esses imports continuam sendo uma dependência futura do IPC, mas a
 próxima investigação deve focar o loop de criação do view/worker anterior ao
 primeiro uso de mensagens.
 
+### ABI do callback vfork (2026-09-16)
+
+O frame de entrada direta do callback `CLONE_VFORK` agora zera `RBP`, como faz
+o trampoline `__clone` do musl antes do `CALL` (`xor %ebp,%ebp`). O smoke
+QEMU confirmou a progressão de `CSOS vfork child selected` até a entrada real
+em `execve`; antes desse ajuste o callback não produzia nenhuma syscall. O
+ELF `WPEWebProcess` ainda não chega a `CSOS WPE WebProcess scheduled`, então o
+gate permanece aberto e a próxima investigação é o processamento do
+`ExecRequest` após essa entrada.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de
