@@ -208,7 +208,14 @@ fn timer() callconv(.naked) void {
         \\leaq 120(%%r11), %%r10
         \\movq %%r11, %%rcx
         \\movq %%r10, %%rdx
+        // The kernel is built with the Microsoft x64 ABI. Reserve the
+        // callee shadow space and keep the original register-stack pointer
+        // so the bridge cannot overwrite the interrupted frame.
+        \\andq $-16, %%rsp
+        \\subq $48, %%rsp
+        \\movq %%r11, 40(%%rsp)
         \\callq user_timer_dispatch_bridge
+        \\movq 40(%%rsp), %%rsp
         // Acknowledge the LAPIC while the saved register block is still on
         // the stack; doing this after the pops would leak the MMIO address in
         // RAX back into the interrupted userspace process.

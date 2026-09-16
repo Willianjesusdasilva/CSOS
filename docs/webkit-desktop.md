@@ -29,6 +29,13 @@ O log e o stderr foram preservados em `zig-out/smoke-3a768b3ec26d495dbf7ec871ba0
 e `zig-out/smoke-3a768b3ec26d495dbf7ec871ba0e8304.stderr.log`. Nenhum sucesso
 sintético foi adicionado; o gate de WebKit continua aberto.
 
+O handler de timer para interrupções vindas do ring 3 foi corrigido para
+reservar a shadow space e o alinhamento exigidos pelo ABI Microsoft x64 antes
+de chamar o dispatcher Zig, restaurando depois o ponteiro original. No smoke
+de 60 s seguinte, o WebProcess real avançou até `CSOS WPE WebProcess scheduled`
+sem reset/triple fault. `WebKit view ready` ainda não foi observado; o próximo
+bloqueio está no bootstrap/IPC posterior do WebProcess.
+
 ## Auditoria inicial do repositório
 
 - `userspace/ui_runtime.zig` abre e fecha recursos, emite mensagens de IPC e
