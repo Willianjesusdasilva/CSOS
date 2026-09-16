@@ -147,6 +147,12 @@ e `RSP=0x900001f550`, ambos dentro das regiões ELF/stack esperadas. O próximo
 passo é validar o estado efetivo do CR3 e a entrega do `iretq` nesse contexto;
 não há ainda evidência suficiente para marcar `WebKit view ready`.
 
+O trace de `dup2` em `zig-out/smoke-6a28284e86794e0b849dc459dc72bc60.serial.log`
+confirmou `dup enter`/`dup exit` para os dois remapeamentos do filho. Assim,
+`dup2` retorna normalmente; o próximo diagnóstico deve seguir o syscall
+subsequente e a troca de contexto, sem alterar a contabilidade de descritores
+com base apenas no timeout.
+
 ## Primeiro gate de runtime: evidência QEMU (2026-09-08)
 
 Foi acrescentado um executável **Zig**, ligado estaticamente à musl, que chama
