@@ -391,6 +391,18 @@ workers adicionais sem o `#GP(0x102)` causado pela entrada zerada. O gate
 `WebKit view ready` ainda não foi atingido; o bloqueio seguinte permanece no
 handshake/loop do WebProcess.
 
+### Intervalo do timer de preempção (2026-09-16)
+
+O probe real de pthread/TLS/shared-memory/join continuava parado quando o
+vetor de timer era recarregado com `100000` ciclos. A execução mantinha o
+`RFLAGS.IF` habilitado, mas a frequência de interrupções consumia o tempo de
+userspace no QEMU antes de o worker completar o bootstrap. Aumentar o reload
+para `10000000` ciclos preserva a preempção e fez o probe produzir
+`CSOS WebKit threads PASS: mutex/condition/shared-memory/TLS/join counter=300`.
+O smoke WPE também avançou por `WebKit view begin` e criou workers adicionais,
+mas ainda não produziu `WebKit view ready`; portanto este é um ajuste de
+frequência/estabilidade do scheduler, não a conclusão do gate WebKit.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de

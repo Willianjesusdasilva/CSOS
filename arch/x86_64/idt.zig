@@ -218,7 +218,7 @@ fn timer() callconv(.naked) void {
         // transition. Reload it explicitly so userspace keeps receiving
         // preemption ticks even when the periodic LVT bit is lost.
         \\movabsq $0xfee00380, %%rax
-        \\movl $100000, (%%rax)
+        \\movl $10000000, (%%rax)
         \\movabsq $0xfee00320, %%rax
         \\movl $(1 << 17) | 32, (%%rax)
         \\popq %%rax
