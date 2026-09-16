@@ -535,6 +535,15 @@ ELF `WPEWebProcess` ainda não chega a `CSOS WPE WebProcess scheduled`, então o
 gate permanece aberto e a próxima investigação é o processamento do
 `ExecRequest` após essa entrada.
 
+### Primeiro agendamento do WebProcess (2026-09-16)
+
+Um smoke com o ajuste de ABI alcançou novamente `CSOS WPE WebProcess
+scheduled`, confirmando que o `ExecRequest` foi consumido, o ELF do
+WebProcess foi carregado e o workspace filho foi ativado. Nessa execução não
+houve nenhuma marca de syscall posterior antes do encerramento do QEMU; o
+próximo diagnóstico deve verificar a primeira entrada em userspace/CR3 do
+WebProcess, antes de voltar ao caminho de futex ou IPC.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de
