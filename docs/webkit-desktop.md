@@ -20,6 +20,15 @@ WPE é a base de investigação porque separa a entrega dos frames e entrada de
 eventos de um toolkit desktop. Isso não torna o CSOS uma plataforma suportada
 automaticamente: é necessário portar suas dependências e o backend.
 
+## Reprodução mais recente (2026-09-16)
+
+`zig build test` terminou com sucesso. O smoke real em QEMU (`SmokeTestSeconds
+30`) inicializou o kernel, armazenamento FAT16 e iniciou a preparação do
+launcher WPE (`FAT WebKit entry ready`), mas expirou sem `WebKit view ready`.
+O log e o stderr foram preservados em `zig-out/smoke-3a768b3ec26d495dbf7ec871ba0e8304.serial.log`
+e `zig-out/smoke-3a768b3ec26d495dbf7ec871ba0e8304.stderr.log`. Nenhum sucesso
+sintético foi adicionado; o gate de WebKit continua aberto.
+
 ## Auditoria inicial do repositório
 
 - `userspace/ui_runtime.zig` abre e fecha recursos, emite mensagens de IPC e
