@@ -421,6 +421,14 @@ retornou de `posix_spawn` dentro da janela do teste; o próximo ponto a
 investigar é a publicação de EOF/reaperação do pipe de sincronização e o
 desbloqueio do pai vfork após o `execve`, não a construção das file-actions.
 
+Uma captura posterior do frame do clone WPE mostrou que o kernel grava o RIP
+do callback, o argumento em RDI e o RSP alinhado (`RIP=0x6020088210`,
+`RDI=0x900001cc20`, `RSP=0x900001e220`). Na mesma execução não apareceu
+`CSOS WPE WebProcess scheduled`, indicando que o frame ainda não atravessa a
+primeira execução efetiva do filho. A instrumentação foi removida; os valores
+servem apenas para orientar a próxima comparação com o trampoline de clone do
+musl.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de
