@@ -514,6 +514,17 @@ primeira execução efetiva do filho. A instrumentação foi removida; os valore
 servem apenas para orientar a próxima comparação com o trampoline de clone do
 musl.
 
+### Syscalls de mensagem antes do view-ready (2026-09-16)
+
+O dispatcher recebeu uma instrumentação temporária exclusiva para os números
+Linux 46 (`sendmsg`) e 47 (`recvmsg`) durante um smoke de 45 segundos. O log
+atingiu `WebKit view begin`, mas não registrou nenhuma dessas syscalls antes de
+parar; portanto, a ausência de `sendmsg/recvmsg` não explica o bloqueio dentro
+de `webkit_web_view_new()` nesse estágio. A instrumentação foi removida após a
+execução. Esses imports continuam sendo uma dependência futura do IPC, mas a
+próxima investigação deve focar o loop de criação do view/worker anterior ao
+primeiro uso de mensagens.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de
