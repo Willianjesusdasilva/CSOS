@@ -160,6 +160,11 @@ confirmou `dup enter`/`dup exit` para os dois remapeamentos do filho. Assim,
 subsequente e a troca de contexto, sem alterar a contabilidade de descritores
 com base apenas no timeout.
 
+Também foi corrigido o índice do RBP no frame SysV usado pelo callback de
+`CLONE_VFORK`: a captura coloca RBP no slot 11 (não no slot 5, que é R12).
+`zig build test` permanece verde; o smoke WPE segue necessário para provar que
+essa correção elimina a intermitência de entrada.
+
 Em 16/09/2026, uma instrumentação temporária do caminho `CLONE_VFORK` confirmou
 que o contexto do filho é montado e selecionado (`CSOS vfork child switch`). Em
 uma repetição o novo processo chegou ao primeiro `close(3)`; em outras, parou
