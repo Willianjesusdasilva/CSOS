@@ -344,12 +344,23 @@ execução seguinte permanece necessária para validar o callback e o handshake.
 Uma execução instrumentada em 15/09/2026 foi correlacionada com o disassembly
 upstream de `WebKit::ProcessLauncher::launchProcess()`: após a criação da
 thread, o pai pode permanecer em um `lock cmpxchg` de `WordLock`, sem syscall,
-enquanto o worker precisa executar para liberar o estado. O scheduler
-cooperativo atual só troca contexto em syscall/bloqueio; portanto a primeira
-thread WPE permanece deferred e o pai pode girar indefinidamente antes do
-segundo `clone`. O próximo ajuste deve introduzir preempção de userspace
-preservando frames, TLS, CR3 e ownership de workspace, ou outro ponto de
-yield comprovadamente equivalente; não é correto fabricar `WebKit view ready`.
+enquanto o worker precisa executar para liberar o estado. O caso exigiu
+preempção de userspace preservando frames, TLS, CR3 e ownership de workspace;
+não é correto fabricar `WebKit view ready`.
+
+### Preempção de userspace validada em QEMU (2026-09-16)
+
+O vetor 32 agora distingue frames CPL3, preserva os quinze registradores,
+reconhece o seletor de código de userspace e entrega o frame ao scheduler Zig.
+O retorno reconhece o LAPIC antes de restaurar `RAX`; o probe pthread/TLS/DRM
+continua passando. A política concede um quantum de graça ao criador pthread e
+depois alterna threads runnable do mesmo workspace, sem antecipar processos
+fork/vfork.
+
+No smoke WPE, a mudança atravessou `WebKit view begin` e criou threads reais
+adicionais do WebProcess. O gate ainda para antes de `WebKit view ready`; não há
+evidência de handshake IPC completo, HTML carregado ou frame no compositor.
+O próximo diagnóstico deve seguir a primeira thread WPE após essas trocas.
 
 ## Referências upstream
 

@@ -9,6 +9,7 @@ var external_hook: ?*const fn () callconv(.c) void = null;
 var usb_hook: ?*const fn () callconv(.c) void = null;
 var gpu_hook: ?*const fn () callconv(.c) void = null;
 var page_fault_hook: ?*const fn (u64, u64, u64) callconv(.c) bool = null;
+var user_timer_hook: ?*const fn (*anyopaque, *anyopaque) callconv(.c) bool = null;
 
 const Entry = packed struct {
     offset_low: u16 = 0,
@@ -93,6 +94,15 @@ pub fn setPageFaultHook(hook: ?*const fn (u64, u64, u64) callconv(.c) bool) void
     page_fault_hook = hook;
 }
 
+pub fn setUserTimerHook(hook: ?*const fn (*anyopaque, *anyopaque) callconv(.c) bool) void {
+    user_timer_hook = hook;
+}
+
+export fn user_timer_dispatch_bridge(registers: *anyopaque, frame: *anyopaque) callconv(.c) bool {
+    if (user_timer_hook) |hook| return hook(registers, frame);
+    return false;
+}
+
 fn breakpoint() callconv(.naked) void {
     asm volatile ("iretq");
 }
@@ -167,6 +177,60 @@ export fn page_fault_dispatch(address: u64, instruction: u64, code: u64) callcon
 
 fn timer() callconv(.naked) void {
     asm volatile (
+        // A ring-3 timer frame is RIP, CS, RFLAGS, RSP, SS. Preserve all
+        // general registers before invoking the optional scheduler hook.
+        \\cmpw $0x23, 8(%%rsp)
+        \\jne .Lkernel_timer
+        \\pushq %%r15
+        \\pushq %%r14
+        \\pushq %%r13
+        \\pushq %%r12
+        \\pushq %%r11
+        \\pushq %%r10
+        \\pushq %%r9
+        \\pushq %%r8
+        \\pushq %%rdi
+        \\pushq %%rsi
+        \\pushq %%rbp
+        \\pushq %%rbx
+        \\pushq %%rdx
+        \\pushq %%rcx
+        \\pushq %%rax
+        \\incq lapic_ticks(%%rip)
+        \\movq %%rsp, %%r11
+        \\leaq 120(%%r11), %%r10
+        \\movq %%r11, %%rcx
+        \\movq %%r10, %%rdx
+        \\callq user_timer_dispatch_bridge
+        // Acknowledge the LAPIC while the saved register block is still on
+        // the stack; doing this after the pops would leak the MMIO address in
+        // RAX back into the interrupted userspace process.
+        \\movabsq $0xfee000b0, %%rax
+        \\movl $0, (%%rax)
+        // QEMU may leave the local timer count exhausted after an IST/IRET
+        // transition. Reload it explicitly so userspace keeps receiving
+        // preemption ticks even when the periodic LVT bit is lost.
+        \\movabsq $0xfee00380, %%rax
+        \\movl $100000, (%%rax)
+        \\movabsq $0xfee00320, %%rax
+        \\movl $(1 << 17) | 32, (%%rax)
+        \\popq %%rax
+        \\popq %%rcx
+        \\popq %%rdx
+        \\popq %%rbx
+        \\popq %%rbp
+        \\popq %%rsi
+        \\popq %%rdi
+        \\popq %%r8
+        \\popq %%r9
+        \\popq %%r10
+        \\popq %%r11
+        \\popq %%r12
+        \\popq %%r13
+        \\popq %%r14
+        \\popq %%r15
+        \\iretq
+        \\.Lkernel_timer:
         \\pushq %%rax
         \\pushq %%rcx
         \\pushq %%rdx

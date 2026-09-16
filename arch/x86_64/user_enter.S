@@ -18,7 +18,10 @@ enter_user:
     pushq $0x1b
     pushq %rdx
     pushfq
-    andq $-513, (%rsp)
+    // Keep timer interrupts enabled in ring 3.  The userspace scheduler uses
+    // the APIC tick to preempt WebKit spin loops; clearing IF here made every
+    // userspace process non-preemptible.
+    orq $0x200, (%rsp)
     pushq $0x23
     pushq %rcx
     iretq

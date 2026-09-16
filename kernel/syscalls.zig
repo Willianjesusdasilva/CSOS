@@ -278,7 +278,7 @@ const UserThread = struct {
     // returning with sysretq; retain the complete fifteen-word frame when
     // switching user threads.
     frame: [14]u64 = @splat(0),
-    rsp: u64 = 0, result: u64 = 0, fs: u64 = 0,
+    rsp: u64 = 0, result: u64 = 0, fs: u64 = 0, timer_rax: u64 = 0, timer_rcx: u64 = 0,
     workspace_id: u8 = 0,
     parent_slot: usize = 0,
     clear_tid: u64 = 0, wait_address: u64 = 0,
@@ -809,6 +809,8 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
                 }
                 selected = thread_slot;
                 deferred_user_threads &= ~(@as(u16, 1) << @intCast(thread_slot));
+                active_user_thread = thread_slot;
+                defer_user_thread_switch = false;
                 break;
             }
             if (selected != null) {
@@ -1758,6 +1760,96 @@ fn socketHasPublishedIdentity(index: usize) bool {
         for (thread.socket_fd_aliases) |alias| if (alias.used and alias.socket_index == index) return true;
     }
     return false;
+}
+
+pub export fn userTimerSwitch(registers: *anyopaque, user_frame: *anyopaque) callconv(.c) bool {
+    if (!user_threads_enabled or current_thread >= user_threads.len) return false;
+    // A pthread creator must first return from clone while it still owns the
+    // libc thread-list lock. Give that syscall return one timer quantum before
+    // allowing the deferred child to run; otherwise a preemptive tick can
+    // reintroduce the same bootstrap race as an immediate cooperative switch.
+    if (defer_user_thread_switch and deferred_user_threads != 0) {
+        defer_user_thread_switch = false;
+        return false;
+    }
+    const regs: *[15]u64 = @ptrCast(@alignCast(registers));
+    const frame: *[5]u64 = @ptrCast(@alignCast(user_frame));
+    var selected: ?usize = null;
+    if (deferred_user_threads != 0) {
+        for (0..user_threads.len) |slot| {
+            if ((deferred_user_threads & (@as(u16, 1) << @intCast(slot))) != 0 and user_threads[slot].state == .runnable) {
+                selected = slot;
+                deferred_user_threads &= ~(@as(u16, 1) << @intCast(slot));
+                break;
+            }
+        }
+    }
+    if (selected == null and deferred_process_children != 0) {
+        for (0..user_threads.len) |slot| {
+            if ((deferred_process_children & (@as(u16, 1) << @intCast(slot))) != 0 and
+                user_threads[slot].state == .runnable) {
+                const parent = user_threads[slot].parent_slot;
+                const can_run = user_threads[slot].vfork_child or parent >= user_threads.len or
+                    user_threads[parent].state != .runnable or
+                    workspaceHasBlockedThread(user_threads[parent].workspace_id);
+                if (!can_run) continue;
+                selected = slot;
+                deferred_process_children &= ~(@as(u16, 1) << @intCast(slot));
+                break;
+            }
+        }
+    }
+    // Once a deferred pthread has had its first turn, allow the timer to
+    // return to another runnable thread in the same workspace. This is the
+    // preemption point needed when the child is spinning in libc while the
+    // creator owns a lock; process-child workspaces remain cooperative.
+    if (selected == null) {
+        const workspace = user_threads[current_thread].workspace_id;
+        for (1..user_threads.len + 1) |step| {
+            const slot = (current_thread + step) % user_threads.len;
+            if (user_threads[slot].state == .runnable and
+                user_threads[slot].kind == .thread and
+                user_threads[slot].workspace_id == workspace) {
+                selected = slot;
+                break;
+            }
+        }
+    }
+    const next = selected orelse return false;
+    const current = &user_threads[current_thread];
+    current.frame = .{ frame[0], frame[2], regs[14], regs[13], regs[12], regs[11], regs[9], regs[8], regs[7], regs[6], regs[5], regs[4], regs[3], regs[2] };
+    current.rsp = frame[3];
+    current.timer_rax = regs[0];
+    current.timer_rcx = regs[1];
+    current.fs = readMsr(0xc0000100);
+    asm volatile ("fxsave64 (%[p])" : : [p] "r" (&current.fx) : .{ .memory = true });
+    current_thread = next;
+    current_pid = user_threads[next].pid;
+    if (workspace_activate_hook) |hook| hook(user_threads[next].workspace_id);
+    const replacement = &user_threads[next];
+    frame[0] = replacement.frame[0];
+    frame[1] = 0x23;
+    frame[2] = replacement.frame[1];
+    frame[3] = replacement.rsp;
+    frame[4] = 0x1b;
+    regs[0] = replacement.timer_rax;
+    regs[1] = replacement.timer_rcx;
+    regs[2] = replacement.frame[13];
+    regs[3] = replacement.frame[12];
+    regs[4] = replacement.frame[11];
+    regs[5] = replacement.frame[10];
+    regs[6] = replacement.frame[9];
+    regs[7] = replacement.frame[8];
+    regs[8] = replacement.frame[7];
+    regs[9] = replacement.frame[6];
+    regs[10] = 0;
+    regs[11] = replacement.frame[5];
+    regs[12] = replacement.frame[4];
+    regs[13] = replacement.frame[3];
+    regs[14] = replacement.frame[2];
+    writeMsr(0xc0000100, replacement.fs);
+    asm volatile ("fxrstor64 (%[p])" : : [p] "r" (&replacement.fx) : .{ .memory = true });
+    return true;
 }
 
 fn workspaceDirectSlotFree(workspace: u8, index: usize) bool {

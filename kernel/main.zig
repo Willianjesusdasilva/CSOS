@@ -267,6 +267,7 @@ pub fn start(info: BootInfo) noreturn {
     serial.write("GDT ready\n");
     idt.install();
     idt.setPageFaultHook(&process.handlePageFault);
+    idt.setUserTimerHook(&syscalls.userTimerSwitch);
     if (!idt.verifyBreakpoint()) panic("breakpoint handler failed");
     serial.write("IDT ready\n");
     const cpu_profile = hardware_profile.detectCpu();
@@ -356,7 +357,6 @@ pub fn start(info: BootInfo) noreturn {
     asm volatile ("sti");
     scheduler.run();
     asm volatile ("cli");
-    apic.stopTimer();
     scheduler.disablePreemption();
     if (preempt_a != 2 or preempt_b != 2) panic("timer preemption failed");
     serial.write("scheduler preemption ready\n");
@@ -432,6 +432,10 @@ pub fn start(info: BootInfo) noreturn {
     if (timer_lifecycle_phase != 2 or scheduler.groupLifecycle(timer_group) != .finished) panic("lifecycle timer completion failed");
     serial.write("CSOS M17 paused timers ready\n");
 
+    // Re-enable external interrupts before entering userspace. The APIC timer
+    // is also the preemption point for userspace threads that can spin without
+    // making a syscall (notably the WPE process launcher handshake).
+    asm volatile ("sti");
     const userspace_pages_before = pages.free_pages;
     process.runHelloPie(mapper.root, &pages) catch |err| {
         serial.write("PIE userspace error: ");
