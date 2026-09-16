@@ -632,6 +632,15 @@ fault. Desativar o timer apenas interrompe o progresso do launcher e não é
 uma solução; o gate exige corrigir a entrada do vetor 0x20 mantendo a
 preempção ativa.
 
+### Callback do timer isolado (2026-09-16)
+
+Uma execução adicional registrou o mesmo `#GP(0x102)` mesmo com o hook
+`userTimerSwitch` temporariamente removido. Portanto a falha ocorre antes da
+execução do callback, na validação/entrega da entrada de hardware pelo CPU;
+restaurar o hook não altera o diagnóstico. O próximo passo é validar o estado
+completo de TSS/IST e os seletores no instante da troca para o CR3 do
+WebProcess.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de
