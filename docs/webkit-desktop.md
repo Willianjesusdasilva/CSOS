@@ -142,6 +142,13 @@ Na execução correspondente (`zig-out/smoke-12c121e59a824857a1e618903da51a98.se
 isso restringe o próximo diagnóstico à entrada do segundo image (iret/CR3,
 RIP e RSP efetivos), antes do `_start` e de qualquer syscall libc.
 
+O trace de exceções do QEMU (`-d int,cpu_reset`) confirmou que o reset após
+`CSOS WPE WebProcess scheduled` era um `#GP(0x102)` ao entregar o vetor de
+timer `0x20`, seguido de `#DF`/triple fault. A IDT estava reservada, mas as
+áreas estáticas de GDT/TSS e das pilhas RSP0/IST não estavam protegidas do
+alocador físico. Elas agora são reservadas explicitamente; o smoke precisa ser
+repetido para verificar a entrega do timer sem reset.
+
 A auditoria dos ELF confirmou que `libWPEWebKit` e `libWPEBackend-fdo` importam
 `sendmsg` e `recvmsg` (além de `socketpair`). O dispatcher CSOS ainda não expõe
 esses syscalls; um protótipo somente para iovecs foi testado e removido porque

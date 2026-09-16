@@ -83,3 +83,23 @@ pub fn install() void {
 pub fn privilegeStackTop() u64 {
     return @intFromPtr(&privilege_stack) + privilege_stack.len;
 }
+
+pub const ReservedRange = struct { address: u64, pages: u64 };
+
+fn reservedRange(address: u64, bytes: u64) ReservedRange {
+    const base = address & ~@as(u64, 4095);
+    return .{ .address = base, .pages = (address - base + bytes + 4095) / 4096 };
+}
+
+/// Static GDT/TSS storage is outside the physical allocator's ownership, but
+/// it is still identity-mapped and used by ring-3 interrupts.  Reserve every
+/// backing range so process page-table and userspace allocations cannot reuse
+/// the privilege or IST stacks and turn a timer delivery into a triple fault.
+pub fn reservedMemoryRanges() [4]ReservedRange {
+    return .{
+        reservedRange(@intFromPtr(&table), @sizeOf(@TypeOf(table))),
+        reservedRange(@intFromPtr(&tss), @sizeOf(Tss)),
+        reservedRange(@intFromPtr(&privilege_stack), privilege_stack.len),
+        reservedRange(@intFromPtr(&interrupt_stack), interrupt_stack.len),
+    };
+}

@@ -281,6 +281,8 @@ pub fn start(info: BootInfo) noreturn {
     pages.initInto(info.memory_map, info.memory_map_len, info.memory_descriptor_size);
     const idt_storage = idt.reservedMemoryRange();
     pages.reserve(idt_storage.address, idt_storage.pages) catch panic("IDT physical reservation failed");
+    for (gdt.reservedMemoryRanges()) |range|
+        pages.reserve(range.address, range.pages) catch panic("GDT/TSS physical reservation failed");
     serial.write("physical allocator initialized\n");
     syscalls.configureDrmMemory(&pages);
     serial.write("AMDGPU PSP handoff self-test start\n");
