@@ -96,6 +96,14 @@ Isso fecha a criação/execução do subprocesso como evidência intermitente, m
 o novo image entry ainda não emite `WPE shm ready`/`WebKit view ready`; a
 repetição curta continua necessária para tornar o lifecycle determinístico.
 
+Diagnóstico posterior (`zig-out/smoke-ab480c0bb1c9446bbfcc973646929211.serial.log`)
+confirmou que, após o marcador de scheduling, o loop do loader seleciona o
+workspace filho e ativa seu CR3 (`CSOS exec child loop entry` e `CSOS exec child
+address space active`). O entry observado foi `0x70000012ac` e a stack
+`0x900001f5c0`; nenhum syscall do novo image foi observado antes do timeout.
+O bloqueio foi assim reduzido à entrada do interpretador ELF/primeiro código do
+WebProcess, não à seleção de workspace ou ao `execve`.
+
 ## Primeiro gate de runtime: evidência QEMU (2026-09-08)
 
 Foi acrescentado um executável **Zig**, ligado estaticamente à musl, que chama
