@@ -413,6 +413,14 @@ removida após o teste; não há syscall falsa nem marcador de sucesso no kernel
 Isso estreita o bloqueio para o callback/file-actions do `posix_spawn` (antes da
 troca de imagem), e não para o loader ELF do WebProcess.
 
+Um probe musl adicional reproduziu as operações do GLib (`dup2`, `close`,
+`POSIX_SPAWN_SETSIGDEF`) e usou `/bin/busybox` como imagem conhecida. O filho
+alcançou `CSOS WPE WebProcess scheduled` e executou a imagem substituta, portanto
+o callback e o `execve` funcionam nesse cenário. O processo pai, porém, não
+retornou de `posix_spawn` dentro da janela do teste; o próximo ponto a
+investigar é a publicação de EOF/reaperação do pipe de sincronização e o
+desbloqueio do pai vfork após o `execve`, não a construção das file-actions.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de
