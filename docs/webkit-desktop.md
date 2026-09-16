@@ -122,6 +122,13 @@ entra no dispatcher e executa `close` seguido de várias chamadas
 gargalo está no progresso da inicialização de sinais/estado libc do WebProcess
 e sua transição subsequente para o loop IPC.
 
+Em 16/09/2026, o launcher passou a receber um ambiente mínimo real
+(`HOME`, `USER`, `LOGNAME`, `PATH` e `XDG_RUNTIME_DIR`) antes de iniciar o
+WPE. Isso removeu os avisos de identidade/diretório HOME do GLib e confirmou
+que o WebProcess ainda alcança `CSOS WPE WebProcess scheduled`; porém o smoke
+de 90 s continua sem `WebKit view ready`. O ajuste foi validado com
+`zig build test` e não fabrica nenhum marcador de sucesso.
+
 ## Primeiro gate de runtime: evidência QEMU (2026-09-08)
 
 Foi acrescentado um executável **Zig**, ligado estaticamente à musl, que chama
