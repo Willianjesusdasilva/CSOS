@@ -136,6 +136,12 @@ mostrou a seleção efetiva do filho `CLONE_VFORK`: após `close`, múltiplos
 hipótese de starvation do scheduler como causa única; o bloqueio permanece no
 bootstrap do image replacement seguinte, antes de qualquer novo frame WebKit.
 
+Um marcador temporário no primeiro instruction de `ld-csos` produziu `S` para
+o launcher normal, mas nenhum `S` depois de `CSOS WPE WebProcess scheduled`.
+Na execução correspondente (`zig-out/smoke-12c121e59a824857a1e618903da51a98.serial.log`),
+isso restringe o próximo diagnóstico à entrada do segundo image (iret/CR3,
+RIP e RSP efetivos), antes do `_start` e de qualquer syscall libc.
+
 ## Primeiro gate de runtime: evidência QEMU (2026-09-08)
 
 Foi acrescentado um executável **Zig**, ligado estaticamente à musl, que chama
