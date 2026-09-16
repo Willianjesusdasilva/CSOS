@@ -693,11 +693,13 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
             // The direct trampoline entry follows the Win/SysV C ABI: its
             // first argument is RDI (raw syscall frame slot 9), not R12.
             user_threads[child.slot].frame[9] = child_arg.*;
-            // The vfork/posix_spawn path uses musl's clone_start, which pops
-            // the argument and JMPs to the callback (no return address). The
-            // direct entry therefore resumes one word above the argument,
-            // matching the callback's real post-pop stack pointer.
-            user_threads[child.slot].rsp = child.stack + 8;
+            // musl aligns the supplied stack down, stores the argument at
+            // child_stack, then its clone child path pops that argument and
+            // CALLs the callback.  Entering the callback directly must retain
+            // child_stack (8 mod 16), which is the callback's post-CALL ABI
+            // alignment; advancing by one word would leave SSE prologues
+            // (e.g. WebKit's movaps) misaligned and fault immediately.
+            user_threads[child.slot].rsp = child.stack;
         } else {
             if (child.process_child) {
                 user_threads[child.slot].rsp = old.rsp;
