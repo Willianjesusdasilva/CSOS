@@ -606,6 +606,16 @@ workspace não alcança sequer `_start`; o próximo diagnóstico deve capturar a
 entrega do `iretq`/CR3 e possíveis exceções antes do primeiro syscall. O
 marcador foi removido após o teste.
 
+### Exceção do timer em ring-3 (2026-09-16)
+
+O runner agora aceita `-CaptureExceptions`, preservando o log de exceções do
+QEMU em `zig-out/qemu-exceptions.log`. A captura reproduzível mostra vários
+`Servicing hardware INT=0x20` no launcher/WebProcess e, em seguida,
+`#GP vector 13 error=0x102` durante a entrega do timer, seguido de triple
+fault. Desativar o timer apenas interrompe o progresso do launcher e não é
+uma solução; o gate exige corrigir a entrada do vetor 0x20 mantendo a
+preempção ativa.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de
