@@ -690,7 +690,9 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
             // directly, with the argument in RDI; posix_spawn callbacks
             // either execve or call _exit and do not return.
             user_threads[child.slot].frame[0] = child.entry;
-            user_threads[child.slot].frame[5] = child_arg.*;
+            // The direct trampoline entry follows the Win/SysV C ABI: its
+            // first argument is RDI (raw syscall frame slot 9), not R12.
+            user_threads[child.slot].frame[9] = child_arg.*;
             // The vfork/posix_spawn path uses musl's clone_start, which pops
             // the argument and JMPs to the callback (no return address). The
             // direct entry therefore resumes one word above the argument,
@@ -709,7 +711,7 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
                 // value: it is already 8 mod 16, the ABI alignment expected
                 // at a normal C function entry after a call instruction.
                 user_threads[child.slot].frame[0] = child.entry;
-                user_threads[child.slot].frame[5] = read64(@as([*]const u8, @ptrFromInt(child.stack)));
+                user_threads[child.slot].frame[9] = read64(@as([*]const u8, @ptrFromInt(child.stack)));
                 user_threads[child.slot].rsp = child.stack;
             }
         }
