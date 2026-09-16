@@ -160,6 +160,14 @@ confirmou `dup enter`/`dup exit` para os dois remapeamentos do filho. Assim,
 subsequente e a troca de contexto, sem alterar a contabilidade de descritores
 com base apenas no timeout.
 
+Em 16/09/2026, uma instrumentação temporária do caminho `CLONE_VFORK` confirmou
+que o contexto do filho é montado e selecionado (`CSOS vfork child switch`). Em
+uma repetição o novo processo chegou ao primeiro `close(3)`; em outras, parou
+antes do primeiro syscall, sempre sem `WebKit view ready`. Os marcadores foram
+removidos após o diagnóstico e `zig build test` passou. O gate continua aberto:
+o próximo passo é comparar a entrega efetiva do `sysretq`/frame de entrada nas
+duas execuções, sem adicionar sucesso sintético.
+
 ## Primeiro gate de runtime: evidência QEMU (2026-09-08)
 
 Foi acrescentado um executável **Zig**, ligado estaticamente à musl, que chama
