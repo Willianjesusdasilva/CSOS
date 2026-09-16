@@ -536,14 +536,13 @@ musl.
 
 ### Syscalls de mensagem antes do view-ready (2026-09-16)
 
-O dispatcher recebeu uma instrumentação temporária exclusiva para os números
-Linux 46 (`sendmsg`) e 47 (`recvmsg`) durante um smoke de 45 segundos. O log
-atingiu `WebKit view begin`, mas não registrou nenhuma dessas syscalls antes de
-parar; portanto, a ausência de `sendmsg/recvmsg` não explica o bloqueio dentro
-de `webkit_web_view_new()` nesse estágio. A instrumentação foi removida após a
-execução. Esses imports continuam sendo uma dependência futura do IPC, mas a
-próxima investigação deve focar o loop de criação do view/worker anterior ao
-primeiro uso de mensagens.
+O dispatcher agora implementa os números Linux 46 (`sendmsg`) e 47
+(`recvmsg`) com o layout real de `msghdr`/`iovec`, validação de slices e
+retornos parciais/EAGAIN. O smoke ainda atinge `WebKit view begin` sem registrar
+essas syscalls antes de parar; portanto, elas não explicam o bloqueio dentro de
+`webkit_web_view_new()` nesse estágio. A passagem de descritores por
+`SCM_RIGHTS` continua pendente para o IPC completo; a próxima investigação deve
+focar o loop de criação do view/worker anterior ao primeiro uso de mensagens.
 
 ### ABI do callback vfork (2026-09-16)
 
