@@ -142,6 +142,13 @@ Na execução correspondente (`zig-out/smoke-12c121e59a824857a1e618903da51a98.se
 isso restringe o próximo diagnóstico à entrada do segundo image (iret/CR3,
 RIP e RSP efetivos), antes do `_start` e de qualquer syscall libc.
 
+A auditoria dos ELF confirmou que `libWPEWebKit` e `libWPEBackend-fdo` importam
+`sendmsg` e `recvmsg` (além de `socketpair`). O dispatcher CSOS ainda não expõe
+esses syscalls; um protótipo somente para iovecs foi testado e removido porque
+não trata `SCM_RIGHTS`/ancillary FDs e não avançou o smoke. O próximo trabalho
+de IPC deve implementar o layout Linux de `msghdr` com transferência de FDs
+real, ou provar que o caminho de inicialização não o utiliza.
+
 Uma captura subsequente registrou a tentativa de entrada com `RIP=0x70000012ac`
 e `RSP=0x900001f550`, ambos dentro das regiões ELF/stack esperadas. O próximo
 passo é validar o estado efetivo do CR3 e a entrega do `iretq` nesse contexto;
