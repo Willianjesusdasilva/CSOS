@@ -129,6 +129,13 @@ que o WebProcess ainda alcança `CSOS WPE WebProcess scheduled`; porém o smoke
 de 90 s continua sem `WebKit view ready`. O ajuste foi validado com
 `zig build test` e não fabrica nenhum marcador de sucesso.
 
+Uma captura instrumentada em QEMU (`zig-out/smoke-ac8f745d60b24d8f922a6ad82818c70a.serial.log`)
+mostrou a seleção efetiva do filho `CLONE_VFORK`: após `close`, múltiplos
+`rt_sigaction`, `dup2`, `fcntl`, `rt_sigprocmask` e `execve`, um segundo filho
+é selecionado e o loader emite `CSOS WPE WebProcess scheduled`. Isso elimina a
+hipótese de starvation do scheduler como causa única; o bloqueio permanece no
+bootstrap do image replacement seguinte, antes de qualquer novo frame WebKit.
+
 ## Primeiro gate de runtime: evidência QEMU (2026-09-08)
 
 Foi acrescentado um executável **Zig**, ligado estaticamente à musl, que chama
