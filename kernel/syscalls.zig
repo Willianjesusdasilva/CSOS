@@ -1438,6 +1438,8 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         42 => connect(arg1, arg2, arg3),
         44 => sendTo(arg1, arg2, arg3),
         45 => receiveFrom(arg1, arg2, arg3),
+        46 => sendMessage(arg1, arg2, arg3),
+        47 => receiveMessage(arg1, arg2, arg3),
         48 => shutdown(arg1, arg2),
         51 => socketName(arg1, arg2, arg3, false),
         52 => socketName(arg1, arg2, arg3, true),
@@ -4796,6 +4798,59 @@ fn receiveFrom(fd: u64, address: u64, length: u64) u64 {
     if (!validUserSlice(address, length)) return errno(14);
     const bytes: [*]u8 = @ptrFromInt(address);
     return socketReceive(index, bytes[0..@intCast(length)]);
+}
+
+// Linux x86-64 msghdr offsets are name=0, namelen=8, iov=16, iovlen=24,
+// control=32, controllen=40 and flags=48. WPE uses sendmsg/recvmsg for its
+// local process-pool sockets, usually with one or more plain iovecs and no
+// ancillary data. Keep the implementation real rather than treating these
+// calls as a successful no-op, including partial/EAGAIN results.
+fn sendMessage(fd: u64, message: u64, flags: u64) u64 {
+    const index = socketIndex(fd) orelse return errno(9);
+    if (flags & ~@as(u64, 0x4000 | 0x40 | 0x100) != 0 or !validUserSlice(message, 56)) return errno(22);
+    const header: [*]const u8 = @ptrFromInt(message);
+    const vector = read64(header + 16);
+    const count = read64(header + 24);
+    if (count > 64 or (count != 0 and !validUserSlice(vector, count * 16))) return errno(14);
+    var total: u64 = 0;
+    var item: u64 = 0;
+    while (item < count) : (item += 1) {
+        const entry: [*]const u8 = @ptrFromInt(vector + item * 16);
+        const base = read64(entry);
+        const length = read64(entry + 8);
+        if (!validUserSlice(base, length)) return if (total == 0) errno(14) else total;
+        if (length == 0) continue;
+        const result = socketSend(index, (@as([*]const u8, @ptrFromInt(base)))[0..@intCast(length)]);
+        if (result == errno(11)) return if (total == 0) result else total;
+        if (result > std.math.maxInt(u64) - total) return total;
+        total += result;
+        if (result < length) break;
+    }
+    return total;
+}
+
+fn receiveMessage(fd: u64, message: u64, flags: u64) u64 {
+    const index = socketIndex(fd) orelse return errno(9);
+    if (flags & ~@as(u64, 0x40 | 0x2 | 0x100) != 0 or !validUserSlice(message, 56)) return errno(22);
+    const header: [*]const u8 = @ptrFromInt(message);
+    const vector = read64(header + 16);
+    const count = read64(header + 24);
+    if (count > 64 or (count != 0 and !validUserSlice(vector, count * 16))) return errno(14);
+    var total: u64 = 0;
+    var item: u64 = 0;
+    while (item < count) : (item += 1) {
+        const entry: [*]const u8 = @ptrFromInt(vector + item * 16);
+        const base = read64(entry);
+        const length = read64(entry + 8);
+        if (!validUserSlice(base, length)) return if (total == 0) errno(14) else total;
+        if (length == 0) continue;
+        const result = socketReceive(index, (@as([*]u8, @ptrFromInt(base)))[0..@intCast(length)]);
+        if (result == errno(11)) return if (total == 0) result else total;
+        if (result > std.math.maxInt(u64) - total) return total;
+        total += result;
+        if (result < length) break;
+    }
+    return total;
 }
 
 fn shutdown(fd: u64, how: u64) u64 {
