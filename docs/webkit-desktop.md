@@ -161,6 +161,12 @@ e `RSP=0x900001f550`, ambos dentro das regiões ELF/stack esperadas. O próximo
 passo é validar o estado efetivo do CR3 e a entrega do `iretq` nesse contexto;
 não há ainda evidência suficiente para marcar `WebKit view ready`.
 
+Essa validação foi executada diretamente após o clone do workspace: o `CR3`
+filho preserva o mapeamento da IDT (`child IDT map=1`). Portanto, o
+`#GP(0x102)` não é causado por uma tabela de páginas filha sem a IDT; a próxima
+comparação deve focar o estado dos descritores GDT/TSS e da entrega do gate no
+CPU que executa o WebProcess.
+
 O trace de `dup2` em `zig-out/smoke-6a28284e86794e0b849dc459dc72bc60.serial.log`
 confirmou `dup enter`/`dup exit` para os dois remapeamentos do filho. Assim,
 `dup2` retorna normalmente; o próximo diagnóstico deve seguir o syscall
