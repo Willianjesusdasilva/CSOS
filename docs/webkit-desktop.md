@@ -368,6 +368,17 @@ frame de syscall continua reservado para retornos Linux. O probe QEMU de
 pthread/TLS/DRM permanece aprovado após essa correção; o handshake WPE ainda
 é o gate aberto.
 
+### Workers pthread do WebProcess (2026-09-16)
+
+O scheduler não deixa mais a prioridade `active_user_thread` do criador
+suprimir indefinidamente os workers adiados. Quando há workers runnable,
+eles recebem o próximo turno antes da preferência do pai. Com as interrupções
+de usuário desativadas apenas para isolar o teste, o probe real alcança
+`CSOS WebKit threads PASS: mutex/condition/shared-memory/TLS/join
+counter=300`. Com `RFLAGS.IF` habilitado, QEMU ainda rejeita o vetor de timer
+32 com `#GP(0x102)` durante a entrada CPL3; portanto esta correção não marca
+`WebKit view ready` e o próximo gate é corrigir a entrega segura do timer.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de

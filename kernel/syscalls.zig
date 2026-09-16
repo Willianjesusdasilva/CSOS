@@ -794,11 +794,13 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
             // first blocking boundary.  The parent may already be waiting on
             // the pipe it owns, and selecting that waiter after one signal
             // mask syscall would recreate the starvation race.
-            if (active_user_thread) |thread_slot| {
-                if (user_threads[thread_slot].state == .runnable) {
-                    selected = thread_slot;
-                } else {
-                    active_user_thread = null;
+            if (deferred_user_threads == 0) {
+                if (active_user_thread) |thread_slot| {
+                    if (user_threads[thread_slot].state == .runnable) {
+                        selected = thread_slot;
+                    } else {
+                        active_user_thread = null;
+                    }
                 }
             }
             }
