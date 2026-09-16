@@ -90,6 +90,12 @@ entradas, mantendo o índice zero inutilizado e aceitando corretamente o sinal
 Linux 64. O ajuste passou a suíte nativa; a execução WPE ainda precisa
 confirmar o avanço além da inicialização de sinais.
 
+Em uma execução longa subsequente (`zig-out/smoke-a035e9ba39c94a589ca84173d96935de.serial.log`),
+o processo filho completou o loader e emitiu `CSOS WPE WebProcess scheduled`.
+Isso fecha a criação/execução do subprocesso como evidência intermitente, mas
+o novo image entry ainda não emite `WPE shm ready`/`WebKit view ready`; a
+repetição curta continua necessária para tornar o lifecycle determinístico.
+
 ## Primeiro gate de runtime: evidência QEMU (2026-09-08)
 
 Foi acrescentado um executável **Zig**, ligado estaticamente à musl, que chama
