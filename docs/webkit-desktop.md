@@ -615,6 +615,13 @@ foi capturada antes do `#GP(0x102)`. A hipótese de corrupção direta dos
 descritores foi descartada. O diagnóstico deve agora comparar a tradução do
 endereço do IDT e a validação do gate após a troca para o CR3 do WebProcess.
 
+A comparação correta das PDEs confirmou que o endereço virtual do IDT resolve
+para a mesma página física no pai e no clone (`1000968192` em ambos), inclusive
+quando a entrada é uma PDE de 2 MiB. Inicializar previamente os bits accessed
+dos descritores de código também não alterou o resultado. A próxima captura
+deve examinar o estado completo do gate/TSS no instante da entrega, não a
+alocação ou o conteúdo da página.
+
 ### Exceção do timer em ring-3 (2026-09-16)
 
 O runner agora aceita `-CaptureExceptions`, preservando o log de exceções do
