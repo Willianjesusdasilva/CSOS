@@ -139,13 +139,15 @@ fn pageFault() callconv(.naked) void {
         \\andq $-16, %%rsp
         \\subq $48, %%rsp
         \\movq %%rax, 32(%%rsp)
-        \\movq %%cr2, %%rdi
+        // Kernel callbacks use the Microsoft x64 ABI: pass (address, RIP,
+        // error-code) in RCX, RDX and R8 rather than SysV RDI/RSI/RDX.
+        \\movq %%cr2, %%rcx
         // A page fault pushes error-code, RIP, CS, RFLAGS, RSP and SS;
         // after the seven saved registers the error code is at +56 and RIP
         // at +64.  Keep the hook arguments in (address, RIP, error-code)
         // order so lazy MAP_NORESERVE faults can be resolved correctly.
-        \\movq 64(%%rax), %%rsi
-        \\movq 56(%%rax), %%rdx
+        \\movq 64(%%rax), %%rdx
+        \\movq 56(%%rax), %%r8
         \\callq page_fault_dispatch
         \\testb %%al, %%al
         \\jz 1f

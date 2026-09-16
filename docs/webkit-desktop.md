@@ -661,6 +661,15 @@ handler também em mapeamentos identity). Assim, a tradução dessas páginas n�
 explica o `#GP(0x102)`; resta validar o descritor efetivo e a segmentação no
 instante da entrega pelo CPU.
 
+### ABI do page fault corrigida (2026-09-16)
+
+Durante a captura do WebProcess surgiu um segundo defeito independente: o
+stub de page fault chamava `page_fault_dispatch` com registradores SysV,
+enquanto o kernel usa Microsoft x64. A correção agora passa endereço, RIP e
+erro em `RCX/RDX/R8`; o log deixa de reportar valores falsos como `rip 6`.
+O `#GP(0x102)` do timer ainda ocorre depois de vários ticks, portanto esse
+ajuste corrige o diagnóstico/reclaim de páginas mas não fecha o gate do WPE.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de
