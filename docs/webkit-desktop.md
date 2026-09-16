@@ -116,6 +116,12 @@ interpretador recebe seus argumentos privados; o ponto restante é a execução
 do bootstrap TLS/construtores (antes do retorno ao dispatcher), não a montagem
 do auxv.
 
+Um trace controlado após `activateExecThread` mostrou que o novo image de fato
+entra no dispatcher e executa `close` seguido de várias chamadas
+`rt_sigaction`. Portanto, o bootstrap não está parado no `iretq`; o próximo
+gargalo está no progresso da inicialização de sinais/estado libc do WebProcess
+e sua transição subsequente para o loop IPC.
+
 ## Primeiro gate de runtime: evidência QEMU (2026-09-08)
 
 Foi acrescentado um executável **Zig**, ligado estaticamente à musl, que chama
