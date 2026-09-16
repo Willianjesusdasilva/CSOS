@@ -142,6 +142,11 @@ Na execução correspondente (`zig-out/smoke-12c121e59a824857a1e618903da51a98.se
 isso restringe o próximo diagnóstico à entrada do segundo image (iret/CR3,
 RIP e RSP efetivos), antes do `_start` e de qualquer syscall libc.
 
+Uma captura subsequente registrou a tentativa de entrada com `RIP=0x70000012ac`
+e `RSP=0x900001f550`, ambos dentro das regiões ELF/stack esperadas. O próximo
+passo é validar o estado efetivo do CR3 e a entrega do `iretq` nesse contexto;
+não há ainda evidência suficiente para marcar `WebKit view ready`.
+
 ## Primeiro gate de runtime: evidência QEMU (2026-09-08)
 
 Foi acrescentado um executável **Zig**, ligado estaticamente à musl, que chama
