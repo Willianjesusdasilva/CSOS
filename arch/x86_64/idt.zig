@@ -76,6 +76,13 @@ pub fn timerTicks() u64 {
     return @atomicLoad(u64, &lapic_ticks, .acquire);
 }
 
+/// Physical storage occupied by the IDT. The table is static kernel memory
+/// and must not be reused by userspace image/page-table allocations.
+pub fn reservedMemoryRange() struct { address: u64, pages: u64 } {
+    const address = @intFromPtr(&entries) & ~@as(usize, 4095);
+    return .{ .address = address, .pages = 2 };
+}
+
 pub fn setTimerHook(hook: ?*const fn () callconv(.c) void) void {
     timer_hook = hook;
 }

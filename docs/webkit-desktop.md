@@ -379,6 +379,18 @@ counter=300`. Com `RFLAGS.IF` habilitado, QEMU ainda rejeita o vetor de timer
 32 com `#GP(0x102)` durante a entrada CPL3; portanto esta correção não marca
 `WebKit view ready` e o próximo gate é corrigir a entrega segura do timer.
 
+### Reserva de memória do IDT (2026-09-16)
+
+O diagnóstico seguinte mostrou que a entrada do timer estava válida após a
+paginação e antes do launcher, mas era sobrescrita quando o loader alocava o
+ELF grande do WebKit. A tabela de páginas físicas tratava a região estática do
+kernel como reutilizável. O allocator agora remove explicitamente as duas
+páginas que contêm o IDT antes de criar tabelas ou carregar imagens. O teste
+QEMU posterior confirmou que o launcher atravessa `WebKit view begin` e cria
+workers adicionais sem o `#GP(0x102)` causado pela entrada zerada. O gate
+`WebKit view ready` ainda não foi atingido; o bloqueio seguinte permanece no
+handshake/loop do WebProcess.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de

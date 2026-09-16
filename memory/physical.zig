@@ -76,6 +76,39 @@ pub const Allocator = struct {
         return self.allocateAligned(count, page_size);
     }
 
+    /// Remove a kernel-owned physical range from the free list before any
+    /// userspace or page-table allocation can reuse it.
+    pub fn reserve(self: *Allocator, address: u64, count: u64) !void {
+        if (count == 0 or (address & (page_size - 1)) != 0) return error.InvalidReservation;
+        const bytes = std.math.mul(u64, count, page_size) catch return error.InvalidReservation;
+        const end = std.math.add(u64, address, bytes) catch return error.InvalidReservation;
+        var index: usize = 0;
+        while (index < self.range_count) : (index += 1) {
+            const range = self.ranges[index];
+            if (address < range.next or end > range.end) continue;
+            if (self.free_pages < count) return error.InvalidReservation;
+            if (address == range.next and end == range.end) {
+                var shift = index;
+                while (shift + 1 < self.range_count) : (shift += 1) self.ranges[shift] = self.ranges[shift + 1];
+                self.range_count -= 1;
+            } else if (address == range.next) {
+                self.ranges[index].next = end;
+            } else if (end == range.end) {
+                self.ranges[index].end = address;
+            } else {
+                if (self.range_count == self.ranges.len) return error.InvalidReservation;
+                var shift = self.range_count;
+                while (shift > index + 1) : (shift -= 1) self.ranges[shift] = self.ranges[shift - 1];
+                self.ranges[index].end = address;
+                self.ranges[index + 1] = .{ .next = end, .end = range.end };
+                self.range_count += 1;
+            }
+            self.free_pages -= count;
+            return;
+        }
+        // The page may already be outside the allocator's managed ranges.
+    }
+
     pub fn allocateAligned(self: *Allocator, count: u64, alignment: u64) ?u64 {
         if (count == 0 or count > (~@as(u64, 0)) / page_size or
             alignment < page_size or (alignment & (alignment - 1)) != 0 or
@@ -234,6 +267,21 @@ test "physical allocator accepts release inside managed range" {
     allocator.managed[0] = .{ .next = 0x100000, .end = 0x104000 };
     try allocator.release(0x100000, 1);
     try @import("std").testing.expectEqual(@as(usize, 1), allocator.returned_count);
+}
+
+test "physical allocator reserves kernel-owned range" {
+    var allocator = Allocator{ .range_count = 1, .managed_count = 1, .free_pages = 16, .total_pages = 16 };
+    allocator.ranges[0] = .{ .next = 0x100000, .end = 0x110000 };
+    allocator.managed[0] = allocator.ranges[0];
+    try allocator.reserve(0x104000, 2);
+    try std.testing.expectEqual(@as(u64, 14), allocator.free_pages);
+    try std.testing.expectEqual(@as(usize, 2), allocator.range_count);
+    try std.testing.expectEqual(@as(u64, 0x100000), allocator.ranges[0].next);
+    try std.testing.expectEqual(@as(u64, 0x104000), allocator.ranges[0].end);
+    try std.testing.expectEqual(@as(u64, 0x106000), allocator.ranges[1].next);
+    try std.testing.expectEqual(@as(u64, 0x110000), allocator.ranges[1].end);
+    try std.testing.expectEqual(@as(u64, 0x100000), allocator.allocate(1));
+    try std.testing.expectEqual(@as(u64, 0x101000), allocator.allocate(1));
 }
 
 test "physical allocator rejects counter overflow before release" {

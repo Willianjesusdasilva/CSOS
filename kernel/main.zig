@@ -279,6 +279,8 @@ pub fn start(info: BootInfo) noreturn {
     serial.write("APIC timer ready\n");
     if (info.memory_map_len == 0 or info.memory_descriptor_size < 40) panic("invalid memory map descriptors");
     pages.initInto(info.memory_map, info.memory_map_len, info.memory_descriptor_size);
+    const idt_storage = idt.reservedMemoryRange();
+    pages.reserve(idt_storage.address, idt_storage.pages) catch panic("IDT physical reservation failed");
     serial.write("physical allocator initialized\n");
     syscalls.configureDrmMemory(&pages);
     serial.write("AMDGPU PSP handoff self-test start\n");
