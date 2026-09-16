@@ -110,6 +110,12 @@ Mesmo assim nenhum syscall do interpretador chega ao dispatcher, indicando que
 a próxima investigação deve comparar o frame de entrada (`iretq`, CS/SS e
 RSP) com o contrato de inicialização ELF, antes de mexer em syscalls de IPC.
 
+O conteúdo do stack também foi auditado em QEMU: `argc=3`, auxv `0x6002`
+aponta para uma estrutura `MuslBootstrap` válida no próprio stack. Assim, o
+interpretador recebe seus argumentos privados; o ponto restante é a execução
+do bootstrap TLS/construtores (antes do retorno ao dispatcher), não a montagem
+do auxv.
+
 ## Primeiro gate de runtime: evidência QEMU (2026-09-08)
 
 Foi acrescentado um executável **Zig**, ligado estaticamente à musl, que chama
