@@ -104,6 +104,12 @@ address space active`). O entry observado foi `0x70000012ac` e a stack
 O bloqueio foi assim reduzido à entrada do interpretador ELF/primeiro código do
 WebProcess, não à seleção de workspace ou ao `execve`.
 
+Uma captura posterior verificou ainda que o root CR3 filho (`29511680`) e a
+página do entry possuem mapeamento executável (`exec=1`) antes do `iretq`.
+Mesmo assim nenhum syscall do interpretador chega ao dispatcher, indicando que
+a próxima investigação deve comparar o frame de entrada (`iretq`, CS/SS e
+RSP) com o contrato de inicialização ELF, antes de mexer em syscalls de IPC.
+
 ## Primeiro gate de runtime: evidência QEMU (2026-09-08)
 
 Foi acrescentado um executável **Zig**, ligado estaticamente à musl, que chama
