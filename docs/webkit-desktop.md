@@ -172,6 +172,12 @@ no mesmo `CR3` também retornou `map=1` para todas. Os dados estáticos de
 segmentação e as pilhas de exceção estão presentes no espaço filho; resta
 comparar o GDTR/TR efetivos no instante da entrega do timer.
 
+O snapshot capturado imediatamente após a ativação do workspace filho também
+mostrou `GDTR.limit=0x37` e `TR=0x28`, iguais aos valores instalados no BSP e
+observados no trace do QEMU. A troca de `CR3` não altera esses registradores;
+o ponto restante é a validação do gate no instante em que o LAPIC entrega o
+vetor `0x20`.
+
 O trace de `dup2` em `zig-out/smoke-6a28284e86794e0b849dc459dc72bc60.serial.log`
 confirmou `dup enter`/`dup exit` para os dois remapeamentos do filho. Assim,
 `dup2` retorna normalmente; o próximo diagnóstico deve seguir o syscall
