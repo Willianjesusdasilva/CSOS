@@ -332,10 +332,10 @@ real de `arch_prctl`, `set_tid_address`, `mmap`, `munmap`, futexes,
 (`460`). Depois ele emite um novo `Linux PT_INTERP loader ready`, mas ainda
 não chega ao frame HTML. O trace foi removido; não há syscall falsa adicionada.
 
-Em 15/09/2026, a revisão do ABI do `clone` encontrou dois erros no contexto de
-filhos: o argumento do callback era gravado no slot de `R11` em vez de `RDI`, e
+Em 16/09/2026, a revisão do ABI do `clone` encontrou dois erros no contexto de
+filhos: o argumento do callback era gravado no slot de `R12` em vez de `RDI`, e
 o caminho `CLONE_VFORK` reusava a prioridade do pai. O kernel agora grava o
-argumento em `frame[5]`, agenda o filho vfork imediatamente e usa `RSP + 8`,
+argumento em `frame[9]`, agenda o filho vfork imediatamente e usa `RSP + 8`,
 como o `clone_start` de musl após o `pop %rdi`/`jmp`. O probe real de
 `pthread_create`/TLS/join continua emitindo `CSOS WebKit prerequisite PASS:`
 após a alteração. O smoke WPE ainda não alcançou `WebKit view ready`; a
