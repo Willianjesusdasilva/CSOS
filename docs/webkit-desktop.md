@@ -758,6 +758,21 @@ observado repetidamente antes do `iretq`. Isso confirma que a restauração dos
 registradores e a saída da interrupção completam; o `#GP(0x102)` só aparece na
 entrega de um tick posterior, já de volta ao contexto ring-3.
 
+### Fault tardio no WebProcess (2026-09-16)
+
+Uma reprodução de 125 segundos com `-CaptureExceptions` confirmou que o
+problema já não é o spawn: o processo chega a `CSOS WPE WebProcess scheduled`
+e ao segundo `Linux PT_INTERP loader ready`. O primeiro `#PF` ocorre em
+`RIP=0x600602dab7`, `CR2=0xe000000010`, código `0x6`, durante o primeiro
+toque de escrita da arena anônima `MAP_NORESERVE`; o pager resolve essa falta.
+Logo depois, o WebProcess sofre `#PF` de leitura em `RIP=0x6006030b2f`,
+`CR2=0x1`, código `0x5`, com `RAX=1` e `R8=0xe000000000`, e fica parado antes
+de `WebKit view ready`. O segundo acesso é um ponteiro efetivamente inválido
+no código JSC (não uma falta que o pager deva aceitar), então o próximo passo
+é rastrear a inicialização do objeto/tabela que usa a arena, incluindo o
+conteúdo escrito entre os dois faults; não será adicionado retorno de sucesso
+falso para esconder essa exceção.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de
