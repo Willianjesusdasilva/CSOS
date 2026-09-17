@@ -684,6 +684,11 @@ mesmo instante. Nenhuma das duas verificações disparou; o marcador `C` obtido
 numa tentativa anterior era um falso positivo causado por ler o descritor nulo
 (`GDT[0]`).
 
+Também foi reconstruído o offset completo (`low/middle/high`) do `IDT[32]` e
+comparado ao endereço de `timer()`. O alvo coincide no CR3 filho; portanto o
+`#GP(0x102)` não vem de truncamento do offset da gate. A instrumentação foi
+removida após o smoke.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de
