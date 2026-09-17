@@ -670,6 +670,15 @@ erro em `RCX/RDX/R8`; o log deixa de reportar valores falsos como `rip 6`.
 O `#GP(0x102)` do timer ainda ocorre depois de vários ticks, portanto esse
 ajuste corrige o diagnóstico/reclaim de páginas mas não fecha o gate do WPE.
 
+### Validação do descritor ao vivo (2026-09-16)
+
+Foi adicionada uma guarda temporária no início do handler do timer para conferir
+`selector=0x08`, `IST=1` e `attributes=0x8e` no `IDT[32]` antes de preservar os
+registradores. A guarda nunca disparou durante o smoke: o descritor permanece
+válido até o instante em que o CPU rejeita a entrega com `#GP(0x102)`. O teste
+foi removido após a captura; o próximo diagnóstico deve observar o descritor de
+código `GDT[1]`, o TSS efetivo e o endereço-alvo da gate no CR3 do WebProcess.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de
