@@ -77,6 +77,12 @@ O trace temporário de sincronização confirmou que o WebProcess usa
 pela implementação atual; os waits com palavra divergente seguem o retorno
 Linux `EAGAIN`. O trace foi removido após a reprodução e não altera o runtime.
 
+Também foi testada, sem commit, a remoção do varrimento genérico de futexes em
+`releaseOwnedFutexesOnExit`, preservando somente a robust list Linux. O smoke
+completo manteve o mesmo `CSOS WPE WebProcess scheduled` seguido de
+`CR2=0x1`; a hipótese de um lock zerado durante a saída de uma thread foi
+descartada para este fault.
+
 ## Auditoria inicial do repositório
 
 - `userspace/ui_runtime.zig` abre e fecha recursos, emite mensagens de IPC e
