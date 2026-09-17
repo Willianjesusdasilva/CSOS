@@ -5449,6 +5449,10 @@ fn mmap(requested: u64, length: u64, protection: u64, flags: u64, fd: u64, file_
             // MAP_FIXED|MAP_ANON replaces previous contents with fresh
             // zero-filled pages. WebKit's vmZeroAndPurge relies on this.
             if (mmap_reset_hook) |reset| if (!reset(requested, aligned_length)) return errno(12);
+            // A fixed commit may retain the aligned tail of a larger
+            // MAP_NORESERVE reservation. Do not let the next non-fixed
+            // reservation reuse that tail and overwrite allocator metadata.
+            if (fixed_end > noreserve_next) noreserve_next = fixed_end;
             return requested;
         }
         // Large allocator arenas (notably JSC's aligned structure heap) are

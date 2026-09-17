@@ -842,6 +842,17 @@ O WebProcess reproduziu o mesmo `RIP=0x6006030b2f`/`CR2=0x1`; o runner foi
 restaurado para quatro vCPUs. Isso exclui uma corrida que dependa de execução
 SMP como causa imediata do fault.
 
+### Cursor após caudas MAP_FIXED (2026-09-17)
+
+O caminho `MAP_FIXED|MAP_NORESERVE` agora também avança `noreserve_next` até
+o fim do intervalo fixado. Isso evita que uma reserva não-fixa reutilize a
+cauda alinhada de uma arena já entregue ao bmalloc e sobrescreva metadados do
+allocator. O teste de 130 segundos deixou de reproduzir o `#PF` em
+`CR2=0x1`/`RAX=1` e avançou até a validação de lock do runtime (`Invalid value
+for lock: 0`), seguida por `#GP(0)` em ring 3; `WebKit view ready` ainda não
+foi observado. O próximo diagnóstico é localizar a inicialização desse lock,
+sem fabricar sucesso para o gate.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de
