@@ -83,6 +83,11 @@ completo manteve o mesmo `CSOS WPE WebProcess scheduled` seguido de
 `CR2=0x1`; a hipótese de um lock zerado durante a saída de uma thread foi
 descartada para este fault.
 
+O probe de pré-requisitos agora cobre também `pthread_key_create`,
+`pthread_setspecific` e `pthread_getspecific`; no QEMU o marcador
+`CSOS WebKit threads PASS` foi observado com valores distintos por thread.
+Assim, o TLS de chaves POSIX não é o bloqueio reproduzido no WebProcess.
+
 ## Auditoria inicial do repositório
 
 - `userspace/ui_runtime.zig` abre e fecha recursos, emite mensagens de IPC e

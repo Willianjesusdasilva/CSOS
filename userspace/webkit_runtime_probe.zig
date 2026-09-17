@@ -14,6 +14,9 @@ extern "c" fn pthread_mutex_unlock(*anyopaque) c_int;
 extern "c" fn pthread_cond_wait(*anyopaque, *anyopaque) c_int;
 extern "c" fn pthread_cond_broadcast(*anyopaque) c_int;
 extern "c" fn sched_yield() c_int;
+extern "c" fn pthread_key_create(*usize, ?*const anyopaque) c_int;
+extern "c" fn pthread_setspecific(usize, ?*const anyopaque) c_int;
+extern "c" fn pthread_getspecific(usize) ?*anyopaque;
 // x86_64 musl ABI, zero initializers are PTHREAD_*_INITIALIZER.
 var mutex: [40]u8 align(8) = @splat(0);
 var condition: [48]u8 align(8) = @splat(0);
@@ -22,6 +25,7 @@ var go: bool = false;
 var counter: usize = 0;
 threadlocal var tls_value: usize = 0;
 var child_ran: bool = false;
+var tls_key: usize = 0;
 
 fn output(message: []const u8) void {
     var offset: usize = 0;
@@ -33,7 +37,9 @@ fn output(message: []const u8) void {
 }
 fn child(_: ?*anyopaque) callconv(.c) ?*anyopaque {
     if (tls_value != 0) return @ptrFromInt(2);
+    if (pthread_getspecific(tls_key) != null) return @ptrFromInt(3);
     tls_value = 73;
+    if (pthread_setspecific(tls_key, @ptrFromInt(73)) != 0) return @ptrFromInt(4);
     child_ran = true;
     return @ptrFromInt(73);
 }
@@ -71,6 +77,12 @@ pub fn main() void {
     if (read(event, @ptrCast(&read_counter), 8) != 8 or read_counter != 1) _exit(20);
     output("CSOS WebKit prerequisite PASS: eventfd/poll\n");
     tls_value = 41;
+    if (pthread_key_create(&tls_key, null) != 0 or
+        pthread_setspecific(tls_key, @ptrFromInt(41)) != 0 or
+        @intFromPtr(pthread_getspecific(tls_key)) != 41) {
+        output("CSOS WebKit prerequisite FAIL: pthread key setup\n");
+        _exit(24);
+    }
     var thread: usize = 0;
     const created = pthread_create(&thread, null, child, null);
     if (created != 0) {
@@ -84,7 +96,8 @@ pub fn main() void {
         output("CSOS WebKit prerequisite FAIL: pthread_join\n");
         _exit(22);
     }
-    if (!child_ran or result != @as(?*anyopaque, @ptrFromInt(73)) or tls_value != 41) {
+    if (!child_ran or result != @as(?*anyopaque, @ptrFromInt(73)) or tls_value != 41 or
+        @intFromPtr(pthread_getspecific(tls_key)) != 41) {
         output("CSOS WebKit prerequisite FAIL: child execution or TLS isolation\n");
         _exit(23);
     }
