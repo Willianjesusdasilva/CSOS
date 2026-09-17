@@ -816,6 +816,11 @@ página não estava zerada nem perdida; o valor inválido já havia sido escrito
 pelo código userspace antes da leitura em `CR2=0x1`. A instrumentação foi
 removida após a captura.
 
+O smoke também foi repetido com QEMU limitado a um único vCPU (`-smp 1`).
+O WebProcess reproduziu o mesmo `RIP=0x6006030b2f`/`CR2=0x1`; o runner foi
+restaurado para quatro vCPUs. Isso exclui uma corrida que dependa de execução
+SMP como causa imediata do fault.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de
