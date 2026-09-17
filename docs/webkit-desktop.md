@@ -46,9 +46,9 @@ entregar o timer após o primeiro fault do WebProcess. Não há marcador
 estável a entrega de interrupções durante o bootstrap/IPC do WebProcess.
 
 Uma instrumentação temporária no último timer válido confirmou que a entrada
-IDT32 continua com \`attr=0x8e\`, seletor \`0x08\` e \`IST=1\`; o descritor de
-código GDT (\`0x00af9a000000ffff\`) e o TSS (\`0x39008b600b20006f\`) também
-permanecem inalterados. O \`#GP(0x102)\` não é causado por uma escrita direta
+IDT32 continua com attr=0x8e, seletor 0x08 e IST=1; o descritor de código GDT
+(0x00af9a000000ffff) e o TSS (0x39008b600b20006f) também permanecem
+inalterados. O #GP(0x102) não é causado por uma escrita direta
 nesses descritores; a investigação segue no estado de entrega/retorno da
 interrupção.
 
