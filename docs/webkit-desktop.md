@@ -689,6 +689,10 @@ comparado ao endereço de `timer()`. O alvo coincide no CR3 filho; portanto o
 `#GP(0x102)` não vem de truncamento do offset da gate. A instrumentação foi
 removida após o smoke.
 
+Uma checagem do ponteiro `TSS.IST1` usando o layout packed correto (offset 36)
+também permaneceu válida durante todo o smoke. O valor da pilha de interrupção
+não é a origem do `#GP`; a instrumentação foi removida.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de
