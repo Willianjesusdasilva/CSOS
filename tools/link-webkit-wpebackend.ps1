@@ -6,7 +6,12 @@ param(
 $ErrorActionPreference = 'Stop'
 $ninja = 'C:/w/.tools/mesa-build-env/Scripts/ninja.exe'
 $buildPath = (Resolve-Path $Build).Path
-$baseRsp = Join-Path $buildPath 'CMakeFiles/WebKit.rsp'
+$baseRspCandidates = @(
+    (Join-Path $buildPath 'CMakeFiles/WebKit.rsp'),
+    (Join-Path $buildPath 'CMakeFiles/WebKit-link.rsp'),
+    (Join-Path $buildPath 'CMakeFiles/WebKit.rsp.pre-wpe-backend')
+)
+$baseRsp = $baseRspCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
 $csosRsp = Join-Path $buildPath 'CMakeFiles/WebKit-csos.rsp'
 $target = 'lib/libWPEWebKit-2.0.so.1.9.10'
 
@@ -28,6 +33,10 @@ foreach ($path in $extras) {
 }
 
 $base = (Get-Content $baseRsp -Raw).TrimEnd()
+# Older repair builds appended a zero-filled local loader stub.  Keeping that
+# object gives libWPE's static loader a private interface and prevents the real
+# backend's _wpe_loader_interface from being used at runtime.
+$base = [regex]::Replace($base, '(?i)(?:[^\s]*[/\\])?wpe-loader-link-stub\.o\s*', '')
 Set-Content $csosRsp ($base + " `r`n" + ($extras -join " `r`n")) -NoNewline
 
 $command = (& $ninja -C $buildPath -t commands $target | Select-Object -Last 1)

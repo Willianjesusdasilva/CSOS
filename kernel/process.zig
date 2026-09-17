@@ -2434,7 +2434,6 @@ fn sortMappings(mappings: []Mapping) void {
 }
 
 pub fn handlePageFault(address: u64, instruction: u64, code: u64) callconv(.c) bool {
-    _ = instruction;
     const workspace = active_workspace orelse return false;
     const address_space = workspace.address_space orelse return false;
     const pages = workspace.pages orelse return false;
@@ -2445,10 +2444,15 @@ pub fn handlePageFault(address: u64, instruction: u64, code: u64) callconv(.c) b
     // not a missing-page reclaim.  JSC's MAP_NORESERVE arena first obtains
     // writable pages and later promotes selected pages to executable with
     // mprotect; resolve that transition without remapping the page as NX.
-    if ((code & 0x10) != 0) {
-        if (address_space.userPermissions(page_virtual)) |permissions| {
+    if ((code & 0x10) != 0 or address == 0) {
+        // Some CSOS/QEMU paths report an instruction-fetch protection fault
+        // with CR2 cleared. In that case the saved RIP is the only reliable
+        // page address; accept it only when it is already a mapped lazy page.
+        const execute_page = if (address == 0) instruction & ~(page_size - 1) else page_virtual;
+        if (address == 0 and (instruction < mmap_address or instruction >= 0x00007f0000000000)) return false;
+        if (address_space.userPermissions(execute_page)) |permissions| {
             if (!permissions.executable and
-                address_space.protectUserPage(page_virtual, permissions.writable, true)) return true;
+                address_space.protectUserPage(execute_page, permissions.writable, true)) return true;
         }
     }
     for (mappings) |*mapping| {

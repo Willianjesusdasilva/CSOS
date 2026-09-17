@@ -288,6 +288,7 @@ const UserThread = struct {
     workspace_id: u8 = 0,
     parent_slot: usize = 0,
     clear_tid: u64 = 0, wait_address: u64 = 0,
+    wait_workspace: u8 = 0, wait_private: bool = false,
     pending_read_socket: ?usize = null,
     pending_read_address: u64 = 0,
     pending_read_length: usize = 0,
@@ -386,13 +387,16 @@ pub const ExecRequestEnvelope = struct {
 pub var user_futex_blocks: u64 = 0;
 pub var user_futex_wakes: u64 = 0;
 
-fn wakeUserThreads(address: u64, maximum: u64) u64 {
+fn wakeUserThreads(address: u64, maximum: u64, workspace: ?u8, private: bool) u64 {
     var count: u64 = 0;
     for (&user_threads) |*thread| {
         if (count == maximum) break;
-        if (thread.state == .blocked and thread.wait_address == address) {
+        if (thread.state == .blocked and thread.wait_address == address and
+            thread.wait_private == private and
+            (!private or (workspace != null and thread.wait_workspace == workspace.?))) {
             thread.state = .runnable;
             thread.result = 0;
+            thread.wait_address = 0;
             thread_switch_requested = true;
             user_futex_wakes += 1;
             count += 1;
@@ -5607,7 +5611,7 @@ fn exitThread(status: u64) u64 {
     thread.exit_status = status;
     if (thread.clear_tid != 0 and validUserSlice(thread.clear_tid, 4)) {
         @as(*align(1) u32, @ptrFromInt(thread.clear_tid)).* = 0;
-        _ = wakeUserThreads(thread.clear_tid, ~@as(u64, 0));
+        _ = wakeUserThreads(thread.clear_tid, ~@as(u64, 0), thread.workspace_id, true);
     }
     releaseOwnedFutexesOnExit(thread);
     thread.state = .exited;
@@ -6081,19 +6085,27 @@ fn futex(address: u64, operation: u64, expected: u64, timeout: u64, address2: u6
                 user_threads[current_thread].state = .blocked;
                 user_futex_blocks += 1;
                 user_threads[current_thread].wait_address = address;
+                user_threads[current_thread].wait_workspace = user_threads[current_thread].workspace_id;
+                user_threads[current_thread].wait_private = (operation & 0x80) != 0;
                 thread_switch_requested = true;
                 return 0;
             }
             if (idle_hook) |hook| hook();
             return errno(11);
         },
-        1 => return wakeUserThreads(address, expected),
+        1 => return wakeUserThreads(address, expected,
+            if ((operation & 0x80) != 0) user_threads[current_thread].workspace_id else null,
+            (operation & 0x80) != 0),
         3 => { // FUTEX_REQUEUE: wake a bounded set and move the rest.
             if (address2 == 0 or (address2 & 3) != 0 or !validUserSlice(address2, 4)) return errno(14);
+            const private = (operation & 0x80) != 0;
+            const workspace = user_threads[current_thread].workspace_id;
             var woken: u64 = 0;
             var moved: u64 = 0;
             for (&user_threads) |*thread| {
-                if (thread.state != .blocked or thread.wait_address != address) continue;
+                if (thread.state != .blocked or thread.wait_address != address or
+                    thread.wait_private != private or
+                    (private and thread.wait_workspace != workspace)) continue;
                 if (woken < expected) {
                     thread.state = .runnable;
                     thread.wait_address = 0;
