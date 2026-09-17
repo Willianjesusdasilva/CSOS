@@ -797,6 +797,15 @@ por introduzir um fault prematuro no arena eager. A tentativa de preencher
 O baseline permanece, portanto, no acesso JSC inválido `CR2=0x1`; não há
 mudança de kernel não validada mantida para mascará-lo.
 
+### Exclusão de remapeamento da arena (2026-09-17)
+
+Uma execução de 125 segundos registrou o primeiro toque da arena em
+`0xe000000000` exatamente uma vez (`existing=0`), seguido do mesmo fault JSC
+em `CR2=0x1`. Não houve segundo page fault nem remapeamento dessa página antes
+do acesso inválido. A hipótese de que o pager estaria substituindo a página e
+apagando o objeto foi descartada; a investigação deve continuar na
+inicialização/ABI do objeto JSC e nas operações de commit/proteção posteriores.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de
