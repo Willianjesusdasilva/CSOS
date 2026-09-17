@@ -59,6 +59,13 @@ syscalls confirma que o fault ocorre depois de futexes, mmap e inicializadores;
 o próximo gate é corrigir a sincronização/estado inicial desses locks, não
 fabricar o marcador de view.
 
+Uma reprodução completa adicional em 2026-09-16 (`SmokeTestSeconds 120`) chegou
+novamente a `CSOS WPE WebProcess scheduled` e terminou em
+`cpu 0 page fault at 1 rip 412417723183 code 5`. O QEMU foi encerrado após a
+captura. Isso confirma que o bloqueio permanece determinístico no bootstrap do
+WebProcess, antes do primeiro frame, e que nenhum push de código deve declarar
+o gate concluído sem observar `WebKit view ready`.
+
 ## Auditoria inicial do repositório
 
 - `userspace/ui_runtime.zig` abre e fecha recursos, emite mensagens de IPC e
