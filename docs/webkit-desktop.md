@@ -72,6 +72,11 @@ commit da arena anônima, código 6), seguido de `CR2=0x1` (leitura, código 5,
 o segundo fault demonstra que o bootstrap forneceu um ponteiro inválido ao
 JSC, não que o endereço da instrução esteja sem mapeamento.
 
+O trace temporário de sincronização confirmou que o WebProcess usa
+`FUTEX_WAIT_PRIVATE`/`FUTEX_WAKE_PRIVATE` (operações 128/129), ambas cobertas
+pela implementação atual; os waits com palavra divergente seguem o retorno
+Linux `EAGAIN`. O trace foi removido após a reprodução e não altera o runtime.
+
 ## Auditoria inicial do repositório
 
 - `userspace/ui_runtime.zig` abre e fecha recursos, emite mensagens de IPC e
