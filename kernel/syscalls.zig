@@ -1382,6 +1382,12 @@ export fn process_exit_dispatch(status: u64) callconv(.c) void {
     process_exit_status = status;
 }
 
+pub fn primeUserTls(address: u64) void {
+    writeMsr(0xc0000100, address);
+}
+
+
+
 pub fn configureInterruptReload(hook: ?*const fn () void) void {
     interrupt_reload_hook = hook;
 }
@@ -1552,6 +1558,11 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         152 => memoryUnlockAll(),
         157 => prctl(arg1, arg2, arg3),
         158 => archPrctl(arg1, arg2),
+        // musl's x86-64 __set_thread_area path uses the legacy syscall
+        // number while bootstrapping its private TLS domain.  CSOS does not
+        // expose Linux GDT TLS descriptors; the required contract is the
+        // userspace FS base used by musl's pthread implementation.
+        205 => setThreadArea(arg1),
         160 => setRlimit(arg1, arg2),
         162 => syncAll(),
         // The current userspace model has one kernel thread per process.  Keep
@@ -5391,6 +5402,12 @@ fn archPrctl(code: u64, address: u64) u64 {
     if (code != 0x1002) return errno(22);
     // ARCH_SET_FS accepts a canonical userspace base only; never let a
     // userspace syscall install a kernel/non-canonical address in the MSR.
+    if (address >= 0x0000800000000000) return errno(22);
+    writeMsr(0xc0000100, address);
+    return 0;
+}
+
+fn setThreadArea(address: u64) u64 {
     if (address >= 0x0000800000000000) return errno(22);
     writeMsr(0xc0000100, address);
     return 0;

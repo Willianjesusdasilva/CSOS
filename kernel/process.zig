@@ -561,11 +561,11 @@ fn runExecRequest(kernel_root: u64, pages: *physical.Allocator, envelope: syscal
     const workspace = &loader_workspaces[envelope.workspace_id];
     if (!workspace.leased) return error.InvalidExecWorkspace;
     var request = envelope.request;
+    const path = request.path[0..request.path_len];
     syscalls.activateExecThread(envelope.thread_id);
     // Linux closes O_CLOEXEC descriptors in the child before the replacement
     // image starts; this EOF is how the parent detects a successful exec.
     syscalls.closeOnExecSockets();
-    const path = request.path[0..request.path_len];
     image = if (isGitExecutablePath(path))
         @embedFile("git_runtime_elf")
     else if (isWpeWebProcessPath(path))
@@ -1019,6 +1019,17 @@ fn runImageWithWorkspace(
     workspace.load_bias = load_bias;
     workspace.user_region_count = 0;
     active_workspace = workspace;
+    // Each top-level userspace image starts a fresh libc/TLS domain.  The
+    // previous image may have left a thread pointer in IA32_FS_BASE; musl
+    // reads FS during its earliest constructors, before it can issue its own
+    // ARCH_SET_FS syscall.  Do not let that stale pointer cross an image
+    // boundary. Exec children reset this in runExecRequest before staging.
+    if (!preserve_scheduler) syscalls.resetExecThreadTls();
+    if (musl_bootstrap.count != 0) {
+        const bootstrap_tls = tls_address;
+        writeMapped64(mappings[0..mapping_count.*], bootstrap_tls, bootstrap_tls) catch {};
+        syscalls.primeUserTls(bootstrap_tls);
+    }
     if (!preserve_scheduler) syscalls.setTopLevelWorkspace(workspace.pool_id);
     for (mappings[0..mapping_count.*]) |mapping| {
         try user_regions.append(&workspace.user_regions, &workspace.user_region_count, mapping.virtual, page_size);
@@ -1120,7 +1131,7 @@ fn runImageWithWorkspace(
             // workspace so wait4 can observe the child exit and resume the
             // original image.  Returning here would terminate the parent
             // loader before the Git process could complete its handshake.
-    try runExecRequest(kernel_root, pages, exec_request);
+            try runExecRequest(kernel_root, pages, exec_request);
             syscalls.releaseVforkParent(exec_request.thread_id);
             const child_workspace = if (exec_request.workspace_id < loader_workspaces.len)
                 &loader_workspaces[exec_request.workspace_id]
