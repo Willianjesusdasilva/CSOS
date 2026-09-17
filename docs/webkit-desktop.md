@@ -52,6 +52,13 @@ inalterados. O #GP(0x102) não é causado por uma escrita direta
 nesses descritores; a investigação segue no estado de entrega/retorno da
 interrupção.
 
+Com a IDT recarregada, o WebProcess chega ao bootstrap de JavaScriptCore e
+emite "Invalid value for lock: 0", seguido de um page fault de leitura em
+CR2=0x1 dentro de jsc_weak_value_get_value. A trilha temporária dos
+syscalls confirma que o fault ocorre depois de futexes, mmap e inicializadores;
+o próximo gate é corrigir a sincronização/estado inicial desses locks, não
+fabricar o marcador de view.
+
 ## Auditoria inicial do repositório
 
 - `userspace/ui_runtime.zig` abre e fecha recursos, emite mensagens de IPC e
