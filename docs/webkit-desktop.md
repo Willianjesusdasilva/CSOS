@@ -944,6 +944,17 @@ de thread dentro do mesmo workspace preserva o cursor corrente. O cursor
 inicial também é herdado no clone. O smoke QEMU com os ELFs reais do
 WebProcess/NetworkProcess agora produz `WebKit view ready` em 90 segundos.
 
+### Submissão do primeiro HTML real (2026-09-17)
+
+Um smoke delimitado de 300 segundos com os ELFs reais confirmou a sequência
+`WebKit view ready` → `WebKit HTML submitted` → `WebKit GLib loop complete`.
+Isso prova a submissão do documento pelo WebKit real, sem marcador sintético.
+O launcher agora implementa o ciclo de vida do backend SHM: quando o WPE
+exporta um `wpe_fdo_shm_exported_buffer`, ele consulta os metadados, libera o
+buffer e despacha `frame_complete`. O callback ainda precisa ser observado
+em um smoke estável para fechar o gate do primeiro frame e copiar os pixels ao
+framebuffer; portanto o gate permanece aberto.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de

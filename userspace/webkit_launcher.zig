@@ -1,5 +1,6 @@
 //! Minimal WPE WebKit userspace entry point.
 //! The CSOS compositor owns the view backend; WebKit owns HTML/CSS/JS.
+const std = @import("std");
 const WpeViewBackend = opaque {};
 extern fn wpe_view_backend_destroy(?*WpeViewBackend) void;
 extern fn wpe_view_backend_initialize(?*WpeViewBackend) void;
@@ -17,6 +18,13 @@ const WpeExportableClient = extern struct {
 extern fn wpe_view_backend_exportable_fdo_create(*const WpeExportableClient, ?*anyopaque, u32, u32) ?*WpeExportable;
 extern fn wpe_view_backend_exportable_fdo_get_view_backend(?*WpeExportable) ?*WpeViewBackend;
 extern fn wpe_view_backend_exportable_fdo_destroy(?*WpeExportable) void;
+extern fn wpe_view_backend_exportable_fdo_dispatch_frame_complete(?*WpeExportable) void;
+extern fn wpe_view_backend_exportable_fdo_dispatch_release_shm_exported_buffer(?*WpeExportable, ?*anyopaque) void;
+extern fn wpe_fdo_shm_exported_buffer_get_shm_buffer(?*anyopaque) ?*anyopaque;
+extern fn wl_shm_buffer_get_data(?*anyopaque) ?*anyopaque;
+extern fn wl_shm_buffer_get_width(?*anyopaque) c_int;
+extern fn wl_shm_buffer_get_height(?*anyopaque) c_int;
+extern fn wl_shm_buffer_get_stride(?*anyopaque) c_int;
 extern fn webkit_web_view_backend_new(?*WpeViewBackend, ?*const anyopaque, ?*anyopaque) ?*anyopaque;
 extern fn webkit_web_view_new(?*anyopaque) ?*anyopaque;
 extern fn webkit_web_view_load_html(?*anyopaque, [*:0]const u8, [*:0]const u8) void;
@@ -29,7 +37,33 @@ fn mark(message: []const u8) void {
     _ = write(1, message.ptr, message.len);
 }
 
+var exported_frame_count: u32 = 0;
+var active_exportable: ?*WpeExportable = null;
+
 fn exportBuffer(_: ?*anyopaque, _: ?*anyopaque) callconv(.c) void {}
+
+fn exportShmBuffer(_: ?*anyopaque, buffer: ?*anyopaque) callconv(.c) void {
+    const exportable = active_exportable orelse return;
+    const exported = buffer orelse return;
+    defer {
+        wpe_view_backend_exportable_fdo_dispatch_release_shm_exported_buffer(exportable, exported);
+        wpe_view_backend_exportable_fdo_dispatch_frame_complete(exportable);
+    }
+    const shm = wpe_fdo_shm_exported_buffer_get_shm_buffer(exported) orelse return;
+    _ = wl_shm_buffer_get_data(shm) orelse return;
+    exported_frame_count += 1;
+    mark("WebKit frame exported ");
+    var number: [24]u8 = undefined;
+    const width = std.fmt.bufPrint(&number, "{}", .{wl_shm_buffer_get_width(shm)}) catch unreachable;
+    mark(width);
+    mark("x");
+    const height = std.fmt.bufPrint(&number, "{}", .{wl_shm_buffer_get_height(shm)}) catch unreachable;
+    mark(height);
+    mark(" stride=");
+    const stride = std.fmt.bufPrint(&number, "{}", .{wl_shm_buffer_get_stride(shm)}) catch unreachable;
+    mark(stride);
+    mark("\n");
+}
 fn destroyBackend(_: ?*anyopaque) callconv(.c) void {}
 
 pub fn main() void {
@@ -40,11 +74,12 @@ pub fn main() void {
     const client = WpeExportableClient{
         .export_buffer_resource = exportBuffer,
         .export_dmabuf_resource = exportBuffer,
-        .export_shm_buffer = exportBuffer,
+        .export_shm_buffer = exportShmBuffer,
         .reserved0 = null,
         .reserved1 = null,
     };
     const exportable = wpe_view_backend_exportable_fdo_create(&client, null, 1280, 800) orelse return;
+    active_exportable = exportable;
     const view_backend = wpe_view_backend_exportable_fdo_get_view_backend(exportable) orelse return;
     wpe_view_backend_initialize(view_backend);
     mark("WPE backend ready\n");
@@ -69,6 +104,9 @@ pub fn main() void {
     while (rounds < 64) : (rounds += 1) {
         _ = g_main_context_iteration(context, 0);
     }
+    // Frame delivery is asynchronous. Keep the real GLib context alive for
+    // one blocking dispatch so WPE can deliver the SHM buffer to the client.
+    _ = g_main_context_iteration(context, 1);
     mark("WebKit GLib loop complete\n");
     wpe_view_backend_destroy(view_backend);
     wpe_view_backend_exportable_fdo_destroy(exportable);
