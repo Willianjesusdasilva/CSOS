@@ -2388,6 +2388,16 @@ pub fn handlePageFault(address: u64, instruction: u64, code: u64) callconv(.c) b
     const mappings = workspace.active_mappings orelse return false;
     const owned = workspace.active_owned orelse return false;
     const page_virtual = address & ~(page_size - 1);
+    // An instruction-fetch fault on a present NX page is a protection fault,
+    // not a missing-page reclaim.  JSC's MAP_NORESERVE arena first obtains
+    // writable pages and later promotes selected pages to executable with
+    // mprotect; resolve that transition without remapping the page as NX.
+    if ((code & 0x10) != 0) {
+        if (address_space.userPermissions(page_virtual)) |permissions| {
+            if (!permissions.executable and
+                address_space.protectUserPage(page_virtual, permissions.writable, true)) return true;
+        }
+    }
     for (mappings) |*mapping| {
         if (mapping.virtual != page_virtual) continue;
         if (mapping.resident) {

@@ -36,6 +36,13 @@ de 60 s seguinte, o WebProcess real avançou até `CSOS WPE WebProcess scheduled
 sem reset/triple fault. `WebKit view ready` ainda não foi observado; o próximo
 bloqueio está no bootstrap/IPC posterior do WebProcess.
 
+O smoke de 120 s de 2026-09-16 confirmou de forma reproduzível o avanço até
+`CSOS WPE WebProcess scheduled` após tratar faults de execução em páginas
+presentes e NX dentro da arena `MAP_NORESERVE` do JavaScriptCore. O handler
+promove a página para executável via `mprotect`/page-table update e invalida o
+TLB; não há marcador `WebKit view ready` ainda, portanto o gate permanece
+aberto e o próximo diagnóstico continua sendo o bootstrap/IPC do WebProcess.
+
 ## Auditoria inicial do repositório
 
 - `userspace/ui_runtime.zig` abre e fecha recursos, emite mensagens de IPC e
