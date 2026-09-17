@@ -137,8 +137,11 @@ fn pageFault() callconv(.naked) void {
         \\pushq %%r11
         \\movq %%rsp, %%rax
         \\andq $-16, %%rsp
-        \\subq $48, %%rsp
+        // Preserve XMM registers because the faulting userspace instruction
+        // is retried after the kernel callback returns.
+        \\subq $560, %%rsp
         \\movq %%rax, 32(%%rsp)
+        \\fxsave64 48(%%rsp)
         // Kernel callbacks use the Microsoft x64 ABI: pass (address, RIP,
         // error-code) in RCX, RDX and R8 rather than SysV RDI/RSI/RDX.
         \\movq %%cr2, %%rcx
@@ -151,6 +154,7 @@ fn pageFault() callconv(.naked) void {
         \\callq page_fault_dispatch
         \\testb %%al, %%al
         \\jz 1f
+        \\fxrstor64 48(%%rsp)
         \\movq 32(%%rsp), %%rsp
         \\popq %%r11
         \\popq %%r10

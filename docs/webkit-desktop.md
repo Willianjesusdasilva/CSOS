@@ -896,6 +896,21 @@ começa íntegro; a transformação posterior em `[1, 0xe000000000, 1,
 0xe000000000]` ocorre depois do construtor, na sequência de alocação/threads do
 WebProcess. A instrumentação foi removida após a captura.
 
+### Preservação SIMD em page faults (2026-09-17)
+
+O primeiro writer identificado no allocator era `pas_simple_large_free_heap_construct`,
+que usa `xorps` seguido de dois `movups` para zerar o objeto. O handler de page
+fault executava código Zig entre a falta e a repetição da instrução sem salvar
+os registradores XMM. O primeiro `movups` podia, portanto, ser seguido por um
+segundo `movups` com `XMM0` alterado pelo kernel, gravando
+`[1, 0xe000000000, 1, 0xe000000000]` no objeto.
+
+O handler agora reserva uma área alinhada e executa `fxsave64` antes de chamar
+`page_fault_dispatch`, restaurando com `fxrstor64` antes do `iretq`. Uma captura
+temporária confirmou que os quatro words permanecem zerados após os dois
+stores; o fault `CR2=1` deixou de ocorrer. O smoke avançou até o primeiro
+syscall ainda não implementado (`434`, `pidfd_open`), sem `WebKit view ready`.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de
