@@ -1469,6 +1469,10 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         // protocol while leaving delivery to the existing scheduler clock.
         38 => 0,
         28 => madvise(arg1, arg2, arg3),
+        // dup(2) returns the lowest available descriptor.  Reuse the same
+        // descriptor-table path as F_DUPFD rather than treating it as dup2;
+        // WPE/GLib uses dup while wiring its renderer and IPC channels.
+        32 => fcntl(arg1, 0, 0),
         33 => duplicate(arg1, arg2),
         39 => current_pid,
         110 => 1,
