@@ -966,6 +966,17 @@ corrigido para ocorrer uma única vez. O smoke seguinte passou por
 `WebKit GLib loop complete` sem page fault; o primeiro callback SHM ainda não
 foi observado.
 
+### Cadência FDO e estado inicial da view (2026-09-17)
+
+O launcher passou a aplicar `visible | focused | in_window` antes de criar a
+`WebKitWebView`, como no backend headless FDO de referência. O dispatcher de
+`frame_complete` também é reexecutado após cada turno do contexto GLib, pois a
+primeira chamada pode ocorrer antes do registro da superfície IPC. A libwpe/FDO
+é responsável por chamar `frame_displayed` quando entrega callbacks; o cliente
+não o chama manualmente. Esses ajustes alinham o contrato de cadência e
+ownership, mas não fecham o gate: os smokes ainda não observaram o callback
+SHM nem uma cópia para o framebuffer.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de
