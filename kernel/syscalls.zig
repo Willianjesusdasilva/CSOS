@@ -355,6 +355,7 @@ var defer_user_thread_switch: bool = false;
 var thread_switch_requested: bool = false;
 var workspace_clone_hook: ?*const fn (u8, u32) callconv(.c) u16 = null;
 var workspace_activate_hook: ?*const fn (u8) callconv(.c) void = null;
+var interrupt_reload_hook: ?*const fn () void = null;
 var workspace_release_hook: ?*const fn (u8) callconv(.c) void = null;
 
 fn workspaceHasBlockedThread(workspace: u8) bool {
@@ -887,6 +888,7 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
             current_thread = slot;
             current_pid = user_threads[slot].pid;
             if (workspace_activate_hook) |hook| hook(user_threads[slot].workspace_id);
+            if (interrupt_reload_hook) |reload| reload();
             _ = vfs.changeDirectory(user_threads[slot].cwd[0..user_threads[slot].cwd_len]) catch {};
             completePendingSocketRead(slot);
             completePendingPoll(slot);
@@ -1291,6 +1293,7 @@ pub fn activateExecThread(child_pid: u32) void {
     current_thread = slot;
     current_pid = user_threads[slot].pid;
     if (workspace_activate_hook) |hook| hook(user_threads[slot].workspace_id);
+    if (interrupt_reload_hook) |reload| reload();
 }
 
 pub fn finishProcessChild(pid: u32, status: u8) ?UserResume {
@@ -1372,6 +1375,10 @@ pub fn finishProcessChild(pid: u32, status: u8) ?UserResume {
 
 export fn process_exit_dispatch(status: u64) callconv(.c) void {
     process_exit_status = status;
+}
+
+pub fn configureInterruptReload(hook: ?*const fn () void) void {
+    interrupt_reload_hook = hook;
 }
 
 export fn process_pause_dispatch(instruction: u64, stack: u64) callconv(.c) void {
@@ -1867,6 +1874,7 @@ pub export fn userTimerSwitch(registers: *anyopaque, user_frame: *anyopaque) cal
     current_thread = next;
     current_pid = user_threads[next].pid;
     if (workspace_activate_hook) |hook| hook(user_threads[next].workspace_id);
+    if (interrupt_reload_hook) |reload| reload();
     const replacement = &user_threads[next];
     if (!replacement.timer_valid) {
         replacement.timer_frame[0] = replacement.frame[0];

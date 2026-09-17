@@ -268,6 +268,7 @@ pub fn start(info: BootInfo) noreturn {
     idt.install();
     idt.setPageFaultHook(&process.handlePageFault);
     idt.setUserTimerHook(&syscalls.userTimerSwitch);
+    syscalls.configureInterruptReload(&idt.load);
     if (!idt.verifyBreakpoint()) panic("breakpoint handler failed");
     serial.write("IDT ready\n");
     const cpu_profile = hardware_profile.detectCpu();
