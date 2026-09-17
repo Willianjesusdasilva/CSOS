@@ -810,6 +810,12 @@ Um smoke adicional com `JSC_useJIT=0` produziu o mesmo `RIP=0x6006030b2f`,
 `RAX=1` e `CR2=0x1`. O bloqueio não depende do backend JIT; a variável de
 diagnóstico foi removida após o teste.
 
+No segundo fault, uma leitura temporária da página já tocada mostrou os dois
+primeiros words como `1` e `0xe000000000` (o endereço da própria arena). A
+página não estava zerada nem perdida; o valor inválido já havia sido escrito
+pelo código userspace antes da leitura em `CR2=0x1`. A instrumentação foi
+removida após a captura.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de
