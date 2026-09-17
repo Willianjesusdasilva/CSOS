@@ -679,6 +679,11 @@ válido até o instante em que o CPU rejeita a entrega com `#GP(0x102)`. O teste
 foi removido após a captura; o próximo diagnóstico deve observar o descritor de
 código `GDT[1]`, o TSS efetivo e o endereço-alvo da gate no CR3 do WebProcess.
 
+Uma guarda adicional leu os offsets corretos de `GDT[1]` e do descritor TSS no
+mesmo instante. Nenhuma das duas verificações disparou; o marcador `C` obtido
+numa tentativa anterior era um falso positivo causado por ler o descritor nulo
+(`GDT[0]`).
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de
