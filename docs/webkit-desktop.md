@@ -874,6 +874,17 @@ comparar esse layout com o contrato de `pas_simple_large_free_heap` e com a
 sequência de `mmap`/commit esperada pelo libpas, em vez de alterar o pager sem
 uma divergência demonstrada.
 
+### Proteção contra remapeamento de página presente (2026-09-17)
+
+O pager tinha um caminho que tratava qualquer fault dentro da janela
+`MAP_NORESERVE` como página ausente. Em um fault de proteção sobre uma página já
+presente isso podia alocar outra página e substituir silenciosamente os bytes do
+allocator. O caminho agora rejeita esse caso; somente páginas realmente
+ausentes são comprometidas, enquanto a promoção NX→executável continua no
+caminho explícito de `mprotect`. `zig build test` passa. O smoke WPE ainda
+reproduz o fault JSC posterior, portanto esta correção elimina uma classe de
+aliasing mas não fecha o gate `WebKit view ready`.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de

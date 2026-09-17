@@ -2466,6 +2466,9 @@ pub fn handlePageFault(address: u64, instruction: u64, code: u64) callconv(.c) b
     // mmap window, keeping the WebKit allocator usable without reserving
     // gigabytes of physical memory up front.
     if (page_virtual >= mmap_address and page_virtual < 0x00007f0000000000) {
+        // A present-page protection fault is not lazy allocation. Never
+        // replace an existing mapping and discard allocator metadata.
+        if (address_space.userPermissions(page_virtual) != null) return false;
         const physical_address = pages.allocate(1) orelse return false;
         const bytes: [*]u8 = @ptrFromInt(physical_address);
         @memset(bytes[0..page_size], 0);
