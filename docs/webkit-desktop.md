@@ -66,6 +66,12 @@ captura. Isso confirma que o bloqueio permanece determinístico no bootstrap do
 WebProcess, antes do primeiro frame, e que nenhum push de código deve declarar
 o gate concluído sem observar `WebKit view ready`.
 
+O dump de exceções desse boot mostra a sequência `CR2=0xe000000010` (fault de
+commit da arena anônima, código 6), seguido de `CR2=0x1` (leitura, código 5,
+`RAX=1`) em `0x6006030b2f`. A página da arena é criada pelo handler de demanda;
+o segundo fault demonstra que o bootstrap forneceu um ponteiro inválido ao
+JSC, não que o endereço da instrução esteja sem mapeamento.
+
 ## Auditoria inicial do repositório
 
 - `userspace/ui_runtime.zig` abre e fecha recursos, emite mensagens de IPC e
