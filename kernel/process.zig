@@ -1024,6 +1024,7 @@ fn runImageWithWorkspace(
         try user_regions.append(&workspace.user_regions, &workspace.user_region_count, mapping.virtual, page_size);
     }
     syscalls.configureMmap(&protectMmap, &unmapMmap, &mapDevice);
+    syscalls.configureMmapReset(&resetMmap);
     syscalls.configureUserSlice(&validMappedUserSlice);
     syscalls.configureProcessWorkspaces(workspace.pool_id, &cloneProcessWorkspace, &activateProcessWorkspace, &releaseProcessWorkspace);
     syscalls.configureExecve(&acceptExecve);
@@ -1258,6 +1259,25 @@ fn unmapMmap(address: u64, length: u64) callconv(.c) bool {
     var offset: u64 = 0;
     while (offset < length) : (offset += @min(@as(u64, page_size), length - offset)) {
         if (address_space.unmapUserPage(address + offset) == null) return false;
+    }
+    return true;
+}
+
+fn resetMmap(address: u64, length: u64) callconv(.c) bool {
+    const workspace = active_workspace orelse return false;
+    const address_space = workspace.address_space orelse return false;
+    const noreserve_start: u64 = 0x000000c000000000;
+    const noreserve_end: u64 = 0x00007f0000000000;
+    if (length == 0 or address < noreserve_start or address >= noreserve_end or
+        length > noreserve_end - address or (address & (page_size - 1)) != 0 or
+        (length & (page_size - 1)) != 0) return false;
+    var offset: u64 = 0;
+    while (offset < length) : (offset += page_size) {
+        const page = address + offset;
+        if (address_space.userPhysical(page)) |physical_address| {
+            _ = address_space.unmapUserPage(page) orelse return false;
+            workspace.pages.?.release(physical_address & ~(page_size - 1), 1) catch return false;
+        }
     }
     return true;
 }

@@ -24,6 +24,7 @@ var process_pause: ?Pause = null;
 export var exec_pause_requested: bool = false;
 var mmap_protect_hook: ?*const fn (u64, u64, bool, bool) callconv(.c) bool = null;
 var mmap_unmap_hook: ?*const fn (u64, u64) callconv(.c) bool = null;
+var mmap_reset_hook: ?*const fn (u64, u64) callconv(.c) bool = null;
 var device_mmap_hook: ?*const fn (u64, u64, u64, bool) callconv(.c) bool = null;
 var user_slice_hook: ?*const fn (u64, u64) callconv(.c) bool = null;
 var execve_hook: ?*const fn (u64, u64, u64) callconv(.c) u64 = null;
@@ -1054,6 +1055,10 @@ pub fn configureMmap(protect_hook: ?*const fn (u64, u64, bool, bool) callconv(.c
     mmap_protect_hook = protect_hook;
     mmap_unmap_hook = unmap_hook;
     device_mmap_hook = device_hook;
+}
+
+pub fn configureMmapReset(hook: ?*const fn (u64, u64) callconv(.c) bool) void {
+    mmap_reset_hook = hook;
 }
 
 pub fn configureUserSlice(hook: ?*const fn (u64, u64) callconv(.c) bool) void {
@@ -5441,6 +5446,9 @@ fn mmap(requested: u64, length: u64, protection: u64, flags: u64, fd: u64, file_
         if ((flags & 0x10) != 0) {
             const fixed_end = std.math.add(u64, requested, aligned_length) catch return errno(12);
             if (requested < mmap_base or requested > virtual_limit or fixed_end > virtual_limit) return errno(12);
+            // MAP_FIXED|MAP_ANON replaces previous contents with fresh
+            // zero-filled pages. WebKit's vmZeroAndPurge relies on this.
+            if (mmap_reset_hook) |reset| if (!reset(requested, aligned_length)) return errno(12);
             return requested;
         }
         // Large allocator arenas (notably JSC's aligned structure heap) are

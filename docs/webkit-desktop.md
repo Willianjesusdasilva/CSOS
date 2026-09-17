@@ -775,16 +775,24 @@ falso para esconder essa exceção.
 
 ### Auditoria do RIP contra o ELF (2026-09-17)
 
-Uma inspeção do mesmo `libWPEWebKit-2.0.so` usado pelo artefato do smoke
-resolveu o endereço relativo `0x6030b2f` dentro de
-`try_allocate_without_fixing`. No arquivo ELF, esse offset contém uma
-instrução `add $-1,%rdx`, que não acessa memória e portanto não explica, por
-si só, `CR2=0x1`. A conclusão segura é que ainda falta comparar os bytes da
-página realmente executada no WebProcess com os bytes do ELF: o frame pode
-estar apontando para uma imagem diferente/corrompida, ou o endereço capturado
-pode não corresponder ao binário analisado. Não foi feita alteração para
-ignorar o fault; o próximo diagnóstico deve capturar os bytes pelo page-table
-ativo antes de qualquer correção de allocator.
+Uma captura temporária dos bytes da página executada confirmou que o WebProcess
+executa exatamente o artefato usado pelo runner,
+`libWPEWebKit-2.0.stripped.so`. O offset `0x6030b2f` contém
+`mov (%rax),%rdx` em uma rotina interna do allocator (o símbolo exportado
+mais próximo é apenas um rótulo de disassembly), coerente com `CR2=0x1` e
+`RAX=1`. A comparação anterior com o ELF não-estripado foi inválida porque os
+dois arquivos têm layout de código diferente. O page-table e o pager não estão
+fornecendo bytes incorretos; o próximo diagnóstico deve seguir a inicialização
+do estado do allocator/JSC que chega com esse ponteiro, sem ignorar a exceção.
+
+### Semântica MAP_FIXED zero-fill (2026-09-17)
+
+O caminho `MAP_FIXED|MAP_NORESERVE` passou a desmapear e liberar páginas lazy
+já tocadas antes de devolver o mesmo endereço, reproduzindo o zero-fill de
+`mmap(MAP_ANON|MAP_FIXED)` usado por `vmZeroAndPurge`. `zig build test` passou,
+mas o smoke WPE de 130 segundos manteve o mesmo `CR2=0x1` antes de
+`WebKit view ready`; portanto essa correção de semântica é necessária, mas não
+é ainda a causa imediata do fault inicial.
 
 ### Sequência de reservas `MAP_NORESERVE` (2026-09-16)
 
