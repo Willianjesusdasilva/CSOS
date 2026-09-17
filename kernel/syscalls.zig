@@ -1061,6 +1061,22 @@ pub fn configureMmapReset(hook: ?*const fn (u64, u64) callconv(.c) bool) void {
     mmap_reset_hook = hook;
 }
 
+/// The mmap allocator is process/address-space state.  The scheduler can
+/// switch between loader workspaces without re-running configure(), so the
+/// process manager must save and restore these cursors at every switch.
+pub fn mmapState() [4]u64 {
+    return .{ mmap_base, mmap_limit, mmap_next, noreserve_next };
+}
+
+pub fn restoreMmapState(state: [4]u64) void {
+    mmap_base = state[0];
+    mmap_limit = state[1];
+    mmap_next = state[2];
+    noreserve_next = state[3];
+    device_mmap_next = mmap_limit;
+    device_mmap_limit = std.math.add(u64, mmap_limit, max_drm_objects * drm_object_stride) catch mmap_limit;
+}
+
 pub fn configureUserSlice(hook: ?*const fn (u64, u64) callconv(.c) bool) void {
     user_slice_hook = hook;
 }

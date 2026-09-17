@@ -91,6 +91,8 @@ const LoaderWorkspace = struct {
     break_length: u64 = 0,
     mmap_base: u64 = 0,
     mmap_length: u64 = 0,
+    mmap_next: u64 = 0,
+    noreserve_next: u64 = 0,
     execution_entry: u64 = 0,
     execution_stack: u64 = 0,
     execution_ready: bool = false,
@@ -482,13 +484,38 @@ fn cloneWritableRange(child: *LoaderWorkspace, pages: *physical.Allocator, virtu
     }
 }
 
+fn saveWorkspaceMmapState(workspace: *LoaderWorkspace) void {
+    const state = syscalls.mmapState();
+    workspace.mmap_next = state[2];
+    workspace.noreserve_next = state[3];
+}
+
+fn restoreWorkspaceMmapState(workspace: *const LoaderWorkspace) void {
+    syscalls.restoreMmapState(.{
+        workspace.mmap_base,
+        workspace.mmap_base + workspace.mmap_length,
+        workspace.mmap_next,
+        workspace.noreserve_next,
+    });
+}
+
 fn activateProcessWorkspace(id: u8) callconv(.c) void {
     if (id >= loader_workspaces.len) return;
     const workspace = &loader_workspaces[id];
     const address_space = workspace.address_space orelse return;
+    if (active_workspace) |previous| if (previous != workspace) saveWorkspaceMmapState(previous);
     vfs.activateWorkspace(workspace.pool_id);
     active_workspace = workspace;
+    restoreWorkspaceMmapState(workspace);
     address_space.activate();
+}
+
+fn selectWorkspace(workspace: *LoaderWorkspace) void {
+    if (active_workspace) |previous| if (previous != workspace) saveWorkspaceMmapState(previous);
+    active_workspace = workspace;
+    vfs.activateWorkspace(workspace.pool_id);
+    restoreWorkspaceMmapState(workspace);
+    (workspace.address_space orelse return).activate();
 }
 
 fn releaseProcessWorkspace(id: u8) callconv(.c) void {
@@ -1040,6 +1067,9 @@ fn runImageWithWorkspace(
     syscalls.configureProcessWorkspaces(workspace.pool_id, &cloneProcessWorkspace, &activateProcessWorkspace, &releaseProcessWorkspace);
     syscalls.configureExecve(&acceptExecve);
     syscalls.configureInitializerStep(if (staged_copy_count != 0) &applyStagedCopies else null);
+    const mmap_state = syscalls.mmapState();
+    workspace.mmap_next = mmap_state[2];
+    workspace.noreserve_next = mmap_state[3];
     if (preserve_scheduler) {
         workspace.execution_entry = execution_entry;
         workspace.execution_stack = stack_pointer;
@@ -1100,9 +1130,7 @@ fn runImageWithWorkspace(
                     &loader_workspaces[resumed_frame.workspace_id]
                 else
                     workspace;
-                active_workspace = parent_workspace;
-                vfs.activateWorkspace(parent_workspace.pool_id);
-                (parent_workspace.address_space orelse address_space).activate();
+                selectWorkspace(parent_workspace);
                 syscalls.configureMmap(&protectMmap, &unmapMmap, &mapDevice);
                 syscalls.configureUserSlice(&validMappedUserSlice);
                 syscalls.configureProcessWorkspaces(parent_workspace.pool_id, &cloneProcessWorkspace, &activateProcessWorkspace, &releaseProcessWorkspace);
@@ -1113,10 +1141,7 @@ fn runImageWithWorkspace(
                 syscalls.resetExitStatus();
                 syscalls.resetUserThreadsDone();
                 resume_user_frame(&resumed_frame.frame, resumed_frame.rsp, resumed_frame.result);
-                active_workspace = parent_workspace;
-                vfs.activateWorkspace(parent_workspace.pool_id);
-                const resumed_space = parent_workspace.address_space orelse address_space;
-                resumed_space.activate();
+                selectWorkspace(parent_workspace);
                 continue;
             }
         }
@@ -1141,9 +1166,7 @@ fn runImageWithWorkspace(
                 user_instruction = child.execution_entry;
                 user_stack = child.execution_stack;
                 child.execution_ready = false;
-                active_workspace = child;
-                vfs.activateWorkspace(child.pool_id);
-                child.address_space.?.activate();
+                selectWorkspace(child);
                 serial.write("CSOS WPE WebProcess scheduled\n");
                 lifecycle = .resuming;
                 continue;
@@ -1153,9 +1176,7 @@ fn runImageWithWorkspace(
                     &loader_workspaces[resumed_frame.workspace_id]
                 else
                     workspace;
-                active_workspace = parent_workspace;
-                vfs.activateWorkspace(parent_workspace.pool_id);
-                (parent_workspace.address_space orelse address_space).activate();
+                selectWorkspace(parent_workspace);
                 // The nested exec loader temporarily installs its own
                 // userspace callbacks and clears them on return. Restore the
                 // parent's callbacks before resuming its saved frame, or a
@@ -1171,12 +1192,11 @@ fn runImageWithWorkspace(
                 syscalls.resetExitStatus();
                 syscalls.resetUserThreadsDone();
                 resume_user_frame(&resumed_frame.frame, resumed_frame.rsp, resumed_frame.result);
-                active_workspace = parent_workspace;
-                vfs.activateWorkspace(parent_workspace.pool_id);
+                selectWorkspace(parent_workspace);
             }
             syscalls.resetExitStatus();
             const resumed_workspace = active_workspace orelse workspace;
-            (resumed_workspace.address_space orelse address_space).activate();
+            selectWorkspace(resumed_workspace);
             lifecycle = .resuming;
             continue;
         }

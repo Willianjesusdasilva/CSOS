@@ -931,6 +931,18 @@ preemptada. `zig build test` passa; o smoke ainda reproduz um `ud2` interno do
 WebProcess depois da criação de threads, portanto `WebKit view ready` continua
 pendente e não foi mascarado.
 
+### Cursores mmap por workspace (2026-09-17)
+
+O launcher, o WebProcess e o NetworkProcess são address spaces distintos, mas
+`mmap_next` e `noreserve_next` eram mantidos como variáveis globais do módulo de
+syscalls. Ao alternar o workspace do scheduler, o processo seguinte podia
+continuar alocando a partir da arena virtual do processo anterior. A captura
+mostrou reservas consecutivas em `0xa008...` e o `PAS_ASSERT(min_node)` do
+libpas nessa mesma região. Os cursores e os limites agora são salvos no
+`LoaderWorkspace` e restaurados em toda troca de address space. O smoke passou
+além do `ud2` e chegou a `WebKit view begin`; o fault residual atual é uma
+leitura em endereço `0x34`, ainda antes de `WebKit view ready`.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de
