@@ -806,6 +806,10 @@ do acesso inválido. A hipótese de que o pager estaria substituindo a página e
 apagando o objeto foi descartada; a investigação deve continuar na
 inicialização/ABI do objeto JSC e nas operações de commit/proteção posteriores.
 
+Um smoke adicional com `JSC_useJIT=0` produziu o mesmo `RIP=0x6006030b2f`,
+`RAX=1` e `CR2=0x1`. O bloqueio não depende do backend JIT; a variável de
+diagnóstico foi removida após o teste.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de
