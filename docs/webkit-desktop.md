@@ -786,6 +786,17 @@ retorno antes da chamada seguinte de 8 GiB; isso deve ser investigado como
 erro de alocação/limite, não tratado como sucesso implícito. A instrumentação
 foi removida depois da captura.
 
+### Isolamento de hipóteses de TLS e mmap (2026-09-17)
+
+Uma instrumentação no `clone` confirmou que as threads pthread recebem um
+`tls` com `self->tsd` válido. O fault observado em `pthread_getspecific` só
+apareceu quando se tentou restaurar cursores de mmap por workspace sem também
+alterar todos os caminhos de ativação de CR3; esse experimento foi revertido
+por introduzir um fault prematuro no arena eager. A tentativa de preencher
+`self->tsd` dentro de `ARCH_SET_FS` também não alterou o fault WPE reproduzível.
+O baseline permanece, portanto, no acesso JSC inválido `CR2=0x1`; não há
+mudança de kernel não validada mantida para mascará-lo.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de
