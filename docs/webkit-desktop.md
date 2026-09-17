@@ -693,6 +693,13 @@ Uma checagem do ponteiro `TSS.IST1` usando o layout packed correto (offset 36)
 também permaneceu válida durante todo o smoke. O valor da pilha de interrupção
 não é a origem do `#GP`; a instrumentação foi removida.
 
+### Isolamento do callback de preempção (2026-09-16)
+
+O callback `userTimerSwitch` foi desabilitado apenas para diagnóstico, mantendo
+o mesmo frame de interrupção e o retorno normal do handler. O smoke reproduziu
+o `#GP(0x102)` sem executar o callback; a falha não está na seleção de thread,
+`fxsave/fxrstor` ou troca de workspace. A alteração foi revertida após o teste.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de
