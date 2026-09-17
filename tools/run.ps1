@@ -11,6 +11,9 @@ param(
     [string]$WebkitLauncher,
     [string]$WebkitRuntime,
     [string]$WpeBackend,
+    [string]$EglRuntime,
+    [string]$GalliumRuntime,
+    [string]$SwrastRuntime,
     [switch]$GitRuntime,
     [switch]$UsbAudio,
     [switch]$ResetDisk,
@@ -61,7 +64,8 @@ $nvmeDisk = if ($Disk) { [IO.Path]::GetFullPath($Disk) } else { Join-Path $PSScr
 if ($ResetDisk -or $GpuFirmware -or $RadvRuntime -or -not (Test-Path -LiteralPath $nvmeDisk)) {
     & (Join-Path $PSScriptRoot 'make-fat16.ps1') -Path $nvmeDisk -SharedLibrary $SharedLibrary -ExtraLibrary $ExtraLibrary -GpuFirmware $GpuFirmware `
         -RadvRuntime $RadvRuntime -LibdrmAmdgpu $LibdrmAmdgpu -Libdrm $Libdrm -Zlib $Zlib -Libc $Libc `
-        -WebkitRuntime $WebkitRuntime -WpeBackend $WpeBackend
+        -WebkitRuntime $WebkitRuntime -WpeBackend $WpeBackend `
+        -EglRuntime $EglRuntime -GalliumRuntime $GalliumRuntime -SwrastRuntime $SwrastRuntime
 }
 
 $audioArguments = @()

@@ -701,6 +701,21 @@ pub fn start(info: BootInfo) noreturn {
         serial.write("FAT WebKit entry ready size=");
         serial.writeDecimal(webkit_entry.size);
         serial.write("\n");
+        const egl_paths = [_][]const u8{"/usr/lib/libEGL.so.1", "/lib/libEGL.so.1", "libEGL.so.1"};
+        for (egl_paths) |egl_path| {
+            const egl_probe = vfs.openAt(-100, egl_path, 0) catch |err| {
+                serial.write("WebKit EGL VFS probe failed ");
+                serial.write(egl_path);
+                serial.write(": ");
+                serial.write(@errorName(err));
+                serial.write("\n");
+                continue;
+            };
+            vfs.close(egl_probe) catch panic("WebKit EGL VFS probe close failed");
+            serial.write("WebKit EGL VFS path ready ");
+            serial.write(egl_path);
+            serial.write("\n");
+        }
         process.runWebkitLauncher(mapper.root, &pages) catch |err| {
             serial.write("WebKit launcher process error: ");
             serial.write(@errorName(err));

@@ -11,7 +11,16 @@ def main() -> int:
     command = sys.argv[1:3]
     temporaries = []
     try:
-        for argument in sys.argv[3:]:
+        arguments = sys.argv[3:]
+        index = 0
+        while index < len(arguments):
+            argument = arguments[index]
+            # Meson emits version-script as two linker arguments on Windows.
+            # Zig/LLD requires the option and path in one -Wl argument.
+            if argument == "-Wl,--version-script" and index + 1 < len(arguments):
+                command.append("-Wl,--version-script=" + arguments[index + 1])
+                index += 2
+                continue
             # Autoconf under Git/MSYS translates /dev/null to the Windows
             # device name "nul". Zig/LLD treats it as an ordinary output path
             # and fails, so give probes a disposable real file instead.
@@ -24,6 +33,7 @@ def main() -> int:
                 continue
             if not argument.startswith("@"):
                 command.append(argument)
+                index += 1
                 continue
             source = pathlib.Path(argument[1:])
             contents = source.read_text(encoding="utf-8")
@@ -42,6 +52,7 @@ def main() -> int:
             count += rpath_count
             if not count:
                 command.append(argument)
+                index += 1
                 continue
             handle = tempfile.NamedTemporaryFile(
                 mode="w", encoding="utf-8", suffix=".rsp", delete=False
@@ -51,6 +62,7 @@ def main() -> int:
             with handle:
                 handle.write(contents)
             command.append("@" + str(temporary))
+            index += 1
         return subprocess.run(command).returncode
     finally:
         for temporary in temporaries:

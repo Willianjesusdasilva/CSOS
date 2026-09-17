@@ -199,6 +199,8 @@ pub fn validateRuntimeLibraryAliasesSelfTest() !void {
     try expectFatAlias("libc.so", "LIBC    SO ");
     try expectFatAlias("libWPEWebKit-2.0.so.1", "WEBKIT  SO1");
     try expectFatAlias("/usr/lib/libWPEBackend-fdo-1.0.so.1", "WPEFDO  SO1");
+    try expectFatAlias("libEGL.so.1", "LIBEGL  SO1");
+    try expectFatAlias("libgallium-26.3.0-devel.so", "GALLIUM SO1");
     if (toFatName("/usr/lib/not-supported.so") != null) return error.UnexpectedLibraryAlias;
 }
 
@@ -1714,8 +1716,11 @@ test "FAT path conversion aliases branch lock files" {
 
 fn runtimeLibraryFatAlias(path: []const u8) ?[11]u8 {
     const prefix = "/usr/lib/";
+    const lib_prefix = "/lib/";
+    const dri_prefix = "/usr/lib/dri/";
+    const lib_dri_prefix = "/lib/dri/";
     const nix_prefix = "/nix/lib/";
-    const name = if (path.len > prefix.len and equal(path[0..prefix.len], prefix)) path[prefix.len..] else if (path.len > nix_prefix.len and equal(path[0..nix_prefix.len], nix_prefix)) path[nix_prefix.len..] else path;
+    const name = if (path.len > prefix.len and equal(path[0..prefix.len], prefix)) path[prefix.len..] else if (path.len > dri_prefix.len and equal(path[0..dri_prefix.len], dri_prefix)) path[dri_prefix.len..] else if (path.len > lib_dri_prefix.len and equal(path[0..lib_dri_prefix.len], lib_dri_prefix)) path[lib_dri_prefix.len..] else if (path.len > lib_prefix.len and equal(path[0..lib_prefix.len], lib_prefix)) path[lib_prefix.len..] else if (path.len > nix_prefix.len and equal(path[0..nix_prefix.len], nix_prefix)) path[nix_prefix.len..] else path;
     if (equal(name, "libvulkan_radeon.so")) return "RADV    SO ".*;
     if (equal(name, "libdrm_amdgpu.so.1")) return "DRMAMD  SO1".*;
     if (equal(name, "libdrm.so.2")) return "LIBDRM  SO2".*;
@@ -1771,6 +1776,9 @@ fn runtimeLibraryFatAlias(path: []const u8) ?[11]u8 {
     if (equal(name, "libunistring.so.5")) return "LIBUNIS SO5".*;
     if (std.mem.startsWith(u8, name, "libWPEWebKit-2.0.so")) return "WEBKIT  SO1".*;
     if (std.mem.startsWith(u8, name, "libWPEBackend-fdo-1.0.so")) return "WPEFDO  SO1".*;
+    if (std.mem.eql(u8, name, "libEGL.so.1")) return "LIBEGL  SO1".*;
+    if (std.mem.eql(u8, name, "libgallium-26.3.0-devel.so")) return "GALLIUM SO1".*;
+    if (std.mem.eql(u8, name, "swrast_dri.so")) return "SWRAST  SO1".*;
     return null;
 }
 

@@ -17,6 +17,9 @@ pub fn build(b: *std.Build) void {
     const libdrm_runtime = b.option([]const u8, "libdrm-runtime", "libdrm ELF copied to the CSOS disk");
     const zlib_runtime = b.option([]const u8, "zlib-runtime", "zlib ELF copied to the CSOS disk");
     const libc_runtime = b.option([]const u8, "libc-runtime", "musl libc ELF copied to the CSOS disk");
+    const egl_runtime = b.option([]const u8, "egl-runtime", "Mesa software EGL ELF copied to the CSOS disk");
+    const gallium_runtime = b.option([]const u8, "gallium-runtime", "Mesa software Gallium ELF copied to the CSOS disk");
+    const swrast_runtime = b.option([]const u8, "swrast-runtime", "Mesa software DRI megadriver ELF copied to the CSOS disk");
     const radv_loader_probe = b.option([]const u8, "radv-loader-probe", "Dynamic RADV loader probe ELF (requires -Dradv-runtime)");
     const radv_probe_after_gpu = b.option(bool, "radv-probe-after-gpu", "Run RADV probe after GPU preparation; does not enable hardware activation") orelse false;
     if (radv_probe_after_gpu and radv_loader_probe == null) @panic("-Dradv-probe-after-gpu requires -Dradv-loader-probe");
@@ -597,6 +600,14 @@ pub fn build(b: *std.Build) void {
         qemu.addArg("zig-out/mesa-sysroot/usr/lib/libz.so.1");
         qemu.addArg("-Libc");
         qemu.addArg("zig-out/mesa-sysroot/usr/lib/libc.so");
+        qemu.addArg("-Libdrm");
+        qemu.addArg("zig-out/mesa-sysroot/usr/lib/libdrm.so.2");
+        qemu.addArg("-EglRuntime");
+        qemu.addArg(egl_runtime orelse "zig-out/mesa-sysroot/usr/lib/libEGL.so.1");
+        qemu.addArg("-GalliumRuntime");
+        qemu.addArg(gallium_runtime orelse "zig-out/mesa-sysroot/usr/lib/libgallium-26.3.0-devel.so");
+        qemu.addArg("-SwrastRuntime");
+        qemu.addArg(swrast_runtime orelse "zig-out/mesa-sysroot/usr/lib/swrast_dri.so");
     }
     if (git_runtime != null) qemu.addArg("-GitRuntime");
     if (b.args) |args| qemu.addArgs(args);

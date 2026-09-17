@@ -9,7 +9,10 @@ param(
     [string]$Zlib,
     [string]$Libc,
     [string]$WebkitRuntime,
-    [string]$WpeBackend
+    [string]$WpeBackend,
+    [string]$EglRuntime,
+    [string]$GalliumRuntime,
+    [string]$SwrastRuntime
 )
 
 $sectorSize = 512
@@ -141,7 +144,10 @@ try {
         @{ Path = $Zlib; Name = 'LIBZ    SO1' },
         @{ Path = $Libc; Name = 'LIBC    SO ' },
         @{ Path = $WebkitRuntime; Name = 'WEBKIT  SO1' },
-        @{ Path = $WpeBackend; Name = 'WPEFDO  SO1' }
+        @{ Path = $WpeBackend; Name = 'WPEFDO  SO1' },
+        @{ Path = $EglRuntime; Name = 'LIBEGL  SO1' },
+        @{ Path = $GalliumRuntime; Name = 'GALLIUM SO1' },
+        @{ Path = $SwrastRuntime; Name = 'SWRAST  SO1' }
     )
     $runtimeEntry = if ($GpuFirmware) { 4 } else { 3 }
     foreach ($runtimeFile in $runtimeFiles) {

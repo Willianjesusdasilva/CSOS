@@ -31,7 +31,7 @@ $zigArgs = @('build-exe', 'userspace/webkit_launcher.zig', '-target', 'x86_64-li
     ("-L$lib"),
     "$Build/lib/libWPEWebKit-2.0.so.1.9.10",
     'C:/git/csos/zig-out/wpebackend-fdo-linux5/libWPEBackend-fdo-1.0.so.1.10.2',
-    '-lwpe-1.0', '-lglib-2.0', '-lgobject-2.0', '-lgio-2.0', '-lpcre2-8', '-lepoxy', '-lxkbcommon', '-lffi', '-lz', '-ldl', '-lm', '-lc'
+    '-lwpe-1.0', '-lglib-2.0', '-lgobject-2.0', '-lgio-2.0', '-lpcre2-8', '-lepoxy', '-lEGL', '-lxkbcommon', '-lffi', '-lz', '-ldl', '-lm', '-lc'
 )
 Push-Location $root
 try {

@@ -5,6 +5,15 @@ const WpeViewBackend = opaque {};
 extern fn wpe_view_backend_initialize(?*WpeViewBackend) void;
 extern fn wpe_view_backend_add_activity_state(?*WpeViewBackend, u32) void;
 extern fn wpe_fdo_initialize_shm() void;
+extern fn wpe_fdo_initialize_for_egl_display(?*anyopaque) void;
+const EglGetPlatformDisplayFn = *const fn (u32, ?*anyopaque, ?*const isize) callconv(.c) ?*anyopaque;
+const EglInitializeFn = *const fn (?*anyopaque, *i32, *i32) callconv(.c) u32;
+extern var epoxy_eglGetPlatformDisplay: EglGetPlatformDisplayFn;
+extern var epoxy_eglInitialize: EglInitializeFn;
+extern fn eglGetDisplay(?*anyopaque) ?*anyopaque;
+extern fn eglGetPlatformDisplay(u32, ?*anyopaque, ?*const isize) ?*anyopaque;
+extern fn eglInitialize(?*anyopaque, *i32, *i32) u32;
+extern fn setenv([*:0]const u8, [*:0]const u8, c_int) c_int;
 const WpeExportable = opaque {};
 const ExportBufferFn = *const fn (?*anyopaque, ?*anyopaque) callconv(.c) void;
 const ExportShmFn = *const fn (?*anyopaque, ?*anyopaque) callconv(.c) void;
@@ -72,10 +81,34 @@ fn exportShmBuffer(_: ?*anyopaque, buffer: ?*anyopaque) callconv(.c) void {
 fn destroyBackend(_: ?*anyopaque) callconv(.c) void {}
 
 pub fn main() void {
-    // QEMU currently has no physical EGL/KMS device. WPE FDO's SHM target
-    // still exercises the real WebKit pipeline without a fake renderer.
-    wpe_fdo_initialize_shm();
-    mark("WPE shm ready\n");
+    // Prefer a surfaceless EGL display backed by Mesa software rendering.
+    // SHM remains a diagnostic fallback for images that do not ship EGL yet.
+    _ = setenv("EGL_PLATFORM", "surfaceless", 1);
+    _ = setenv("LIBGL_ALWAYS_SOFTWARE", "1", 1);
+    _ = setenv("MESA_LOADER_DRIVER_OVERRIDE", "swrast", 1);
+    _ = eglGetDisplay(null);
+    epoxy_eglGetPlatformDisplay = eglGetPlatformDisplay;
+    epoxy_eglInitialize = eglInitialize;
+    var egl_ready = false;
+    if (@intFromPtr(epoxy_eglGetPlatformDisplay) != 0 and @intFromPtr(epoxy_eglInitialize) != 0) {
+        const display = epoxy_eglGetPlatformDisplay(0x31dd, null, null);
+        if (display) |egl_display| {
+            var major: i32 = 0;
+            var minor: i32 = 0;
+            if (epoxy_eglInitialize(egl_display, &major, &minor) != 0) {
+                wpe_fdo_initialize_for_egl_display(egl_display);
+                mark("WPE EGL ready ");
+                var version: [24]u8 = undefined;
+                const text = std.fmt.bufPrint(&version, "{}.{}\n", .{ major, minor }) catch unreachable;
+                mark(text);
+                egl_ready = true;
+            }
+        }
+    }
+    if (!egl_ready) {
+        wpe_fdo_initialize_shm();
+        mark("WPE shm ready\n");
+    }
     const client = WpeExportableClient{
         .export_buffer_resource = exportBuffer,
         .export_dmabuf_resource = exportBuffer,
