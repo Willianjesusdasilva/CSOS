@@ -955,6 +955,17 @@ buffer e despacha `frame_complete`. O callback ainda precisa ser observado
 em um smoke estável para fechar o gate do primeiro frame e copiar os pixels ao
 framebuffer; portanto o gate permanece aberto.
 
+### Duplicação correta de descritores e teardown do backend (2026-09-17)
+
+O caminho real do WPE/GLib usa `dup(2)`; o syscall Linux 32 foi ligado à
+mesma implementação de `F_DUPFD`, preservando a escolha do menor descritor
+livre. Durante o smoke, o page fault restante foi rastreado até
+`wpe_view_backend_destroy`: o launcher destruía o backend explicitamente e
+depois destruía o exportable FDO, que já é seu proprietário. O teardown foi
+corrigido para ocorrer uma única vez. O smoke seguinte passou por
+`WebKit GLib loop complete` sem page fault; o primeiro callback SHM ainda não
+foi observado.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de

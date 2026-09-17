@@ -2,8 +2,8 @@
 //! The CSOS compositor owns the view backend; WebKit owns HTML/CSS/JS.
 const std = @import("std");
 const WpeViewBackend = opaque {};
-extern fn wpe_view_backend_destroy(?*WpeViewBackend) void;
 extern fn wpe_view_backend_initialize(?*WpeViewBackend) void;
+extern fn wpe_view_backend_add_activity_state(?*WpeViewBackend, u32) void;
 extern fn wpe_fdo_initialize_shm() void;
 const WpeExportable = opaque {};
 const ExportBufferFn = *const fn (?*anyopaque, ?*anyopaque) callconv(.c) void;
@@ -19,6 +19,7 @@ extern fn wpe_view_backend_exportable_fdo_create(*const WpeExportableClient, ?*a
 extern fn wpe_view_backend_exportable_fdo_get_view_backend(?*WpeExportable) ?*WpeViewBackend;
 extern fn wpe_view_backend_exportable_fdo_destroy(?*WpeExportable) void;
 extern fn wpe_view_backend_exportable_fdo_dispatch_frame_complete(?*WpeExportable) void;
+extern fn wpe_view_backend_dispatch_frame_displayed(?*WpeViewBackend) void;
 extern fn wpe_view_backend_exportable_fdo_dispatch_release_shm_exported_buffer(?*WpeExportable, ?*anyopaque) void;
 extern fn wpe_fdo_shm_exported_buffer_get_shm_buffer(?*anyopaque) ?*anyopaque;
 extern fn wl_shm_buffer_get_data(?*anyopaque) ?*anyopaque;
@@ -39,14 +40,19 @@ fn mark(message: []const u8) void {
 
 var exported_frame_count: u32 = 0;
 var active_exportable: ?*WpeExportable = null;
+var active_view_backend: ?*WpeViewBackend = null;
 
 fn exportBuffer(_: ?*anyopaque, _: ?*anyopaque) callconv(.c) void {}
 
 fn exportShmBuffer(_: ?*anyopaque, buffer: ?*anyopaque) callconv(.c) void {
+    mark("WebKit SHM callback\n");
     const exportable = active_exportable orelse return;
     const exported = buffer orelse return;
     defer {
         wpe_view_backend_exportable_fdo_dispatch_release_shm_exported_buffer(exportable, exported);
+        // frame_complete dispatches Wayland callbacks; libwpe advances the
+        // render cadence when the client confirms the frame was displayed.
+        wpe_view_backend_dispatch_frame_displayed(active_view_backend);
         wpe_view_backend_exportable_fdo_dispatch_frame_complete(exportable);
     }
     const shm = wpe_fdo_shm_exported_buffer_get_shm_buffer(exported) orelse return;
@@ -81,6 +87,7 @@ pub fn main() void {
     const exportable = wpe_view_backend_exportable_fdo_create(&client, null, 1280, 800) orelse return;
     active_exportable = exportable;
     const view_backend = wpe_view_backend_exportable_fdo_get_view_backend(exportable) orelse return;
+    active_view_backend = view_backend;
     wpe_view_backend_initialize(view_backend);
     mark("WPE backend ready\n");
     const tls_probe = [_]usize{ 1, 8 };
@@ -96,9 +103,15 @@ pub fn main() void {
     mark("WebKit view begin\n");
     const view = webkit_web_view_new(web_backend) orelse return;
     mark("WebKit view ready\n");
+    // A WPE view starts inactive.  Mark it visible/focused/in-window only
+    // after WebKit has attached its view, matching the normal embedder order.
+    wpe_view_backend_add_activity_state(view_backend, 1 | 2 | 4);
     const document = "<html><body><main id=app>CSOS WebKit</main><script>document.getElementById('app').dataset.ready='true';</script></body></html>";
     webkit_web_view_load_html(view, document, "csos://desktop");
     mark("WebKit HTML submitted\n");
+    // Start the first compositor cycle. Subsequent cycles are acknowledged
+    // only after exportShmBuffer has released the real WPE buffer.
+    wpe_view_backend_exportable_fdo_dispatch_frame_complete(exportable);
     const context = g_main_context_default();
     var rounds: usize = 0;
     while (rounds < 64) : (rounds += 1) {
@@ -108,6 +121,8 @@ pub fn main() void {
     // one blocking dispatch so WPE can deliver the SHM buffer to the client.
     _ = g_main_context_iteration(context, 1);
     mark("WebKit GLib loop complete\n");
-    wpe_view_backend_destroy(view_backend);
+    // The FDO exportable owns the view backend and destroys it as part of its
+    // teardown.  Do not call wpe_view_backend_destroy here: that would free
+    // the same backend twice and corrupt musl's allocator metadata.
     wpe_view_backend_exportable_fdo_destroy(exportable);
 }
