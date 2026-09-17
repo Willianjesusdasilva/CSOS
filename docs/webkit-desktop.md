@@ -853,6 +853,19 @@ for lock: 0`), seguida por `#GP(0)` em ring 3; `WebKit view ready` ainda não
 foi observado. O próximo diagnóstico é localizar a inicialização desse lock,
 sem fabricar sucesso para o gate.
 
+### Smoke real com os dois subprocessos WPE (2026-09-17)
+
+Após remover os diagnósticos temporários, `zig build test` passou novamente.
+Um smoke QEMU de 30 segundos com os ELFs reais de `WPEWebProcess` e
+`WPENetworkProcess` reproduziu o limite atual: `WebKit view begin`, seguido de
+`Linux PT_INTERP loader ready`, mas sem `WebKit view ready`. As reservas
+observadas foram `128 GiB @ 0xc000000000` e depois `128 MiB @ 0xe000000000`,
+sem sobreposição. O fault posterior ocorre em `0x6006030b2f`, numa leitura de
+tabela interna do JSC (`mov (%rax), %rdx`) com `CR2=0x1` e `RAX=1`, depois do
+primeiro commit lazy em `0xe000000000`. Portanto o próximo diagnóstico deve
+concentrar-se na inicialização/ABI do allocator JSC; o gate WebKit e o primeiro
+frame continuam abertos.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de
