@@ -885,6 +885,17 @@ caminho explícito de `mprotect`. `zig build test` passa. O smoke WPE ainda
 reproduz o fault JSC posterior, portanto esta correção elimina uma classe de
 aliasing mas não fecha o gate `WebKit view ready`.
 
+### Primeiro writer do allocator JSC (2026-09-17)
+
+Uma proteção temporária de somente-leitura na primeira página comprometida de
+`0xe000000000` capturou o primeiro write posterior como `RIP=0x600602e3b7`,
+que corresponde a `pas_simple_large_free_heap_construct` e aos dois `movups`
+que zeram o objeto. A página recebeu uma página física nova, sem sobreposição
+com as ranges já pertencentes ao workspace (`owned-alias=0`). Assim, o objeto
+começa íntegro; a transformação posterior em `[1, 0xe000000000, 1,
+0xe000000000]` ocorre depois do construtor, na sequência de alocação/threads do
+WebProcess. A instrumentação foi removida após a captura.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de
