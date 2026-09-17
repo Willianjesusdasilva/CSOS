@@ -26,6 +26,8 @@ var counter: usize = 0;
 threadlocal var tls_value: usize = 0;
 var child_ran: bool = false;
 var tls_key: usize = 0;
+const worker_count = 8;
+const worker_iterations = 250;
 
 fn output(message: []const u8) void {
     var offset: usize = 0;
@@ -54,7 +56,7 @@ fn worker(argument: ?*anyopaque) callconv(.c) ?*anyopaque {
         if (pthread_cond_wait(&condition, &mutex) != 0) _exit(34);
     }
     if (pthread_mutex_unlock(&mutex) != 0) _exit(35);
-    for (0..100) |_| {
+    for (0..worker_iterations) |_| {
         if (pthread_mutex_lock(&mutex) != 0) _exit(36);
         const previous = counter;
         // Force a switch while holding the lock: other workers must block.
@@ -102,7 +104,7 @@ pub fn main() void {
         _exit(23);
     }
     output("CSOS WebKit prerequisite PASS: pthread/TLS/join only\n");
-    var workers: [3]usize = undefined;
+    var workers: [worker_count]usize = undefined;
     for (&workers, 0..) |*thread_id, i| {
         if (pthread_create(thread_id, null, worker, @ptrFromInt(100 + i)) != 0) _exit(40);
     }
@@ -116,6 +118,6 @@ pub fn main() void {
     for (workers, 0..) |thread_id, i| {
         if (pthread_join(thread_id, &result) != 0 or @intFromPtr(result) != 100 + i) _exit(45);
     }
-    if (counter != 300 or tls_value != 41) _exit(46);
-    output("CSOS WebKit threads PASS: mutex/condition/shared-memory/TLS/join counter=300\n");
+    if (counter != worker_count * worker_iterations or tls_value != 41) _exit(46);
+    output("CSOS WebKit threads PASS: mutex/condition/shared-memory/TLS/join counter=2000\n");
 }

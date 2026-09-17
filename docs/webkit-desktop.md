@@ -565,7 +565,8 @@ suprimir indefinidamente os workers adiados. Quando há workers runnable,
 eles recebem o próximo turno antes da preferência do pai. Com as interrupções
 de usuário desativadas apenas para isolar o teste, o probe real alcança
 `CSOS WebKit threads PASS: mutex/condition/shared-memory/TLS/join
-counter=300`. Com `RFLAGS.IF` habilitado, QEMU ainda rejeita o vetor de timer
+counter=2000` (8 workers × 250 iterações, com `sched_yield()` enquanto o
+mutex está retido). Com `RFLAGS.IF` habilitado, QEMU ainda rejeita o vetor de timer
 32 com `#GP(0x102)` durante a entrada CPL3; portanto esta correção não marca
 `WebKit view ready` e o próximo gate é corrigir a entrega segura do timer.
 
@@ -588,7 +589,7 @@ vetor de timer era recarregado com `100000` ciclos. A execução mantinha o
 `RFLAGS.IF` habilitado, mas a frequência de interrupções consumia o tempo de
 userspace no QEMU antes de o worker completar o bootstrap. Aumentar o reload
 para `10000000` ciclos preserva a preempção e fez o probe produzir
-`CSOS WebKit threads PASS: mutex/condition/shared-memory/TLS/join counter=300`.
+`CSOS WebKit threads PASS: mutex/condition/shared-memory/TLS/join counter=2000`.
 O smoke WPE também avançou por `WebKit view begin` e criou workers adicionais,
 mas ainda não produziu `WebKit view ready`; portanto este é um ajuste de
 frequência/estabilidade do scheduler, não a conclusão do gate WebKit.
