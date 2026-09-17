@@ -773,6 +773,19 @@ no código JSC (não uma falta que o pager deva aceitar), então o próximo pass
 conteúdo escrito entre os dois faults; não será adicionado retorno de sucesso
 falso para esconder essa exceção.
 
+### Sequência de reservas `MAP_NORESERVE` (2026-09-16)
+
+Instrumentação temporária do syscall `mmap` mostrou os endereços efetivamente
+retornados pelo launcher: `0xa000031000` (128 MiB), depois pequenos blocos no
+intervalo `0xa008...`. Ao criar o view, a arena de 128 GiB foi reservada em
+`0xc000000000`; o WebProcess recebeu a arena seguinte em `0xe000000000`.
+Todas as chamadas usaram `requested=0` e flags `0x4022`, portanto o kernel não
+está aceitando um endereço fixo solicitado pelo WebKit nesse caminho. Uma
+reserva intermediária de aproximadamente 1 GiB não produziu endereço de
+retorno antes da chamada seguinte de 8 GiB; isso deve ser investigado como
+erro de alocação/limite, não tratado como sucesso implícito. A instrumentação
+foi removida depois da captura.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de
