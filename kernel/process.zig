@@ -380,6 +380,8 @@ fn cloneProcessWorkspace(parent_id: u8, slot: u32) callconv(.c) u16 {
         child.break_length = parent.break_length;
         child.mmap_base = parent.mmap_base;
         child.mmap_length = parent.mmap_length;
+        child.mmap_next = parent.mmap_next;
+        child.noreserve_next = parent.noreserve_next;
         cloneWritableProcessPages(child, pages) catch {
             child.image_space.destroy();
             releaseOwned(pages, child.owned[0..child.owned_count]);
@@ -502,15 +504,15 @@ fn restoreWorkspaceMmapState(workspace: *const LoaderWorkspace) void {
 fn activateProcessWorkspace(id: u8) callconv(.c) void {
     if (id >= loader_workspaces.len) return;
     const workspace = &loader_workspaces[id];
-    const address_space = workspace.address_space orelse return;
-    if (active_workspace) |previous| if (previous != workspace) saveWorkspaceMmapState(previous);
-    vfs.activateWorkspace(workspace.pool_id);
-    active_workspace = workspace;
-    restoreWorkspaceMmapState(workspace);
-    address_space.activate();
+    _ = workspace.address_space orelse return;
+    selectWorkspace(workspace);
 }
 
 fn selectWorkspace(workspace: *LoaderWorkspace) void {
+    if (active_workspace) |current| if (current == workspace) {
+        (workspace.address_space orelse return).activate();
+        return;
+    };
     if (active_workspace) |previous| if (previous != workspace) saveWorkspaceMmapState(previous);
     active_workspace = workspace;
     vfs.activateWorkspace(workspace.pool_id);

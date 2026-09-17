@@ -939,9 +939,10 @@ syscalls. Ao alternar o workspace do scheduler, o processo seguinte podia
 continuar alocando a partir da arena virtual do processo anterior. A captura
 mostrou reservas consecutivas em `0xa008...` e o `PAS_ASSERT(min_node)` do
 libpas nessa mesma região. Os cursores e os limites agora são salvos no
-`LoaderWorkspace` e restaurados em toda troca de address space. O smoke passou
-além do `ud2` e chegou a `WebKit view begin`; o fault residual atual é uma
-leitura em endereço `0x34`, ainda antes de `WebKit view ready`.
+`LoaderWorkspace` e restaurados somente ao trocar de address space; uma troca
+de thread dentro do mesmo workspace preserva o cursor corrente. O cursor
+inicial também é herdado no clone. O smoke QEMU com os ELFs reais do
+WebProcess/NetworkProcess agora produz `WebKit view ready` em 90 segundos.
 
 ## Referências upstream
 
