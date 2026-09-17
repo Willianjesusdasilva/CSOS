@@ -13,15 +13,18 @@ struct csos_tls_image {
     size_t memory_size;
     size_t alignment;
 };
+struct csos_dso_image { uintptr_t base, phdr; size_t phnum, phentsize, name_len; char name[64]; };
+extern void csos_musl_activate_preloaded(size_t, const struct csos_dso_image *);
 
 static struct tls_module modules[64];
 static int initialized;
 
 __attribute__((visibility("default")))
 int csos_musl_bootstrap(size_t argc, char **argv, size_t count,
-                        const struct csos_tls_image *images)
+                        const struct csos_tls_image *images, size_t object_count,
+                        const struct csos_dso_image *objects)
 {
-    if (initialized || !argv || !argc || count > 64 || (count && !images)) return -1;
+    if (initialized || !argv || !argc || count > 64 || (count && !images) || object_count > 64 || (object_count && !objects)) return -1;
     size_t used = 0, alignment = _Alignof(struct pthread);
     for (size_t i = 0; i < count; ++i) {
         size_t a = images[i].alignment ? images[i].alignment : 1;
@@ -51,6 +54,7 @@ int csos_musl_bootstrap(size_t argc, char **argv, size_t count,
         return -4;
     }
     __init_libc(argv + argc + 1, argv[0]);
+    csos_musl_activate_preloaded(object_count, objects);
     initialized = 1;
     return 0;
 }

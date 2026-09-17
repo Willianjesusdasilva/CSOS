@@ -27,10 +27,13 @@ const max_owned_ranges = 65536;
 const max_shared_objects = 64;
 const max_initializers = 512;
 const TlsImage = extern struct { image: u64 = 0, file_size: u64 = 0, memory_size: u64 = 0, alignment: u64 = 1 };
+const MuslDsoImage = extern struct { base: u64 = 0, phdr: u64 = 0, phnum: u64 = 0, phentsize: u64 = 0, name_len: u64 = 0, name: [64]u8 = @splat(0) };
 const MuslBootstrap = extern struct {
     entry: u64 = 0,
     count: u64 = 0,
     images: [max_shared_objects]TlsImage = @splat(.{}),
+    object_count: u64 = 0,
+    objects: [max_shared_objects]MuslDsoImage = @splat(.{}),
 };
 // Stripped WPE WebKit is currently about 120 MiB; keep the loader limit
 // explicit and bounded while allowing the real engine to be staged on FAT.
@@ -874,6 +877,11 @@ fn runImageWithWorkspace(
                 .program_count = shared_program_count,
                 .base = shared_base,
             };
+            const provider_name = dependency_names[provider_count];
+            if (provider_name.len > 64) return error.SharedObjectMissing;
+            var copied_name: [64]u8 = @splat(0);
+            @memcpy(copied_name[0..provider_name.len], provider_name);
+            musl_bootstrap.objects[provider_count] = .{ .base = shared_base, .phdr = shared_base + shared_program_offset, .phnum = shared_program_count, .phentsize = shared_program_entry_size, .name_len = provider_name.len, .name = copied_name };
             const transitive = try findNeeded(shared_program_offset, shared_program_entry_size, shared_program_count);
             for (transitive.names[0..transitive.count]) |name| {
                 var duplicate = false;
@@ -907,6 +915,7 @@ fn runImageWithWorkspace(
         // dependency walk records consumers before providers, so reverse it.
         var provider_initializer_index = provider_count;
         musl_bootstrap.count = provider_count;
+        musl_bootstrap.object_count = provider_count;
         for (providers[0..provider_count], 0..) |provider, index| {
             if (!equal(dependency_names[index], "libc.so") and
                 !equal(dependency_names[index], "libc.musl-x86_64.so.1")) continue;

@@ -50,6 +50,8 @@ pub export fn _start() callconv(.naked) noreturn {
         \\leaq 8(%%r12), %%rsi
         \\movq 8(%%rbp), %%rdx
         \\leaq 16(%%rbp), %%rcx
+        \\movq 2064(%%rbp), %%r8
+        \\leaq 2072(%%rbp), %%r9
         \\call *%%rax
         \\testl %%eax, %%eax
         \\jnz 9f
