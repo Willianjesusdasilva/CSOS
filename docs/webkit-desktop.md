@@ -921,6 +921,16 @@ workers WPE possam sair de esperas sem depender de um `eventfd` disfarçado.
 syscall 434`, mas ainda termina antes de `WebKit view ready`; o próximo
 bloqueio precisa ser identificado no trap/ABI posterior do WebProcess.
 
+### Preservação SIMD no timer preemptivo (2026-09-17)
+
+Além do page fault, o timer APIC também chama código Zig durante a execução de
+threads ring-3. O handler agora salva e restaura a área FPU/SSE com
+`fxsave64`/`fxrstor64` ao redor desse callback. Isso fecha a segunda fronteira
+que podia alterar registradores XMM enquanto uma instrução WebKit era
+preemptada. `zig build test` passa; o smoke ainda reproduz um `ud2` interno do
+WebProcess depois da criação de threads, portanto `WebKit view ready` continua
+pendente e não foi mascarado.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de

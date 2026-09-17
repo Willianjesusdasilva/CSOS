@@ -218,10 +218,12 @@ fn timer() callconv(.naked) void {
         // callee shadow space and keep the original register-stack pointer
         // so the bridge cannot overwrite the interrupted frame.
         \\andq $-16, %%rsp
-        \\subq $48, %%rsp
-        \\movq %%r11, 40(%%rsp)
+        \\subq $560, %%rsp
+        \\movq %%r11, 32(%%rsp)
+        \\fxsave64 48(%%rsp)
         \\callq user_timer_dispatch_bridge
-        \\movq 40(%%rsp), %%rsp
+        \\fxrstor64 48(%%rsp)
+        \\movq 32(%%rsp), %%rsp
         // Acknowledge the LAPIC while the saved register block is still on
         // the stack; doing this after the pops would leak the MMIO address in
         // RAX back into the interrupted userspace process.
