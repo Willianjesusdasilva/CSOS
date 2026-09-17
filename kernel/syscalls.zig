@@ -5433,11 +5433,20 @@ fn mmap(requested: u64, length: u64, protection: u64, flags: u64, fd: u64, file_
     // consume this virtual reservation without rewalking or clearing every
     // page on each large arena request.
     if ((flags & 0x4000) != 0) {
+        const virtual_limit: u64 = 0x00007f0000000000;
+        // MAP_FIXED remaps/commits the exact address supplied by the caller.
+        // In particular, bmalloc uses MAP_FIXED to populate portions of an
+        // already-reserved arena; advancing noreserve_next here would return
+        // a different pointer and silently corrupt the allocator's state.
+        if ((flags & 0x10) != 0) {
+            const fixed_end = std.math.add(u64, requested, aligned_length) catch return errno(12);
+            if (requested < mmap_base or requested > virtual_limit or fixed_end > virtual_limit) return errno(12);
+            return requested;
+        }
         // Large allocator arenas (notably JSC's aligned structure heap) are
         // virtual reservations and can exceed the eagerly-backed mmap arena.
         // Keep them in the canonical user range; pages are committed later by
         // the normal protection path.
-        const virtual_limit: u64 = 0x00007f0000000000;
         // A MAP_NORESERVE request is virtual-only when it does not fit the
         // eagerly-backed arena.  WebKit's bmalloc uses reservations in the
         // 128 MiB range even though the process starts with a much smaller
