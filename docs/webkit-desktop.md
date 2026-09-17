@@ -866,6 +866,14 @@ primeiro commit lazy em `0xe000000000`. Portanto o próximo diagnóstico deve
 concentrar-se na inicialização/ABI do allocator JSC; o gate WebKit e o primeiro
 frame continuam abertos.
 
+A captura dos registradores no segundo fault confirmou a operação: `R8` aponta
+para `0xe000000000`, `R15=0`, e a instrução calcula `RAX = R15 * 24 +
+*(u64*)R8`; o primeiro word da arena vale `1`, produzindo `CR2=0x1`. A página
+foi criada por demanda e não foi remapeada antes da leitura. O próximo passo é
+comparar esse layout com o contrato de `pas_simple_large_free_heap` e com a
+sequência de `mmap`/commit esperada pelo libpas, em vez de alterar o pager sem
+uma divergência demonstrada.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de
