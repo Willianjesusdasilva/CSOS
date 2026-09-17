@@ -5446,12 +5446,16 @@ fn archPrctl(code: u64, address: u64) u64 {
     // userspace syscall install a kernel/non-canonical address in the MSR.
     if (address >= 0x0000800000000000) return errno(22);
     writeMsr(0xc0000100, address);
+    if (current_thread < user_threads.len and user_threads[current_thread].state != .unused)
+        user_threads[current_thread].fs = address;
     return 0;
 }
 
 fn setThreadArea(address: u64) u64 {
     if (address >= 0x0000800000000000) return errno(22);
     writeMsr(0xc0000100, address);
+    if (current_thread < user_threads.len and user_threads[current_thread].state != .unused)
+        user_threads[current_thread].fs = address;
     return 0;
 }
 
