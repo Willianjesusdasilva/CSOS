@@ -700,6 +700,11 @@ o mesmo frame de interrupção e o retorno normal do handler. O smoke reproduziu
 o `#GP(0x102)` sem executar o callback; a falha não está na seleção de thread,
 `fxsave/fxrstor` ou troca de workspace. A alteração foi revertida após o teste.
 
+Um marcador protegido colocado após todos os `popq` do handler também foi
+observado repetidamente antes do `iretq`. Isso confirma que a restauração dos
+registradores e a saída da interrupção completam; o `#GP(0x102)` só aparece na
+entrega de um tick posterior, já de volta ao contexto ring-3.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de
