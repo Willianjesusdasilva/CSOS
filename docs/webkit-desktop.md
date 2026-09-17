@@ -911,6 +911,16 @@ temporária confirmou que os quatro words permanecem zerados após os dois
 stores; o fault `CR2=1` deixou de ocorrer. O smoke avançou até o primeiro
 syscall ainda não implementado (`434`, `pidfd_open`), sem `WebKit view ready`.
 
+### pidfd_open e readiness em poll/epoll (2026-09-17)
+
+O syscall `pidfd_open` (434) agora cria um descritor VFS próprio, validando o
+PID e flags conforme Linux. O descritor é reconhecido por `poll` e `epoll`; ao
+encerrar o processo monitorado, o kernel sinaliza sua readiness para que os
+workers WPE possam sair de esperas sem depender de um `eventfd` disfarçado.
+`zig build test` passa. O smoke seguinte deixou de registrar `unsupported
+syscall 434`, mas ainda termina antes de `WebKit view ready`; o próximo
+bloqueio precisa ser identificado no trap/ABI posterior do WebProcess.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de

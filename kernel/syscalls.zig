@@ -1302,6 +1302,7 @@ pub fn activateExecThread(child_pid: u32) void {
 }
 
 pub fn finishProcessChild(pid: u32, status: u8) ?UserResume {
+    vfs.signalPidfd(pid);
     for (&user_threads) |*child| {
         if (child.kind != .process_child or child.pid != pid or child.state == .exited) continue;
         // The process descriptor table is owned by the workspace. Releasing
@@ -1614,6 +1615,7 @@ export fn user_syscall_dispatch(number: u64, arg1: u64, arg2: u64, arg3: u64, ar
         324 => 0,
         334 => rseq(arg1, arg2, arg3, arg4),
         332 => statx(arg1, arg2, arg3, arg4, arg5),
+        434 => pidfdOpen(arg1, arg2),
         436 => closeRange(arg1, arg2, arg3),
         439 => faccessat2(arg1, arg2, arg3, arg4),
         else => unsupported(number),
@@ -4488,6 +4490,8 @@ fn poll(address: u64, count: u64, timeout: i64) u64 {
                 } else |_| {}
             }
             if ((events & 4) != 0) revents |= 4;
+        } else if (vfs.isPidfd(fd)) {
+            if ((events & 1) != 0 and vfs.pidfdReady(fd)) revents |= 1;
         } else {
             if ((events & 1) != 0) revents |= 1;
             if ((events & 4) != 0) revents |= 4;
@@ -4742,6 +4746,20 @@ fn eventfd2(initial: u64, flags: u64) u64 {
     // the counter, while blocking waits are handled by the poll/epoll layer.
     if ((flags & ~@as(u64, 0x80800)) != 0) return errno(22);
     return vfs.openEventfd(initial) catch |err| vfsError(err);
+}
+
+fn pidfdOpen(pid: u64, flags: u64) u64 {
+    if (flags != 0 or pid == 0 or pid > std.math.maxInt(u32)) return errno(22);
+    const target: u32 = @intCast(pid);
+    var found = false;
+    for (user_threads) |thread| {
+        if (thread.pid == target and thread.state != .unused and thread.state != .exited) {
+            found = true;
+            break;
+        }
+    }
+    if (!found) return errno(3);
+    return vfs.openPidfd(target) catch |err| vfsError(err);
 }
 
 fn connect(fd: u64, address: u64, length: u64) u64 {
@@ -5974,6 +5992,8 @@ fn epollWait(epfd: u64, output: u64, capacity: u64, timeout: i64) u64 {
         if (!watch.active or ready == capacity) continue;
         if (socketIndex(watch.fd)) |socket_index| {
             if (sockets[socket_index].connection == null and (!sockets[socket_index].local_pair or sockets[socket_index].local_len == 0)) continue;
+        } else if (vfs.isPidfd(watch.fd)) {
+            if (!vfs.pidfdReady(watch.fd)) continue;
         } else {
             if (!vfs.isOpen(watch.fd)) continue;
             const generation = vfs.descriptorGeneration(watch.fd) catch continue;

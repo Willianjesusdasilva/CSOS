@@ -10,7 +10,7 @@ const hello = "Hello from initramfs\n";
 const max_fds = 128;
 const max_file_io: usize = 32768;
 
-const Kind = enum { unused, console, file, directory, device, epoll, eventfd };
+const Kind = enum { unused, console, file, directory, device, epoll, eventfd, pidfd };
 const Node = enum {
     root,
     proc,
@@ -64,6 +64,7 @@ const Descriptor = struct {
     fat_cluster: u16 = 0,
     fat_parent_cluster: u16 = 0,
     event_counter: u64 = 0,
+    pidfd_target: u32 = 0,
     // Null denotes the primary system volume.  A non-null pointer pins the
     // descriptor to an alternate mounted volume (currently /nix).
     volume: ?*fat16.Volume = null,
@@ -726,6 +727,33 @@ pub fn openEventfd(initial: u64) !usize {
 
 pub fn isEventfd(fd: usize) bool {
     return fd < descriptors.len and descriptors[fd].kind == .eventfd;
+}
+
+pub fn openPidfd(pid: u32) !usize {
+    var fd: usize = 3;
+    while (fd < descriptors.len and descriptors[fd].kind != .unused) : (fd += 1) {}
+    if (fd == descriptors.len) return error.TooManyFiles;
+    descriptors[fd] = .{ .generation = try newGeneration(), .kind = .pidfd, .node = .root, .pidfd_target = pid };
+    return fd;
+}
+
+pub fn isPidfd(fd: usize) bool {
+    return fd < descriptors.len and descriptors[fd].kind == .pidfd;
+}
+
+pub fn pidfdReady(fd: usize) bool {
+    return isPidfd(fd) and descriptors[fd].event_counter != 0;
+}
+
+pub fn signalPidfd(pid: u32) void {
+    for (&descriptors) |*entry| {
+        if (entry.kind == .pidfd and entry.pidfd_target == pid) entry.event_counter = 1;
+    }
+    for (&workspace_descriptors) |*workspace| {
+        for (workspace) |*entry| {
+            if (entry.kind == .pidfd and entry.pidfd_target == pid) entry.event_counter = 1;
+        }
+    }
 }
 
 pub fn readEventfd(fd: usize, output: []u8) !usize {
