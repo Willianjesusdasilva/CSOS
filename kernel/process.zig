@@ -720,6 +720,7 @@ fn runImageWithWorkspace(
     var initializers: [max_initializers]u64 = undefined;
     var initializer_count: usize = 0;
     var musl_bootstrap: MuslBootstrap = .{};
+    var main_tls_image: TlsImage = .{};
 
     var header_index: usize = 0;
     while (header_index < program_count) : (header_index += 1) {
@@ -727,7 +728,21 @@ fn runImageWithWorkspace(
         if (entry_size != 0 and header_index > (std.math.maxInt(u64) - program_offset) / entry_size)
             return error.InvalidInterpreterPath;
         const header: usize = @intCast(program_offset + entry_size * header_index);
-        if (read32At(header) != 1) continue;
+        const program_type = read32At(header);
+        if (program_type == 7) {
+            const tls_virtual = read64At(header + 16);
+            const tls_file_size = read64At(header + 32);
+            const tls_memory_size = read64At(header + 40);
+            const tls_alignment = read64At(header + 48);
+            if (tls_file_size > tls_memory_size or tls_virtual > std.math.maxInt(u64) - load_bias or
+                load_bias + tls_virtual > std.math.maxInt(u64) - tls_memory_size or
+                tls_memory_size > 0x100000 or (tls_alignment != 0 and (tls_alignment & (tls_alignment - 1)) != 0))
+                return error.InvalidTlsSegment;
+            main_tls_image = .{ .image = load_bias + tls_virtual, .file_size = tls_file_size,
+                .memory_size = tls_memory_size, .alignment = if (tls_alignment == 0) 1 else tls_alignment };
+            continue;
+        }
+        if (program_type != 1) continue;
         const flags = read32At(header + 4);
         const file_offset = read64At(header + 8);
         const segment_virtual = read64At(header + 16);
@@ -758,6 +773,16 @@ fn runImageWithWorkspace(
         var providers: [max_shared_objects]Provider = undefined;
         var tls_offsets: [max_shared_objects]u64 = @splat(0);
         var tls_used: u64 = 0;
+        var main_tls_offset: u64 = 0;
+        const main_tls_reservation = if (main_tls_image.memory_size == 0) 0 else
+            (main_tls_image.memory_size + 0xffff) & ~@as(u64, 0xffff);
+        if (main_tls_image.memory_size != 0) {
+            const main_alignment = main_tls_image.alignment;
+            tls_used = main_tls_image.memory_size + main_alignment - 1;
+            tls_used -= (tls_used + main_tls_image.image) & (main_alignment - 1);
+            main_tls_offset = tls_used;
+            musl_bootstrap.images[0] = main_tls_image;
+        }
         var provider_count: usize = 0;
         var dependency_names: [max_shared_objects][]const u8 = undefined;
         var dependency_name_count = needed.count;
@@ -848,7 +873,7 @@ fn runImageWithWorkspace(
                 const tls_virtual = read64At(header + 16);
                 const file_size = read64At(header + 32);
                 const memory_size = read64At(header + 40);
-                const tls_module_offset = @as(u64, provider_count) * tls_stride;
+                const tls_module_offset = main_tls_reservation + @as(u64, provider_count) * tls_stride;
                 if (memory_size == 0 or memory_size > tls_stride or file_size > memory_size or
                     file_offset > std.math.maxInt(u64) - file_size or file_offset + file_size > image.len or
                     tls_module_offset > std.math.maxInt(u64) - tls_address or
@@ -864,7 +889,7 @@ fn runImageWithWorkspace(
                 tls_used = std.math.add(u64, tls_used, memory_size + tls_alignment - 1) catch return error.InvalidTlsSegment;
                 tls_used -= (tls_used + module_tls) & (tls_alignment - 1);
                 tls_offsets[provider_count] = tls_used;
-                musl_bootstrap.images[provider_count] = .{
+                musl_bootstrap.images[provider_count + 1] = .{
                     .image = module_tls,
                     .file_size = file_size,
                     .memory_size = memory_size,
@@ -910,14 +935,14 @@ fn runImageWithWorkspace(
         }
         image = program_image;
         staged_copy_count = 0;
-        try applySymbolRelocations(program_image, program_offset, program_entry_size, program_count, load_bias, 0, providers[0..provider_count], mappings[0..mapping_count.*], tls_offsets[0..provider_count]);
+        try applySymbolRelocations(program_image, program_offset, program_entry_size, program_count, load_bias, 0, main_tls_offset, providers[0..provider_count], mappings[0..mapping_count.*], tls_offsets[0..provider_count]);
         for (providers[0..provider_count], 0..) |provider, provider_index| {
-            try applySymbolRelocations(provider.bytes, provider.program_offset, provider.program_entry_size, provider.program_count, provider.base, provider_index + 1, providers[0..provider_count], mappings[0..mapping_count.*], tls_offsets[0..provider_count]);
+            try applySymbolRelocations(provider.bytes, provider.program_offset, provider.program_entry_size, provider.program_count, provider.base, provider_index + 2, tls_offsets[provider_index], providers[0..provider_count], mappings[0..mapping_count.*], tls_offsets[0..provider_count]);
         }
         // Constructors run only after every object has been relocated. The
         // dependency walk records consumers before providers, so reverse it.
         var provider_initializer_index = provider_count;
-        musl_bootstrap.count = provider_count;
+        musl_bootstrap.count = provider_count + 1;
         musl_bootstrap.object_count = provider_count;
         for (providers[0..provider_count], 0..) |provider, index| {
             if (!equal(dependency_names[index], "libc.so") and
@@ -1928,16 +1953,17 @@ fn applySymbolRelocations(
     consumer_program_count: u16,
     consumer_base: u64,
     consumer_module: usize,
+    consumer_tls_offset: u64,
     providers: []const Provider,
     mappings: []const Mapping,
     tls_offsets: []const u64,
 ) !void {
     const wanted = try dynamicSymbols(consumer, consumer_program_offset, consumer_program_entry_size, consumer_program_count, true);
-    try applySymbolTable(consumer, consumer_base, consumer_module, wanted, providers, mappings, tls_offsets, wanted.regular_rela_file, wanted.regular_rela_size);
-    try applySymbolTable(consumer, consumer_base, consumer_module, wanted, providers, mappings, tls_offsets, wanted.plt_rela_file, wanted.plt_rela_size);
+    try applySymbolTable(consumer, consumer_base, consumer_module, consumer_tls_offset, wanted, providers, mappings, tls_offsets, wanted.regular_rela_file, wanted.regular_rela_size);
+    try applySymbolTable(consumer, consumer_base, consumer_module, consumer_tls_offset, wanted, providers, mappings, tls_offsets, wanted.plt_rela_file, wanted.plt_rela_size);
 }
 
-fn applySymbolTable(consumer: []const u8, consumer_base: u64, consumer_module: usize, wanted: DynamicSymbols, providers: []const Provider, mappings: []const Mapping, tls_offsets: []const u64, rela_file: u64, rela_size: u64) !void {
+fn applySymbolTable(consumer: []const u8, consumer_base: u64, consumer_module: usize, consumer_tls_offset: u64, wanted: DynamicSymbols, providers: []const Provider, mappings: []const Mapping, tls_offsets: []const u64, rela_file: u64, rela_size: u64) !void {
     if (rela_size == 0) return;
     var supplied_symbols: [max_shared_objects]DynamicSymbols = undefined;
     for (providers, 0..) |provider, index| {
@@ -1992,7 +2018,7 @@ fn applySymbolTable(consumer: []const u8, consumer_base: u64, consumer_module: u
             else if (relocation_type == 17)
                 consumer_symbol_value
             else if (relocation_type == 18)
-                consumer_symbol_value
+                consumer_symbol_value -% consumer_tls_offset
             else
                 std.math.add(u64, consumer_base, consumer_symbol_value) catch return error.InvalidSymbolRelocation;
         }
@@ -2009,7 +2035,7 @@ fn applySymbolTable(consumer: []const u8, consumer_base: u64, consumer_module: u
             const provider_symbol: usize = std.math.cast(usize, provider_symbol_offset) orelse return error.InvalidSymbolRelocation;
             const symbol_value = read64From(provider.bytes, provider_symbol + 8);
             if (relocation_type == 16) {
-                resolved = @as(u64, provider_index + 1);
+                resolved = @as(u64, provider_index + 2);
                 break;
             }
             if (relocation_type == 5) {

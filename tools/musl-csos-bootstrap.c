@@ -28,7 +28,7 @@ int csos_musl_bootstrap(size_t argc, char **argv, size_t count,
     size_t used = 0, alignment = _Alignof(struct pthread);
     for (size_t i = 0; i < count; ++i) {
         size_t a = images[i].alignment ? images[i].alignment : 1;
-        if ((a & (a-1)) || a > 65536 || images[i].memory_size > 65536 ||
+        if ((a & (a-1)) || a > 65536 || images[i].memory_size > 1048576 ||
             images[i].file_size > images[i].memory_size ||
             (images[i].file_size && !images[i].image)) return -2;
         if (a > alignment) alignment = a;
