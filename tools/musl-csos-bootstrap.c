@@ -32,8 +32,11 @@ int csos_musl_bootstrap(size_t argc, char **argv, size_t count,
             images[i].file_size > images[i].memory_size ||
             (images[i].file_size && !images[i].image)) return -2;
         if (a > alignment) alignment = a;
-        used += images[i].memory_size;
-        used += (-(uintptr_t)images[i].image - used) & (a-1);
+        /* x86-64 musl keeps TLS below the thread pointer.  The offset is
+         * measured from TP, so reserve the image itself before aligning it;
+         * an offset of zero would overlap struct pthread at TP. */
+        used += images[i].memory_size + a - 1;
+        used -= (used + (uintptr_t)images[i].image) & (a-1);
         modules[i] = (struct tls_module){
             .next = i+1 < count ? &modules[i+1] : 0,
             .image = (void *)images[i].image,
