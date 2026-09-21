@@ -641,7 +641,7 @@ fn cloneThread(flags: u64, stack: u64, parent_tid: u64, child_tid: u64, tls: u64
             }
             process_clone_hint_address = 0;
         }
-        pending_clone = .{ .slot = slot, .stack = stack, .tls = tls, .process_child = is_process_child,
+    pending_clone = .{ .slot = slot, .stack = stack, .tls = tls, .process_child = is_process_child,
             .entry = clone_entry, .clone_child = is_clone_child };
         // A fork child must not run while the parent still holds musl's
         // fork/loader lock. Let the parent return from clone and complete a
@@ -691,42 +691,22 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
     if (pending_clone) |child| {
         user_threads[child.slot].frame = captureRawSyscallFrame(frame);
         if (child.clone_child) {
-            const child_arg: *const u64 = @ptrFromInt(child.stack);
-            // musl's x86-64 __clone normally pops the callback argument and
-            // calls the callback after the syscall.  Start at that callback
-            // directly, with the argument in RDI; posix_spawn callbacks
-            // either execve or call _exit and do not return.
-            user_threads[child.slot].frame[0] = child.entry;
-            // The direct trampoline entry follows the Win/SysV C ABI: its
-            // first argument is RDI (raw syscall frame slot 9), not R12.
-            user_threads[child.slot].frame[9] = child_arg.*;
-            // musl's child trampoline clears RBP before calling the callback;
-            // preserve that ABI invariant when entering the callback directly.
-            // captureRawSyscallFrame stores RBP at slot 11 (slot 5 is R12).
-            user_threads[child.slot].frame[11] = 0;
-            // musl aligns the supplied stack down, stores the argument at
-            // child_stack, then its clone child path pops that argument and
-            // CALLs the callback.  Entering the callback directly must retain
-            // child_stack (8 mod 16), which is the callback's post-CALL ABI
-            // alignment; advancing by one word would leave SSE prologues
-            // (e.g. WebKit's movaps) misaligned and fault immediately.
+            // Resume at musl's instruction immediately after SYS_clone.  Its
+            // continuation pops the callback argument, calls R9, and issues
+            // exit when the callback returns. Jumping directly to R9 leaves
+            // the argument as the return address (RIP=10/9).
+            user_threads[child.slot].frame[7] = child.entry; // R9 callback
+            user_threads[child.slot].frame[11] = 0; // clear RBP as musl does
             user_threads[child.slot].rsp = child.stack;
+        } else if (child.process_child) {
+            // Plain fork (SIGCHLD) returns through the saved syscall frame;
+            // it has no callback stack and therefore needs no adjustment.
+            user_threads[child.slot].rsp = old.rsp;
         } else {
-            if (child.process_child) {
-                user_threads[child.slot].rsp = old.rsp;
-            } else {
-                // Enter the musl thread trampoline directly.  The kernel
-                // already owns the child context, so reproducing the small
-                // __clone pop/call sequence in userspace would leave the
-                // saved return frame dependent on caller register state.
-                // The callback argument is the word written by __clone at
-                // the supplied child stack.  Keep the kernel-visible stack
-                // value: it is already 8 mod 16, the ABI alignment expected
-                // at a normal C function entry after a call instruction.
-                user_threads[child.slot].frame[0] = child.entry;
-                user_threads[child.slot].frame[9] = read64(@as([*]const u8, @ptrFromInt(child.stack)));
-                user_threads[child.slot].rsp = child.stack;
-            }
+            // pthread clone uses the same musl continuation as vfork.
+            user_threads[child.slot].frame[7] = child.entry;
+            user_threads[child.slot].frame[11] = 0;
+            user_threads[child.slot].rsp = child.stack;
         }
         user_threads[child.slot].fs = if (child.process_child) old.fs else child.tls;
         user_threads[child.slot].fx = old.fx;
@@ -5830,6 +5810,22 @@ pub fn currentWorkingDirectory() []const u8 {
     if (current_thread < user_threads.len and user_threads_enabled)
         return user_threads[current_thread].cwd[0..user_threads[current_thread].cwd_len];
     return vfs.currentWorkingDirectory();
+}
+
+pub const UserResumeContext = struct { rip: u64, rsp: u64, workspace_id: u8 };
+
+/// Return the userspace continuation selected by the scheduler after a
+/// syscall boundary.  The process loader uses this when a fork/exec child
+/// yields back to its parent; otherwise its outer entry loop would restart
+/// the child's initial ELF entry instead of the saved syscall frame.
+pub fn currentUserResume() ?UserResumeContext {
+    if (!user_threads_enabled or current_thread >= user_threads.len) return null;
+    const thread = &user_threads[current_thread];
+    // A process-child slot can retain the syscall return value while its
+    // exec image is being handed to the loader.  It is not an instruction
+    // pointer; never feed that small value back into enter_user.
+    if (thread.frame[0] < 0x10000 or thread.rsp == 0) return null;
+    return .{ .rip = thread.frame[0], .rsp = thread.rsp, .workspace_id = thread.workspace_id };
 }
 
 pub fn configureExecve(hook: ?*const fn (u64, u64, u64) callconv(.c) u64) void {

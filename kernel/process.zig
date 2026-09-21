@@ -1120,26 +1120,32 @@ fn runImageWithWorkspace(
         if (!preserve_scheduler) {
             vfs.closeProcessDescriptors();
             syscalls.closeProcessSockets();
+            cleanupChildWorkspaces(workspace, kernel_root);
+            active_workspace = null;
+            workspace.address_space = null;
+            workspace.pages = null;
+            workspace.active_mappings = null;
+            workspace.active_owned = null;
+            workspace.load_bias = 0;
+            workspace.user_region_count = 0;
+            workspace.stack_physical = 0;
+            workspace.stack_pages = 0;
+            workspace.leased = false;
+            workspace.owner_pid = 0;
+            syscalls.configureMmap(null, null, null);
+            syscalls.configureUserSlice(null);
+            syscalls.configureProcessWorkspaces(0, null, null, null);
+            syscalls.configureExecve(null);
+            syscalls.configureInitializerStep(null);
+            staged_copy_count = 0;
+            staged_copy_mappings = &[_]Mapping{};
+        } else {
+            // An exec child must remain leased and retain its address space
+            // until the parent reaps it.  The outer loader uses this state to
+            // publish EOF and restore the parent's saved wait frame.
+            // `execution_ready` remains true until the caller selects the
+            // freshly staged image; it is cleared at that handoff.
         }
-        if (!preserve_scheduler) cleanupChildWorkspaces(workspace, kernel_root);
-        active_workspace = null;
-        workspace.address_space = null;
-        workspace.pages = null;
-        workspace.active_mappings = null;
-        workspace.active_owned = null;
-        workspace.load_bias = 0;
-        workspace.user_region_count = 0;
-        workspace.stack_physical = 0;
-        workspace.stack_pages = 0;
-        workspace.leased = false;
-        workspace.owner_pid = 0;
-        syscalls.configureMmap(null, null, null);
-        syscalls.configureUserSlice(null);
-        syscalls.configureProcessWorkspaces(0, null, null, null);
-        syscalls.configureExecve(null);
-        syscalls.configureInitializerStep(null);
-        staged_copy_count = 0;
-        staged_copy_mappings = &[_]Mapping{};
     }
     lifecycle = .running;
     syscalls.resetExitStatus();
@@ -1150,6 +1156,12 @@ fn runImageWithWorkspace(
         const current_space = current.address_space orelse address_space;
         current_space.activate();
         enter_user(user_instruction, user_stack);
+        if (syscalls.currentUserResume()) |ctx| {
+            if (ctx.workspace_id == current.pool_id) {
+                user_instruction = ctx.rip;
+                user_stack = ctx.rsp;
+            }
+        }
         // An exec replacement runs from this outer scheduler loop after its
         // image has been staged.  Its exit therefore does not carry a fresh
         // exec_request through the branch below; reap the completed child at
