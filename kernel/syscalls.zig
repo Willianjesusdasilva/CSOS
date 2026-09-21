@@ -695,13 +695,13 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
             // continuation pops the callback argument, calls R9, and issues
             // exit when the callback returns. Jumping directly to R9 leaves
             // the argument as the return address (RIP=10/9).
-            // captureRawSyscallFrame stores registers in the push order used
-            // by syscall_entry: R9 is slot 6 and RBP is slot 2.  Keeping the
-            // callback in slot 7 (R10) leaves musl's `call *%r9` pointed at a
-            // stale syscall argument, producing the characteristic RIP=9/10
-            // page fault when the child reaches its clone continuation.
-            user_threads[child.slot].frame[6] = child.entry; // R9 callback
-            user_threads[child.slot].frame[2] = 0; // clear RBP as musl does
+            // captureRawSyscallFrame normalizes the interrupt frame into the
+            // SYSRET register order (RIP, RFLAGS, R15...R9...).  Therefore
+            // frame[7] is R9 and frame[11] is RBP; these are the registers
+            // consumed by musl's clone continuation (`call *%r9` after it
+            // clears EBP).
+            user_threads[child.slot].frame[7] = child.entry; // R9 callback
+            user_threads[child.slot].frame[11] = 0; // clear RBP as musl does
             user_threads[child.slot].rsp = child.stack;
         } else if (child.process_child) {
             // Plain fork (SIGCHLD) returns through the saved syscall frame;
@@ -709,8 +709,8 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
             user_threads[child.slot].rsp = old.rsp;
         } else {
             // pthread clone uses the same musl continuation as vfork.
-            user_threads[child.slot].frame[6] = child.entry;
-            user_threads[child.slot].frame[2] = 0;
+            user_threads[child.slot].frame[7] = child.entry;
+            user_threads[child.slot].frame[11] = 0;
             user_threads[child.slot].rsp = child.stack;
         }
         user_threads[child.slot].fs = if (child.process_child) old.fs else child.tls;
