@@ -35,6 +35,17 @@ runner: quando RADV e WPE eram solicitados juntos, `run.ps1` recebia
 parâmetros escalares duplicados (`Zlib`, `Libc` e `Libdrm`), fazendo o smoke
 falhar antes do boot. O build agora emite esses caminhos uma única vez.
 
+Em 2026-09-22, dois smokes delimitados adicionais (100 s e 180 s) mantiveram
+`WebKit view ready` reproduzível. A instrumentação temporária dos caminhos de
+retomada de syscall, timer e `resume_user_frame` não registrou RIP baixo nem
+frame inválido. A falha tardia observada em uma das execuções ocorreu depois
+de três threads pthread do WebProcess, com page fault de instrução em
+`RIP=0x1072b4de8` (`code=0x14`); outra execução repetiu o fault legado em
+`RIP=0x10`. Isso separa o bloqueio atual do spawn/seleção inicial: o próximo
+diagnóstico deve seguir o estado/ABI do WebProcess/JSC e o mapeamento do alvo
+executável, sem transformar esses faults em sucesso. Toda a instrumentação foi
+removida após a captura.
+
 O diagnóstico seguinte isolou o próximo bloqueio: imediatamente depois de
 `WebKit view ready`, o launcher solicita `clone(0x4111)` para o processo
 auxiliar, mas o marcador de `execve` desse filho não aparece e
