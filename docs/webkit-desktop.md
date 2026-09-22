@@ -53,6 +53,14 @@ e remove sua própria área, e um novo exec começa sem o registro da imagem
 anterior. O smoke ainda precisa validar o fault tardio independentemente
 dessa correção.
 
+Uma captura adicional do ABI de `pthread_create` confirmou que, para cada
+`clone(0x7d0f00)`, o stack callback contém uma estrutura válida e o primeiro
+campo aponta para `musl start` no momento em que o kernel cria a thread. O
+`RIP=0x10` só aparece posteriormente, já no bootstrap do processo auxiliar;
+portanto o próximo diagnóstico deve observar a corrupção dessa estrutura
+entre a criação e a execução do callback, sem alterar artificialmente o
+retorno do clone.
+
 O diagnóstico seguinte isolou o próximo bloqueio: imediatamente depois de
 `WebKit view ready`, o launcher solicita `clone(0x4111)` para o processo
 auxiliar, mas o marcador de `execve` desse filho não aparece e
