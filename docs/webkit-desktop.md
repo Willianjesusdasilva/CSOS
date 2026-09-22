@@ -35,6 +35,16 @@ runner: quando RADV e WPE eram solicitados juntos, `run.ps1` recebia
 parâmetros escalares duplicados (`Zlib`, `Libc` e `Libdrm`), fazendo o smoke
 falhar antes do boot. O build agora emite esses caminhos uma única vez.
 
+O diagnóstico seguinte isolou o próximo bloqueio: imediatamente depois de
+`WebKit view ready`, o launcher solicita `clone(0x4111)` para o processo
+auxiliar, mas o marcador de `execve` desse filho não aparece e
+`webkit_web_view_load_html()` não retorna. A continuação musl observada no
+clone tem RIP de retorno, R9 callback e stack válidos; trocar para uma entrada
+direta no callback não resolveu. Rearmar o APIC timer especificamente nessa
+fase também não é uma correção: a preempção antecipada provoca faults durante
+o bootstrap do WebKit. Essas tentativas foram removidas e nenhum marcador
+sintético foi adicionado.
+
 ## Reprodução mais recente (2026-09-16)
 
 `zig build test` terminou com sucesso. O smoke real em QEMU (`SmokeTestSeconds
