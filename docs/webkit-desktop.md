@@ -1091,6 +1091,17 @@ subprocesso, antes de o launcher conseguir submeter o HTML.
 O diagnóstico temporário foi removido após a captura. `zig build test` continua
 verde; nenhum marcador de primeiro frame foi emitido.
 
+### Verificação do frame de `clone(0x4111)` (2026-09-22)
+
+Uma instrumentação descartável capturou o frame imediatamente antes de o
+filho vfork ser agendado: `RIP=0x60300a89c9`, `R9=0x6030088270`,
+`RSP=0x900001c758` e o argumento no topo da pilha em `0x900001b160`.
+Esses valores são endereços válidos do processo e confirmam que o callback não
+está sendo substituído por `0x9`/`0xa` na criação do frame. A mesma execução
+parou antes de `WebKit HTML submitted`; portanto o defeito restante ocorre
+depois da montagem do frame, durante a execução/retomada do callback ou do
+contexto de exec. A instrumentação foi removida e não altera o runtime.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de
