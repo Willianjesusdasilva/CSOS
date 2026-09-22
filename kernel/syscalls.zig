@@ -48,7 +48,6 @@ var process_session: u64 = 1;
 var process_nice: i32 = 0;
 var signal_stack: [32]u8 = .{0} ** 32;
 var random_state: u64 = 0x9e3779b97f4a7c15;
-var registered_rseq: u64 = 0;
 var ui_mailboxes: [8]ui_ipc.Mailbox = undefined;
 var ui_mailbox_used: [8]bool = .{false} ** 8;
 pub var ui_send_count: u64 = 0;
@@ -311,6 +310,7 @@ const UserThread = struct {
     cwd: [256]u8 = .{0} ** 256,
     cwd_len: usize = 1,
     robust: u64 = 0, robust_size: u64 = 0,
+    rseq_address: u64 = 0,
     exec_request: ?ExecRequest = null,
     fx: [512]u8 align(16) = @splat(0),
 };
@@ -1003,7 +1003,6 @@ pub fn configure(base: u64, size: u64, stack: u64, stack_length: u64, initial_br
     robust_len = 0;
     clear_tid_address = 0;
     signal_stack = .{0} ** 32;
-    registered_rseq = 0;
     framebuffer_ioctls = 0;
     framebuffer_mmaps = 0;
     drm_ioctls = 0;
@@ -1120,6 +1119,7 @@ pub fn reconfigureAddressSpace(
     process_pause = null;
     exec_pause_requested = false;
     user_threads_done = false;
+    if (current_thread < user_threads.len) user_threads[current_thread].rseq_address = 0;
 }
 
 pub fn configureConsole(read_hook: ?*const fn ([*]u8, usize) callconv(.c) usize, wait_hook: ?*const fn () callconv(.c) void) void {
@@ -4584,16 +4584,20 @@ fn getRandom(address: u64, length: u64, flags: u64) u64 {
 
 fn rseq(address: u64, length: u64, flags: u64, signature: u64) u64 {
     const unregister: u64 = 1;
+    const registration = if (current_thread < user_threads.len)
+        &user_threads[current_thread].rseq_address
+    else
+        return errno(3);
     if ((flags & ~unregister) != 0) return errno(22);
     if ((flags & unregister) != 0) {
-        if (address != 0 or length != 0 or signature != 0 or registered_rseq == 0) return errno(22);
-        registered_rseq = 0;
+        if (address != 0 or length != 0 or signature != 0 or registration.* == 0) return errno(22);
+        registration.* = 0;
         return 0;
     }
     // Linux's current x86 ABI requires a 32-byte, 32-byte-aligned area.
     if (address == 0 or (address & 31) != 0 or length != 32 or !validUserSlice(address, length)) return errno(22);
-    if (registered_rseq != 0) return errno(16);
-    registered_rseq = address;
+    if (registration.* != 0) return errno(16);
+    registration.* = address;
     return 0;
 }
 

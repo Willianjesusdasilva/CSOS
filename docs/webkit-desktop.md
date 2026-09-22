@@ -46,6 +46,13 @@ diagnóstico deve seguir o estado/ABI do WebProcess/JSC e o mapeamento do alvo
 executável, sem transformar esses faults em sucesso. Toda a instrumentação foi
 removida após a captura.
 
+A correção também tornou o registro `rseq` específico por thread. O estado
+global anterior fazia workers WPE/GLib posteriores receberem `EBUSY` ao
+registrar sua área, contrariando o contrato Linux. Cada thread agora registra
+e remove sua própria área, e um novo exec começa sem o registro da imagem
+anterior. O smoke ainda precisa validar o fault tardio independentemente
+dessa correção.
+
 O diagnóstico seguinte isolou o próximo bloqueio: imediatamente depois de
 `WebKit view ready`, o launcher solicita `clone(0x4111)` para o processo
 auxiliar, mas o marcador de `execve` desse filho não aparece e
