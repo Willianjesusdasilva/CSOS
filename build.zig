@@ -596,12 +596,17 @@ pub fn build(b: *std.Build) void {
         qemu.addArg("zig-out/wpebackend-fdo-linux5/libWPEBackend-fdo-1.0.so.1.10.2");
         qemu.addArg("-WebkitRuntime");
         qemu.addArg("C:/w/zig-out/webkit-linux6/lib/libWPEWebKit-2.0.stripped.so");
-        qemu.addArg("-Zlib");
-        qemu.addArg("zig-out/mesa-sysroot/usr/lib/libz.so.1");
-        qemu.addArg("-Libc");
-        qemu.addArg("zig-out/mesa-sysroot/usr/lib/libc.so");
-        qemu.addArg("-Libdrm");
-        qemu.addArg("zig-out/mesa-sysroot/usr/lib/libdrm.so.2");
+        // The RADV option block above already supplies these parameters.  Do
+        // not emit duplicate PowerShell parameters when WPE and RADV are
+        // enabled together; PowerShell rejects duplicate scalar bindings.
+        if (radv_runtime == null) {
+            qemu.addArg("-Zlib");
+            qemu.addArg("zig-out/mesa-sysroot/usr/lib/libz.so.1");
+            qemu.addArg("-Libc");
+            qemu.addArg("zig-out/mesa-sysroot/usr/lib/libc.so");
+            qemu.addArg("-Libdrm");
+            qemu.addArg("zig-out/mesa-sysroot/usr/lib/libdrm.so.2");
+        }
         qemu.addArg("-EglRuntime");
         qemu.addArg(egl_runtime orelse "zig-out/mesa-sysroot/usr/lib/libEGL.so.1");
         qemu.addArg("-GalliumRuntime");

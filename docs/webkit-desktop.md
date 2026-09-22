@@ -20,6 +20,21 @@ WPE é a base de investigação porque separa a entrega dos frames e entrada de
 eventos de um toolkit desktop. Isso não torna o CSOS uma plataforma suportada
 automaticamente: é necessário portar suas dependências e o backend.
 
+## Reprodução mais recente (2026-09-21)
+
+Com um cache de build limpo e o launcher/processos WPE reais, o smoke em QEMU
+atingiu de forma reproduzível `FAT WebKit entry ready`, carregou os
+inicializadores ELF, iniciou o WebProcess e emitiu `WebKit view ready`. O teste
+de 100 s terminou depois desse marcador sem observar `WebKit HTML submitted`;
+portanto o gate de primeiro HTML/frame continua aberto. O QEMU foi encerrado
+automaticamente após o timeout. A suíte nativa permaneceu verde: 54 steps e
+257 testes aprovados.
+
+Durante essa reprodução também foi corrigida a montagem dos argumentos do
+runner: quando RADV e WPE eram solicitados juntos, `run.ps1` recebia
+parâmetros escalares duplicados (`Zlib`, `Libc` e `Libdrm`), fazendo o smoke
+falhar antes do boot. O build agora emite esses caminhos uma única vez.
+
 ## Reprodução mais recente (2026-09-16)
 
 `zig build test` terminou com sucesso. O smoke real em QEMU (`SmokeTestSeconds
