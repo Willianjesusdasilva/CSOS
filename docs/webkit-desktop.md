@@ -1046,6 +1046,23 @@ Nos smokes de 60 s e 180 s o WebProcess ainda caiu em `RIP=0x10` antes de
 `WebKit HTML submitted`, então a cópia está pronta mas ainda aguarda o
 WebProcess ultrapassar o fault tardio.
 
+### Reserva do slot TLS do executável principal (2026-09-22)
+
+O primeiro fault do WebProcess foi reproduzido com `CR2=0x5000010000` e
+`RIP=0x60000014e6`. A instrumentação do loader mostrou que o workspace filho
+não tinha um mapeamento para esse endereço, embora `__tls_get_addr` o use como
+o módulo dinâmico de ID 2. Quando o executável principal não possui `PT_TLS`,
+o loader estava iniciando o primeiro DSO no slot zero, reutilizando o slot que
+continua reservado ao módulo principal pelo ABI TLS. A reserva agora consome
+sempre um `tls_stride` para o módulo 1, mesmo sem `PT_TLS`; o primeiro DSO passa
+a ser mapeado em `tls_address + tls_stride`.
+
+Validação: `zig build test` passou com `54/54 steps succeeded; 257/257 tests
+passed`. Um smoke WPE de 90 s alcançou `WebKit view ready` sem o fault TLS ou
+page fault anterior. Um segundo smoke de 120 s parou depois de agendar o
+WebProcess, portanto a estabilidade e o primeiro frame ainda não estão
+validados.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de

@@ -774,7 +774,10 @@ fn runImageWithWorkspace(
         var tls_offsets: [max_shared_objects]u64 = @splat(0);
         var tls_used: u64 = 0;
         var main_tls_offset: u64 = 0;
-        const main_tls_reservation = if (main_tls_image.memory_size == 0) 0 else
+        // ELF module ID 1 belongs to the main executable even when it has no
+        // PT_TLS segment.  Reserve its slot so the first DSO (module ID 2)
+        // remains at tls_address + tls_stride, matching __tls_get_addr.
+        const main_tls_reservation = if (main_tls_image.memory_size == 0) tls_stride else
             (main_tls_image.memory_size + 0xffff) & ~@as(u64, 0xffff);
         if (main_tls_image.memory_size != 0) {
             const main_alignment = main_tls_image.alignment;
