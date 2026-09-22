@@ -16,10 +16,22 @@ extern fn eglInitialize(?*anyopaque, *i32, *i32) u32;
 extern fn setenv([*:0]const u8, [*:0]const u8, c_int) c_int;
 const WpeExportable = opaque {};
 const ExportBufferFn = *const fn (?*anyopaque, ?*anyopaque) callconv(.c) void;
+const ExportDmabufFn = *const fn (?*anyopaque, *WpeDmabufResource) callconv(.c) void;
 const ExportShmFn = *const fn (?*anyopaque, ?*anyopaque) callconv(.c) void;
+const WpeDmabufResource = extern struct {
+    buffer_resource: ?*anyopaque,
+    width: u32,
+    height: u32,
+    format: u32,
+    n_planes: u8,
+    fds: [4]c_int,
+    strides: [4]u32,
+    offsets: [4]u32,
+    modifiers: [4]u64,
+};
 const WpeExportableClient = extern struct {
     export_buffer_resource: ?ExportBufferFn,
-    export_dmabuf_resource: ?ExportBufferFn,
+    export_dmabuf_resource: ?ExportDmabufFn,
     export_shm_buffer: ?ExportShmFn,
     reserved0: ?*const anyopaque,
     reserved1: ?*const anyopaque,
@@ -28,6 +40,7 @@ extern fn wpe_view_backend_exportable_fdo_create(*const WpeExportableClient, ?*a
 extern fn wpe_view_backend_exportable_fdo_get_view_backend(?*WpeExportable) ?*WpeViewBackend;
 extern fn wpe_view_backend_exportable_fdo_destroy(?*WpeExportable) void;
 extern fn wpe_view_backend_exportable_fdo_dispatch_frame_complete(?*WpeExportable) void;
+extern fn wpe_view_backend_exportable_fdo_dispatch_release_buffer(?*WpeExportable, ?*anyopaque) void;
 extern fn wpe_view_backend_exportable_fdo_dispatch_release_shm_exported_buffer(?*WpeExportable, ?*anyopaque) void;
 extern fn wpe_fdo_shm_exported_buffer_get_shm_buffer(?*anyopaque) ?*anyopaque;
 extern fn wl_shm_buffer_get_data(?*anyopaque) ?*anyopaque;
@@ -42,6 +55,7 @@ extern fn g_main_context_iteration(?*anyopaque, c_int) c_int;
 extern fn open([*:0]const u8, c_int) c_int;
 extern fn ioctl(c_int, usize, ?*anyopaque) c_int;
 extern fn mmap(?*anyopaque, usize, c_int, c_int, c_int, i64) ?*anyopaque;
+extern fn munmap(?*anyopaque, usize) c_int;
 extern fn close(c_int) c_int;
 extern fn write(c_int, *const anyopaque, usize) isize;
 extern fn __tls_get_addr(*const [2]usize) ?*anyopaque;
@@ -58,6 +72,36 @@ var framebuffer_height: usize = 0;
 var framebuffer_stride: usize = 0;
 
 fn exportBuffer(_: ?*anyopaque, _: ?*anyopaque) callconv(.c) void {}
+
+fn exportDmabufBuffer(_: ?*anyopaque, resource: *WpeDmabufResource) callconv(.c) void {
+    mark("WebKit DMA-BUF callback\n");
+    const exportable = active_exportable orelse return;
+    defer {
+        wpe_view_backend_exportable_fdo_dispatch_release_buffer(exportable, resource.buffer_resource);
+        wpe_view_backend_exportable_fdo_dispatch_frame_complete(exportable);
+    }
+    if (resource.n_planes == 0 or resource.fds[0] < 0) return;
+    const width = @as(usize, resource.width);
+    const height = @as(usize, resource.height);
+    const stride = @as(usize, resource.strides[0]);
+    const offset = @as(usize, resource.offsets[0]);
+    if (width == 0 or height == 0 or stride < width * 4) return;
+    const length = std.math.add(usize, offset, std.math.mul(usize, stride, height) catch return) catch return;
+    const mapped = mmap(null, length, 1, 1, resource.fds[0], 0) orelse return;
+    if (@intFromPtr(mapped) == std.math.maxInt(usize)) return;
+    defer _ = munmap(mapped, length);
+    const source: [*]const u8 = @as([*]const u8, @ptrCast(mapped)) + offset;
+    if (framebuffer_pixels) |destination| {
+        const row_bytes = @min(width * 4, framebuffer_stride);
+        const rows = @min(height, framebuffer_height);
+        for (0..rows) |row| {
+            const dst = destination + row * framebuffer_stride;
+            const src = source + row * stride;
+            @memcpy(dst[0..row_bytes], src[0..row_bytes]);
+        }
+        mark("WebKit first frame\n");
+    }
+}
 
 fn exportShmBuffer(_: ?*anyopaque, buffer: ?*anyopaque) callconv(.c) void {
     mark("WebKit SHM callback\n");
@@ -158,7 +202,7 @@ pub fn main() void {
     }
     const client = WpeExportableClient{
         .export_buffer_resource = exportBuffer,
-        .export_dmabuf_resource = exportBuffer,
+        .export_dmabuf_resource = exportDmabufBuffer,
         .export_shm_buffer = exportShmBuffer,
         .reserved0 = null,
         .reserved1 = null,

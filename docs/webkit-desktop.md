@@ -1063,6 +1063,19 @@ page fault anterior. Um segundo smoke de 120 s parou depois de agendar o
 WebProcess, portanto a estabilidade e o primeiro frame ainda não estão
 validados.
 
+### Exportação EGL DMA-BUF (2026-09-22)
+
+O backend EGL não usa o callback SHM: ele entrega ao cliente um
+`wpe_view_backend_exportable_fdo_dmabuf_resource`, que precisa ser liberado por
+`wpe_view_backend_exportable_fdo_dispatch_release_buffer`. O launcher Zig agora
+implementa esse contrato, mapeia o primeiro plano DMA-BUF, copia as linhas para
+o `/dev/fb0` e só então emite `WebKit first frame`. Falhas de `mmap`, descritor
+ou formato continuam sem emitir sucesso.
+
+O launcher recompilou corretamente e a suíte nativa continua verde. Os smokes
+seguintes ainda foram intermitentes antes de `WebKit view ready`, portanto a
+exportação DMA-BUF e o primeiro frame ainda precisam de uma execução estável.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de
