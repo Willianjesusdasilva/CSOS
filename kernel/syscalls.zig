@@ -688,6 +688,7 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
     }
     if (old.exec_request != null) exec_pause_requested = true;
     var created_process_child = false;
+    var immediate_vfork_child: ?usize = null;
     if (pending_clone) |child| {
         user_threads[child.slot].frame = captureRawSyscallFrame(frame);
         if (child.clone_child) {
@@ -731,6 +732,7 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
                 active_user_thread = child.slot;
                 defer_user_thread_switch = false;
                 thread_switch_requested = true;
+                immediate_vfork_child = child.slot;
             } else {
                 // Keep the forking thread on CPU through its post-fork
                 // cleanup (close inherited pipe ends, then publish the
@@ -755,7 +757,14 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
     if (thread_switch_requested or old.state != .runnable) {
         thread_switch_requested = false;
         var selected: ?usize = null;
-        if (old.exec_request != null and old.state == .runnable) {
+        if (immediate_vfork_child) |slot| {
+            // A vfork child must run before unrelated waiters. Its parent is
+            // suspended by contract until this child reaches execve/_exit.
+            if (slot < user_threads.len and user_threads[slot].state == .runnable) {
+                selected = slot;
+                deferred_process_children &= ~(@as(u16, 1) << @intCast(slot));
+            }
+        } else if (old.exec_request != null and old.state == .runnable) {
             // execve must be consumed by the loader while this thread's
             // address space is still active; switching to the parent first
             // would make the pending request run with the wrong CR3.

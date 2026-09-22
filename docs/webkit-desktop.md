@@ -45,6 +45,13 @@ fase também não é uma correção: a preempção antecipada provoca faults dur
 o bootstrap do WebKit. Essas tentativas foram removidas e nenhum marcador
 sintético foi adicionado.
 
+Uma correção de scheduler deu prioridade à criança `CLONE_VFORK` recém-criada
+antes de pthreads com `pending_wait_status`. O smoke de 180 s confirmou o
+avanço adicional: o filho agora chega a `exec request .../WPENetworkProcess`,
+o loader termina e o processo WebKit é agendado. O teste ainda termina em um
+`#GP` dentro do bootstrap/JIT do processo auxiliar, antes de
+`WebKit HTML submitted`; esse é o novo gate a investigar.
+
 ## Reprodução mais recente (2026-09-16)
 
 `zig build test` terminou com sucesso. O smoke real em QEMU (`SmokeTestSeconds
