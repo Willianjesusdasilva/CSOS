@@ -1076,6 +1076,21 @@ O launcher recompilou corretamente e a suíte nativa continua verde. Os smokes
 seguintes ainda foram intermitentes antes de `WebKit view ready`, portanto a
 exportação DMA-BUF e o primeiro frame ainda precisam de uma execução estável.
 
+### Fault tardio no segundo subprocesso real (2026-09-22)
+
+Um smoke de 90 s com `WPEWebProcess` e `WPENetworkProcess` reais alcançou
+`WebKit view ready`, mas não `WebKit HTML submitted`. O trace de exceções do
+QEMU mostra que o segundo processo continua executando código real do allocator
+(`RIP=0x600602b084`, com faults lazy resolvidos em `0xe000...`) e depois termina
+em uma transferência para `RIP=0xa`/`RIP=0x9` ou em `#GP`. O fault final tem
+`CPL=3`, `CS=0x23`, `RSP=0x900001d478` e `CR2` igual ao RIP inválido; portanto
+não é um callback sintético nem uma falha do caminho de framebuffer. A causa
+pendente é a preservação do contexto/stack no ciclo `clone(0x4111)`/exec do
+subprocesso, antes de o launcher conseguir submeter o HTML.
+
+O diagnóstico temporário foi removido após a captura. `zig build test` continua
+verde; nenhum marcador de primeiro frame foi emitido.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de
