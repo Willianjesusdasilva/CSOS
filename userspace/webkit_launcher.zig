@@ -39,6 +39,10 @@ extern fn webkit_web_view_new(?*anyopaque) ?*anyopaque;
 extern fn webkit_web_view_load_html(?*anyopaque, [*:0]const u8, [*:0]const u8) void;
 extern fn g_main_context_default() ?*anyopaque;
 extern fn g_main_context_iteration(?*anyopaque, c_int) c_int;
+extern fn open([*:0]const u8, c_int) c_int;
+extern fn ioctl(c_int, usize, ?*anyopaque) c_int;
+extern fn mmap(?*anyopaque, usize, c_int, c_int, c_int, i64) ?*anyopaque;
+extern fn close(c_int) c_int;
 extern fn write(c_int, *const anyopaque, usize) isize;
 extern fn __tls_get_addr(*const [2]usize) ?*anyopaque;
 
@@ -48,6 +52,10 @@ fn mark(message: []const u8) void {
 
 var exported_frame_count: u32 = 0;
 var active_exportable: ?*WpeExportable = null;
+var framebuffer_pixels: ?[*]u8 = null;
+var framebuffer_width: usize = 0;
+var framebuffer_height: usize = 0;
+var framebuffer_stride: usize = 0;
 
 fn exportBuffer(_: ?*anyopaque, _: ?*anyopaque) callconv(.c) void {}
 
@@ -64,7 +72,7 @@ fn exportShmBuffer(_: ?*anyopaque, buffer: ?*anyopaque) callconv(.c) void {
         wpe_view_backend_exportable_fdo_dispatch_frame_complete(exportable);
     }
     const shm = wpe_fdo_shm_exported_buffer_get_shm_buffer(exported) orelse return;
-    _ = wl_shm_buffer_get_data(shm) orelse return;
+    const source = wl_shm_buffer_get_data(shm) orelse return;
     exported_frame_count += 1;
     mark("WebKit frame exported ");
     var number: [24]u8 = undefined;
@@ -77,8 +85,47 @@ fn exportShmBuffer(_: ?*anyopaque, buffer: ?*anyopaque) callconv(.c) void {
     const stride = std.fmt.bufPrint(&number, "{}", .{wl_shm_buffer_get_stride(shm)}) catch unreachable;
     mark(stride);
     mark("\n");
+    if (framebuffer_pixels) |destination| {
+        const source_width = wl_shm_buffer_get_width(shm);
+        const source_height = wl_shm_buffer_get_height(shm);
+        const source_stride = wl_shm_buffer_get_stride(shm);
+        if (source_width > 0 and source_height > 0 and source_stride > 0) {
+            const row_bytes = @min(@as(usize, @intCast(source_width)) * 4, framebuffer_stride);
+            const rows = @min(@as(usize, @intCast(source_height)), framebuffer_height);
+            const source_bytes: [*]const u8 = @ptrCast(source);
+            for (0..rows) |row| {
+                const src = source_bytes + row * @as(usize, @intCast(source_stride));
+                const dst = destination + row * framebuffer_stride;
+                @memcpy(dst[0..row_bytes], src[0..row_bytes]);
+            }
+            mark("WebKit first frame\n");
+        }
+    }
 }
 fn destroyBackend(_: ?*anyopaque) callconv(.c) void {}
+
+fn mapFramebuffer() void {
+    const path: [*:0]const u8 = "/dev/fb0";
+    const fd = open(path, 2);
+    if (fd < 0) return;
+    var variable: [160]u8 = .{0} ** 160;
+    var fixed: [80]u8 = .{0} ** 80;
+    defer _ = close(fd);
+    if (ioctl(fd, 0x4600, &variable) != 0 or ioctl(fd, 0x4602, &fixed) != 0) return;
+    const width = @as(usize, @intCast(@as(*align(1) const u32, @ptrCast(&variable[0])).*));
+    const height = @as(usize, @intCast(@as(*align(1) const u32, @ptrCast(&variable[4])).*));
+    const bpp = @as(usize, @intCast(@as(*align(1) const u32, @ptrCast(&variable[24])).*));
+    const stride = @as(usize, @intCast(@as(*align(1) const u32, @ptrCast(&fixed[48])).*));
+    if (width == 0 or height == 0 or bpp != 32 or stride < width * 4) return;
+    const length = std.math.mul(usize, stride, height) catch return;
+    const mapped = mmap(null, length, 3, 1, fd, 0) orelse return;
+    if (@intFromPtr(mapped) == std.math.maxInt(usize)) return;
+    framebuffer_pixels = @ptrCast(mapped);
+    framebuffer_width = width;
+    framebuffer_height = height;
+    framebuffer_stride = stride;
+    mark("CSOS framebuffer mapped\n");
+}
 
 pub fn main() void {
     // Prefer a surfaceless EGL display backed by Mesa software rendering.
@@ -118,6 +165,7 @@ pub fn main() void {
     };
     const exportable = wpe_view_backend_exportable_fdo_create(&client, null, 1280, 800) orelse return;
     active_exportable = exportable;
+    mapFramebuffer();
     const view_backend = wpe_view_backend_exportable_fdo_get_view_backend(exportable) orelse return;
     wpe_view_backend_initialize(view_backend);
     mark("WPE backend ready\n");

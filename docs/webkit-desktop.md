@@ -1027,6 +1027,17 @@ não o chama manualmente. Esses ajustes alinham o contrato de cadência e
 ownership, mas não fecham o gate: os smokes ainda não observaram o callback
 SHM nem uma cópia para o framebuffer.
 
+### Ponte SHM para o framebuffer (2026-09-22)
+
+O launcher agora abre `/dev/fb0`, consulta `FBIOGET_VSCREENINFO` e
+`FBIOGET_FSCREENINFO`, mapeia o scanout compartilhado e copia cada buffer SHM
+exportado pelo WPE para o stride do framebuffer. O marcador
+`CSOS framebuffer mapped` foi observado em QEMU; `WebKit first frame` só é
+emitido dentro do callback de exportação, portanto não é um sucesso sintético.
+Nos smokes de 60 s e 180 s o WebProcess ainda caiu em `RIP=0x10` antes de
+`WebKit HTML submitted`, então a cópia está pronta mas ainda aguarda o
+WebProcess ultrapassar o fault tardio.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de
