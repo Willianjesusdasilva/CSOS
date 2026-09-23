@@ -1375,3 +1375,20 @@ runtime CSOS. O primeiro frame permanece não validado.
 - [Roteiro histórico de portabilidade](https://trac.webkit.org/wiki/SuccessfulPortHowTo):
   JavaScriptCore antes de WebCore. Usar apenas como orientação, não como lista
   atual e completa de dependências.
+
+### Smoke longo após limpeza de diagnóstico (2026-09-23)
+
+O rastreamento serial temporário dentro de `clone()` foi removido porque
+alterava o timing do process-pool e introduzia falhas intermitentes antes do
+HTML. Após a limpeza, um smoke de 240 s passou de forma verificável por:
+
+```text
+CSOS WPE WebProcess scheduled (duas vezes)
+WebKit view ready
+WebKit HTML submitted
+WebKit GLib loop complete
+```
+
+Ainda não houve `WebKit SHM callback`, `WebKit DMA-BUF callback` ou
+`WebKit first frame`. O próximo diagnóstico continua sendo o registro da
+surface pelo bridge Wayland/renderer-host, não o desenho nativo do desktop.
