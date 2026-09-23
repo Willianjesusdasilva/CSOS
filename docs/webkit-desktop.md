@@ -60,6 +60,21 @@ removida. O próximo diagnóstico deve seguir a criação/execução do
 `ProcessLauncher` e a entrega do `RunLoop`/IPC, sem declarar o frame como
 concluído.
 
+### Credenciais Unix e `CLOSE_RANGE_CLOEXEC` (2026-09-23)
+
+O transporte local agora aceita o ancillary message Linux
+`SCM_CREDENTIALS` (`struct ucred`, `pid/uid/gid`) usado por
+`g_unix_connection_send_credentials()` e o entrega no `recvmsg()` com
+alinhamento `CMSG_SPACE` correto. O caminho de `SCM_RIGHTS` permanece
+preservado. Também foi corrigido `CLOSE_RANGE_CLOEXEC` para marcar o alias ou
+descritor pertencente ao workspace atual, em vez de alterar globalmente o
+objeto de socket compartilhado.
+
+`zig build test -j1` passou (254 testes). O smoke WPE limpo alcançou novamente
+`WebKit HTML submitted`; ainda não observou `WebKit platform init`, registro da
+superfície ou `WebKit first frame`. Portanto, este commit fecha uma lacuna de
+ABI IPC, mas não declara o gate visual concluído.
+
 ### Correção de `CLONE_PARENT_SETTID` em vfork (2026-09-23)
 
 O watchpoint de hardware no QEMU identificou a origem do valor inválido que
