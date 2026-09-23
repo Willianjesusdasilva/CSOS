@@ -1422,3 +1422,19 @@ O build do `libwpe-1.0.a` agora fixa `default-backend` em
 reempacotado no runtime stripped. O smoke subsequente permaneceu estável até
 `WebKit GLib loop complete`, mas ainda não produziu `WebKit first frame` nem
 callback SHM/DMA-BUF; portanto o gate de apresentação continua aberto.
+
+### Confirmação do pedido de socket IPC do WebKit (2026-09-23)
+
+Uma instrumentação temporária no `IPCUtilitiesUnix` confirmou que o WebKit
+entra em `createPlatformConnection(SOCK_SEQPACKET)` antes de iniciar o
+WebProcess. Isso separa o problema de transporte do problema posterior de
+apresentação: o pedido de socket realmente sai do WebKit, enquanto o backend
+FDO registra seu socket de superfície separadamente. A instrumentação foi
+removida e o runtime foi relincado limpo.
+
+O smoke limpo seguinte voltou a alcançar `WebKit HTML submitted` e
+`WebKit GLib loop complete`, sem callbacks SHM/DMA-BUF. Uma repetição com o
+disco resetado apresentou um fault de execução logo após `WebKit view ready`,
+mas não foi reproduzida no smoke limpo posterior; portanto não é tratada como
+correção nem como novo gate concluído. O próximo foco permanece o registro da
+surface/compositor e a entrega do primeiro frame real.
