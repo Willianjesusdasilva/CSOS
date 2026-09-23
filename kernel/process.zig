@@ -408,6 +408,7 @@ fn cloneProcessWorkspace(parent_id: u8, slot: u32) callconv(.c) u16 {
     const parent = &loader_workspaces[parent_id];
     const source_space = parent.address_space orelse return 0xffff;
     const pages = parent.pages orelse return 0xffff;
+    const vfork_child = syscalls.process_clone_vfork;
     for (&loader_workspaces, 0..) |*child, index| {
         if (index == parent_id or child.leased) continue;
         // Git's fork/vfork children exec almost immediately. Clone the page
@@ -430,18 +431,27 @@ fn cloneProcessWorkspace(parent_id: u8, slot: u32) callconv(.c) u16 {
         child.mmap_length = parent.mmap_length;
         child.mmap_next = parent.mmap_next;
         child.noreserve_next = parent.noreserve_next;
-        cloneWritableProcessPages(child, pages) catch {
-            child.image_space.destroy();
-            releaseOwned(pages, child.owned[0..child.owned_count]);
-            child.* = .{};
-            return 0xffff;
-        };
-        cloneWritableHintPage(child, pages, syscalls.process_clone_hint_address) catch {
-            child.image_space.destroy();
-            releaseOwned(pages, child.owned[0..child.owned_count]);
-            child.* = .{};
-            return 0xffff;
-        };
+        if (vfork_child) {
+            // CLONE_VFORK suspends the parent until execve/_exit. Keep the
+            // cloned page tables pointing at the parent's leaves and avoid
+            // copying the WebKit arenas; exec tears down these tables before
+            // installing the replacement image. No child-owned ranges may be
+            // released while the leaves are borrowed from the parent.
+            child.borrowed_owned = true;
+        } else {
+            cloneWritableProcessPages(child, pages) catch {
+                child.image_space.destroy();
+                releaseOwned(pages, child.owned[0..child.owned_count]);
+                child.* = .{};
+                return 0xffff;
+            };
+            cloneWritableHintPage(child, pages, syscalls.process_clone_hint_address) catch {
+                child.image_space.destroy();
+                releaseOwned(pages, child.owned[0..child.owned_count]);
+                child.* = .{};
+                return 0xffff;
+            };
+        }
         child.user_region_count = parent.user_region_count;
         child.load_bias = parent.load_bias;
         child.pages = pages;
@@ -450,7 +460,7 @@ fn cloneProcessWorkspace(parent_id: u8, slot: u32) callconv(.c) u16 {
         child.leased = true;
         child.owner_pid = slot + 1;
         child.pool_id = @intCast(index);
-        child.borrowed_owned = false;
+        child.borrowed_owned = vfork_child;
         vfs.cloneWorkspace(parent.pool_id, child.pool_id);
         return @intCast(index);
     }

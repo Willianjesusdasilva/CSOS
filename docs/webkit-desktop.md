@@ -1344,6 +1344,21 @@ processos WebKit, `WebKit view ready`, `WebKit HTML submitted` e
 primeiro frame continua aberto; o próximo bloqueio observado é um fault tardio
 de ponteiro/teardown (`RIP=1`), separado do fault NX corrigido aqui.
 
+### CLONE_VFORK sem cópia da arena WebKit (2026-09-23)
+
+O `clone(0x4111)` usado pelo WPE é `CLONE_VFORK`: o processo pai fica
+suspenso até `execve` ou `_exit`. O workspace clone, porém, copiava páginas
+privadas da stack, `brk` e da arena anônima antes do `exec`, causando atrasos e
+timeouts no segundo WebProcess. O hook agora identifica o vfork, preserva as
+folhas compartilhadas em tabelas clonadas e marca o workspace como
+`borrowed_owned`; o `exec` destrói essas tabelas antes de carregar a imagem
+substituta, sem liberar páginas pertencentes ao pai.
+
+Validação: `zig build -j1 test` passou. Um smoke de 180 s chegou de forma
+estável a dois `CSOS WPE WebProcess scheduled`, `WebKit view ready`,
+`WebKit HTML submitted` e `WebKit GLib loop complete`. O callback de frame
+ainda não foi observado, mas o bloqueio de cópia/timeout do vfork foi removido.
+
 ### Ordem de destruição do view/backend: bloqueio GLib (2026-09-23)
 
 Foi testada a liberação explícita do `WebKitWebView` com `g_object_unref` antes

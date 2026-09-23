@@ -369,6 +369,11 @@ fn workspaceHasBlockedThread(workspace: u8) bool {
     return false;
 }
 pub var process_clone_hint_address: u64 = 0;
+// Set only while the workspace clone hook services CLONE_VFORK. The vfork
+// child shares the parent's address space until execve/_exit, so copying the
+// entire anonymous arena here is both unnecessary and contrary to Linux
+// semantics.
+pub var process_clone_vfork: bool = false;
 const max_exec_arguments = 32;
 const max_exec_string = 256;
 pub const ExecRequest = struct {
@@ -627,7 +632,9 @@ fn cloneThread(flags: u64, stack: u64, parent_tid: u64, child_tid: u64, tls: u64
         user_threads_enabled = true;
         if (is_process_child) {
             if (workspace_clone_hook) |hook| {
+                process_clone_vfork = is_clone_child;
                 const child_workspace = hook(user_threads[current_thread].workspace_id, @intCast(slot));
+                process_clone_vfork = false;
                 if (child_workspace == 0xffff) {
                     user_threads[slot] = .{};
                     process_clone_hint_address = 0;
