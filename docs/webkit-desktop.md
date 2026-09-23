@@ -1236,6 +1236,19 @@ submitted` em execuções estáveis, mas não observou `WebKit first frame`; o
 WebProcess continua apresentando faults tardios intermitentes. Portanto o
 gate de compositor/frame permanece aberto.
 
+### Base física da stack em forks aninhados (2026-09-23)
+
+`cloneWritableRange` já criava páginas privadas para a stack de um workspace
+filho, mas `stack_physical` continuava registrando a base física do pai. Um
+segundo `fork/exec` (o padrão do process-pool WPE) copiava então a stack errada.
+O loader agora atualiza `stack_physical` para a primeira página realmente
+alocada para o filho.
+
+Validação: `zig build test` passou. O smoke real continua alcançando
+`WebKit HTML submitted`; a falha posterior deixou de ser consistentemente um
+salto para `RIP=0/1` e também apareceu como `#UD` em código JIT anônimo. O
+primeiro frame ainda não foi observado.
+
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de
   apresentação desacoplado e encaminhamento de input.
 - [Ports upstream](https://docs.webkit.org/Ports/Introduction.html): WPE e
