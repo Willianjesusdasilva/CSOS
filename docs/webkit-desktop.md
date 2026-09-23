@@ -1218,6 +1218,20 @@ continua aberto e não há fallback visual sintético mantido.
 
 ## Referências upstream
 
+### Threads adiadas limitadas ao workspace (2026-09-23)
+
+O scheduler mantinha uma fila global de threads recém-criadas. Durante um tick
+de preempção, essa fila podia selecionar uma thread `.thread` de outro
+workspace enquanto um processo WPE ainda inicializava, trocando o address space
+no meio do bootstrap. A seleção cooperativa e a seleção pelo timer agora
+exigem o mesmo `workspace_id`, ignoram o slot atual e deixam process children
+no caminho separado de `deferred_process_children`.
+
+`zig build test` continua verde. O smoke real ainda alcança `WebKit HTML
+submitted` em execuções estáveis, mas não observou `WebKit first frame`; o
+WebProcess continua apresentando faults tardios intermitentes. Portanto o
+gate de compositor/frame permanece aberto.
+
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de
   apresentação desacoplado e encaminhamento de input.
 - [Ports upstream](https://docs.webkit.org/Ports/Introduction.html): WPE e
