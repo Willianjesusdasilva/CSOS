@@ -1284,6 +1284,16 @@ uma região anônima zerada; isso indica corrupção/ponteiro inválido no camin
 de saída ou em um processo auxiliar, não um sucesso de compositor. O gate de
 primeiro frame permanece aberto e nenhuma etapa de desktop foi promovida.
 
+### Surface bridge ainda não registrada (2026-09-23)
+
+A implementação upstream do FDO só chama o cliente de exportação depois que o
+WebProcess registra uma surface pelo bridge Wayland; `dispatch_frame_complete`
+apenas libera os callbacks já associados à surface. Os smokes atuais não
+produzem `WebKit SHM callback` nem `WebKit DMA-BUF callback`, apesar de
+`WebKit HTML submitted`. Portanto o próximo diagnóstico deve seguir o socket
+renderer-host e o registro bridge/surface entre WebProcess e o backend, antes
+de alterar o paint ou o framebuffer.
+
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de
   apresentação desacoplado e encaminhamento de input.
 - [Ports upstream](https://docs.webkit.org/Ports/Introduction.html): WPE e
