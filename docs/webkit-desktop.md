@@ -49,6 +49,17 @@ O smoke bounded reproduziu `WebKit HTML submitted` e
 `WebKit GLib loop complete`; o primeiro frame real ainda precisa de registro
 da superfície e callback de exportação. O QEMU foi encerrado automaticamente.
 
+### Estado do registro da superfície (2026-09-23)
+
+Uma instrumentação temporária do syscall `socketpair` confirmou que o backend
+FDO cria corretamente seu canal Wayland local (`AF_UNIX`, fds 256/257). Não
+apareceu um segundo `socketpair` correspondente ao canal IPC do
+`WebProcessProxy`, nem o callback de registro da superfície; o smoke continua
+chegando ao HTML e ao loop, mas não ao primeiro frame. A instrumentação foi
+removida. O próximo diagnóstico deve seguir a criação/execução do
+`ProcessLauncher` e a entrega do `RunLoop`/IPC, sem declarar o frame como
+concluído.
+
 ### Correção de `CLONE_PARENT_SETTID` em vfork (2026-09-23)
 
 O watchpoint de hardware no QEMU identificou a origem do valor inválido que
