@@ -841,12 +841,16 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
             // A newly-created pthread commonly owns the other end of a pipe
             // or socket needed by the caller.  Give it a first turn before
             // round-robin can repeatedly select an unrelated runnable image.
+            const current_workspace = user_threads[current_thread].workspace_id;
             for (0..user_threads.len) |thread_slot| {
                 if ((deferred_user_threads & (@as(u16, 1) << @intCast(thread_slot))) == 0) continue;
                 if (user_threads[thread_slot].state != .runnable) {
                     deferred_user_threads &= ~(@as(u16, 1) << @intCast(thread_slot));
                     continue;
                 }
+                if (user_threads[thread_slot].kind != .thread or
+                    user_threads[thread_slot].workspace_id != current_workspace or
+                    thread_slot == current_thread) continue;
                 selected = thread_slot;
                 deferred_user_threads &= ~(@as(u16, 1) << @intCast(thread_slot));
                 active_user_thread = thread_slot;
@@ -1891,8 +1895,17 @@ pub export fn userTimerSwitch(registers: *anyopaque, user_frame: *anyopaque) cal
     const frame: *[5]u64 = @ptrCast(@alignCast(user_frame));
     var selected: ?usize = null;
     if (deferred_user_threads != 0) {
+        const current_workspace = user_threads[current_thread].workspace_id;
         for (0..user_threads.len) |slot| {
-            if ((deferred_user_threads & (@as(u16, 1) << @intCast(slot))) != 0 and user_threads[slot].state == .runnable) {
+            // Deferred pthreads belong to the current process workspace.
+            // Never let a timer interrupt cross into another process's
+            // address space; process children use the separate deferred
+            // process-child queue below.
+            if ((deferred_user_threads & (@as(u16, 1) << @intCast(slot))) != 0 and
+                user_threads[slot].state == .runnable and
+                user_threads[slot].kind == .thread and
+                user_threads[slot].workspace_id == current_workspace and
+                slot != current_thread) {
                 selected = slot;
                 deferred_user_threads &= ~(@as(u16, 1) << @intCast(slot));
                 break;
