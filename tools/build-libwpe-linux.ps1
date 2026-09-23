@@ -22,7 +22,8 @@ $setupFlags = @()
 if (Test-Path -LiteralPath "$buildDir/meson-private/coredata.dat") { $setupFlags += '--reconfigure' }
 & $meson setup $buildDir $source @setupFlags --cross-file "$workspace/tools/glib-linux-cross.ini" `
     --default-library=static --buildtype=release --wrap-mode=nodownload `
-    -Denable-xkb=false -Dbuild-docs=false
+    -Denable-xkb=false -Dbuild-docs=false `
+    "-Ddefault-backend=/usr/lib/libWPEBackend-fdo-1.0.so.1"
 if ($LASTEXITCODE -ne 0) { throw 'libwpe cross configuration failed.' }
 & $ninja -C $buildDir -j4
 if ($LASTEXITCODE -ne 0) { throw 'libwpe compilation failed.' }

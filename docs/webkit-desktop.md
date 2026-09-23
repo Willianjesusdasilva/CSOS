@@ -1392,3 +1392,11 @@ WebKit GLib loop complete
 Ainda não houve `WebKit SHM callback`, `WebKit DMA-BUF callback` ou
 `WebKit first frame`. O próximo diagnóstico continua sendo o registro da
 surface pelo bridge Wayland/renderer-host, não o desenho nativo do desktop.
+
+### Relink do runtime com backend FDO padrão (2026-09-23)
+
+O build do `libwpe-1.0.a` agora fixa `default-backend` em
+`/usr/lib/libWPEBackend-fdo-1.0.so.1`, e o `libWPEWebKit` foi relincado e
+reempacotado no runtime stripped. O smoke subsequente permaneceu estável até
+`WebKit GLib loop complete`, mas ainda não produziu `WebKit first frame` nem
+callback SHM/DMA-BUF; portanto o gate de apresentação continua aberto.
