@@ -1189,6 +1189,18 @@ leitura nula (`CR2=0`, `RIP=0xa00e216fd0`, código 5), ainda antes de
 `WebKit HTML submitted`. Isso confirma progresso no contexto de exec, mas não
 fecha o gate de HTML/primeiro frame.
 
+### Build reproduzível do backend WPE (2026-09-23)
+
+`tools/build-wpebackend-fdo-linux.ps1` agora passa os argumentos do Meson com
+expansão correta, encontra o Ninja empacotado mesmo fora do `PATH` e normaliza
+os caminhos do `pkg-config`. O link estático também inclui `gmodule-2.0` e
+`zlib`, que são dependências privadas do GIO. A execução do script com `-Stage`
+foi validada em uma reconstrução limpa e o artefato foi staged no sysroot.
+
+O smoke bounded posterior alcançou `WebKit view ready`; nesta execução não
+alcançou `WebKit HTML submitted`, portanto o gate do primeiro frame permanece
+aberto. QEMU foi encerrado pelo runner ao fim do timeout.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de
