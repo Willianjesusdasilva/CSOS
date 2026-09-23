@@ -68,7 +68,10 @@ syscall_entry:
     sysretq
 
 .Lexec_pause:
-    movq 0(%r12), %rcx
+    // syscall_entry's saved register block is ordered from the final push:
+    // RDX..R11,RCX.  The paused instruction is the original RCX/RIP at
+    // offset 104; offset 0 is merely the syscall's RDX argument.
+    movq 104(%r12), %rcx
     movq syscall_user_rsp(%rip), %rdx
     subq $32, %rsp
     callq process_pause_dispatch
