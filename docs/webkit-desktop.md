@@ -1307,6 +1307,14 @@ deve fazer o renderer-host/Wayland concluir `wpe_bridge_connect` e
 `RegisterSurface`, além de corrigir o caminho de saída que ainda falha no
 teardown.
 
+### Acknowledge do buffer EGL genérico (2026-09-23)
+
+O callback `export_buffer_resource` do launcher estava vazio. Isso deixava um
+`wl_buffer` EGL retido e não chamava `dispatch_frame_complete`; o launcher agora
+libera o recurso e confirma o frame nesse caminho. O smoke de 120 s passou pela
+mesma sequência anterior e não invocou o callback, confirmando que a surface
+ainda não é criada; portanto a mudança não promove o gate de primeiro frame.
+
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de
   apresentação desacoplado e encaminhamento de input.
 - [Ports upstream](https://docs.webkit.org/Ports/Introduction.html): WPE e

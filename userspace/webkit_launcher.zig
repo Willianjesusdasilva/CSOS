@@ -71,7 +71,18 @@ var framebuffer_width: usize = 0;
 var framebuffer_height: usize = 0;
 var framebuffer_stride: usize = 0;
 
-fn exportBuffer(_: ?*anyopaque, _: ?*anyopaque) callconv(.c) void {}
+fn exportBuffer(_: ?*anyopaque, buffer: ?*anyopaque) callconv(.c) void {
+    // The generic FDO exportable API uses this callback for EGL-backed
+    // wl_buffer resources.  The embedder must release the resource and
+    // acknowledge the frame; leaving it empty stalls the backend after the
+    // first surface commit.  Pixel extraction remains backend-specific and
+    // is intentionally handled by the SHM/DMA-BUF callbacks below.
+    mark("WebKit buffer callback\n");
+    const exportable = active_exportable orelse return;
+    if (buffer) |resource|
+        wpe_view_backend_exportable_fdo_dispatch_release_buffer(exportable, resource);
+    wpe_view_backend_exportable_fdo_dispatch_frame_complete(exportable);
+}
 
 fn exportDmabufBuffer(_: ?*anyopaque, resource: *WpeDmabufResource) callconv(.c) void {
     mark("WebKit DMA-BUF callback\n");
