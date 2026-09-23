@@ -1201,6 +1201,15 @@ O smoke bounded posterior alcançou `WebKit view ready`; nesta execução não
 alcançou `WebKit HTML submitted`, portanto o gate do primeiro frame permanece
 aberto. QEMU foi encerrado pelo runner ao fim do timeout.
 
+### `recvmsg` com `MSG_CMSG_CLOEXEC` (2026-09-23)
+
+O caminho Linux de `recvmsg(2)` agora aceita `MSG_CMSG_CLOEXEC`, que já era
+consumido pela rotina real de entrega de `SCM_RIGHTS`. Antes, a validação
+rejeitava a flag com `EINVAL` antes de materializar os descritores recebidos,
+incompatível com o contrato usado pelo GLib/WPE no process-pool. A correção
+foi compilada e a suíte `zig build test` passou; o smoke WPE ainda não fecha o
+gate de `WebKit HTML submitted`/primeiro frame.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de

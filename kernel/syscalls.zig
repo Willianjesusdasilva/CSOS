@@ -4954,7 +4954,11 @@ fn sendMessage(fd: u64, message: u64, flags: u64) u64 {
 
 fn receiveMessage(fd: u64, message: u64, flags: u64) u64 {
     const index = socketIndex(fd) orelse return errno(9);
-    if (flags & ~@as(u64, 0x40 | 0x2 | 0x100) != 0 or !validUserSlice(message, 56)) return errno(22);
+    // MSG_CMSG_CLOEXEC is consumed when SCM_RIGHTS descriptors are
+    // materialized by deliverRights().  Accept it here as Linux recvmsg(2)
+    // does; rejecting it before delivery breaks the WebKit process-pool
+    // handshake even though the descriptor-transfer path is implemented.
+    if (flags & ~@as(u64, 0x40000000 | 0x40 | 0x2 | 0x100) != 0 or !validUserSlice(message, 56)) return errno(22);
     const header: [*]const u8 = @ptrFromInt(message);
     const vector = read64(header + 16);
     const count = read64(header + 24);
