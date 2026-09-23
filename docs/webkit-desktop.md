@@ -1329,6 +1329,21 @@ instrumentado, o segundo `CSOS WPE WebProcess scheduled` passou a ser
 observado sem o fault imediato anterior; o registro de `wpe_bridge` e o
 primeiro frame ainda precisam ser confirmados em uma execução estável.
 
+### Identificação de instruction-fetch em faults anônimos (2026-09-23)
+
+O log de exceções do QEMU mostrou faults NX reais (`error=0x15`) em páginas
+da arena JIT, enquanto o dispatcher do CSOS recebia a forma legada `code=5`
+após faults aninhados. O handler agora considera também a assinatura segura
+`CR2 == RIP` dentro da arena `mmap`: a primeira página é criada executável e
+uma página já mapeada é promovida com `protectUserPage`. Isso evita que o
+WebKit tente executar uma página anônima ainda marcada NX.
+
+Validação: `zig build -j1 test` passou e o smoke voltou a alcançar os dois
+processos WebKit, `WebKit view ready`, `WebKit HTML submitted` e
+`WebKit GLib loop complete`. O callback de exportação ainda não ocorreu e o
+primeiro frame continua aberto; o próximo bloqueio observado é um fault tardio
+de ponteiro/teardown (`RIP=1`), separado do fault NX corrigido aqui.
+
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de
   apresentação desacoplado e encaminhamento de input.
 - [Ports upstream](https://docs.webkit.org/Ports/Introduction.html): WPE e

@@ -2560,7 +2560,14 @@ pub fn handlePageFault(address: u64, instruction: u64, code: u64) callconv(.c) b
     // not a missing-page reclaim.  JSC's MAP_NORESERVE arena first obtains
     // writable pages and later promotes selected pages to executable with
     // mprotect; resolve that transition without remapping the page as NX.
-    if ((code & 0x10) != 0) {
+    // QEMU reports the instruction-fetch bit (0x10), but the CSOS exception
+    // trampoline may deliver the legacy 0x5 form after nested user faults.
+    // When CR2 equals the saved RIP inside the anonymous arena, that identity
+    // is an unambiguous execute fault and must not be handled as a data read.
+    const instruction_fault = (code & 0x10) != 0 or
+        (address != 0 and address == instruction and address >= mmap_address and
+        address < 0x00007f0000000000);
+    if (instruction_fault) {
         // Some CSOS/QEMU paths report an instruction-fetch protection fault
         // with CR2 cleared. In that case the saved RIP is the only reliable
         // page address; accept it only when it is already a mapped lazy page.
@@ -2614,7 +2621,7 @@ pub fn handlePageFault(address: u64, instruction: u64, code: u64) callconv(.c) b
         const physical_address = pages.allocate(1) orelse return false;
         const bytes: [*]u8 = @ptrFromInt(physical_address);
         @memset(bytes[0..page_size], 0);
-        address_space.mapUserPage(page_virtual, physical_address, true, false) catch {
+        address_space.mapUserPage(page_virtual, physical_address, true, instruction_fault) catch {
             pages.release(physical_address, 1) catch {};
             return false;
         };

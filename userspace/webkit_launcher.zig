@@ -259,7 +259,7 @@ pub fn main() void {
     // Frame delivery is asynchronous. Keep the real GLib context alive for
     // bounded blocking turns while continuing to acknowledge frame callbacks.
     rounds = 0;
-    while (rounds < 16 and exported_frame_count == 0) : (rounds += 1) {
+    while (rounds < 120 and exported_frame_count == 0) : (rounds += 1) {
         _ = g_main_context_iteration(context, 1);
         wpe_view_backend_exportable_fdo_dispatch_frame_complete(exportable);
     }
