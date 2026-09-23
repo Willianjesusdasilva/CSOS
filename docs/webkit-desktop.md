@@ -1227,6 +1227,10 @@ no meio do bootstrap. A seleção cooperativa e a seleção pelo timer agora
 exigem o mesmo `workspace_id`, ignoram o slot atual e deixam process children
 no caminho separado de `deferred_process_children`.
 
+Na mesma revisão, wakeups pendentes de `wait4` e de I/O passaram a exigir o
+workspace atual; somente o handoff explícito de `vfork/exec` pode atravessar
+essa fronteira.
+
 `zig build test` continua verde. O smoke real ainda alcança `WebKit HTML
 submitted` em execuções estáveis, mas não observou `WebKit first frame`; o
 WebProcess continua apresentando faults tardios intermitentes. Portanto o
