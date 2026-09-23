@@ -1294,6 +1294,19 @@ produzem `WebKit SHM callback` nem `WebKit DMA-BUF callback`, apesar de
 renderer-host e o registro bridge/surface entre WebProcess e o backend, antes
 de alterar o paint ou o framebuffer.
 
+### Smoke longo confirma o ponto do bloqueio (2026-09-23)
+
+Uma execução delimitada de 150 s (`smoke-3923cca55c174be3a5d324df7886f19e`) voltou a
+produzir a sequência real `WebKit view ready` → `WebKit HTML submitted` →
+`WebKit GLib loop complete`. Não houve `WebKit SHM callback`, `WebKit DMA-BUF
+callback` nem registro observável de surface; ao destruir o exportable, o
+launcher recebeu um page fault de dados (`CR2=0`, `code=5`) em uma região
+anônima. Instrumentação temporária de `SCM_RIGHTS` não registrou erro de parse
+ou de materialização de alias. O gate permanece aberto: a próxima alteração
+deve fazer o renderer-host/Wayland concluir `wpe_bridge_connect` e
+`RegisterSurface`, além de corrigir o caminho de saída que ainda falha no
+teardown.
+
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de
   apresentação desacoplado e encaminhamento de input.
 - [Ports upstream](https://docs.webkit.org/Ports/Introduction.html): WPE e
