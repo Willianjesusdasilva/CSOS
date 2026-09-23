@@ -458,7 +458,14 @@ fn cloneProcessWorkspace(parent_id: u8, slot: u32) callconv(.c) u16 {
 }
 
 fn cloneWritableProcessPages(child: *LoaderWorkspace, pages: *physical.Allocator) !void {
+    // cloneWritableRange allocates private pages for the child's stack. Keep
+    // the workspace metadata aligned with that new allocation; retaining the
+    // parent's physical base breaks a later nested fork/exec (WPE creates a
+    // second subprocess after the first WebProcess clone).
+    const stack_owned_start = child.owned_count;
     try cloneWritableRange(child, pages, stack_address, child.stack_physical, child.stack_pages);
+    if (child.owned_count > stack_owned_start)
+        child.stack_physical = child.owned[stack_owned_start].address;
     for (child.mappings[0..child.mapping_count]) |*mapping| {
         if (!mapping.writable or !mapping.resident or mapping.physical == 0) {
             // Read-only pages can remain shared.  They must not be treated as
