@@ -288,6 +288,7 @@ const UserThread = struct {
     parent_slot: usize = 0,
     clear_tid: u64 = 0, wait_address: u64 = 0,
     child_tid_published: bool = false,
+    child_tid_set: bool = false,
     wait_workspace: u8 = 0, wait_private: bool = false,
     pending_read_socket: ?usize = null,
     pending_read_address: u64 = 0,
@@ -509,6 +510,7 @@ fn cloneThread(flags: u64, stack: u64, parent_tid: u64, child_tid: u64, tls: u64
             !(user_threads[slot].state == .exited and user_threads[slot].kind == .thread)) continue;
         user_threads[slot] = .{ .state = .runnable, .kind = if (is_process_child) .process_child else .thread,
             .vfork_child = is_clone_child,
+            .child_tid_set = (flags & 0x01000000) != 0,
             .pid = @intCast(slot + 1), .clear_tid = child_tid,
             .parent_slot = current_thread,
             .workspace_id = user_threads[current_thread].workspace_id };
@@ -895,7 +897,7 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
             // rather than while the creator still owns musl's thread-list
             // lock, which would make the parent observe a premature TID.
             const next_thread = &user_threads[slot];
-            if (next_thread.kind == .thread and next_thread.clear_tid != 0 and
+            if (next_thread.kind == .thread and next_thread.child_tid_set and next_thread.clear_tid != 0 and
                 !next_thread.child_tid_published and validUserSlice(next_thread.clear_tid, 4)) {
                 const child_tid_out: *align(1) u32 = @ptrFromInt(next_thread.clear_tid);
                 child_tid_out.* = next_thread.pid;
