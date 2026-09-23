@@ -22,6 +22,22 @@ automaticamente: é necessário portar suas dependências e o backend.
 
 ## Reprodução mais recente (2026-09-21)
 
+### Relink do loader WPE e submissão HTML (2026-09-23)
+
+O smoke de 180 s revelou que o `libWPEWebKit-2.0.stripped.so` copiado para o
+disco ainda era anterior ao relink: o WebKit principal alcançava
+`WebKit view ready`, mas o segundo processo abortava porque o
+`_wpe_loader_interface` zerado do `wpe-loader-link-stub.o` ocultava o
+`load_object` real do backend FDO. O relink remove esse stub e declara
+`libWPEBackend-fdo-1.0.so.1` como dependência dinâmica; o script agora também
+regenera automaticamente a cópia stripped consumida pelo runner.
+
+Após recriar `nvme.img` com esse runtime, o QEMU confirmou a sequência real
+`WebKit view ready` → `WebKit HTML submitted` → `WebKit GLib loop complete`.
+O callback de exportação ainda não ocorreu: o processo termina em um RIP
+inválido dentro da desmontagem/execução posterior, portanto
+`WebKit first frame` permanece aberto. O QEMU foi encerrado pelo runner.
+
 ### Correção de `CLONE_PARENT_SETTID` em vfork (2026-09-23)
 
 O watchpoint de hardware no QEMU identificou a origem do valor inválido que

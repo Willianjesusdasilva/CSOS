@@ -52,3 +52,12 @@ try {
 }
 
 Write-Host "Linked WebKit with WPE backend: $(Join-Path $buildPath $target)"
+
+# The CSOS runner consumes the compact runtime copy, not the symbol-rich
+# linker output above.  Refresh it here so a relink cannot leave an older
+# `_wpe_loader_interface` (or any other backend ABI) embedded in nvme.img.
+$strip = (Get-Command strip.exe -ErrorAction Stop).Source
+$strippedTarget = Join-Path $buildPath 'lib/libWPEWebKit-2.0.stripped.so'
+& $strip --strip-all -o $strippedTarget (Join-Path $buildPath $target)
+if ($LASTEXITCODE -ne 0) { throw 'Failed to generate the stripped WebKit runtime.' }
+Write-Host "Updated stripped WebKit runtime: $strippedTarget"
