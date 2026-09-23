@@ -1344,14 +1344,14 @@ processos WebKit, `WebKit view ready`, `WebKit HTML submitted` e
 primeiro frame continua aberto; o próximo bloqueio observado é um fault tardio
 de ponteiro/teardown (`RIP=1`), separado do fault NX corrigido aqui.
 
-### Ordem de destruição do view/backend (2026-09-23)
+### Ordem de destruição do view/backend: bloqueio GLib (2026-09-23)
 
-O launcher agora libera o `WebKitWebView` com `g_object_unref` antes de destruir
-o exportable FDO. A ordem anterior deixava conexões assíncronas do WebKit
-referenciando o backend já liberado e produzia retorno para `RIP=1` no QEMU.
-Uma execução delimitada não reproduziu esse salto; em outra execução o
-`webkit_web_view_new` permaneceu aguardando o pool de processos, portanto o
-primeiro frame ainda não é considerado validado.
+Foi testada a liberação explícita do `WebKitWebView` com `g_object_unref` antes
+do exportable FDO. No runtime atual isso produz `g_datalist_id_set_data_full:
+assertion 'key_id > 0' failed` e um fault posterior; a chamada foi removida e
+não é tratada como correção. A ordem de ownership continua sendo um bloqueio
+de teardown, mas exige primeiro corrigir a inicialização/ABI do GObject no
+runtime CSOS. O primeiro frame permanece não validado.
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de
   apresentação desacoplado e encaminhamento de input.

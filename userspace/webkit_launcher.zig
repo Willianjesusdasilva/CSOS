@@ -52,7 +52,6 @@ extern fn webkit_web_view_new(?*anyopaque) ?*anyopaque;
 extern fn webkit_web_view_load_html(?*anyopaque, [*:0]const u8, [*:0]const u8) void;
 extern fn g_main_context_default() ?*anyopaque;
 extern fn g_main_context_iteration(?*anyopaque, c_int) c_int;
-extern fn g_object_unref(?*anyopaque) void;
 extern fn open([*:0]const u8, c_int) c_int;
 extern fn ioctl(c_int, usize, ?*anyopaque) c_int;
 extern fn mmap(?*anyopaque, usize, c_int, c_int, c_int, i64) ?*anyopaque;
@@ -265,11 +264,6 @@ pub fn main() void {
         wpe_view_backend_exportable_fdo_dispatch_frame_complete(exportable);
     }
     mark("WebKit GLib loop complete\n");
-    // WebKitWebView owns the WebKitWebViewBackend wrapper and its process
-    // connections.  Drop that owner before destroying the FDO exportable;
-    // reversing this order leaves an asynchronous callback targeting the
-    // freed view backend (observed as a return to RIP=1 in QEMU).
-    g_object_unref(view);
     // The FDO exportable owns the view backend and destroys it as part of its
     // teardown.  Do not call wpe_view_backend_destroy here: that would free
     // the same backend twice and corrupt musl's allocator metadata.
