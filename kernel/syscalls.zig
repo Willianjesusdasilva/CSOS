@@ -4754,7 +4754,11 @@ const Socket = struct {
     readable: bool = true,
     writable: bool = true,
     peer_index: ?usize = null,
-    local_buffer: [4096]u8 = .{0} ** 4096,
+    // WebKit's initial page/process messages can exceed a single 4 KiB
+    // transport window. Keep enough room for a complete IPC burst so the
+    // SOCK_SEQPACKET compatibility path does not return a short write during
+    // WebProcess initialization.
+    local_buffer: [64 * 1024]u8 = .{0} ** (64 * 1024),
     local_head: usize = 0,
     local_len: usize = 0,
     peer_closed: bool = false,

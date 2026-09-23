@@ -38,6 +38,17 @@ O callback de exportação ainda não ocorreu: o processo termina em um RIP
 inválido dentro da desmontagem/execução posterior, portanto
 `WebKit first frame` permanece aberto. O QEMU foi encerrado pelo runner.
 
+### Buffer do IPC local para a carga HTML (2026-09-23)
+
+O transporte `AF_UNIX`/`SOCK_SEQPACKET` compatível do kernel tinha uma janela
+de apenas 4 KiB. A inicialização do WebProcess e a mensagem de carga HTML
+podem exceder esse tamanho, produzindo escrita curta antes do retorno de
+`webkit_web_view_load_html()`. A janela foi ampliada para 64 KiB em
+`kernel/syscalls.zig`, sem alterar a semântica de erro ou fabricar sucesso.
+O smoke bounded reproduziu `WebKit HTML submitted` e
+`WebKit GLib loop complete`; o primeiro frame real ainda precisa de registro
+da superfície e callback de exportação. O QEMU foi encerrado automaticamente.
+
 ### Correção de `CLONE_PARENT_SETTID` em vfork (2026-09-23)
 
 O watchpoint de hardware no QEMU identificou a origem do valor inválido que
