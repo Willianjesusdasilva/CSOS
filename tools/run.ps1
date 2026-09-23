@@ -24,6 +24,7 @@ param(
     [switch]$SmokeDesktopMouse,
     [switch]$SmokeTerminalRun,
     [switch]$CaptureScreen,
+    [string]$CaptureScreenOnSerial,
     [switch]$CaptureExceptions,
     [string]$Disk,
     [string]$NixDisk,
@@ -205,7 +206,10 @@ if ($SmokeTestSeconds -gt 0) {
             if ($SmokeTerminalRun) {
                 $observed = $observed -and $serialText.Contains('UI terminal run: echo smoke')
             }
-            if ($CaptureScreen) { $observed = $observed -and $serialText.Contains('CSOS graphical session ready') }
+            if ($CaptureScreen) {
+                $captureMarker = if ([string]::IsNullOrWhiteSpace($CaptureScreenOnSerial)) { 'CSOS graphical session ready' } else { $CaptureScreenOnSerial }
+                $observed = $observed -and $serialText.Contains($captureMarker)
+            }
             if ($observed) {
                 if ($CaptureScreen) {
                     $captureClient = [Net.Sockets.TcpClient]::new()

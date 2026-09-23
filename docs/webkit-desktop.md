@@ -75,6 +75,12 @@ objeto de socket compartilhado.
 superfície ou `WebKit first frame`. Portanto, este commit fecha uma lacuna de
 ABI IPC, mas não declara o gate visual concluído.
 
+O runner agora aceita `-CaptureScreenOnSerial <marcador>` junto com
+`-CaptureScreen`. Isso permite capturar o PNG no primeiro marcador visual real,
+por exemplo `WebKit first frame`, em vez de confundir `WebKit HTML submitted`
+com pixels já apresentados. Uma captura deliberada no marcador de submissão
+produziu apenas a tela de boot, confirmando essa distinção.
+
 ### Correção de `CLONE_PARENT_SETTID` em vfork (2026-09-23)
 
 O watchpoint de hardware no QEMU identificou a origem do valor inválido que
