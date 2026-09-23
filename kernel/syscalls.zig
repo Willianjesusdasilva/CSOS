@@ -494,7 +494,6 @@ fn releaseOwnedFutexesOnExit(thread: *const UserThread) void {
 // pthread inherit the child-tid address as FS and hang before its first
 // userspace syscall.
 fn cloneThread(flags: u64, stack: u64, parent_tid: u64, child_tid: u64, tls: u64, clone_entry: u64) u64 {
-    serial.write("userspace clone flags: "); serial.writeDecimal(flags); serial.write("\n");
     // musl pthread_create flags, plus the Linux fork form (SIGCHLD) used by
     // Git and other runtimes to create a process child before execve.
     const is_clone_child = flags == 0x4111;
