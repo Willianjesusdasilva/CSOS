@@ -1274,6 +1274,16 @@ de instruction-fetch (`code & 0x10`) está presente.
 Validação: `zig build -j1 test` passou; o smoke alcança `WebKit HTML submitted`
 e `WebKit GLib loop complete`. O primeiro frame ainda não foi observado.
 
+### Estado após a correção do fault (2026-09-23)
+
+O smoke repetido confirma que o pipeline avança por `WebKit view ready`,
+`WebKit HTML submitted` e `WebKit GLib loop complete`. O callback de SHM/DMA-BUF
+continua sem emitir `WebKit first frame`. Depois do loop há um fault tardio no
+workspace do launcher (`CR2=0`, código de dados ou proteção geral), com RIP em
+uma região anônima zerada; isso indica corrupção/ponteiro inválido no caminho
+de saída ou em um processo auxiliar, não um sucesso de compositor. O gate de
+primeiro frame permanece aberto e nenhuma etapa de desktop foi promovida.
+
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de
   apresentação desacoplado e encaminhamento de input.
 - [Ports upstream](https://docs.webkit.org/Ports/Introduction.html): WPE e
