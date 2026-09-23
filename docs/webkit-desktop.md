@@ -1210,6 +1210,12 @@ incompatível com o contrato usado pelo GLib/WPE no process-pool. A correção
 foi compilada e a suíte `zig build test` passou; o smoke WPE ainda não fecha o
 gate de `WebKit HTML submitted`/primeiro frame.
 
+O smoke posterior ao commit `c4d7960a` confirmou a sequência real
+`WebKit view ready` → `WebKit HTML submitted` → `WebKit GLib loop complete`
+em QEMU. O callback de exportação ainda não foi observado; uma execução
+também registrou page fault posterior no WebProcess. O gate de primeiro frame
+continua aberto e não há fallback visual sintético mantido.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de
