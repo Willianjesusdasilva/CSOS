@@ -4751,6 +4751,7 @@ const Socket = struct {
     allocated: bool = false,
     refs: u16 = 0,
     local_pair: bool = false,
+    seqpacket: bool = false,
     readable: bool = true,
     writable: bool = true,
     peer_index: ?usize = null,
@@ -4761,6 +4762,9 @@ const Socket = struct {
     local_buffer: [64 * 1024]u8 = .{0} ** (64 * 1024),
     local_head: usize = 0,
     local_len: usize = 0,
+    packet_lengths: [64]u32 = .{0} ** 64,
+    packet_head: usize = 0,
+    packet_count: usize = 0,
     peer_closed: bool = false,
     read_closed: bool = false,
     write_closed: bool = false,
@@ -4811,8 +4815,9 @@ fn socketPair(domain: u64, kind: u64, protocol: u64, output: u64) u64 {
         }
     }
     if (first == null or second == null) return errno(24);
-    sockets[first.?] = .{ .allocated = true, .refs = 1, .local_pair = true, .peer_index = second, .close_on_exec = (kind & 0x80000) != 0, .nonblocking = (kind & 0x800) != 0 };
-    sockets[second.?] = .{ .allocated = true, .refs = 1, .local_pair = true, .peer_index = first, .close_on_exec = (kind & 0x80000) != 0, .nonblocking = (kind & 0x800) != 0 };
+    const seqpacket = socket_kind == 5;
+    sockets[first.?] = .{ .allocated = true, .refs = 1, .local_pair = true, .seqpacket = seqpacket, .peer_index = second, .close_on_exec = (kind & 0x80000) != 0, .nonblocking = (kind & 0x800) != 0 };
+    sockets[second.?] = .{ .allocated = true, .refs = 1, .local_pair = true, .seqpacket = seqpacket, .peer_index = first, .close_on_exec = (kind & 0x80000) != 0, .nonblocking = (kind & 0x800) != 0 };
     // AF_UNIX socketpair endpoints are full-duplex.  Unlike pipe2, both
     // descriptors must be accepted by read(2) and write(2); leaving the
     // direction bits clear makes WPE/WebKit's control and renderer channels
@@ -4963,18 +4968,44 @@ fn sendMessage(fd: u64, message: u64, flags: u64) u64 {
         for (rights[0..rights_count]) |source| if (!sockets[source].allocated) return errno(9);
     }
     var total: u64 = 0;
-    var item: u64 = 0;
-    while (item < count) : (item += 1) {
-        const entry: [*]const u8 = @ptrFromInt(vector + item * 16);
-        const base = read64(entry);
-        const length = read64(entry + 8);
-        if (!validUserSlice(base, length)) return if (total == 0) errno(14) else total;
-        if (length == 0) continue;
-        const result = socketSend(index, (@as([*]const u8, @ptrFromInt(base)))[0..@intCast(length)]);
-        if (result == errno(11)) return if (total == 0) result else total;
-        if (result > std.math.maxInt(u64) - total) return total;
-        total += result;
-        if (result < length) break;
+    if (sockets[index].seqpacket) {
+        // sendmsg() on SOCK_SEQPACKET submits one packet even when the
+        // payload is split across several iovecs.  Do not enqueue each iovec
+        // independently: the WebKit decoder relies on one IPC message per
+        // receive operation.
+        var packet: [4096]u8 = undefined;
+        var packet_len: usize = 0;
+        var item: u64 = 0;
+        while (item < count) : (item += 1) {
+            const entry: [*]const u8 = @ptrFromInt(vector + item * 16);
+            const base = read64(entry);
+            const length = read64(entry + 8);
+            if (!validUserSlice(base, length)) return errno(14);
+            const length_usize = std.math.cast(usize, length) orelse return errno(90);
+            if (length_usize > packet.len - packet_len) return errno(90);
+            if (length_usize != 0) {
+                @memcpy(packet[packet_len..][0..length_usize], @as([*]const u8, @ptrFromInt(base))[0..length_usize]);
+                packet_len += length_usize;
+            }
+        }
+        const result = socketSend(index, packet[0..packet_len]);
+        if (result == errno(11)) return errno(11);
+        if (result != packet_len) return if (result < std.math.maxInt(u64)) result else errno(5);
+        total = result;
+    } else {
+        var item: u64 = 0;
+        while (item < count) : (item += 1) {
+            const entry: [*]const u8 = @ptrFromInt(vector + item * 16);
+            const base = read64(entry);
+            const length = read64(entry + 8);
+            if (!validUserSlice(base, length)) return if (total == 0) errno(14) else total;
+            if (length == 0) continue;
+            const result = socketSend(index, (@as([*]const u8, @ptrFromInt(base)))[0..@intCast(length)]);
+            if (result == errno(11)) return if (total == 0) result else total;
+            if (result > std.math.maxInt(u64) - total) return total;
+            total += result;
+            if (result < length) break;
+        }
     }
     if (rights_count != 0) {
         const peer = sockets[index].peer_index.?;
@@ -5141,6 +5172,22 @@ fn socketSend(index: usize, data: []const u8) u64 {
         if (!sockets[peer].allocated) return errno(32);
         const available = sockets[peer].local_buffer.len - sockets[peer].local_len;
         if (available == 0) return errno(11);
+        if (sockets[index].seqpacket) {
+            if (data.len > sockets[peer].local_buffer.len or sockets[peer].packet_count >= sockets[peer].packet_lengths.len or data.len > available)
+                return errno(11);
+            var offset: usize = 0;
+            while (offset < data.len) : (offset += 1) {
+                const position = (sockets[peer].local_head + sockets[peer].local_len + offset) % sockets[peer].local_buffer.len;
+                sockets[peer].local_buffer[position] = data[offset];
+            }
+            sockets[peer].local_len += data.len;
+            const slot = (sockets[peer].packet_head + sockets[peer].packet_count) % sockets[peer].packet_lengths.len;
+            sockets[peer].packet_lengths[slot] = @intCast(data.len);
+            sockets[peer].packet_count += 1;
+            wakeSocketPollers(peer);
+            wakeSocketReaders(peer);
+            return data.len;
+        }
         const count = @min(data.len, available);
         var offset: usize = 0;
         while (offset < count) : (offset += 1) {
@@ -5315,6 +5362,16 @@ fn completePendingSocketRead(thread_index: usize) void {
         thread.result = errno(14);
         return;
     }
+    if (sockets[index].seqpacket) {
+        const result = socketReceive(index, @as([*]u8, @ptrFromInt(address))[0..length]);
+        if (result == errno(11) or result == 0) return;
+        thread.pending_read_socket = null;
+        thread.pending_read_address = 0;
+        thread.pending_read_length = 0;
+        thread.pending_read_eof = false;
+        thread.result = result;
+        return;
+    }
     const output: [*]u8 = @ptrFromInt(address);
     var offset: usize = 0;
     while (offset < length) : (offset += 1) {
@@ -5349,6 +5406,24 @@ fn socketReceive(index: usize, data: []u8) u64 {
             user_threads[current_thread].state = .blocked;
             thread_switch_requested = true;
             return 0;
+        }
+        if (sockets[index].seqpacket and sockets[index].packet_count != 0) {
+            const packet_len: usize = sockets[index].packet_lengths[sockets[index].packet_head];
+            const count = @min(data.len, packet_len);
+            var offset: usize = 0;
+            while (offset < count) : (offset += 1) {
+                const position = (sockets[index].local_head + offset) % sockets[index].local_buffer.len;
+                data[offset] = sockets[index].local_buffer[position];
+            }
+            sockets[index].local_head = (sockets[index].local_head + packet_len) % sockets[index].local_buffer.len;
+            sockets[index].local_len -= packet_len;
+            sockets[index].packet_head = (sockets[index].packet_head + 1) % sockets[index].packet_lengths.len;
+            sockets[index].packet_count -= 1;
+            if (sockets[index].peer_index) |peer| {
+                wakeSocketPollers(peer);
+                wakeSocketWriters(peer);
+            }
+            return count;
         }
         const count = @min(data.len, sockets[index].local_len);
         var offset: usize = 0;

@@ -81,6 +81,15 @@ por exemplo `WebKit first frame`, em vez de confundir `WebKit HTML submitted`
 com pixels já apresentados. Uma captura deliberada no marcador de submissão
 produziu apenas a tela de boot, confirmando essa distinção.
 
+### Fronteiras `SOCK_SEQPACKET` no IPC (2026-09-23)
+
+O kernel agora preserva a fronteira de cada pacote AF_UNIX `SOCK_SEQPACKET` e
+agrega os vários iovecs de um `sendmsg()` em uma única mensagem antes de
+entregá-la ao peer. Antes, cada iovec era inserido como fluxo independente e
+mensagens consecutivas podiam ser coalescidas ou parcialmente consumidas pelo
+decoder GLib/WebKit. `zig build test -j1` e o smoke WPE continuam passando até
+`WebKit HTML submitted`; o primeiro frame ainda não foi observado.
+
 ### Correção de `CLONE_PARENT_SETTID` em vfork (2026-09-23)
 
 O watchpoint de hardware no QEMU identificou a origem do valor inválido que
