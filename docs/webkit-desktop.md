@@ -1113,6 +1113,19 @@ durante o retorno do `clone`. A suíte nativa permanece em `257/257`, mas o
 smoke real ainda termina no segundo subprocesso em `RIP=0xa`; portanto esta
 semântica adicional não fecha o gate de HTML/primeiro frame.
 
+### Separação entre `CLONE_CHILD_SETTID` e `CLONE_CHILD_CLEARTID` (2026-09-23)
+
+A desmontagem de `pthread_create` mostrou que `flags=0x7d0f00` usa `R10`
+como endereço de `CLONE_CHILD_CLEARTID` (`__thread_list_lock`). O kernel estava
+publicando o TID nesse endereço durante o primeiro handoff, embora esse bit não
+implique publicação inicial; isso corrompia o lock global e podia transformar
+um ponteiro de heap em `0xA000000006`. O handoff agora publica somente quando
+`CLONE_CHILD_SETTID` (`0x01000000`) está realmente presente.
+
+Após a correção, `WebKit view ready` foi observado sem o lock fault. O segundo
+WebProcess ainda termina em um page fault/GP antes de `WebKit HTML submitted`;
+esse é o próximo gate a investigar.
+
 ### Cache de bibliotecas WPE entre execs (2026-09-22)
 
 O loader agora preserva uma cópia pristine dos bytes das bibliotecas WPE já
