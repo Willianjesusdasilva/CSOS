@@ -30,7 +30,12 @@ syscall_entry:
     pushq %rdx
     movq %rsp, %r12
     andq $-16, %rsp
-    subq $64, %rsp
+    // The syscall dispatcher is Zig code and may use XMM registers while
+    // servicing WebKit futex/mmap/poll calls. Preserve the interrupted
+    // userspace SIMD state across that call; user_thread_resume then captures
+    // the restored state before selecting the next thread.
+    subq $640, %rsp
+    fxsave64 128(%rsp)
     movq 56(%r12), %r10
     movq %r10, 32(%rsp)
     movq 40(%r12), %r10
@@ -43,6 +48,7 @@ syscall_entry:
     movq 0(%r12), %r9
     callq user_syscall_dispatch
     movq %rax, %rdx
+    fxrstor64 128(%rsp)
     movq %r12, %rcx
     callq user_thread_resume
     cmpb $0, exec_pause_requested(%rip)

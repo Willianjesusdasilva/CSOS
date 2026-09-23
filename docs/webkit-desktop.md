@@ -1249,6 +1249,19 @@ Validação: `zig build test` passou. O smoke real continua alcançando
 salto para `RIP=0/1` e também apareceu como `#UD` em código JIT anônimo. O
 primeiro frame ainda não foi observado.
 
+### Preservação SIMD no dispatcher de syscalls (2026-09-23)
+
+O dispatcher de syscalls executa código Zig entre a entrada `syscall` e
+`user_thread_resume`. Esse caminho podia alterar registradores XMM do thread
+interrompido antes que o scheduler salvasse o contexto, especialmente durante
+`mmap`, `poll` e futex usados pelo WPE. A entrada agora preserva o estado
+FXSAVE/FXRSTOR ao redor do dispatcher, mantendo a ABI SIMD do userspace antes
+de retomar a seleção de threads.
+
+O smoke continua chegando a `WebKit HTML submitted`, mas ainda não produziu
+`WebKit first frame`; portanto esta correção é uma proteção de contexto, não
+uma conclusão falsa do gate do compositor.
+
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de
   apresentação desacoplado e encaminhamento de input.
 - [Ports upstream](https://docs.webkit.org/Ports/Introduction.html): WPE e
