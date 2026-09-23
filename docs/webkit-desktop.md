@@ -1102,6 +1102,17 @@ parou antes de `WebKit HTML submitted`; portanto o defeito restante ocorre
 depois da montagem do frame, durante a execução/retomada do callback ou do
 contexto de exec. A instrumentação foi removida e não altera o runtime.
 
+### `CLONE_CHILD_SETTID` no handoff do pthread (2026-09-22)
+
+A desmontagem do `pthread_create` do musl confirmou que o TLS chega pelo
+quinto argumento (`R8`) e o endereço `child_tid` pelo quarto (`R10`). O kernel
+agora publica o TID no endereço `child_tid` somente quando o novo pthread é
+realmente selecionado, depois que o criador devolveu o lock ao userspace; o
+valor continua sendo zerado no caminho de saída. Isso evita escrever o lock
+durante o retorno do `clone`. A suíte nativa permanece em `257/257`, mas o
+smoke real ainda termina no segundo subprocesso em `RIP=0xa`; portanto esta
+semântica adicional não fecha o gate de HTML/primeiro frame.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de

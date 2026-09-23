@@ -287,6 +287,7 @@ const UserThread = struct {
     workspace_id: u8 = 0,
     parent_slot: usize = 0,
     clear_tid: u64 = 0, wait_address: u64 = 0,
+    child_tid_published: bool = false,
     wait_workspace: u8 = 0, wait_private: bool = false,
     pending_read_socket: ?usize = null,
     pending_read_address: u64 = 0,
@@ -889,6 +890,17 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
             if (workspace_activate_hook) |hook| hook(user_threads[slot].workspace_id);
             if (interrupt_reload_hook) |reload| reload();
             _ = vfs.changeDirectory(user_threads[slot].cwd[0..user_threads[slot].cwd_len]) catch {};
+            // CLONE_CHILD_SETTID is observed by the new thread after the
+            // parent has returned from clone. Publish it at the handoff,
+            // rather than while the creator still owns musl's thread-list
+            // lock, which would make the parent observe a premature TID.
+            const next_thread = &user_threads[slot];
+            if (next_thread.kind == .thread and next_thread.clear_tid != 0 and
+                !next_thread.child_tid_published and validUserSlice(next_thread.clear_tid, 4)) {
+                const child_tid_out: *align(1) u32 = @ptrFromInt(next_thread.clear_tid);
+                child_tid_out.* = next_thread.pid;
+                next_thread.child_tid_published = true;
+            }
             completePendingSocketRead(slot);
             completePendingPoll(slot);
             completePendingWaitStatus(slot);
