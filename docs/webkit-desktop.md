@@ -1438,3 +1438,22 @@ disco resetado apresentou um fault de execução logo após `WebKit view ready`,
 mas não foi reproduzida no smoke limpo posterior; portanto não é tratada como
 correção nem como novo gate concluído. O próximo foco permanece o registro da
 surface/compositor e a entrega do primeiro frame real.
+
+### Bootstrap do renderer host versus WebProcess (2026-09-23)
+
+Uma execução instrumentada confirmou a sequência real:
+
+```text
+WebKit platform init
+WebKit renderer host client
+FDO renderer host client
+WebKit HTML submitted
+WebKit GLib loop complete
+```
+
+O callback correspondente ao início do `WebProcess` (`WebProcess::platformInitializeWebProcess`)
+e o `BaseTarget::initialize` do backend FDO não foram observados. Portanto o
+UI process cria o client do renderer host, mas o filho ainda não conclui o
+bootstrap necessário para conectar a superfície Wayland/WPE. Todos os
+marcadores temporários foram removidos e os artefatos WebKit/backend foram
+reconstruídos limpos; nenhum gate foi marcado como concluído.
