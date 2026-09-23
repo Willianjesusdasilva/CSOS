@@ -1113,6 +1113,21 @@ durante o retorno do `clone`. A suíte nativa permanece em `257/257`, mas o
 smoke real ainda termina no segundo subprocesso em `RIP=0xa`; portanto esta
 semântica adicional não fecha o gate de HTML/primeiro frame.
 
+### Cache de bibliotecas WPE entre execs (2026-09-22)
+
+O loader agora preserva uma cópia pristine dos bytes das bibliotecas WPE já
+lidas pelo launcher. Subprocessos `execve` reutilizam essa cópia, em vez de
+reler a biblioteca de 120 MiB setor a setor do FAT16. A cópia é feita antes
+das relocations ELF (que modificam o buffer de trabalho), e o cache é liberado
+quando começa um novo ciclo top-level; não há sucesso simulado nem mudança no
+contrato do NVMe.
+
+Validação em QEMU: o smoke real passou a agendar o `WPEWebProcess`, emitir
+`WebKit view ready` e iniciar o segundo subprocesso antes do fault tardio
+restante. `WebKit HTML submitted` e `WebKit first frame` ainda não foram
+observados; o próximo diagnóstico continua sendo a retomada do segundo
+subprocesso após o `clone(0x4111)`.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de

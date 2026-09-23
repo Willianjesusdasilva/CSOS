@@ -67,6 +67,51 @@ const NeededList = struct {
     names: [max_shared_objects][]const u8 = undefined,
     count: usize = 0,
 };
+const RuntimeCacheEntry = struct {
+    valid: bool = false,
+    name: [64]u8 = @splat(0),
+    name_len: usize = 0,
+    address: u64 = 0,
+    size: u64 = 0,
+    pages: u64 = 0,
+};
+var runtime_cache: [max_shared_objects]RuntimeCacheEntry = .{RuntimeCacheEntry{}} ** max_shared_objects;
+
+fn findRuntimeCache(name: []const u8) ?*const RuntimeCacheEntry {
+    for (&runtime_cache) |*entry| {
+        if (entry.valid and entry.name_len == name.len and std.mem.eql(u8, entry.name[0..entry.name_len], name)) return entry;
+    }
+    return null;
+}
+
+fn clearRuntimeCache(pages: *physical.Allocator) void {
+    for (&runtime_cache) |*entry| {
+        if (entry.valid and entry.address != 0 and entry.pages != 0) pages.release(entry.address, entry.pages) catch {};
+    }
+    runtime_cache = .{RuntimeCacheEntry{}} ** max_shared_objects;
+}
+
+fn publishRuntimeCache(allocator: *physical.Allocator, name: []const u8, source: u64, size: u64) void {
+    if (name.len > 64) return;
+    for (&runtime_cache) |*entry| {
+        if (entry.valid and entry.name_len == name.len and std.mem.eql(u8, entry.name[0..entry.name_len], name)) return;
+    }
+    for (&runtime_cache) |*entry| {
+        if (entry.valid) continue;
+        const pages = (size + page_size - 1) / page_size;
+        const address = allocator.allocate(pages) orelse return;
+        const source_bytes: [*]const u8 = @ptrFromInt(source);
+        const cached_bytes: [*]u8 = @ptrFromInt(address);
+        @memcpy(cached_bytes[0..@intCast(size)], source_bytes[0..@intCast(size)]);
+        entry.valid = true;
+        entry.name_len = name.len;
+        @memcpy(entry.name[0..name.len], name);
+        entry.address = address;
+        entry.size = size;
+        entry.pages = pages;
+        return;
+    }
+}
 
 // runImage is serialized today. Keep the large arrays in an explicit
 // workspace so the next process-context refactor can allocate one workspace
@@ -676,6 +721,7 @@ fn runImageWithWorkspace(
 ) !void {
     errdefer workspace.leased = false;
     const retain_workspace = preserve_scheduler;
+    if (!preserve_scheduler) clearRuntimeCache(pages);
     // A previous top-level image may have exited through a libc path that did
     // not close every inherited descriptor. Reclaim that process boundary
     // before allocating the next image; exec children remain untouched.
@@ -824,25 +870,34 @@ fn runImageWithWorkspace(
                 return err;
             };
             if (dependency_info.directory or dependency_info.size < 64 or dependency_info.size > max_shared_object_size) return error.InvalidSharedObject;
-            const dependency_pages = (std.math.add(u64, dependency_info.size, page_size - 1) catch return error.InvalidSharedObject) / page_size;
-            const dependency_address = pages.allocate(dependency_pages) orelse return error.OutOfMemory;
-            dependency_ranges[dependency_count] = .{ .address = dependency_address, .pages = dependency_pages };
-            dependency_count += 1;
-            const dependency_bytes: [*]u8 = @ptrFromInt(dependency_address);
-            const dependency_file = try vfs.openAt(-100, resolved_dependency_path, 0);
-            var dependency_read: usize = 0;
-            while (dependency_read < dependency_info.size) {
-                const count = vfs.pread(dependency_file, dependency_bytes[dependency_read..@intCast(dependency_info.size)], dependency_read) catch |err| {
-                    vfs.close(dependency_file) catch {};
-                    return err;
-                };
-                if (count == 0) {
-                    vfs.close(dependency_file) catch {};
-                    return error.TruncatedSharedObject;
+            var dependency_address: u64 = 0;
+            var dependency_pages: u64 = 0;
+            if (findRuntimeCache(dependency)) |cached| {
+                dependency_address = cached.address;
+                dependency_pages = cached.pages;
+            } else {
+                dependency_pages = (std.math.add(u64, dependency_info.size, page_size - 1) catch return error.InvalidSharedObject) / page_size;
+                dependency_address = pages.allocate(dependency_pages) orelse return error.OutOfMemory;
+                dependency_ranges[dependency_count] = .{ .address = dependency_address, .pages = dependency_pages };
+                dependency_count += 1;
+                const dependency_bytes: [*]u8 = @ptrFromInt(dependency_address);
+                const dependency_file = try vfs.openAt(-100, resolved_dependency_path, 0);
+                var dependency_read: usize = 0;
+                while (dependency_read < dependency_info.size) {
+                    const count = vfs.pread(dependency_file, dependency_bytes[dependency_read..@intCast(dependency_info.size)], dependency_read) catch |err| {
+                        vfs.close(dependency_file) catch {};
+                        return err;
+                    };
+                    if (count == 0) {
+                        vfs.close(dependency_file) catch {};
+                        return error.TruncatedSharedObject;
+                    }
+                    dependency_read += count;
                 }
-                dependency_read += count;
+                try vfs.close(dependency_file);
+                if (!preserve_scheduler) publishRuntimeCache(pages, dependency, dependency_address, dependency_info.size);
             }
-            try vfs.close(dependency_file);
+            const dependency_bytes: [*]u8 = @ptrFromInt(dependency_address);
             const shared_bytes = dependency_bytes[0..@intCast(dependency_info.size)];
             const shared_base = 0x0000006000000000 + @as(u64, provider_count) * 0x0000000010000000;
             image = shared_bytes;
