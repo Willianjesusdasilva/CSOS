@@ -1315,6 +1315,20 @@ libera o recurso e confirma o frame nesse caminho. O smoke de 120 s passou pela
 mesma sequência anterior e não invocou o callback, confirmando que a surface
 ainda não é criada; portanto a mudança não promove o gate de primeiro frame.
 
+### Socketpair local full-duplex (2026-09-23)
+
+O IPC local do kernel criava os dois extremos de
+`socketpair(AF_UNIX, SOCK_STREAM/SEQPACKET)` sem permissões de leitura e
+escrita. Isso fazia os canais de controle do WebKit e do renderer-host
+falharem com `EBADF` antes de o backend Wayland inicializar. Os quatro
+sentidos agora são marcados como válidos, preservando a semântica
+full-duplex do Linux.
+
+Validação: `zig build -j1 test` passou. No smoke com o backend FDO
+instrumentado, o segundo `CSOS WPE WebProcess scheduled` passou a ser
+observado sem o fault imediato anterior; o registro de `wpe_bridge` e o
+primeiro frame ainda precisam ser confirmados em uma execução estável.
+
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de
   apresentação desacoplado e encaminhamento de input.
 - [Ports upstream](https://docs.webkit.org/Ports/Introduction.html): WPE e

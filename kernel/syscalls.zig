@@ -4799,6 +4799,14 @@ fn socketPair(domain: u64, kind: u64, protocol: u64, output: u64) u64 {
     if (first == null or second == null) return errno(24);
     sockets[first.?] = .{ .allocated = true, .refs = 1, .local_pair = true, .peer_index = second, .close_on_exec = (kind & 0x80000) != 0, .nonblocking = (kind & 0x800) != 0 };
     sockets[second.?] = .{ .allocated = true, .refs = 1, .local_pair = true, .peer_index = first, .close_on_exec = (kind & 0x80000) != 0, .nonblocking = (kind & 0x800) != 0 };
+    // AF_UNIX socketpair endpoints are full-duplex.  Unlike pipe2, both
+    // descriptors must be accepted by read(2) and write(2); leaving the
+    // direction bits clear makes WPE/WebKit's control and renderer channels
+    // fail with EBADF before the peer can initialize.
+    sockets[first.?].readable = true;
+    sockets[first.?].writable = true;
+    sockets[second.?].readable = true;
+    sockets[second.?].writable = true;
     publishDirectSocket(current_thread, first.?, (kind & 0x80000) != 0);
     publishDirectSocket(current_thread, second.?, (kind & 0x80000) != 0);
     if (user_threads_enabled and user_threads[current_thread].kind == .process_child) {
