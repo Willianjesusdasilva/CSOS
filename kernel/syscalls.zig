@@ -4776,6 +4776,10 @@ const Socket = struct {
     remote_port: u16 = 0,
     pending_rights: [8]usize = .{0} ** 8,
     pending_rights_len: u8 = 0,
+    pending_credentials: bool = false,
+    pending_credential_pid: u32 = 0,
+    pending_credential_uid: u32 = 0,
+    pending_credential_gid: u32 = 0,
 };
 
 fn socket(domain: u64, kind: u64, protocol: u64) u64 {
@@ -4939,9 +4943,9 @@ fn receiveFrom(fd: u64, address: u64, length: u64) u64 {
 
 // Linux x86-64 msghdr offsets are name=0, namelen=8, iov=16, iovlen=24,
 // control=32, controllen=40 and flags=48. WPE uses sendmsg/recvmsg for its
-// local process-pool sockets, usually with one or more plain iovecs and no
-// ancillary data. Keep the implementation real rather than treating these
-// calls as a successful no-op, including partial/EAGAIN results.
+// local process-pool sockets, including SCM_RIGHTS and Linux SCM_CREDENTIALS.
+// Keep the implementation real rather than treating ancillary data as a
+// successful no-op: GLib uses SCM_CREDENTIALS during the WebKit handshake.
 fn sendMessage(fd: u64, message: u64, flags: u64) u64 {
     const index = socketIndex(fd) orelse return errno(9);
     if (flags & ~@as(u64, 0x4000 | 0x40 | 0x100) != 0 or !validUserSlice(message, 56)) return errno(22);
@@ -4950,7 +4954,8 @@ fn sendMessage(fd: u64, message: u64, flags: u64) u64 {
     const count = read64(header + 24);
     if (count > 64 or (count != 0 and !validUserSlice(vector, count * 16))) return errno(14);
     var rights: [8]usize = .{0} ** 8;
-    const rights_count = parseRights(header, &rights) catch return errno(22);
+    var credentials = false;
+    const rights_count = parseControl(header, &rights, &credentials) catch return errno(22);
     if (rights_count != 0) {
         const peer = sockets[index].peer_index orelse return errno(95);
         if (!sockets[index].local_pair or sockets[peer].pending_rights_len + rights_count > sockets[peer].pending_rights.len)
@@ -4979,6 +4984,17 @@ fn sendMessage(fd: u64, message: u64, flags: u64) u64 {
             sockets[source].refs += 1;
         }
         sockets[peer].pending_rights_len += rights_count;
+    }
+    if (credentials) {
+        const peer = sockets[index].peer_index orelse return errno(95);
+        if (!sockets[index].local_pair) return errno(95);
+        sockets[peer].pending_credentials = true;
+        sockets[peer].pending_credential_pid = current_pid;
+        sockets[peer].pending_credential_uid = 0;
+        sockets[peer].pending_credential_gid = 0;
+    }
+    if (rights_count != 0 or credentials) {
+        const peer = sockets[index].peer_index.?;
         wakeSocketReaders(peer);
         wakeSocketPollers(peer);
     }
@@ -5010,61 +5026,88 @@ fn receiveMessage(fd: u64, message: u64, flags: u64) u64 {
         total += result;
         if (result < length) break;
     }
-    deliverRights(index, @constCast(header), flags);
+    deliverAncillary(index, @constCast(header), flags);
     return total;
 }
 
 const RightsError = error{InvalidControl, InvalidRights};
 
-fn parseRights(header: [*]const u8, output: *[8]usize) RightsError!u8 {
+fn parseControl(header: [*]const u8, output: *[8]usize, credentials: *bool) RightsError!u8 {
     const control = read64(header + 32);
     const control_length = read64(header + 40);
     if (control_length == 0) return 0;
     if (control == 0 or !validUserSlice(control, control_length) or control_length < 16) return error.InvalidControl;
-    const cmsg: [*]const u8 = @ptrFromInt(control);
-    const cmsg_length = read64(cmsg);
-    if (cmsg_length < 16 or cmsg_length > control_length or read32(cmsg + 8) != 1 or read32(cmsg + 12) != 1)
-        return error.InvalidControl;
-    const bytes = cmsg_length - 16;
-    if ((bytes & 3) != 0 or bytes / 4 > output.len) return error.InvalidRights;
-    const count: u8 = @intCast(bytes / 4);
-    for (0..count) |item| {
-        const fd = read32(cmsg + 16 + item * 4);
-        output[item] = socketIndex(fd) orelse return error.InvalidRights;
+    var offset: usize = 0;
+    var rights_count: u8 = 0;
+    while (offset + 16 <= control_length) {
+        const cmsg: [*]const u8 = @ptrFromInt(control + offset);
+        const cmsg_length = read64(cmsg);
+        if (cmsg_length < 16 or cmsg_length > control_length - offset) return error.InvalidControl;
+        const level = read32(cmsg + 8);
+        const kind = read32(cmsg + 12);
+        if (level != 1) return error.InvalidControl; // SOL_SOCKET
+        if (kind == 1) { // SCM_RIGHTS
+            const bytes = cmsg_length - 16;
+            if ((bytes & 3) != 0 or rights_count + bytes / 4 > output.len) return error.InvalidRights;
+            for (0..bytes / 4) |item| {
+                const fd = read32(cmsg + 16 + item * 4);
+                output[rights_count + item] = socketIndex(fd) orelse return error.InvalidRights;
+            }
+            rights_count += @intCast(bytes / 4);
+        } else if (kind == 2) { // SCM_CREDENTIALS, Linux struct ucred
+            if (cmsg_length != 28) return error.InvalidControl;
+            credentials.* = true;
+        } else return error.InvalidControl;
+        const aligned = (cmsg_length + 7) & ~@as(u64, 7);
+        if (aligned == 0 or aligned > control_length - offset) break;
+        offset += @intCast(aligned);
     }
-    return count;
+    return rights_count;
 }
 
-fn deliverRights(index: usize, header: [*]const u8, flags: u64) void {
+fn deliverAncillary(index: usize, header: [*]u8, flags: u64) void {
     const available = read64(header + 40);
     const control = read64(header + 32);
-    if (sockets[index].pending_rights_len == 0) return;
     const requested = @min(@as(usize, sockets[index].pending_rights_len), 8);
-    const capacity: usize = if (control != 0 and available >= 16 and validUserSlice(control, available))
-        @intCast(@min(available - 16, 8 * 4)) else 0;
-    const fit: usize = @min(requested, capacity / 4);
-    var written: usize = 0;
-    if (fit != 0) {
-        const target: [*]u8 = @ptrFromInt(control);
-        put64(target, 16 + fit * 4);
-        put32(target + 8, 1);
-        put32(target + 12, 1);
-        for (0..fit) |item| {
-            const source = sockets[index].pending_rights[item];
+    const has_credentials = sockets[index].pending_credentials;
+    var used: usize = 0;
+    var written_rights: usize = 0;
+    var wrote_credentials = false;
+    const can_write = control != 0 and validUserSlice(control, available);
+    const target: [*]u8 = if (can_write) @ptrFromInt(control) else undefined;
+    if (can_write and requested != 0 and available >= 16 + 4) {
+        const capacity = @as(usize, @intCast(available));
+        while (written_rights < requested and used + 20 <= capacity) {
+            const source = sockets[index].pending_rights[written_rights];
             const alias = allocateSocketAlias(current_thread, source, socket_fd_base + sockets.len, (flags & 0x40000000) != 0) orelse break;
-            put32(target + 16 + written * 4, @intCast(alias));
+            put64(target + used, 16 + 4);
+            put32(target + used + 8, 1);
+            put32(target + used + 12, 1);
+            put32(target + used + 16, @intCast(alias));
             sockets[source].refs -|= 1;
-            written += 1;
+            written_rights += 1;
+            used += 24;
         }
     }
+    if (can_write and has_credentials and used + 28 <= available) {
+        put64(target + used, 28);
+        put32(target + used + 8, 1);
+        put32(target + used + 12, 2);
+        put32(target + used + 16, sockets[index].pending_credential_pid);
+        put32(target + used + 20, sockets[index].pending_credential_uid);
+        put32(target + used + 24, sockets[index].pending_credential_gid);
+        wrote_credentials = true;
+        used += 32;
+    }
     const old_flags = read32(header + 48);
-    if (written < requested) put32(@constCast(header) + 48, old_flags | 8); // MSG_CTRUNC
-    put64(@constCast(header) + 40, written * 4 + (if (written != 0) @as(usize, 16) else 0));
-    const remaining = requested - @min(written, requested);
+    if (written_rights < requested or (has_credentials and !wrote_credentials)) put32(header + 48, old_flags | 8); // MSG_CTRUNC
+    put64(header + 40, used);
+    const remaining = requested - @min(written_rights, requested);
     if (remaining != 0) {
-        for (0..remaining) |offset| sockets[index].pending_rights[offset] = sockets[index].pending_rights[written + offset];
+        for (0..remaining) |offset| sockets[index].pending_rights[offset] = sockets[index].pending_rights[written_rights + offset];
     }
     sockets[index].pending_rights_len = @intCast(remaining);
+    if (wrote_credentials or !can_write) sockets[index].pending_credentials = false;
 }
 
 fn shutdown(fd: u64, how: u64) u64 {
@@ -6030,7 +6073,28 @@ fn closeRange(first: u64, last: u64, flags: u64) u64 {
     var fd = first;
     while (fd <= limit) : (fd += 1) {
         if (socketIndex(fd)) |_| {
-            if ((flags & 2) == 0) _ = close(fd) else if (socketIndex(fd)) |index| sockets[index].close_on_exec = true;
+            if ((flags & 2) == 0) {
+                _ = close(fd);
+            } else if (socketAliasForThread(current_thread, fd)) |alias| {
+                // CLOSE_RANGE_CLOEXEC applies to this descriptor entry, not
+                // the backing socket object.  Mutating the object would make
+                // the flag leak into the parent and sibling descriptors.
+                alias.close_on_exec = true;
+                const workspace = user_threads[current_thread].workspace_id;
+                for (&workspace_fd_aliases[workspace]) |*workspace_alias| {
+                    if (workspace_alias.used and workspace_alias.fd == alias.fd and workspace_alias.socket_index == alias.socket_index)
+                        workspace_alias.close_on_exec = true;
+                }
+            } else if (fd >= socket_fd_base) {
+                const index: usize = @intCast(fd - socket_fd_base);
+                const workspace = user_threads[current_thread].workspace_id;
+                workspace_socket_cloexec[workspace][index] = true;
+                for (&user_threads) |*peer| {
+                    if (peer.workspace_id == workspace) peer.direct_socket_cloexec[index] = true;
+                }
+            } else if (socketIndex(fd)) |index| {
+                sockets[index].close_on_exec = true;
+            }
         } else if (vfs.isOpen(@intCast(fd))) {
             if ((flags & 2) != 0) _ = vfs.setDescriptorFlags(@intCast(fd), 1) catch {} else _ = vfs.close(@intCast(fd)) catch {};
         }
