@@ -2560,7 +2560,7 @@ pub fn handlePageFault(address: u64, instruction: u64, code: u64) callconv(.c) b
     // not a missing-page reclaim.  JSC's MAP_NORESERVE arena first obtains
     // writable pages and later promotes selected pages to executable with
     // mprotect; resolve that transition without remapping the page as NX.
-    if ((code & 0x10) != 0 or address == 0) {
+    if ((code & 0x10) != 0) {
         // Some CSOS/QEMU paths report an instruction-fetch protection fault
         // with CR2 cleared. In that case the saved RIP is the only reliable
         // page address; accept it only when it is already a mapped lazy page.

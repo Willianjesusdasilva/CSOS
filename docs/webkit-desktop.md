@@ -1262,6 +1262,18 @@ O smoke continua chegando a `WebKit HTML submitted`, mas ainda não produziu
 `WebKit first frame`; portanto esta correção é uma proteção de contexto, não
 uma conclusão falsa do gate do compositor.
 
+### Não promover faults de dados com CR2 nulo (2026-09-23)
+
+Uma execução instrumentada mostrou `CR2=0`, `code=5` e `RIP` dentro da arena
+anônima. Esse código é um fault de acesso de dados em modo usuário, não um
+fault de instruction-fetch. O tratamento anterior usava qualquer `CR2=0` como
+fallback de NX e promovia a página do RIP para executável, mascarando o acesso
+nulo e corrompendo o fluxo posterior. O fallback agora só é usado quando o bit
+de instruction-fetch (`code & 0x10`) está presente.
+
+Validação: `zig build -j1 test` passou; o smoke alcança `WebKit HTML submitted`
+e `WebKit GLib loop complete`. O primeiro frame ainda não foi observado.
+
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de
   apresentação desacoplado e encaminhamento de input.
 - [Ports upstream](https://docs.webkit.org/Ports/Introduction.html): WPE e
