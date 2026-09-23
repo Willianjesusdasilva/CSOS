@@ -9,6 +9,8 @@ $root = (Resolve-Path "$PSScriptRoot/..").Path
 $zig = Join-Path $root '.tools/zig-x86_64-windows-0.16.0/zig.exe'
 $meson = Join-Path $root '.tools/mesa-build-env/Scripts/meson.exe'
 $ninja = Join-Path $root '.tools/mesa-build-env/Scripts/ninja.exe'
+$env:Path = "$(Split-Path $ninja);$env:Path"
+$env:NINJA = $ninja
 $sysroot = Join-Path $root 'zig-out/mesa-sysroot'
 $cross = Join-Path $root 'tools/glib-linux-cross.ini'
 $native = Join-Path $root 'tools/wayland-native.ini'
@@ -16,14 +18,16 @@ $native = Join-Path $root 'tools/wayland-native.ini'
 if (-not (Test-Path $Source)) { throw "WPE backend source not found: $Source" }
 if (-not (Test-Path $sysroot)) { throw "Target sysroot not found: $sysroot" }
 
-$env:PKG_CONFIG_LIBDIR = (Join-Path $sysroot 'usr/lib/pkgconfig')
-$env:PKG_CONFIG_SYSROOT_DIR = $sysroot
-$env:PKG_CONFIG_PATH = (Join-Path $root '.tools/wayland-scanner-native/pkgconfig')
+$env:PKG_CONFIG_LIBDIR = ((Join-Path $sysroot 'usr/lib/pkgconfig') -replace '\\','/')
+$env:PKG_CONFIG_SYSROOT_DIR = ($sysroot -replace '\\','/')
+$env:PKG_CONFIG_PATH = ((Join-Path $root '.tools/wayland-scanner-native/pkgconfig') -replace '\\','/')
 
 $include = Join-Path $sysroot 'usr/include'
 $flags = "-I$include -I$include/glib-2.0 -I$include/pcre2 -I$include/wpe-1.0 -include unistd.h -fPIC -fno-sanitize=undefined"
+$libdir = (($sysroot + '/usr/lib') -replace '\\','/')
+$linkFlags = "-L$libdir -lgmodule-2.0 -L$libdir -lz"
 
-& $meson setup $Source $Build --wipe --cross-file $cross --native-file $native --buildtype release --default-library static -Dbuild_docs=false -Dc_args=$flags -Dcpp_args=$flags
+& $meson setup $Source $Build --wipe --cross-file $cross --native-file $native --buildtype release --default-library static -Dbuild_docs=false "-Dc_args=$flags" "-Dcpp_args=$flags" "-Dc_link_args=$linkFlags" "-Dcpp_link_args=$linkFlags"
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & $ninja -C $Build -j4
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
