@@ -1409,6 +1409,21 @@ export fn process_exit_dispatch(status: u64) callconv(.c) void {
     process_exit_status = status;
 }
 
+/// Replace the saved userspace context when an existing scheduler slot starts
+/// a fresh exec image.  The old image may have a valid timer snapshot; using
+/// it after exec would return into the previous stack/code while the new
+/// image is still being bootstrapped.
+pub fn resetExecThreadContext(entry: u64, stack: u64) void {
+    if (!user_threads_enabled or current_thread >= user_threads.len) return;
+    var thread = &user_threads[current_thread];
+    thread.frame = @splat(0);
+    thread.frame[0] = entry;
+    thread.frame[1] = 0x202;
+    thread.rsp = stack;
+    thread.result = 0;
+    thread.timer_valid = false;
+}
+
 pub fn primeUserTls(address: u64) void {
     writeMsr(0xc0000100, address);
 }

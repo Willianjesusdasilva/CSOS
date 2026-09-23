@@ -1128,6 +1128,22 @@ restante. `WebKit HTML submitted` e `WebKit first frame` ainda não foram
 observados; o próximo diagnóstico continua sendo a retomada do segundo
 subprocesso após o `clone(0x4111)`.
 
+### Contexto de timer invalidado no exec (2026-09-23)
+
+O ciclo de `exec` reutiliza o mesmo slot do scheduler. Antes desta correção,
+o slot podia conservar um snapshot de timer da imagem anterior; uma troca
+preemptiva durante o bootstrap do novo WebProcess podia restaurar a
+pilha/código antigos. O caminho de imagem substituta agora instala um frame
+inicial (`entry`, `stack`, `RFLAGS`) e invalida `timer_valid` antes de o slot
+ser agendado.
+
+Validação: `zig build test` passou com `54/54 steps succeeded; 257/257 tests
+passed`. Em QEMU, o fault anterior de transferência para `RIP=0x9/0xa` não
+reapareceu nessa execução; o WebProcess alcançou um fault posterior real de
+leitura nula (`CR2=0`, `RIP=0xa00e216fd0`, código 5), ainda antes de
+`WebKit HTML submitted`. Isso confirma progresso no contexto de exec, mas não
+fecha o gate de HTML/primeiro frame.
+
 ## Referências upstream
 
 - [Arquitetura WPE](https://wpewebkit.org/about/architecture.html): backend de

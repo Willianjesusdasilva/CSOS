@@ -1168,6 +1168,7 @@ fn runImageWithWorkspace(
     workspace.mmap_next = mmap_state[2];
     workspace.noreserve_next = mmap_state[3];
     if (preserve_scheduler) {
+        syscalls.resetExecThreadContext(execution_entry, stack_pointer);
         workspace.execution_entry = execution_entry;
         workspace.execution_stack = stack_pointer;
         workspace.execution_ready = true;
