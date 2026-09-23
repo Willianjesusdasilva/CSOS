@@ -763,6 +763,7 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
     if (thread_switch_requested or old.state != .runnable) {
         thread_switch_requested = false;
         var selected: ?usize = null;
+        const current_workspace = user_threads[current_thread].workspace_id;
         if (immediate_vfork_child) |slot| {
             // A vfork child must run before unrelated waiters. Its parent is
             // suspended by contract until this child reaches execve/_exit.
@@ -783,6 +784,7 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
             // the saved wait4 frame.
             for (0..user_threads.len) |waiter_slot| {
                 if (user_threads[waiter_slot].state == .runnable and
+                    user_threads[waiter_slot].workspace_id == current_workspace and
                     user_threads[waiter_slot].pending_wait_status != null) {
                     selected = waiter_slot;
                     break;
@@ -828,6 +830,7 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
             for (0..user_threads.len) |io_slot| {
                 const io_thread = &user_threads[io_slot];
                 if (io_thread.state == .runnable and
+                    io_thread.workspace_id == current_workspace and
                     (io_thread.pending_read_socket != null or
                         io_thread.pending_write_socket != null or
                         io_thread.pending_poll_address != 0)) {
@@ -841,7 +844,6 @@ export fn user_thread_resume(frame: *[14]u64, result: u64) callconv(.c) u64 {
             // A newly-created pthread commonly owns the other end of a pipe
             // or socket needed by the caller.  Give it a first turn before
             // round-robin can repeatedly select an unrelated runnable image.
-            const current_workspace = user_threads[current_thread].workspace_id;
             for (0..user_threads.len) |thread_slot| {
                 if ((deferred_user_threads & (@as(u16, 1) << @intCast(thread_slot))) == 0) continue;
                 if (user_threads[thread_slot].state != .runnable) {
