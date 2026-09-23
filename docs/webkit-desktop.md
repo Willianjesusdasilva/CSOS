@@ -22,6 +22,22 @@ automaticamente: é necessário portar suas dependências e o backend.
 
 ## Reprodução mais recente (2026-09-21)
 
+### Correção de `CLONE_PARENT_SETTID` em vfork (2026-09-23)
+
+O watchpoint de hardware no QEMU identificou a origem do valor inválido que
+aparecia no allocator do WebProcess. O kernel escrevia o TID no argumento
+`parent_tid` sempre que ele era não nulo, mesmo quando o clone `0x4111`
+(`CLONE_VM|CLONE_VFORK|SIGCHLD`) não continha `CLONE_PARENT_SETTID`. Esse
+argumento é usado como scratch pelo caller; a escrita de `6` sobre o endereço
+`0xa00e21ee00` produzia `0xa000000006` e corrompia a lista liberada depois.
+
+`cloneThread` agora publica `parent_tid` somente quando o flag
+`CLONE_PARENT_SETTID` está presente. A suíte `zig build test` e o build
+`ReleaseSmall` passam. Um smoke WPE de 50 s alcançou
+`CSOS WPE WebProcess scheduled`; outro de 90 s alcançou `WebKit view ready`
+sem o valor inválido. O gate de HTML/frame ainda precisa de validação; nenhum
+marcador sintético foi adicionado e o QEMU foi encerrado ao final dos testes.
+
 Com um cache de build limpo e o launcher/processos WPE reais, o smoke em QEMU
 atingiu de forma reproduzível `FAT WebKit entry ready`, carregou os
 inicializadores ELF, iniciou o WebProcess e emitiu `WebKit view ready`. O teste

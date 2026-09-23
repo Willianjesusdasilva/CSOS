@@ -614,7 +614,10 @@ fn cloneThread(flags: u64, stack: u64, parent_tid: u64, child_tid: u64, tls: u64
             }
         }
         const tid: u32 = @intCast(slot + 1);
-        if (parent_tid != 0) {
+        // parent_tid is an output only when CLONE_PARENT_SETTID is present.
+        // Some vfork-style callers pass a scratch value in this argument even
+        // though flags 0x4111 do not request the parent-TID write.
+        if ((flags & 0x00100000) != 0 and parent_tid != 0) {
             const out: *align(1) u32 = @ptrFromInt(parent_tid); out.* = tid;
         }
         if (!user_threads_enabled) {
