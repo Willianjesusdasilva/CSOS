@@ -5043,6 +5043,39 @@ fn receiveMessage(fd: u64, message: u64, flags: u64) u64 {
     const vector = read64(header + 16);
     const count = read64(header + 24);
     if (count > 64 or (count != 0 and !validUserSlice(vector, count * 16))) return errno(14);
+    // A SOCK_SEQPACKET receive consumes exactly one packet.  Do not call
+    // socketReceive once per iovec: that would consume and discard the tail
+    // of the packet after the first iovec, corrupting WebKit's IPC envelope
+    // (including SCM_RIGHTS descriptors carried with it).
+    if (sockets[index].seqpacket and sockets[index].packet_count != 0) {
+        const packet_len: usize = sockets[index].packet_lengths[sockets[index].packet_head];
+        var copied: usize = 0;
+        var item: u64 = 0;
+        while (item < count and copied < packet_len) : (item += 1) {
+            const entry: [*]const u8 = @ptrFromInt(vector + item * 16);
+            const base = read64(entry);
+            const length = read64(entry + 8);
+            if (!validUserSlice(base, length)) return if (copied == 0) errno(14) else copied;
+            const length_usize = std.math.cast(usize, length) orelse return if (copied == 0) errno(90) else copied;
+            const amount = @min(length_usize, packet_len - copied);
+            var offset: usize = 0;
+            while (offset < amount) : (offset += 1) {
+                const position = (sockets[index].local_head + copied + offset) % sockets[index].local_buffer.len;
+                @as([*]u8, @ptrFromInt(base))[offset] = sockets[index].local_buffer[position];
+            }
+            copied += amount;
+        }
+        sockets[index].local_head = (sockets[index].local_head + packet_len) % sockets[index].local_buffer.len;
+        sockets[index].local_len -= packet_len;
+        sockets[index].packet_head = (sockets[index].packet_head + 1) % sockets[index].packet_lengths.len;
+        sockets[index].packet_count -= 1;
+        if (sockets[index].peer_index) |peer| {
+            wakeSocketPollers(peer);
+            wakeSocketWriters(peer);
+        }
+        deliverAncillary(index, @constCast(header), flags);
+        return copied;
+    }
     var total: u64 = 0;
     var item: u64 = 0;
     while (item < count) : (item += 1) {

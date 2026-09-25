@@ -1496,3 +1496,14 @@ O log confirmou a submissão do documento, mas o PNG ainda contém somente
 é uma evidência visual do limite atual: o HTML chega ao WebKit, porém ainda
 não atravessa o renderer host até o framebuffer. A captura no marco correto
 continua disponível no runner usando `-CaptureScreenOnSerial 'WebKit first frame'`.
+
+### Recepção de pacotes com múltiplos iovecs (2026-09-25)
+
+O caminho `recvmsg()` do kernel agora trata um `SOCK_SEQPACKET` como uma
+mensagem única mesmo quando o destino fornece vários iovecs. Antes, cada
+iovec chamava o consumidor de pacote separadamente; o primeiro iovec podia
+consumir a mensagem inteira e descartar o restante, inclusive o envelope com
+`SCM_RIGHTS` usado pelo WebProcess. A correção copia o payload através dos
+iovecs e só então remove o pacote da fila. `zig build test -j1` passou e um
+smoke posterior voltou a alcançar `WebKit HTML submitted`; o gate
+`WebKit first frame` continua aberto.
