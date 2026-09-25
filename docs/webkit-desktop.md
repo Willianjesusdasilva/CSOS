@@ -1487,3 +1487,12 @@ UI process cria o client do renderer host, mas o filho ainda não conclui o
 bootstrap necessário para conectar a superfície Wayland/WPE. Todos os
 marcadores temporários foram removidos e os artefatos WebKit/backend foram
 reconstruídos limpos; nenhum gate foi marcado como concluído.
+
+### Captura no primeiro HTML submetido (2026-09-25)
+
+O runner foi executado com `-CaptureScreenOnSerial 'WebKit HTML submitted'`.
+O log confirmou a submissão do documento, mas o PNG ainda contém somente
+`CSOS booting`; não houve callback SHM/DMA-BUF nem `WebKit first frame`. Isso
+é uma evidência visual do limite atual: o HTML chega ao WebKit, porém ainda
+não atravessa o renderer host até o framebuffer. A captura no marco correto
+continua disponível no runner usando `-CaptureScreenOnSerial 'WebKit first frame'`.
