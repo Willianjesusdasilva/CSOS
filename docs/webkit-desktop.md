@@ -1507,3 +1507,14 @@ consumir a mensagem inteira e descartar o restante, inclusive o envelope com
 iovecs e só então remove o pacote da fila. `zig build test -j1` passou e um
 smoke posterior voltou a alcançar `WebKit HTML submitted`; o gate
 `WebKit first frame` continua aberto.
+
+### Teste do transporte SharedMemory no WebKit legado (2026-09-25)
+
+Como o build atual usa `ENABLE_WPE_PLATFORM=OFF`, foi testada uma variante
+incremental que adicionava `RendererBufferTransportMode::SharedMemory` ao
+WebProcessPool, evitando o renderer-host FD. Essa variante falhou antes de
+`WebKit view ready` com `page fault at 1 rip 1 code 21`; o artefato WebKit foi
+restaurado e relincado no caminho legado. O resultado não é mantido como
+workaround: o smoke estável continua sendo o que chega a
+`WebKit HTML submitted`, enquanto o registro da surface permanece o próximo
+alvo.
