@@ -4,6 +4,25 @@ Requisito confirmado em 2026-09-08: HTML + CSS + JavaScript executados por
 WebKit no userspace do CSOS. O resultado deve seguir `desktop.png`, preservado
 como referência, e aceitar mouse/teclado reais no QEMU.
 
+### Subprocessos WebKit reais (2026-09-25)
+
+O smoke precisa receber, além do launcher, os dois ELFs produzidos pelo build
+do WebKit:
+
+```powershell
+zig build run `
+  -Dwebkit-launcher=zig-out/webkit-launcher `
+  -Dwebkit-web-process=C:\w\zig-out\webkit-linux6\bin\WPEWebProcess `
+  -Dwebkit-network-process=C:\w\zig-out\webkit-linux6\bin\WPENetworkProcess
+```
+
+Sem essas opções, `build.zig` usa deliberadamente `dynamic_hello` como fallback
+dos subprocessos e o log pode chegar a `WebKit HTML submitted` sem jamais
+executar o WebProcess real; isso não é evidência de HTML renderizado. Com os
+ELFs reais, o processo passa por `WebKit view begin`, mas atualmente reproduz
+um page fault no bootstrap (`rip 687431837648`) antes de `WebKit view ready`.
+O primeiro frame e a captura de tela continuam pendentes.
+
 ## Arquitetura alvo
 
 - HTML: estrutura das janelas, dock, launcher, menus e widgets.

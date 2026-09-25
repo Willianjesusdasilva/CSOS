@@ -6,6 +6,8 @@ pub fn build(b: *std.Build) void {
     const webkit_launcher = b.option([]const u8, "webkit-launcher", "Opt-in Zig WPE WebKit launcher ELF");
     const webkit_web_process = b.option([]const u8, "webkit-web-process", "Opt-in WPEWebProcess ELF");
     const webkit_network_process = b.option([]const u8, "webkit-network-process", "Opt-in WPENetworkProcess ELF");
+    if (webkit_launcher != null and (webkit_web_process == null or webkit_network_process == null))
+        @panic("-Dwebkit-launcher requires real -Dwebkit-web-process and -Dwebkit-network-process ELFs; refusing dynamic_hello fallback");
     const glib_runtime_probe = b.option([]const u8, "glib-runtime-probe", "Opt-in upstream GLib userspace ELF");
     const git_runtime = b.option([]const u8, "git-runtime", "Opt-in upstream Git ELF for local system updates");
     const libdrm_probe = b.option([]const u8, "libdrm-probe", "Path to the static upstream libdrm probe ELF (opt-in Ring 3 validation)");
