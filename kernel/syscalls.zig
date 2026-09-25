@@ -5173,6 +5173,10 @@ fn socketSend(index: usize, data: []const u8) u64 {
         const available = sockets[peer].local_buffer.len - sockets[peer].local_len;
         if (available == 0) return errno(11);
         if (sockets[index].seqpacket) {
+            // A zero-length write is a successful no-op.  Do not enqueue an
+            // empty packet: the receive path uses an empty queue as its
+            // blocking condition, so such a packet could strand a reader.
+            if (data.len == 0) return 0;
             if (data.len > sockets[peer].local_buffer.len or sockets[peer].packet_count >= sockets[peer].packet_lengths.len or data.len > available)
                 return errno(11);
             var offset: usize = 0;
